@@ -2,10 +2,11 @@
 
 ## Overview
 
-ZenDB is a PHP/MySQL database abstraction layer designed to make your development process faster, easier, and more
-enjoyable.
-It focuses on ease of use, beautiful code, and optimizing for common use cases while allowing for customization and
-flexibility when needed.
+ZenDB is a PHP/MySQL database abstraction layer designed to make your
+development process faster, easier, and more enjoyable. It focuses on ease of
+use, beautiful code, and optimizing for common use cases while also allowing for
+advanced and complex queries when needed.
+
 
 ## Features
 
@@ -35,14 +36,24 @@ Methods can be called in a variety of ways to meet your specific needs.  They ca
 quick data lookups and complicated queries, all while keeping your code clean and understandable.
 
 ```php
-// Lookup row by id
-DB::select('users', 1);
+// Get a row by id
+$row = DB::get('users', 1);
 
 // Lookup rows with array of WHERE conditions
-DB::select('users', ['active' => 1, 'city' => 'Vancouver']);
+$results = DB::select('users', ['active' => 1, 'city' => 'Vancouver']);
 
 // Lookup rows with custom SQL
-DB::select('news', "WHERE publishDate <= NOW() ORDER BY publishDate DESC");
+$results = DB::select('news', "WHERE publishDate <= NOW() ORDER BY publishDate DESC");
+
+// Or use placeholders for better readability in complex queries.
+$results = DB::select('news', "lastLogin BETWEEN :start AND :end AND status = :status AND hidden = :hidden", [
+    ':start'  => '2023-10-01',
+    ':end'    => '2023-10-31',
+    ':status' => 'admin',
+    ':hidden' => 0,
+]);
+
+// Or evem write custom SQL when you need it - more on that later.
 ```
 
 </div>
@@ -51,7 +62,7 @@ DB::select('news', "WHERE publishDate <= NOW() ORDER BY publishDate DESC");
 
 <div style="margin-left: 30px;">
 
-We provide a unified, intuitive interface for standard database operations, while also giving
+We provide a unified, intuitive interface for all the standard database operations, while also giving
 you the flexibility to execute custom SQL queries for more complex use cases.
 
 ```php
@@ -655,6 +666,7 @@ $colsToValues = [
 | `DB::getFullTable($baseTable)`            | Returns the full table name with the prefix, based on a given base table name                                           |
 | `DB::getBaseTable($fullTable)`            | Returns the base table name after removing the prefix from a full table name                                            |
 | `DB::setTimezoneToPhpTimezone($timezone)` | Sets the timezone offset for the database connection to the given PHP timezone offset                                   |
+| `DB::like`                                | Returns a "contains keyword" pattern for SQL "column LIKE ?" searches                                                  |
 | `DB::$mysqli`                             | $mysqli object                                                                                                          |
 
 ## Catching Errors
