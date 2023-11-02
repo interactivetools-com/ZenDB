@@ -2,7 +2,8 @@
 
 ## Overview
 
-ZenDB is a PHP/MySQL database abstraction layer designed to make your development process faster, easier, and more enjoyable.
+ZenDB is a PHP/MySQL database abstraction layer designed to make your development process faster, easier, and more
+enjoyable.
 It focuses on ease of use, beautiful code, and optimizing for common use cases while allowing for customization and
 flexibility when needed.
 
@@ -11,8 +12,9 @@ flexibility when needed.
 ### Simple and Intuitive
 
 <div style="margin-left: 30px;">
+
 We mimic MySQL terminology while removing unnecessary complexity, making it easy to learn and use.
-If you're familiar with MySQL, you'll find this intuitive; otherwise, you'll effortlessly learn
+If you're familiar with MySQL, you'll find this fast and intuitive; otherwise, you'll effortlessly learn
 MySQL just by using it.
 
 ```php
@@ -28,6 +30,7 @@ DB::select('users', 1);
 ### Flexible Syntax
 
 <div style="margin-left: 30px;">
+
 Methods can be called in a variety of ways to meet your specific needs.  They can easily adapt to both
 quick data lookups and complicated queries, all while keeping your code clean and understandable.
 
@@ -47,6 +50,7 @@ DB::select('news', "WHERE publishDate <= NOW() ORDER BY publishDate DESC");
 ### Database Operations
 
 <div style="margin-left: 30px;">
+
 We provide a unified, intuitive interface for standard database operations, while also giving
 you the flexibility to execute custom SQL queries for more complex use cases.
 
@@ -75,6 +79,7 @@ $resultSet    = DB::query($sqlQuery);
 ### Injection Proof SQL
 
 <div style="margin-left: 30px;">
+
 MySQL injection vulnerabilities are a common source of security breaches.  You have to be careful to 
 escape every single input or risk exposing your database to malicious attacks.  Here's how they work.
 
@@ -132,6 +137,7 @@ DB::select('news', "lastLogin BETWEEN :start AND :end AND status = :status AND h
     ':hidden' => 0,
 ]);
 ```
+
 </div>
 
 ### Custom SQL Queries
@@ -177,11 +183,11 @@ $resultSet = DB::query("SELECT *, p.price AS unit_price, (od.quantity * p.price)
                           JOIN :_orders        AS o  ON u.num         = o.user_id
                           JOIN :_order_details AS od ON o.order_id    = od.order_id
                           JOIN :_products      AS p  ON od.product_id = p.product_id
-                         WHERE u.num = :num");
+                         WHERE u.num = ?", $userNum);
 
 //
 foreach ($resultSet as $row) { 
-  // Rows contains all the columns from all the tables, with additional keys for each table, e.g.:
+  // Rows contain regular columns, plus additional table-prefixed keys in this format `tablename.columnName`
   [ 
     'num' => 13,             // retains user.num value, not overwritten by orders.num
     'name' => 'John Smith',  // retains users.name value, not overwritten by products.name
@@ -195,7 +201,7 @@ foreach ($resultSet as $row) {
     'price' => '25.75',
     'unit_price' => '25.75',
     'total_price' => '25.75',
-    // These additional keys added when the result set is from multiple tables
+    // These additional keys are added when the result set contains columns from multiple tables
     'users.num' => 13,
     'users.name' => 'Kevin Lewis',
     'orders.order_id' => 8,
@@ -219,10 +225,10 @@ foreach ($resultSet as $row) {
 ### Automatic HTML-Encoding
 
 <div style="margin-left: 30px;">
-The most common use case for web apps is to HTML-encode output, so we do that automatically while allowing
-for other encoding methods and the original value to be accessed if needed.
 
-Additionally, we provide rows and values as objects instead of arrays, so you can access them using properties.
+The most common use case for web apps is to HTML-encode output, so we do that automatically while allowing
+for other encoding methods and the original value to be accessed if needed. Additionally,
+we provide rows and values as objects instead of arrays, so you can access them using properties.
 Which allows for easier interpolation and cleaner code.
 
 ```php
@@ -257,7 +263,9 @@ foreach ($resultSet->raw() as $row) { ... }   // Alternative way to do the same 
 </div>
 
 ### Inline Documentation
+
 <div style="margin-left: 30px;">
+
 Not sure you can remember all of that? Don't worry, you don't have to. When you use standard
 programmer debugging functions such as `print_r` we'll automatically show you some inline documentation
 for programmers including the effective SQL query that was executed and useful stats and info.
@@ -340,6 +348,7 @@ $resultSet = DB::query($sqlQuery, ...$mixedParams);
 ### Select and Get
 
 <div style="margin-left: 30px;">
+
 Use DB::get() to load a single row and DB::select() to load multiple rows.
 
 ```php
@@ -394,7 +403,6 @@ $orders = DB::select('orders',
 ### Insert, Update, Delete
 
 <div style="margin-left: 30px;">
-Use DB::get() to load a single row and DB::select() to load multiple rows.
 
 ```php
 // insert row
@@ -421,6 +429,7 @@ $deletedRows = DB::delete('users', "id = ?", 123);
 ### Query
 
 <div style="margin-left: 30px;">
+
 DB::query() lets you write a direct or more complex query.
 
 ```php
@@ -467,18 +476,21 @@ $orders = DB::query($query, "1000.00");
 ## Method Arguments
 
 <div style="margin-left: 30px;">
-All of the database methods share these common method arguments
+
+All of the database methods share these common method arguments.
 </div>
 
 ### $baseTable
 
 <div style="margin-left: 30px;">
+
 Table name without prefix. The table prefix will be added automatically.
 </div>
 
 ### $conditions
 
 <div style="margin-left: 30px;">
+
 The conditions specify which rows are returned.  Can be
 a primary key as an integer, an array of WHERE conditions, or an SQL query
 string with optional placeholders.  Examples:
@@ -486,8 +498,8 @@ string with optional placeholders.  Examples:
 ```php
   // lookup by primary key
   DB::get('users', 12);
-  DB::get('news', `(int) $_GET['num']`); // convert string to an integer
-  DB::get('news', '12');                 // strings will produce an error
+  DB::get('news', (int) $_GET['num']); // convert string to an integer
+  DB::get('news', '12');               // strings will produce an error
   
   // lookup by where array - with separate variable for readability
   $where = ['name' => 'John', 'city' => 'Vancouver']; // specify as var for cleaner code
@@ -518,8 +530,9 @@ string with optional placeholders.  Examples:
 ### ...$mixedParams
 
 <div style="margin-left: 30px;">
-Parameters to fill SQL placeholders.  Can be 1-3 position parameters or array of parameters.
-Extra or unused parameters will be ignored. 
+
+Parameters to fill SQL placeholders.  Can be 1-3 positional parameters or array of parameters.
+Extra or unused parameters are ignored. 
 
 ```php
 // Example of 1-3 positional parameters
@@ -551,6 +564,7 @@ DB::select('users', "LIMIT ?", "10"); // Won't work, quotes and escapes value as
 ### $colsToValues
 
 <div style="margin-left: 30px;">
+
 Array of column names to values to use in an insert or update query.
 
 ```php
@@ -581,15 +595,15 @@ $colsToValues = [
 
 ### Config & Connection
 
-| Method              | Description & Example Usage                                                            |
-|---------------------|----------------------------------------------------------------------------------------|
-| `DB::config(...)`   | **REQUIRED**; Set's the config options for the connection.  See code for more details. |
-| `DB::connect()`     | **REQUIRED**; Connect to the database, does nothing if already connected               |
-| `DB::isConnected()` | Returns a boolean to indicate if a database connection is active.                      |
-| `DB::disconnect()`  | Closes the active database connection. If no connection is active, does nothing.       |
-
+| Method              | Description & Example Usage                                                           |
+|---------------------|---------------------------------------------------------------------------------------|
+| `DB::config(...)`   | **REQUIRED**; Set's the config options for the connection.  See code for more details |
+| `DB::connect()`     | **REQUIRED**; Connect to the database, does nothing if already connected              |
+| `DB::isConnected()` | Returns a boolean to indicate if a database connection is active                      |
+| `DB::disconnect()`  | Closes the active database connection. If no connection is active, does nothing       |
 
 ### ResultSet Object
+
 | Method                     | Description & Example Usage                                             |
 |----------------------------|-------------------------------------------------------------------------|
 | `$resultSet`               | Object that emulates an array of Row objects.  Use foreach to loop over |
@@ -624,24 +638,24 @@ $colsToValues = [
 
 ### Inline Documentation
 
-| Method                | Description & Example Usage                                              |
-|-----------------------|--------------------------------------------------------------------------|
+| Method                | Description & Example Usage                                             |
+|-----------------------|-------------------------------------------------------------------------|
 | `print_r($resultSet)` | Show extra debugging info about the object and its contents             |
 | `print_r($row)`       | Row Obj - Show extra debugging info about the object and its contents   |
 | `print_r($value)`     | Value Obj - Show extra debugging info about the object and its contents |
 
 ### Utility Methods
-| Method                                    | Description & Example Usage                                                                                              |
-|-------------------------------------------|--------------------------------------------------------------------------------------------------------------------------|
-| `DB::pagingSql($pageNum, $perPage)`       | Returns a `LIMIT/OFFSET` SQL clause for pagination based on the page number and entries per page. Defaults are 1 and 10. |
-| `DB::datetime($unixtime)`                 | Returns a string formatted as a MySQL datetime. Takes an optional Unix timestamp, defaults to the current server time.   |
-| `DB::raw($value)`                         | Returns a `RawSql` object wrapping the input, which can be string, int, or float. Meant for SQL literals like `NOW()`.   |
-| `DB::isRaw($stringOrObj)`                 | Returns a boolean indicating whether the given value is a `RawSql` instance. Private method.                             |
-| `DB::getFullTable($baseTable)`            | Returns the full table name with the prefix, based on a given base table name.                                           |
-| `DB::getBaseTable($fullTable)`            | Returns the base table name after removing the prefix from a full table name.                                            |
-| `DB::setTimezoneToPhpTimezone($timezone)` | Sets the timezone offset for the database connection to the given PHP timezone offset.                                   |
-| `DB::$mysqli`                             | $mysqli object                                                                                                           |
 
+| Method                                    | Description & Example Usage                                                                                             |
+|-------------------------------------------|-------------------------------------------------------------------------------------------------------------------------|
+| `DB::pagingSql($pageNum, $perPage)`       | Returns a `LIMIT/OFFSET` SQL clause for pagination based on the page number and entries per page. Defaults are 1 and 10 |
+| `DB::datetime($unixtime)`                 | Returns a string formatted as a MySQL datetime. Takes an optional Unix timestamp, defaults to the current server time   |
+| `DB::raw($value)`                         | Returns a `RawSql` object wrapping the input, which can be string, int, or float. Meant for SQL literals like `NOW()`   |
+| `DB::isRaw($stringOrObj)`                 | Returns a boolean indicating whether the given value is a `RawSql` instance. Private method                             |
+| `DB::getFullTable($baseTable)`            | Returns the full table name with the prefix, based on a given base table name                                           |
+| `DB::getBaseTable($fullTable)`            | Returns the base table name after removing the prefix from a full table name                                            |
+| `DB::setTimezoneToPhpTimezone($timezone)` | Sets the timezone offset for the database connection to the given PHP timezone offset                                   |
+| `DB::$mysqli`                             | $mysqli object                                                                                                          |
 
 ## Catching Errors
 
@@ -655,6 +669,7 @@ try {
 }
 ```
 
-## Questions? 
+## Questions?
 
-Post a message in our "CMS Builder" forum here: [https://www.interactivetools.com/forum/](https://www.interactivetools.com/forum/)
+Post a message in our "CMS Builder" forum
+here: [https://www.interactivetools.com/forum/](https://www.interactivetools.com/forum/)
