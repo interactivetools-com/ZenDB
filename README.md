@@ -33,7 +33,7 @@ DB::select('users', 1);
 <div style="margin-left: 30px;">
 
 Methods can be called in a variety of ways to meet your specific needs.  They can easily adapt to both
-quick data lookups and complicated queries, all while keeping your code clean and understandable.
+quick data lookups and complex queries, all while keeping your code clean and understandable.
 
 ```php
 // Get a row by id
@@ -53,7 +53,7 @@ $results = DB::select('news', "lastLogin BETWEEN :start AND :end AND status = :s
     ':hidden' => 0,
 ]);
 
-// Or evem write custom SQL when you need it - more on that later.
+// You can even write custom SQL when you need to - more on that later.
 ```
 
 </div>
@@ -108,7 +108,7 @@ $mysqlQuery = "SELECT * FROM users WHERE username = 'John' AND password = '1234'
 ```
 
 We make it impossible to accidentally introduce injection vulnerabilities by disallowing direct
-string or number inputs. Even if you accidentally pass a user input directly to the database,
+string or number inputs. Even if you accidentally pass unfiltered user input directly to the database,
 the query will refuse to run and throw an error.
 
 ```php
@@ -266,7 +266,7 @@ $row->name->raw();      // O'Reilly & Sons          // Returns original type and
 // Forget the options?  Use print_r for inline documentation with all methods, properties and values
 print_r($row->name);  
 
-// You can also disable encoding on the resultSet or row to get an array or raw values
+// You can also disable encoding on the resultSet or row to get an array of raw values
 $resultSet = DB::select('users')->raw();      // 
 foreach ($resultSet->raw() as $row) { ... }   // Alternative way to do the same thing 
 ```
@@ -299,7 +299,7 @@ ResultSet Object(
         $resultSet->insertId     = 0    // For INSERT queries, primary key of last inserted row
         $resultSet->error        =      
         $resultSet->errno        = 0    
-        $resultSet->first               // Returns the first row as a Row object, or a blank Row object if no rows exist.
+        $resultSet->getFirst()          // Returns the first Row object, or NULL if no rows exist.
         $resultSet->raw()               // Returns array of raw rows - not HTML-encoded, not objects (terminator method)
                                         
         foreach ($resultSet as $row)    // Loop over HTML-encoded rows like this
@@ -335,7 +335,7 @@ The following database methods are available.  [Method Arguments](#method-argume
 // Select: Returns a resultSet object with matching rows 
 $resultSet = DB::select($baseTable, $conditions, ...$mixedParams);
 
-// Get: Returns a row object with first matching row (or empty row object) 
+// Get: Returns first matching Row object, or NULL if the result set is empty 
 $resultSet = DB::get($baseTable, $conditions, ...$mixedParams); 
 
 // Count: Returns count of matching rows
@@ -618,24 +618,23 @@ $colsToValues = [
 | Method                     | Description & Example Usage                                             |
 |----------------------------|-------------------------------------------------------------------------|
 | `$resultSet`               | Object that emulates an array of Row objects.  Use foreach to loop over |
-| `$resultSet->first`        | Return first row as Row object (or empty Row object)                    |
 | `$resultSet->success`      | If the query was successful, boolean true                               |
 | `$resultSet->count`        | The number of rows in the result set, same as count($resultSet)         |
 | `$resultSet->affectedRows` | For INSERT, UPDATE, DELETE queries, rows affected                       |
 | `$resultSet->insertId`     | For INSERT queries, primary key of last inserted row                    |
 | `$resultSet->error`        | Error message from this query                                           |
 | `$resultSet->errno`        | Errno from this query                                                   |
+| `$resultSet->getFirst()`   | Returns the first `Row` object, or `NULL` if no rows exist.             |
 | `$resultSet->raw()`        | Returns array of raw rows (not HTML-encoded, not objects)               |
 
 ### Row Object
 
-| Method             | Description & Example Usage                                                        |
-|--------------------|------------------------------------------------------------------------------------|
-| `$row`             | Object that emulates an array of Value objects.  Use foreach to loop over          |
-| `$row->values`     | Returns an indexed array of Value objects, like array_values()                     |
-| `$row->values()`   | Alias for the above (for when you have a column named 'values')                    |
-| `$row->raw()`      | Returns array of column names and values (not HTML-encoded, not objects)           |
-| `$row->columnName` | Returns **named** column as Value object.  Access as string for HTML-encoded value |
+| Method               | Description & Example Usage                                                                           |
+|----------------------|-------------------------------------------------------------------------------------------------------|
+| `$row`               | Object that emulates an array of Value objects.  Use foreach to loop over                             |
+| `$row->columnName`   | Returns **named** column as Value object (e.g.; $row->city).  Access as string for HTML-encoded value |
+| `$row->getValues()`  | Returns an indexed array of Value objects, like array_values()                                        |
+| `$row->raw()`        | Returns array of column names and values (not HTML-encoded, not objects)                              |
 
 ### Value Object
 
