@@ -28,10 +28,20 @@ $mysqli->query("SELECT * FROM users WHERE user = 'John' AND pass = '1234' OR '1'
 // Attackers can use these exploits to gain complete control of your server, steal data, and more.
 ```
 
-We make it impossible to accidentally introduce injection vulnerabilities by
-disallowing direct string or number inputs. Even if you accidentally pass
-unfiltered user input directly to the database, the query will refuse to
-run and throw an error.
+Most database libraries have tools to prevent SQL injection; but they're not
+mandatory, meaning a single mistaken direct data input can put your entire
+site at risk.
+
+Other libraries require you to incrementally build your queries bit by bit,
+wrapping each piece in a complicated series of arrays and method calls so they can
+scrub each bit of data.  This turns even simple queries into long, complex
+strings of code and requires you to learn a whole new language on top of MySQL.
+
+ZenDB takes a more straightforward approach, we completely eliminate the risk
+of MySQL injections all together by simply preventing direct string or number
+inputs.  This means you couldn't introduce an injection vulnerability even if
+you wanted to, and the replacement code is actually cleaner and easier to read.
+Here's an example: 
 
 ```php
 // Attempting to write the same INSECURE MySQL Query with ZenDB (returns error and won't run)
