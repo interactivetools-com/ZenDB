@@ -280,7 +280,6 @@ ResultSet Object(
         
         Simulated SQL: SELECT * FROM `locations` WHERE city = "O\'Brien"
 
-
         Below are the accessible properties and methods. Parentheses are optional for code clarity:
         
         $resultSet->count        = 18   // Total number of rows, equivalent to count($resultSet)
