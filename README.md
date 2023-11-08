@@ -5,12 +5,92 @@
 ZenDB is a PHP/MySQL database abstraction layer designed to make your
 development process faster, easier, and more enjoyable. It focuses on ease of
 use, beautiful code, and optimizing for common use cases while also allowing for
-advanced and complex queries when needed.
-
+advanced and complex queries when needed. 
 
 ## Features
 
-### Simple and Intuitive
+### Injection Proof SQL
+
+<div style="margin-left: 30px;">
+
+ZenDB completely eliminates the risk of MySQL injection vulnerabilities.  Here's how a typical injection attack works.
+
+```php
+// Example of an INSECURE mysql query that passes user input directly to the database
+$mysqli->query("SELECT * FROM users WHERE user = '{$_POST['user']}' AND pass = '{$_POST['pass']}'");
+
+// Expected input of username 'John' and password '1234' produces this query:
+$mysqli->query("SELECT * FROM users WHERE user = 'John' AND pass = '1234'");
+
+// But if a malicious user enters this as their password: 1234' OR '1
+$mysqli->query("SELECT * FROM users WHERE user = 'John' AND pass = '1234' OR '1'");
+// The resulting query will allow logging in without a password, because '1' is always true
+// Attackers can use these exploits to gain complete control of your server, steal data, and more.
+```
+
+We make it impossible to accidentally introduce injection vulnerabilities by
+disallowing direct string or number inputs. Even if you accidentally pass
+unfiltered user input directly to the database, the query will refuse to
+run and throw an error.
+
+```php
+// Attempting to write the same INSECURE MySQL Query with ZenDB (returns error and won't run)
+DB::query("SELECT * FROM users WHERE user = '{$_POST['user']}' AND pass = '{$_POST['pass']}'");
+
+// Returns error: Disallowed single quote (') in sql clause. Use whereArray or placeholders instead.
+// By disallowing quotes and standalone numbers, directly passing inputs or injections is not even possible.
+
+// Examples of SECURE ZenDB queries that use placeholders
+DB::query("SELECT * FROM users WHERE user = ? AND pass = ?", $_POST['user'], $_POST['pass']);
+
+// Code is actually cleaner and easier to read and also secure.  
+// And there are even simpler ways to write secure queries with ZenDB, read on.
+```
+
+</div>
+
+### Automatic HTML-Encoding
+
+<div style="margin-left: 30px;">
+
+The most common use case for web apps is to HTML-encode output, so we do that automatically while allowing
+for other encoding methods and the original value to be accessed if needed. Additionally,
+we provide rows and values as objects instead of arrays, so you can access them using properties.
+Which allows for easier interpolation and cleaner code.
+
+```php
+// Insecure old way, outputting user values without encoding.  This is vulnerable to XSS attacks.
+print "Hello, {$row['name']}!"; // requires curly braces { } to insert the variable into the string
+
+// Secure old way, outputting user values with HTML-encoding.  This is safe, but cumbersome.
+print "Hello, " . htmlspecialchars($row['name']) . "!"; 
+
+// ZenDB values are automatically encoded and accessed via properties.  This is safe and easy to read.
+print "Hello $row->name!"; // No extra characters required to insert variable into string
+
+// What happens if you forget and try to access it as an array index? 
+print "Hello, {$row['name']}!";
+// Returns helpful error: Invalid access: Use $row->name instead of $row['name']
+
+// Don't want HTML-encoding?  You can access the original value or different encodings instead
+$row->name;               // O&apos;Reilly &amp; Sons // Default usage, HTML-encoded output
+$row->name->htmlEncode(); // O&apos;Reilly &amp; Sons // As above, available for self-documenting code
+$row->name->urlEncode();  // O%27Reilly+%26+Sons      // URL-encoded      
+$row->name->jsEncode();   // O\'Reilly & Sons         // JS-encoded         
+$row->name->raw();        // O'Reilly & Sons          // Returns original type and value
+
+// Forget the options?  Use print_r for inline documentation with all methods, properties and values
+print_r($row->name);  
+
+// You can also disable encoding on the resultSet or row to get an array of raw values
+$resultSet = DB::select('users')->raw();      // 
+foreach ($resultSet->raw() as $row) { ... }   // Alternative way to do the same thing 
+```
+
+</div>
+
+
+### Flexible Syntax
 
 <div style="margin-left: 30px;">
 
@@ -28,15 +108,14 @@ DB::select('users', 1);
 
 </div>
 
-### Flexible Syntax
-
 <div style="margin-left: 30px;">
 
-Methods can be called in a variety of ways to meet your specific needs.  They can easily adapt to both
-quick data lookups and complex queries, all while keeping your code clean and understandable.
+The interface enables multiple calling methods for simple or complex queries,
+ensuring your code is clean and readable.  For more complex querys you can
+even write direct MySQL and uses :_ to insert table prefixes.  
 
 ```php
-// Get a row by id
+// Lookup row by id
 $row = DB::get('users', 1);
 
 // Lookup rows with array of WHERE conditions
@@ -45,18 +124,17 @@ $results = DB::select('users', ['active' => 1, 'city' => 'Vancouver']);
 // Lookup rows with custom SQL
 $results = DB::select('news', "WHERE publishDate <= NOW() ORDER BY publishDate DESC");
 
-// Or use placeholders for better readability in complex queries.
-$results = DB::select('news', "lastLogin BETWEEN :start AND :end AND status = :status AND hidden = :hidden", [
-    ':start'  => '2023-10-01',
-    ':end'    => '2023-10-31',
-    ':status' => 'admin',
-    ':hidden' => 0,
-]);
+// Write a custom SQL query, using :_ placeholder to insert table prefix
+$resultSet = DB::query("SELECT *, p.price AS unit_price, (od.quantity * p.price) AS total_price
+                          FROM :_users         AS u
+                          JOIN :_orders        AS o  ON u.num         = o.user_id
+                          JOIN :_order_details AS od ON o.order_id    = od.order_id
+                          JOIN :_products      AS p  ON od.product_id = p.product_id");
 
-// You can even write custom SQL when you need to - more on that later.
 ```
 
 </div>
+
 
 ### Database Operations
 
@@ -87,45 +165,6 @@ $resultSet    = DB::query($sqlQuery);
 
 </div>
 
-### Injection Proof SQL
-
-<div style="margin-left: 30px;">
-
-MySQL injection vulnerabilities are a common source of security breaches.  You have to be careful to 
-escape every single input or risk exposing your database to malicious attacks.  Here's how they work.
-
-```php
-// Example of an INSECURE mysql query that passes user input directly to the database
-$mysqlQuery = "SELECT * FROM users WHERE username = '{$_POST['username']}' AND password = '{$_POST['password']}'";
-
-// Expected input of username 'John' and password '1234' produces this query:
-$mysqlQuery = "SELECT * FROM users WHERE username = 'John' AND password = '1234'";
-
-// But if a malicious user enters this as their password: 1234' OR 1=1; --
-$mysqlQuery = "SELECT * FROM users WHERE username = 'John' AND password = '1234' OR 1=1; --'";
-// The resulting query will allow logging in without a password, because 1=1 is always true, and the --' comment
-// Attackers can use these exploits to gain complete control of your server, steal data, and more.
-```
-
-We make it impossible to accidentally introduce injection vulnerabilities by disallowing direct
-string or number inputs. Even if you accidentally pass unfiltered user input directly to the database,
-the query will refuse to run and throw an error.
-
-```php
-// Example of an INSECURE ZenDB query that passes user input directly to the database
-$resultSet = DB::select('users', "username = '{$_POST['username']}' AND password = '{$_POST['password']}'");
-// Returns: InvalidArgumentException: Disallowed single quote (') in sql clause. Use whereArray or placeholders instead.
-// By disallowing quotes and standalone numbers, directly passing inputs or injections is not even possible. 
-
-// Examples of SECURE ZenDB queries that use placeholders to automatically escape user input
-$resultSet = DB::select('users', ['username' => $_POST['username'], 'password' => $_POST['password']]);
-
-// Or using placeholders
-$resultSet = DB::select('users', "username = ? AND password = ?", $_POST['username'], $_POST['password']);
-```
-
-</div>
-
 ### Named and Positional Placeholders
 
 <div style="margin-left: 30px;">
@@ -151,30 +190,7 @@ DB::select('news', "lastLogin BETWEEN :start AND :end AND status = :status AND h
 
 </div>
 
-### Custom SQL Queries
 
-<div style="margin-left: 30px;">
-
-For advanced use cases or performance tuning, custom SQL queries are fully supported.
-Additionally, the special `:_` placeholder can be used to dynamically insert the table prefix, such as `cms_`.
-
-```php
-// Method arguments can be specified inline or provided as separate variables for readability 
-$query  = "SELECT * FROM :_users WHERE lastLogin BETWEEN ? AND ? AND status = ? AND hidden = ?";
-$params = ['2023-10-01', '2023-10-31', 'admin', 0];
-$resultSet = DB::query($query, $params);
-
-// The same query using named parameters
-$query = "SELECT * FROM :_users WHERE lastLogin BETWEEN :start AND :end AND status = :status AND hidden = :hidden";
-$resultSet = DB::query($query, [
-    ':start'  => '2023-10-01',
-    ':end'    => '2023-10-31',
-    ':status' => 'admin',
-    ':hidden' => 0,
-]);
-```
-
-</div>
 
 ### Smart Joins
 
@@ -233,45 +249,6 @@ foreach ($resultSet as $row) {
 
 </div>
 
-### Automatic HTML-Encoding
-
-<div style="margin-left: 30px;">
-
-The most common use case for web apps is to HTML-encode output, so we do that automatically while allowing
-for other encoding methods and the original value to be accessed if needed. Additionally,
-we provide rows and values as objects instead of arrays, so you can access them using properties.
-Which allows for easier interpolation and cleaner code.
-
-```php
-// Insecure old way, outputting user values without encoding.  This is vulnerable to XSS attacks.
-print "Hello, {$row['name']}!"; // requires curly braces { } to insert the variable into the string
-
-// Secure old way, outputting user values with HTML-encoding.  This is safe, but cumbersome.
-print "Hello, " . htmlspecialchars($row['name']) . "!"; 
-
-// ZenDB values are automatically encoded and accessed via properties.  This is safe and easy to read.
-print "Hello $row->name!"; // No extra characters required to insert variable into string
-
-// What happens if you forget and try to access it as an array index? 
-print "Hello, {$row['name']}!";
-// Returns helpful error: Invalid access: Use $row->name instead of $row['name']
-
-// Don't want HTML-encoding?  You can access the original value or different encodings instead
-$row->name;             // O&apos;Reilly &amp; Sons // Default usage, HTML-encoded output
-$row->name->htmlEncode; // O&apos;Reilly &amp; Sons // As above, available for self-documenting code
-$row->name->urlEncode;  // O%27Reilly+%26+Sons      // URL-encoded      
-$row->name->jsEncode;   // O\'Reilly & Sons         // JS-encoded         
-$row->name->raw();      // O'Reilly & Sons          // Returns original type and value
-
-// Forget the options?  Use print_r for inline documentation with all methods, properties and values
-print_r($row->name);  
-
-// You can also disable encoding on the resultSet or row to get an array of raw values
-$resultSet = DB::select('users')->raw();      // 
-foreach ($resultSet->raw() as $row) { ... }   // Alternative way to do the same thing 
-```
-
-</div>
 
 ### Inline Documentation
 
@@ -288,23 +265,26 @@ $resultSet = DB::select('locations', "city = ?", "O'Brien");
 // Example output from print_r($resultSet)
 ResultSet Object(
  [__DEVELOPERS__] => 
-        This 'ResultSet' object emulates an array, with each row being a 'Row' object of 'Value' objects that are dynamically
-        loaded on demand as accessed.  The SQL below is simulated; the actual query used parameter binding.
+        This 'ResultSet' object acts like an array, with each 'Row' object being a collection of 'Value' objects.
+        The SQL values below are simulated; actual queries use parameter binding for security.
         
         Simulated SQL: SELECT * FROM `locations` WHERE city = "O\'Brien"
 
-        $resultSet->count        = 18   // The number of rows in the result set, same as count($resultSet)
-        $resultSet->success      = true // boolean true|false as returned by mysqli_result
-        $resultSet->affectedRows = 18   // For INSERT, UPDATE, DELETE queries, rows affected
-        $resultSet->insertId     = 0    // For INSERT queries, primary key of last inserted row
-        $resultSet->error        =      
-        $resultSet->errno        = 0    
-        $resultSet->getFirst()          // Returns the first Row object, or NULL if no rows exist.
-        $resultSet->raw()               // Returns array of raw rows - not HTML-encoded, not objects (terminator method)
-                                        
-        foreach ($resultSet as $row)    // Loop over HTML-encoded rows like this
-            $row->column                // Default usage, HTML-encoded output.  print_r($row->column) for more info.
-            $row->column->raw()         // Returns original variable type and value (terminator method)
+
+        Below are the accessible properties and methods. Parentheses are optional for code clarity:
+        
+        $resultSet->count        = 18   // Total number of rows, equivalent to count($resultSet)
+        $resultSet->success      = true // Boolean value true|false as returned by mysqli_result
+        $resultSet->affectedRows = 18   // Number of rows affected for INSERT, UPDATE, DELETE
+        $resultSet->insertId     = 0    // Primary key of last inserted row for INSERT queries
+        $resultSet->error        =      // Error message, if any, from the last SQL operation
+        $resultSet->errno        = 0    // Error number from the last SQL operation
+        $resultSet->getFirst()          // Returns the first 'Row' object or an empty 'Row' if no rows
+        $resultSet->raw()               // Key/value pair array of the original unencoded row data
+                        
+        foreach ($resultSet as $row)    // Iterate over rows; each row is HTML-encoded by default
+            $row->column                // Default usage gives HTML-encoded output. Use print_r($row->column) for details
+            $row->column->raw()         // Returns the original data type and unencoded value
         }                               
 
         HTML-encoded values for all rows in this resultSet are listed below.
@@ -335,7 +315,7 @@ The following database methods are available.  [Method Arguments](#method-argume
 // Select: Returns a resultSet object with matching rows 
 $resultSet = DB::select($baseTable, $conditions, ...$mixedParams);
 
-// Get: Returns first matching Row object, or NULL if the result set is empty 
+// Get: Returns first matching Row object, or empty Row if the result set is empty 
 $resultSet = DB::get($baseTable, $conditions, ...$mixedParams); 
 
 // Count: Returns count of matching rows
@@ -375,10 +355,10 @@ foreach ($users as $user) {
   print "$user->name\n"; // outputs html-encoded name
 
   // other options: 
-  print $user->name->raw();       // outputs original value (not html-encoded)
-  print $user->name->htmlEncode;  // outputs htmlEncoded name (if different encoding)
-  print $user->name->urlEncode;   // outputs urlEncoded name (if different encoding)
-  print $user->name->jsEncode;    // outputs jsEncoded name (if different encoding)
+  print $user->name->raw();         // outputs original value (not html-encoded)
+  print $user->name->htmlEncode();  // outputs htmlEncoded name (if different encoding)
+  print $user->name->urlEncode();   // outputs urlEncoded name (if different encoding)
+  print $user->name->jsEncode();    // outputs jsEncoded name (if different encoding)
 }
 
 // load matching users with sql and positional placeholders (allows for more complex queries)
@@ -624,27 +604,27 @@ $colsToValues = [
 | `$resultSet->insertId`     | For INSERT queries, primary key of last inserted row                    |
 | `$resultSet->error`        | Error message from this query                                           |
 | `$resultSet->errno`        | Errno from this query                                                   |
-| `$resultSet->getFirst()`   | Returns the first `Row` object, or `NULL` if no rows exist.             |
+| `$resultSet->getFirst()`   | Returns first `Row` object or an empty `Row` object if no rows          |
 | `$resultSet->raw()`        | Returns array of raw rows (not HTML-encoded, not objects)               |
 
 ### Row Object
 
-| Method               | Description & Example Usage                                                                           |
-|----------------------|-------------------------------------------------------------------------------------------------------|
-| `$row`               | Object that emulates an array of Value objects.  Use foreach to loop over                             |
-| `$row->columnName`   | Returns **named** column as Value object (e.g.; $row->city).  Access as string for HTML-encoded value |
-| `$row->getValues()`  | Returns an indexed array of Value objects, like array_values()                                        |
-| `$row->raw()`        | Returns array of column names and values (not HTML-encoded, not objects)                              |
+| Method                           | Description & Example Usage                                                                           |
+|----------------------------------|-------------------------------------------------------------------------------------------------------|
+| `$row`                           | Object that emulates an array of Value objects.  Use foreach to loop over                             |
+| `$row->columnName`               | Returns **named** column as Value object (e.g.; $row->city).  Access as string for HTML-encoded value |
+| <nobr>`$row->getValues()`</nobr> | Returns an indexed array of Value objects, like array_values()                                        |
+| `$row->raw()`                    | Returns array of column names and values (not HTML-encoded, not objects)                              |
 
 ### Value Object
 
-| Method                | Description & Example Usage                              |
-|-----------------------|----------------------------------------------------------|
-| `$column`             | Returns HTML-encoded value (when accessed as string)     |
-| `$column->htmlEncode` | Returns HTML-encoded value (when accessed as string)     |
-| `$column->urlEncode`  | Returns URL-encoded value (when accessed as string)      |
-| `$column->jsEncode`   | Returns JS-encoded value (when accessed as string)       |
-| `$column->raw()`      | Returns original value and variable type (e.g. int, etc) |
+| Method                  | Description & Example Usage                              |
+|-------------------------|----------------------------------------------------------|
+| `$column`               | Returns HTML-encoded value (when accessed as string)     |
+| `$column->htmlEncode()` | Returns HTML-encoded value (when accessed as string)     |
+| `$column->urlEncode()`  | Returns URL-encoded value (when accessed as string)      |
+| `$column->jsEncode()`   | Returns JS-encoded value (when accessed as string)       |
+| `$column->raw()`        | Returns original value and variable type (e.g. int, etc) |
 
 ### Inline Documentation
 
@@ -665,7 +645,7 @@ $colsToValues = [
 | `DB::getFullTable($baseTable)`            | Returns the full table name with the prefix, based on a given base table name                                           |
 | `DB::getBaseTable($fullTable)`            | Returns the base table name after removing the prefix from a full table name                                            |
 | `DB::setTimezoneToPhpTimezone($timezone)` | Sets the timezone offset for the database connection to the given PHP timezone offset                                   |
-| `DB::like`                                | Returns a "contains keyword" pattern for SQL "column LIKE ?" searches                                                  |
+| `DB::like($keyword)`                      | Returns a "contains keyword" pattern for SQL "column LIKE ?" searches                                                  |
 | `DB::$mysqli`                             | $mysqli object                                                                                                          |
 
 ## Catching Errors
