@@ -159,9 +159,9 @@ $resultSet    = DB::select($table);            // return multiple rows
 $record       = DB::get($table, $conditions);  // return first result
 
 // Insert, update or delete rows
-$newId        = DB::insert($table, $conditions);
+$newId        = DB::insert($table, $colsToValues);
 $affectedRows = DB::update($table, $colsToValues, $conditions);
-$affectedRows = DB::delete($table, $colsToValues);
+$affectedRows = DB::delete($table, $conditions);
 
 // Count rows
 $count        = DB::count($table, $conditions);
