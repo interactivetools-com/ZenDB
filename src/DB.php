@@ -638,6 +638,7 @@ class DB {
      * @param string $table Table name with or without prefix
      * @param bool $strict If true, verifies table exists in database, only needed if table name may contain double prefix
      * @return string Base table name without prefix
+     * @throws DBException
      */
     public static function getBaseTable(string $table, bool $strict = false): string
     {
@@ -652,6 +653,7 @@ class DB {
      * Returns the full table name with the current table prefix.  Optionally verifies table exists.
      *
      * @param bool $strict If true, verifies table exists in database, only needed if table name may contain double prefix
+     * @throws DBException
      */
     public static function getFullTable(string $table, bool $strict = false): string
     {
@@ -682,6 +684,7 @@ class DB {
      * Retrieve MySQL table names without the current table prefix.
      *
      * @return string[] Array of table names.
+     * @throws DBException
      */
     public static function getTableNames(bool $includePrefix = false): array
     {
