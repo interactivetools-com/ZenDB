@@ -1,7 +1,11 @@
 .idea/
 .phpunit.result.cache
+_*.php
+CLAUDE*.md
 composer*.phar
 composer.bat
 composer.lock
+phpunit.xml
+src/_*
 test.php
 vendor/

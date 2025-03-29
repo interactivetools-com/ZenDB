@@ -1,0 +1,44 @@
+{
+  "name": "itools/zendb",
+  "description": "PHP/MySQL Database Library with Injection-Proof SQL and Automatic HTML-Encoding",
+  "keywords": ["database", "mysql", "mysqli", "sql", "injection", "secure", "html-encoding", "xss", "security", "orm", "db"],
+  "type": "library",
+  "homepage": "https://github.com/interactivetools-com/ZenDB",
+  "license": "MIT",
+  "config": {
+    "platform": {"php": "8.0.0"}
+  },
+  "support": {
+    "issues": "https://github.com/interactivetools-com/ZenDB/issues",
+    "source": "https://github.com/interactivetools-com/ZenDB"
+  },
+  "authors": [
+    {
+      "name": "interactivetools.com",
+      "homepage": "https://interactivetools.com/"
+    }
+  ],
+  "autoload": {
+    "psr-4": {
+      "tests\\": "tests/",
+      "Itools\\ZenDB\\": "src/"
+    }
+  },
+  "autoload-dev": {
+    "psr-4": {
+      "tests\\": "tests/"
+    }
+  },
+  "require": {
+    "php": "^8.0",
+    "ext-mysqli": "*",
+    "itools/smartarray": "^2.0.0",
+    "itools/smartstring": "^2.0.0"
+  },
+  "require-dev": {
+    "phpunit/phpunit": "^9.6"
+  },
+  "suggest": {
+    "ext-mbstring": "For proper UTF-8 handling"
+  }
+}
