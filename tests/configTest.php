@@ -72,37 +72,9 @@ class configTest extends BaseTest
         DB::config(self::$configDefaults);
     }
 
-    public function testConfigThrowsExceptionForInvalidKey(): void {
-        $this->expectException(InvalidArgumentException::class);
-        DB::config("invalidKey", "someValue");
-    }
-
-    public function testConfigPreConnectOnlyVars(): void {
-        $this->expectException(InvalidArgumentException::class);
-
-        // test setting vars that can only be set before connecting
-        DB::connect();
-        DB::config("hostname", "example.com");
-    }
-
     public function testConfigSetValidatesKeyType(): void {
         $this->expectException(TypeError::class);
         DB::config(['tablePrefix'], "someValue");  // passing an array instead of string as key
-    }
-
-    public function testConfigSetValidatesValueType(): void {
-        $this->expectException(InvalidArgumentException::class);
-        DB::config('connectTimeout', "string_value");  // should be int
-    }
-
-    public function testConfigSetChecksForUnsafeCharacters(): void {
-        $this->expectException(DBException::class);
-        DB::config("hostname", "'bad"."host");  // using unsafe character like single quote, concatenating to avoid IDE warning
-    }
-
-    public function testConfigSetValidatesTimeZone(): void {
-        $this->expectException(InvalidArgumentException::class);
-        DB::config('usePhpTimezone', "invalid/timezone");  // using invalid timezone
     }
 
 }

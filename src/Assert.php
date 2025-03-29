@@ -128,55 +128,6 @@ class Assert
         }
     }
 
-    public static function validConfig(string $key, mixed $value): void {
-
-        // key name, preConnectOnly, value types,
-        static $keyRules = [
-            'hostname'               => [true, ['NULL', 'string']],
-            'username'               => [true, ['NULL', 'string']],
-            'password'               => [true, ['NULL', 'string']],
-            'database'               => [true, ['string']],
-            'tablePrefix'            => [false, ['string']], // allow changing post-connect after?
-            'primaryKey'             => [true, ['string']], // allow changing post-connect after?
-            'usePhpTimezone'         => [true, ['boolean']],
-            'set_sql_mode'           => [true, ['string']],
-            'set_innodb_strict_mode' => [true, ['NULL','boolean']],
-            'versionRequired'        => [true, ['string']],
-            'requireSSL'             => [true, ['boolean']],
-            'databaseAutoCreate'     => [true, ['boolean']],
-            'connectTimeout'         => [true, ['integer']],
-            'readTimeout'            => [true, ['integer']],
-            'enableLogging'          => [false, ['boolean']],
-            'logFile'                => [false, ['NULL', 'string']],
-            'useSmartJoins'          => [false, ['boolean']],
-        ];
-
-        // key: is valid name?
-        if (!array_key_exists($key, $keyRules)) {
-            $validKeys = implode(', ', array_keys($keyRules));
-            throw new InvalidArgumentException("Invalid key '$key'. Available keys: $validKeys");
-        }
-
-        // get rules
-        [$preConnectOnly, $valueTypes] = $keyRules[$key];
-
-        // key can be set before connecting
-        if ($preConnectOnly && DB::isConnected()) {
-            throw new InvalidArgumentException("Invalid key '$key': This key can only be set before connecting to the database");
-        }
-
-        // value: is expected type?
-        $valueType = gettype($value);
-        if (!in_array($valueType, $valueTypes)) {
-            $validTypes = implode(', ', $valueTypes);
-            throw new InvalidArgumentException("Invalid value type of '$valueType' for key '$key'.  Expected one of: $validTypes");
-        }
-
-        // value: check for unsafe characters
-        if (is_string($value)) {
-            self::sqlSafeString($value, "key '$key'", true);
-        }
-    }
 
     /**
      * Asserts that the input is of an allowed type for htmlEncode, urlEncode, jsEncode

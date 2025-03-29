@@ -73,7 +73,6 @@ class DB {
         // set multiple - self::config($configMap);
         if ($argCount === 1 && is_array($keyOrArray)) {
             foreach ($keyOrArray as $key => $value) {
-                Assert::validConfig($key, $value);
                 $config[$key] = $value;
             }
         }
@@ -81,7 +80,6 @@ class DB {
         // set single - self::config('username', 'John');
         if ($argCount === 2) {
             [$key, $value] = [$keyOrArray, $keyValue];
-            Assert::validConfig($key, $value);
             $config[$key] = $value;
         }
 
@@ -948,7 +946,7 @@ class DB {
 
         // get PHP timezone offset
         $phpDateTz    = new DateTimeZone(date_default_timezone_get());
-        $phpTzOffset  = (new DateTime('now', $phpDateTz))->format('P');
+        $phpTzOffset  = (new DateTime('now', $phpDateTz))->format('P');  // UTC offset, e.g., +00:00
         if ($phpTzOffset === $mysqlTzOffset) {
             return; // no need to set timezone if it's already set
         }
@@ -957,9 +955,6 @@ class DB {
         $query = "SET time_zone = '$phpTzOffset'";
         self::$mysqli->real_query($query) || throw new RuntimeException("Set command failed:\n$query");
     }
-
-
-
 
     /**
      * Add "Occurred in file:line" to the end of the error messages with the first non-SmartArray file and line number.
