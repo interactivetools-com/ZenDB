@@ -9,6 +9,7 @@ use Itools\SmartString\SmartString;
 use mysqli, mysqli_result, mysqli_stmt;
 use mysqli_driver;
 use Throwable, InvalidArgumentException, RuntimeException, Exception;
+use Itools\ZenDB\Config;
 
 /**
  * DB is a wrapper for mysqli that provides a simple, secure, and consistent interface for database access.
@@ -42,59 +43,46 @@ class DB {
     public static function config(string|array|null $keyOrArray = null, string|int|bool|null $keyValue = null): mixed {
         $argCount = func_num_args();
 
-        // Security: Restrict this var to this method, isolating it from both class and object scopes to prevent unauthorized access.
-        static $config = [
-            // required - connect to database
-            'hostname'               => null,          // automatically cleared after login for security - can also contain :port
-            'username'               => null,          // automatically cleared after login for security -
-            'password'               => null,          // automatically cleared after login for security -
-
-            'database'               => '',
-            'tablePrefix'            => '',            // prefix for all table names, e.g., 'cms_'
-            'primaryKey'             => '',            // primary key used for shortcut where = (int) num queries
-
-            //
-            'usePhpTimezone'         => true,          // true|false, set mysql timezone to match whatever PHPs timezone is set to (so you can use NOW() etc)
-            'set_sql_mode'           => 'STRICT_ALL_TABLES,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION',
-            'set_innodb_strict_mode' => true,          // Set to null to skip.  Mysql session var: Set to false to allow for restore and upgrade of large MyISAM or older InnoDB tables, https://mariadb.com/kb/en/innodb-strict-mode, https://mariadb.com/kb/en/troubleshooting-row-size-too-large-errors-with-innodb
-
-            // optional / advanced
-            'versionRequired'        => '5.7.32',    // minimum MySQL version required.  An exception will be thrown if the server version is lower than this.
-            'requireSSL'             => false,       // require SSL connections
-            'databaseAutoCreate'     => true,        // automatically creates database if it doesn't exist
-            'connectTimeout'         => 3,           // connection timeout in seconds, sets MYSQLI_OPT_CONNECT_TIMEOUT
-            'readTimeout'            => 60,          // read timeout in seconds, sets MYSQLI_OPT_READ_TIMEOUT
-
-            'useSmartJoins'          => true,        // enable smart joins, can be toggled at runtime
-            'enableLogging'          => false,       // enable live logging of queries to a file
-            'logFile'                => "_mysql_query_log.php", // file to log queries to
-        ];
-
         // set multiple - self::config($configMap);
         if ($argCount === 1 && is_array($keyOrArray)) {
             foreach ($keyOrArray as $key => $value) {
-                $config[$key] = $value;
+                if (property_exists(Config::class, $key)) {
+                    Config::${$key} = $value;
+                } else {
+                    throw new InvalidArgumentException("Invalid key: $key");
+                }
             }
         }
 
         // set single - self::config('username', 'John');
         if ($argCount === 2) {
-            [$key, $value] = [$keyOrArray, $keyValue];
-            $config[$key] = $value;
+            $key = $keyOrArray;
+            if (property_exists(Config::class, $key)) {
+                Config::${$key} = $keyValue;
+            } else {
+                throw new InvalidArgumentException("Invalid key: $key");
+            }
         }
 
         // Update class properties
-        self::$tablePrefix = $config['tablePrefix'];
+        self::$tablePrefix = Config::$tablePrefix;
 
         // get single - self::config('username');
         if ($argCount === 1 && is_string($keyOrArray)) {
-            if (array_key_exists($keyOrArray, $config)) {
-                return $config[$keyOrArray];
+            $key = $keyOrArray;
+            if (property_exists(Config::class, $key)) {
+                return Config::${$key};
             }
-            throw new InvalidArgumentException("Invalid key: $keyOrArray");
+            throw new InvalidArgumentException("Invalid key: $key");
         }
 
-        // get all
+        // get all - create array from Config static properties
+        $config = [];
+        $properties = get_class_vars(Config::class);
+        foreach ($properties as $key => $defaultValue) {
+            $config[$key] = Config::${$key};
+        }
+        
         return $config;
     }
 
