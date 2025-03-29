@@ -10,6 +10,7 @@ use mysqli, mysqli_result, mysqli_stmt;
 use mysqli_driver;
 use Throwable, InvalidArgumentException, RuntimeException, Exception;
 use Itools\ZenDB\Config;
+use Itools\ZenDB\Internal\QueryExecutor;
 
 /**
  * DB is a wrapper for mysqli that provides a simple, secure, and consistent interface for database access.
@@ -20,10 +21,8 @@ class DB {
     public static DB         $lastInstance;             // for testing
     public static ?Throwable $lastException = null;
 
-    private mysqli_stmt|bool|null                            $mysqliStmt;
-    private mysqli_result|MysqliStmtResultEmulator|bool|null $mysqliResult;
-    private Parser                                           $parser;
-    private SmartArray                                       $resultSet;
+    private Parser      $parser;
+    private SmartArray  $resultSet;
 
     #region Config
 
@@ -280,7 +279,7 @@ class DB {
         $db->parser->setSqlTemplate($sqlTemplate);
 
         try {
-            $db->resultSet = $db->fetchResultSet();
+            $db->resultSet = QueryExecutor::executeAndFetch($db->parser);
         }
         catch (Throwable $e) {
             // mysqli prepare/bind/execute can throw PHP \Error exceptions when a MySQL query is invalid, but without a message or code
@@ -322,7 +321,7 @@ class DB {
 
         // return ResultSet
         $db->parser->setSqlTemplate($sqlTemplate);
-        $db->resultSet = $db->fetchResultSet($baseTable);
+        $db->resultSet = QueryExecutor::executeAndFetch($db->parser, $baseTable);
         return $db->resultSet;
     }
 
@@ -361,7 +360,7 @@ class DB {
 
         // return ResultSet
         try {
-            $db->resultSet = $db->fetchResultSet($baseTable);
+            $db->resultSet = QueryExecutor::executeAndFetch($db->parser, $baseTable);
         } catch (Throwable $e) {
             throw new DBException("Error getting row.", 0, $e);
         }
@@ -397,7 +396,7 @@ class DB {
         // prepare and execute statement
         $db->parser->setSqlTemplate($sqlTemplate);
         try {
-            $db->resultSet = $db->fetchResultSet($baseTable);
+            $db->resultSet = QueryExecutor::executeAndFetch($db->parser, $baseTable);
         }
         catch (Throwable $e) {
             throw new DBException("Error inserting row.", 0, $e);
@@ -435,7 +434,7 @@ class DB {
         // prepare and execute statement
         $db->parser->setSqlTemplate($sqlTemplate);
         try {
-            $db->resultSet = $db->fetchResultSet($baseTable);
+            $db->resultSet = QueryExecutor::executeAndFetch($db->parser, $baseTable);
         } catch (Throwable $e) {
             throw new DBException("Error updating row.", 0, $e);
         }
@@ -468,7 +467,7 @@ class DB {
 
         // prepare and execute statement
         try {
-            $db->resultSet = $db->fetchResultSet($baseTable);
+            $db->resultSet = QueryExecutor::executeAndFetch($db->parser, $baseTable);
         } catch (Throwable $e) {
             throw new DBException("Error updating row.", 0, $e);
         }
@@ -501,7 +500,7 @@ class DB {
 
         // return count
         try {
-            $db->resultSet = $db->fetchResultSet($baseTable);
+            $db->resultSet = QueryExecutor::executeAndFetch($db->parser, $baseTable);
         } catch (Throwable $e) {
             throw new DBException("Error selecting count.", 0, $e);
         }
@@ -986,244 +985,6 @@ class DB {
     }
 
     #endregion
-    #region Internal Query Execution
-
-    /**
-     * @param string $baseTable
-     * @return SmartArray
-     * @throws DBException
-     */
-    public function fetchResultSet(string $baseTable = ''): SmartArray
-    {
-        $sqlTemplate = $this->parser->getSqlTemplate();
-        MysqliWrapper::setLastQuery($sqlTemplate);  // set $sqlTemplate as last query for debugging (in case of exceptions before we get to the prepare statement)
-
-        /**
-         * Special case handling for allowing trailing "LIMIT #" clauses (common use case)
-         * Detects and parameterizes queries ending in "LIMIT" followed by any number.
-         *
-         * This pattern is safe because:
-         *   1. The regex requires the query to end with "LIMIT #" (where # is a number)
-         *   2. To bypass our filters the injected code would also need to end in "LIMIT #" and multiple limits are invalid
-         *   3. We don't support multi_query() semicolon-separated queries like "SELECT...; DELETE..." and check ; isn't present
-         *   4. There is no possible valid MySql code that both starts with LIMIT and ends with another LIMIT #
-         *
-         * Example injection that fails (even if the user writes insecure code):
-         *   Template: "SELECT * FROM users LIMIT {$_GET['limit']}"
-         *   Attack: "(SELECT id FROM admins LIMIT 1)"         // fails, doesn't end in a number
-         *   Attack: "1; SELECT * FROM users LIMIT 1"          // fails, multiple queries not supported
-         *   Attack: "1 INTO OUTFILE '/var/www/html/temp.php'" // fails, doesn't end in a number
-         */
-        $limitRx = '/\bLIMIT\s+\d+\s*$/i';
-        if (!str_contains($sqlTemplate, ';') && preg_match($limitRx, $sqlTemplate, $matches)) {
-            $limitExpr   = $matches[0];
-            $sqlTemplate = preg_replace($limitRx, ':zdb_limit', $sqlTemplate);
-            $this->parser->addInternalParam(':zdb_limit', self::rawSql($limitExpr));
-        }
-
-        // sqlTemplate Error Checking
-        Assert::SqlSafeString($sqlTemplate);
-
-        // check for too many positional parameters
-        $positionalCount = substr_count($sqlTemplate, '?');
-        if ($positionalCount > 4) {
-            throw new InvalidArgumentException("Too many ? parameters, max 4 allowed.  Try using :named parameters instead");
-        }
-
-        // throw exceptions for all MySQL errors, so we can catch them
-        $oldReportMode = (new mysqli_driver())->report_mode;
-        mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
-
-        // Prepare, bind, and execute statement
-        $useEscapedQuery = !$this->parser->isDmlQuery();                // use escaped value query for non-DML (Data Manipulation Language) queries
-        $escapedQuery    = $this->parser->getEscapedQuery();
-        if ($useEscapedQuery) {                                         // non-DML queries don't support prepared statements, e.g., SHOW, DESCRIBE, etc.
-            $this->mysqliResult = self::$mysqli->query($escapedQuery);  // returns true|false|mysqli_result
-            $mysqliOrStmt       = self::$mysqli;
-        } else {
-            $this->mysqliPrepareBindExecute();                          // sets $this->mysqliResult and $this->mysqliStmt
-            $mysqliOrStmt = $this->mysqliStmt;
-
-            // DEBUG: Error checking - remove later
-            $properties = ['affected_rows', 'insert_id', 'error', 'errno'];
-            foreach ($properties as $property) {
-                $stmtValue = $this->mysqliStmt->{$property};
-                $mysqliValue = self::$mysqli->{$property};
-                if ($stmtValue !== $mysqliValue) {
-                    @trigger_error("Debug: Property $property mismatch between stmt ($stmtValue) and mysqli ($mysqliValue)");
-                }
-            }
-        }
-
-        // return ResultSet object
-        $rows = self::fetchRows($this->mysqliResult);
-
-        // restore previous error reporting mode
-        mysqli_report($oldReportMode);
-
-        // debug code - remove in future
-        if ($mysqliOrStmt->errno || $mysqliOrStmt->error) {
-            @trigger_error("Unexpected MySQL Error($mysqliOrStmt->errno): $mysqliOrStmt->error\nShould have been thrown as an exception");
-        }
-
-        return new SmartArray($rows, [
-            'useSmartStrings'  => true,
-            'loadHandler'      => '\Itools\Cmsb\SmartArrayLoadHandler::load',
-            'mysqli' => [
-                'query'         => $escapedQuery,
-                'baseTable'     => $baseTable,
-                'affected_rows' => $mysqliOrStmt->affected_rows,
-                'insert_id'     => $mysqliOrStmt->insert_id,
-//                'errno'         => $mysqliOrStmt->errno,
-//                'error'         => $mysqliOrStmt->error,
-            ],
-        ]);
-    }
-
-    /**
-     * @return void
-     * @throws DBException
-     */
-    private function mysqliPrepareBindExecute(): void
-    {
-        // prepare
-        $this->mysqliStmt = self::$mysqli->prepare($this->parser->getParamQuery());
-        if (self::$mysqli->errno || !$this->mysqliStmt) {
-            $errorMessage = "";
-            if (self::$mysqli->errno === 1146) {
-                $errorMessage = "Error: Invalid table name, use :: to insert table prefix if needed.";
-            }
-            throw new DBException($errorMessage, self::$mysqli->errno);
-        }
-
-        // bind
-        $bindValues = $this->parser->getBindValues();
-        if (!empty($bindValues)) {
-            // build bind_param() args
-            $bindParamTypes = ''; // bind_param requires a string of types, e.g., 'sss' for 3 string parameters
-            $bindParamRefs  = []; // bind_param requires referenced values, so we need to build an array of references
-            foreach ($bindValues as $key => $param) {
-                $bindParamTypes .= match (gettype($param)) {
-                    'integer' => 'i',
-                    'double'  => 'd',
-                    default   => 's',
-                };
-                /** @noinspection PhpArrayAccessCanBeReplacedWithForeachValueInspection */ // we need the key for the reference
-                $bindParamRefs[$key] = &$bindValues[$key];
-            }
-
-            // bind parameters
-            if (!$this->mysqliStmt->bind_param($bindParamTypes, ...$bindParamRefs)) {
-                throw new DBException("Error calling bind_param()");
-            }
-        }
-
-        // execute statement
-        $this->mysqliStmt->execute();
-
-        // mysqliStmt->get_result() method is only available when mysqlnd is installed
-        if (method_exists($this->mysqliStmt, 'get_result')) {
-            $this->mysqliResult = $this->mysqliStmt->get_result(
-            );    // returns mysqli_result object or false (for queries that don't return rows, e.g., INSERT, UPDATE, DELETE, etc.)
-        } else {
-            $this->mysqliResult = new MysqliStmtResultEmulator(
-                $this->mysqliStmt,
-            ); // returns mysqli_result object or false (for queries that don't return rows, e.g., INSERT, UPDATE, DELETE, etc.)
-        }
-    }
-
-    /**
-     *
-     * @throws DBException
-     */
-    public static function fetchRows(bool|mysqli_result|MysqliStmtResultEmulator $mysqliResult): array {
-
-        // load rows
-        $rows = [];
-        $hasRows = $mysqliResult instanceof mysqli_result || $mysqliResult instanceof MysqliStmtResultEmulator;
-        if ($hasRows) {  // returns true|false for queries that don't return a resultSet
-            $colNameToIndex = self::getColumnNameToIndex($mysqliResult);
-
-            // if not using smart joins, just return the next row
-            if (!self::config('useSmartJoins')) {
-                $rows = $mysqliResult->fetch_all(MYSQLI_ASSOC);
-            }
-            else { // use smart joins
-                while ($rowObj = self::loadNextRow($mysqliResult, $colNameToIndex)) {
-                    $rows[] = $rowObj;
-                }
-            }
-        }
-
-        // free mysqli_result if exists
-        if ($mysqliResult instanceof mysqli_result) {
-            $mysqliResult->free();
-        }
-        return $rows;
-    }
-
-    /**
-     * Usage: $columnIndexToName = $this->getColumnIndexToName();
-     */
-    private static function getColumnNameToIndex(mysqli_result|MysqliStmtResultEmulator $mysqliResult): array {
-
-        // Check for multiple tables (from JOIN queries) and create a map for column indices to their field names.
-        $colNameToIndex   = [];   // first defined: alias or column name
-        $colFQNameToIndex = [];   // Fully qualified name (baseTable.column)
-        $tableCounter     = [];
-
-        $fetchFields = $mysqliResult->fetch_fields();
-        foreach ($fetchFields as $index => $fieldInfo) {
-            $colNameToIndex[$fieldInfo->name] ??= $index; // maintain first index assigned so duplicate column names don't overwrite each other
-
-            // Collect all fully-qualified column names, we'll only add them later if there's multiple tables
-            if ($fieldInfo->orgtable && $fieldInfo->orgname) {
-                $fqName                       = self::getBaseTable($fieldInfo->orgtable) . '.' . $fieldInfo->orgname;
-                $colFQNameToIndex[$fqName]    = $index;
-                $tableCounter[$fieldInfo->orgtable] = true;
-            }
-        }
-
-        // Add fully qualified column names, e.g. users.id
-        $isMultipleTables = count($tableCounter) > 1;
-        if ($isMultipleTables) {
-            $colNameToIndex = array_merge($colNameToIndex, $colFQNameToIndex);
-        }
-
-        //
-        return $colNameToIndex;
-    }
-
-    /**
-     * Usage: $rowObj = $this->getIndexedRowToObject();
-     * @throws DBException
-     */
-    private static function loadNextRow(mysqli_result|MysqliStmtResultEmulator $mysqliResult, array $colNameToIndex): array|bool {
-
-        // try to get next row - or return if done
-        $result = $mysqliResult->fetch_row();
-        if (is_null($result)) { // no more rows
-            return false;
-        }
-
-        // error checking
-        if ($result === false || self::$mysqli->error) {  // Check for fetch errors, if necessary
-            throw new DBException("Failed to fetch row");
-        }
-
-        // process next row
-        $colsToValues = [];
-        $indexedRow = $result;
-        foreach ($colNameToIndex as $colName => $colIndex) {
-            $colsToValues[$colName] = $indexedRow[$colIndex];
-        }
-
-        //
-        return $colsToValues;
-    }
-
-
-    #endregion
     #region Magic Methods
 
     private function __construct()
@@ -1248,21 +1009,6 @@ class DB {
             'datetime'                    => date('Y-m-d H:i:s', ($args[0] ?? time())),                             // Replacement: date('Y-m-d H:i:s', $unixTime)
             default                       => throw new InvalidArgumentException("Unknown static method: $name"),
         };
-    }
-
-    public function __destruct()
-    {
-        // close mysqli_stmt if exists
-        if (isset($this->mysqliStmt) && $this->mysqliStmt instanceof mysqli_stmt) {
-            // skip if mysqli_stmt is not fully initialized, if stmt->execute() throws an \Error then the code below
-            // will throw this exception:  Fatal error: Uncaught Error: Itools\ZenDB\MysqliStmtWrapper object is not fully initialized in
-            // and this happens whether we call mysqli_stmt directly or use our wrapper
-            if (!$this->mysqliStmt->errno) {
-                $this->mysqliStmt->free_result();
-                $this->mysqliStmt->close();
-            }
-            $this->mysqliStmt = null;
-        }
     }
 
     #endregion
