@@ -82,7 +82,7 @@ class DB {
         foreach ($properties as $key => $defaultValue) {
             $config[$key] = Config::${$key};
         }
-        
+
         return $config;
     }
 
@@ -1088,7 +1088,7 @@ class DB {
         if (self::$mysqli->errno || !$this->mysqliStmt) {
             $errorMessage = "";
             if (self::$mysqli->errno === 1146) {
-                $errorMessage = "Error: Invalid table name, use :_ to insert table prefix if needed.";
+                $errorMessage = "Error: Invalid table name, use :: to insert table prefix if needed.";
             }
             throw new DBException($errorMessage, self::$mysqli->errno);
         }
