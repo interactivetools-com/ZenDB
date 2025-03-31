@@ -3,12 +3,13 @@ declare(strict_types=1);
 
 namespace Itools\ZenDB\Internal;
 
+use Exception;
 use Itools\ZenDB\Assert;
 use Itools\ZenDB\DB;
 use Itools\ZenDB\DBException;
 use Itools\ZenDB\MysqliWrapper;
 use Itools\ZenDB\Parser;
-use Itools\ZenDB\MysqliStmtResultEmulator;
+use Itools\ZenDB\Internal\MysqliStmtResultEmulator;
 use Itools\SmartArray\SmartArray;
 use mysqli;
 use mysqli_driver;
@@ -234,6 +235,7 @@ class QueryExecutor
     /**
      * Loads the next row from the result
      * @throws DBException
+     * @throws Exception
      */
     private static function loadNextRow(mysqli_result|MysqliStmtResultEmulator $mysqliResult, array $colNameToIndex): array|bool
     {

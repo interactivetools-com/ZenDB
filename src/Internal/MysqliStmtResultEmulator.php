@@ -1,9 +1,10 @@
 <?php
 declare(strict_types=1);
 
-namespace Itools\ZenDB;
+namespace Itools\ZenDB\Internal;
 
 use Exception, mysqli_stmt, mysqli_result;
+use RuntimeException;
 
 /**
  * Class MysqliStmtResultEmulator
@@ -39,6 +40,7 @@ class MysqliStmtResultEmulator
 
     /**
      * Fetch the next row of a result set as an associative, a numeric array, or both
+     * @throws Exception
      */
     public function fetch_array(int $mode = MYSQLI_BOTH): array|null|false {
         // If there are no fields, return null
@@ -58,7 +60,7 @@ class MysqliStmtResultEmulator
         // Dynamically bind the columns to the $row array elements
         $bindResult = $this->stmt->bind_result(...$params);
         if (!$bindResult) {
-            throw new Exception("Failed to bind result");
+            throw new RuntimeException("Failed to bind result");
         }
 
         if ($this->stmt->fetch()) {
@@ -83,6 +85,7 @@ class MysqliStmtResultEmulator
 
     /**
      * Fetch the next row of a result set as an associative array
+     * @throws Exception
      */
     public function fetch_assoc(): array|null|false {
         return $this->fetch_array(MYSQLI_ASSOC);
@@ -90,6 +93,7 @@ class MysqliStmtResultEmulator
 
     /**
      * Fetch the next row of a result set as a numeric array
+     * @throws Exception
      */
     public function fetch_row(): array|null|false {
         return $this->fetch_array(MYSQLI_NUM);
@@ -104,6 +108,7 @@ class MysqliStmtResultEmulator
 
     /**
      * Emulate properties
+     * @throws Exception
      */
     public function __get(string $name) {
         return match ($name) {
@@ -115,8 +120,9 @@ class MysqliStmtResultEmulator
 
     /**
      * Throw exception for unimplemented methods
+     * @throws Exception
      */
     public function __call($name, $arguments) {
-        throw new Exception("Mysqlnd isn't installed and $name() is not implemented in polyfill.");
+        throw new RuntimeException("Mysqlnd isn't installed and $name() is not implemented in polyfill.");
     }
 }
