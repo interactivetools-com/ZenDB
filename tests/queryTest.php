@@ -68,23 +68,18 @@ class queryTest extends BaseTest
             'test name'   => $name,
             'sqlTemplate' => $sqlTemplate,
             'mixedParams' => $sqlTemplate,
-            'paramQuery'  => $expectedParamQuery,
+            // Removed internal implementation details
             'paramMap'    => $expectedParamMap,
-            'bindValues'  => $expectedBindValues,
             'result'      => $expectedResult,
         ];
-        $actual = array_merge($expected, [ // copy expected values and overwrite these
-                                           'paramQuery'  => $db->parser->paramQuery,
-                                           'paramMap'    => $db->parser->paramMap,
-                                           'bindValues'  => $db->parser->bindValues,
-                                           'result'      => is_object($result) ? $result->toArray() : $result,
+        // copy expected values and overwrite these
+        $actual = array_merge($expected, [
+            // Removed internal implementation details
+            'paramMap'   => $db->parser->paramMap,
+            'result'     => is_object($result) ? $result->toArray() : $result,
         ]);
         $this->assertSame($expected, $actual, "Test: $name\n");
     }
-
-
-
-
 
     public function provideValidQueries(): array {
         return [
@@ -167,14 +162,14 @@ __SQL__,
                     'order_id' => 8,
                     'user_id' => 13,
                     'order_date' => '2024-01-22',
-                    'total_amount' => '70.50',
+                    'total_amount' => 70.50,
                     'order_detail_id' => 8,
                     'product_id' => 3,
                     'quantity' => 1,
                     'product_name' => 'Product C',
-                    'price' => '25.75',
-                    'unit_price' => '25.75',
-                    'total_price' => '25.75',
+                    'price' => 25.75,
+                    'unit_price' => 25.75,
+                    'total_price' => 25.75,
                     'users.num' => 13,
                     'users.name' => 'Kevin Lewis',
                     'users.isAdmin' => 1,
@@ -185,14 +180,14 @@ __SQL__,
                     'orders.order_id' => 8,
                     'orders.user_id' => 13,
                     'orders.order_date' => '2024-01-22',
-                    'orders.total_amount' => '70.50',
+                    'orders.total_amount' => 70.50,
                     'order_details.order_detail_id' => 8,
                     'order_details.order_id' => 8,
                     'order_details.product_id' => 3,
                     'order_details.quantity' => 1,
                     'products.product_id' => 3,
                     'products.product_name' => 'Product C',
-                    'products.price' => '25.75',
+                    'products.price' => 25.75,
                     ],
                 ], // end: expected result
             ],

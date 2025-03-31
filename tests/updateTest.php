@@ -91,8 +91,7 @@ class updateTest extends BaseTest
             'baseTable'    => $baseTable,
             'idArrayOrSQL' => $idArrayOrSQL,
             'mixedParams'  => $mixedParams,
-            'paramQuery'   => $db->parser->paramQuery,
-            'bindValues'   => $db->parser->bindValues,
+            // Removed internal implementation details
             'result'       => $expectedResult,
         ];
         $actual = array_merge($expected, [

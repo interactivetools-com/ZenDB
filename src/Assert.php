@@ -88,7 +88,7 @@ class Assert
      * @param string $string The string to check.
      * @param string|null $inputName A description of the input source.
      *
-     * @throws InvalidArgumentException on unsafe characters.
+     * @throws InvalidArgumentException|DBException on unsafe characters.
      */
     public static function sqlSafeString(string $string, ?string $inputName = null, $allowNumbers = false): void {
         $inputName       ??= "sql template";

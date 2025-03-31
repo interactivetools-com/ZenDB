@@ -55,8 +55,8 @@ class deleteTest extends BaseTest
             'baseTable'    => $baseTable,
             'idArrayOrSQL' => $idArrayOrSQL,
             'mixedParams'  => $mixedParams,
-            'paramQuery'   => $db->parser->paramQuery,
-            'bindValues'   => $db->parser->bindValues,
+//            'paramQuery'   => $db->parser->paramQuery,
+//            'bindValues'   => $db->parser->bindValues,
             'result'       => $expectedResult,
         ];
         $actual = array_merge($expected, [

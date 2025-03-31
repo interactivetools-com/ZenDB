@@ -32,13 +32,6 @@ class Parser
     #region Constructor
 
     /**
-     *
-     */
-    public function __construct()
-    {
-    }
-
-    /**
      * For when you need to set the sqlTemplate after the parser has been created
      *
      * @param string $sqlTemplate
@@ -191,6 +184,7 @@ class Parser
      * For queries that don't support prepared statements, e.g., SHOW, etc. (non-DML queries)
      *
      * @return string
+     * @throws DBException
      */
     public function getEscapedQuery(): string
     {
@@ -225,6 +219,7 @@ class Parser
     /**
      * get parameterized query (positional only) and bind values from sqlTemplate and paramMap
      * converts named parameters to positional parameters and builds bindValues array
+     * @throws DBException
      */
     public function getParamQuery(): string
     {
@@ -260,10 +255,13 @@ class Parser
         return $this->paramQuery;
     }
 
+    /**
+     * @throws DBException
+     */
     public function getBindValues(): array
     {
         // call getParamQuery() if needed to generate bindValues
-        if (!isset($this->paramQueryValues)) {
+        if (!isset($this->bindValues)) {
             $this->getParamQuery();
         }
         return $this->bindValues;
@@ -297,6 +295,7 @@ class Parser
      * @param $positionalCount
      *
      * @return string|int|float|bool|RawSql|null
+     * @throws DBException
      */
     private function getPlaceholderValue($matchedString, &$positionalCount): string|int|float|bool|null|RawSql {
 
