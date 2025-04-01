@@ -123,7 +123,7 @@ class DB {
             self::$mysqli->options(MYSQLI_OPT_CONNECT_TIMEOUT, $cfg['connectTimeout']); // throw exception after x seconds trying to connect
             self::$mysqli->options(MYSQLI_OPT_READ_TIMEOUT, $cfg['readTimeout']);       // throw exception after x seconds trying to read
             self::$mysqli->options(MYSQLI_OPT_LOCAL_INFILE, false);                     // disable "LOAD DATA LOCAL INFILE" for security reasons
-            
+
             // Enable native int and float return types if mysqlnd is available
             if (defined('MYSQLI_OPT_INT_AND_FLOAT_NATIVE')) {
                 self::$mysqli->options(MYSQLI_OPT_INT_AND_FLOAT_NATIVE, true);

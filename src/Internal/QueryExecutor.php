@@ -95,10 +95,11 @@ class QueryExecutor
 
         // Fetch rows
         if ($result instanceof mysqli_result) {
-            $fields        = $result->fetch_fields();
-            $useSmartJoins = DB::config('useSmartJoins');
-            while (($rowData = $result->fetch_row()) !== null) {
-                $rows[] = self::createAssociativeRow($fields, $rowData, $useSmartJoins);
+            $fields             = $result->fetch_fields();
+            $smartJoinColumnMap = self::getSmartJoinColumnMap($fields);
+
+            while ($rowData = $result->fetch_row()) {
+                $rows[] = self::createAssociativeRow($fields, $rowData, $smartJoinColumnMap);
             }
             $result->free(); // Free the result set
         }
@@ -110,10 +111,8 @@ class QueryExecutor
     #region Prepared Queries (bound parameters)
 
     /**
-     * Fetch all rows from a mysqli_stmt into associative arrays.
-     * Doesn't rely on mysqlnd (no get_result()).
-     * If Config::$useSmartJoins = true AND there are multiple tables in the query,
-     * additional keys in "table.column" format are added to the rows at the end.
+     * Fetch all rows from a mysqli_stmt into associative arrays. Doesn't rely on mysqlnd which isn't always available (no get_result()).
+     * If Config::$useSmartJoins = true AND there are multiple tables in the query, additional keys in "table.column" format are added to the rows at the end.
      *
      * @param Parser $parser The parser containing the query and parameters
      * @return array An array of [rows, affectedRows, insertId]
@@ -144,11 +143,11 @@ class QueryExecutor
             }
 
             // Bind columns & fetch rows
-            $stmt->store_result();
+            $stmt->store_result(); // Store the result set in memory
             if ($stmt->bind_result(...$columnReferences)) {
-                $useSmartJoins = DB::config('useSmartJoins');
+                $smartJoinColumnMap = self::getSmartJoinColumnMap($fields);
                 while ($stmt->fetch()) {
-                    $rows[] = self::createAssociativeRow($fields, $rowData, $useSmartJoins);
+                    $rows[] = self::createAssociativeRow($fields, $rowData, $smartJoinColumnMap);
                 }
             }
 
@@ -224,31 +223,22 @@ class QueryExecutor
      *
      * @param array $fields Field metadata objects from result_metadata() or fetch_fields()
      * @param array $rowData Row data values (enumerated array)
-     * @param bool $useSmartJoins Whether to use smart joins
+     * @param array $smartJoinColumnMap Pre-calculated mapping of field indices to "baseTable.column" strings
      * @return array Associative array row with `table.column` keys if needed
-     * @throws DBException
      */
-    private static function createAssociativeRow(array $fields, array $rowData, bool $useSmartJoins): array
+    private static function createAssociativeRow(array $fields, array $rowData, array $smartJoinColumnMap = []): array
     {
         $assocRow     = [];
         $tableColKeys = []; // Store table.column keys separately to add at the end
 
-        // Create a lookup for field index to baseTable (to avoid calling DB::getBaseTable repeatedly)
-        $baseTables = [];
-        foreach ($fields as $index => $field) {
-            if ($field->orgtable) {
-                $baseTables[$index] = DB::getBaseTable($field->orgtable);
-            }
-        }
-
         // Process each field/column
-        $hasMultipleTables = $useSmartJoins && self::hasMultipleTables($fields);
         foreach ($fields as $index => $field) {
             $columnName  = $field->name;
             $columnValue = $rowData[$index];
 
             // Cast column value to the correct type based on MySQL field type, some MySQL drivers return all values as strings,
             // while others might return some type such as DOUBLE as an incorrect type
+            // Note: This can be removed if mysqlnd with MYSQLI_OPT_INT_AND_FLOAT_NATIVE is enabled
             if (is_string($columnValue)) {
                 $columnValue = match ($field->type) {
                     MYSQLI_TYPE_TINY, MYSQLI_TYPE_SHORT, MYSQLI_TYPE_LONG, MYSQLI_TYPE_INT24, MYSQLI_TYPE_LONGLONG, MYSQLI_TYPE_YEAR => (int)$columnValue,
@@ -258,22 +248,46 @@ class QueryExecutor
             }
             $assocRow[$columnName] = $columnValue;
 
-            // SmartJoins: When multiple tables are used, add additional BaseTable.column keys
-            if ($useSmartJoins && $hasMultipleTables && isset($baseTables[$index]) && $field->orgname) {
-                $baseTable                         = $baseTables[$index];          // Use cached baseTable
-                $baseTableDotColumn                = "$baseTable.$field->orgname"; // e.g. `users.id`
-                $tableColKeys[$baseTableDotColumn] = $columnValue;
+            // SmartJoins: Add additional "baseTable.column" keys if defined
+            if (isset($smartJoinColumnMap[$index])) {
+                $tableColKeys[$smartJoinColumnMap[$index]] = $columnValue;
             }
         }
 
         // Append table.column keys at the end
-        // Using + operator is more efficient than array_merge() here
-        // and ensures any numeric column names won't be re-indexed
         if (!empty($tableColKeys)) {
             $assocRow += $tableColKeys;
         }
 
         return $assocRow;
+    }
+
+    /**
+     * Builds a mapping of field indices to their "baseTable.column" identifiers for SmartJoins
+     *
+     * @param array $fields Array of field metadata objects
+     * @return array Mapping of field indices to "baseTable.column" identifiers
+     */
+    private static function getSmartJoinColumnMap(array $fields): array
+    {
+        $useSmartJoins  = DB::config('useSmartJoins') && self::hasMultipleTables($fields);
+        $tableColumnMap = [];
+
+        // Skip if SmartJoins are not enabled or if not multiple tables
+        if (!$useSmartJoins) {
+            return $tableColumnMap;
+        }
+
+        // Build the mapping of field indices to "baseTable.column" identifiers
+        $baseTableOffset = strlen(DB::$tablePrefix);
+        foreach ($fields as $index => $field) {
+            if ($field->orgtable && $field->orgname) {
+                $hasPrefix              = str_starts_with($field->orgtable, DB::$tablePrefix);
+                $baseTable              = $hasPrefix ? substr($field->orgtable, $baseTableOffset) : $field->orgtable;   // optimization from: DB::getBaseTable($field->orgtable);
+                $tableColumnMap[$index] = "$baseTable.$field->orgname";
+            }
+        }
+        return $tableColumnMap;
     }
 
     /**
