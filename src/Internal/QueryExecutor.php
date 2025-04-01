@@ -107,18 +107,6 @@ class QueryExecutor
             $result->free(); // Free the result set
         }
 
-        // Handle potential multi-statements safely
-        while (DB::$mysqli->more_results()) {
-            if (!DB::$mysqli->next_result()) {
-                throw new DBException("Error processing next result: " . DB::$mysqli->error, DB::$mysqli->errno);
-            }
-
-            $nextResult = DB::$mysqli->store_result();
-            if ($nextResult instanceof mysqli_result) {
-                $nextResult->free();
-            }
-        }
-
         return [$rows, $affectedRows, $insertId];
     }
 
