@@ -57,7 +57,7 @@ class QueryExecutor
                 [$rows, $affectedRows, $insertId] = self::fetchRowsFromMysqliStmt($parser);
             }
 
-            $result = new SmartArray($rows, [
+            $smartRows = new SmartArray($rows, [
                 'useSmartStrings' => true,
                 'loadHandler'     => '\Itools\Cmsb\SmartArrayLoadHandler::load',
                 'mysqli'          => [
@@ -72,7 +72,7 @@ class QueryExecutor
             mysqli_report($oldReportMode);
         }
 
-        return $result;
+        return $smartRows;
     }
 
     /**
@@ -155,7 +155,7 @@ class QueryExecutor
             $fields        = $result->fetch_fields();
             $useSmartJoins = DB::config('useSmartJoins');
             while (($rowData = $result->fetch_row()) !== null) {
-                $rows[] = self::createAssociativeRow($fields, $rowData, $useSmartJoins, false);
+                $rows[] = self::createAssociativeRow($fields, $rowData, $useSmartJoins);
             }
             $result->free(); // Free the result set
         }
@@ -190,7 +190,58 @@ class QueryExecutor
      */
     private static function fetchRowsFromMysqliStmt(Parser $parser): array
     {
-        // prepare
+        // Prepare and execute statement
+        $stmt         = self::prepareAndExecuteStatement($parser);
+
+        // Initialize common return values
+        $affectedRows = $stmt->affected_rows;
+        $insertId     = $stmt->insert_id;
+        $rows         = [];
+
+        // Get rows (if any)
+        $meta = $stmt->result_metadata();
+        if ($meta) {
+            // Get Field metadata
+            $fields = $meta->fetch_fields();
+
+            // Prepare references for bind_result()
+            $rowData          = [];
+            $columnReferences = [];
+            foreach ($fields as $i => $field) {
+                $rowData[$i]        = null;
+                $columnReferences[] = &$rowData[$i];
+            }
+
+            // Bind columns & fetch rows
+            $stmt->store_result();
+            if ($stmt->bind_result(...$columnReferences)) {
+                $useSmartJoins = DB::config('useSmartJoins');
+                while ($stmt->fetch()) {
+                    $rows[] = self::createAssociativeRow($fields, $rowData, $useSmartJoins);
+                }
+            }
+
+            // Free metadata and result set
+            $meta->free();
+            $stmt->free_result();
+        }
+
+        // Free statement
+        $stmt->close();
+
+        return [$rows, $affectedRows, $insertId];
+    }
+
+    /**
+     * Prepares and executes a statement for DML queries
+     *
+     * @param Parser $parser The parser containing the query and parameters
+     * @return mysqli_stmt The prepared and executed statement
+     * @throws DBException
+     */
+    private static function prepareAndExecuteStatement(Parser $parser): mysqli_stmt
+    {
+        // 1) Prepare the statement
         $stmt = DB::$mysqli->prepare($parser->getParamQuery());
         if (!$stmt || DB::$mysqli->errno) {
             $errorMessage = match (DB::$mysqli->errno) {
@@ -200,66 +251,9 @@ class QueryExecutor
             throw new DBException($errorMessage, DB::$mysqli->errno);
         }
 
-        // bind and execute
-        self::executePreparedStatement($stmt, $parser->getBindValues());
-        $affectedRows = $stmt->affected_rows;
-        $insertId     = $stmt->insert_id;
+        // 2) Bind parameters and execute
+        $bindValues = $parser->getBindValues();
 
-        // If no metadata, there's no result-set (e.g. INSERT/UPDATE/DELETE).
-        $meta = $stmt->result_metadata();
-        if (!$meta) {
-            $stmt->close();
-            return [[], $affectedRows, $insertId];
-        }
-
-        // Buffer the entire result set so we can fetch row-by-row in a loop
-        $stmt->store_result();
-
-        $fields = $meta->fetch_fields();
-        $meta->free();
-
-        // Get smart join configuration
-        $useSmartJoins = DB::config('useSmartJoins');
-
-        // Prepare an array for row data and references for bind_result()
-        $rowData = [];
-        $refs    = [];
-        foreach ($fields as $f) {
-            // We'll store each column by $rowData['aliasName']
-            $refs[] = &$rowData[$f->name];
-        }
-
-        // Bind the columns to the $refs array
-        if (!$stmt->bind_result(...$refs)) {
-            // handle error as needed
-            $stmt->free_result();
-            $stmt->close();
-            return [[], $affectedRows, $insertId];
-        }
-
-        // Now fetch each row into $rowData, then copy it to a final assoc row
-        $rows = [];
-        while ($stmt->fetch()) {
-            $rows[] = self::createAssociativeRow($fields, $rowData, $useSmartJoins, true);
-        }
-
-        // Clean up
-        $stmt->free_result();
-        $stmt->close();
-
-        return [$rows, $affectedRows, $insertId];
-    }
-
-    /**
-     * Prepares and executes a statement for DML queries
-     *
-     * @param mysqli_stmt $stmt The prepared statement to execute
-     * @param array $bindValues Values to bind to the statement
-     * @return void
-     * @throws DBException
-     */
-    private static function executePreparedStatement(mysqli_stmt $stmt, array $bindValues): void
-    {
         if (!empty($bindValues)) {
             // build bind_param() args
             $bindParamTypes = ''; // bind_param requires a string of types, e.g., 'sss' for 3 string parameters
@@ -276,12 +270,20 @@ class QueryExecutor
 
             // bind parameters
             if (!$stmt->bind_param($bindParamTypes, ...$bindParamRefs)) {
+                $stmt->close(); // Clean up before throwing
                 throw new DBException("Error calling bind_param()");
             }
         }
 
-        // execute statement
-        $stmt->execute();
+        // 3) Execute statement
+        try {
+            $stmt->execute();
+        } catch (DBException $e) {
+            $stmt->close(); // Clean up before rethrowing
+            throw $e;
+        }
+
+        return $stmt;
     }
 
     #endregion
@@ -290,26 +292,33 @@ class QueryExecutor
     /**
      * Creates an associative array row from field metadata and values
      *
-     * @param array $fields Field metadata objects
-     * @param array $rowData Row data values
+     * @param array $fields Field metadata objects from result_metadata() or fetch_fields()
+     * @param array $rowData Row data values (enumerated array)
      * @param bool $useSmartJoins Whether to use smart joins
-     * @param bool $isStmt Whether using mysqli stmt (true) or mysqli result (false)
      * @return array Associative array row with `table.column` keys if needed
      * @throws DBException
      */
-    private static function createAssociativeRow(array $fields, array $rowData, bool $useSmartJoins, bool $isStmt): array
+    private static function createAssociativeRow(array $fields, array $rowData, bool $useSmartJoins): array
     {
         $assocRow     = [];
         $tableColKeys = []; // Store table.column keys separately to add at the end
 
+        // Create a lookup for field index to baseTable (to avoid calling DB::getBaseTable repeatedly)
+        $baseTables = [];
+        foreach ($fields as $index => $field) {
+            if ($field->orgtable) {
+                $baseTables[$index] = DB::getBaseTable($field->orgtable);
+            }
+        }
+
         // Process each field/column
+        $hasMultipleTables = $useSmartJoins && self::hasMultipleTables($fields);
         foreach ($fields as $index => $field) {
             $columnName  = $field->name;
-            $columnValue = $isStmt ? $rowData[$columnName] : $rowData[$index];
+            $columnValue = $rowData[$index];
 
-            // Cast column value to the correct type based on MySQL field type
-            // Note: We now apply this to both query types since some drivers might not properly convert
-            // certain types like DOUBLE even with prepared statements
+            // Cast column value to the correct type based on MySQL field type, some MySQL drivers return all values as strings,
+            // while others might return some type such as DOUBLE as an incorrect type
             if (is_string($columnValue)) {
                 $columnValue = match ($field->type) {
                     MYSQLI_TYPE_TINY, MYSQLI_TYPE_SHORT, MYSQLI_TYPE_LONG, MYSQLI_TYPE_INT24, MYSQLI_TYPE_LONGLONG, MYSQLI_TYPE_YEAR => (int)$columnValue,
@@ -317,13 +326,12 @@ class QueryExecutor
                     default                                                                                                          => $columnValue
                 };
             }
-
             $assocRow[$columnName] = $columnValue;
 
             // SmartJoins: When multiple tables are used, add additional BaseTable.column keys
-            if ($useSmartJoins && $field->orgtable && $field->orgname && self::hasMultipleTables($fields)) {
-                $baseTable                         = DB::getBaseTable($field->orgtable); // remove table prefix
-                $baseTableDotColumn                = "$baseTable.$field->orgname";      // e.g. `users.id`
+            if ($useSmartJoins && $hasMultipleTables && isset($baseTables[$index]) && $field->orgname) {
+                $baseTable                         = $baseTables[$index];          // Use cached baseTable
+                $baseTableDotColumn                = "$baseTable.$field->orgname"; // e.g. `users.id`
                 $tableColKeys[$baseTableDotColumn] = $columnValue;
             }
         }
