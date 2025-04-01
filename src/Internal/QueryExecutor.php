@@ -314,7 +314,6 @@ class QueryExecutor
                 $columnValue = match ($field->type) {
                     MYSQLI_TYPE_TINY, MYSQLI_TYPE_SHORT, MYSQLI_TYPE_LONG, MYSQLI_TYPE_INT24, MYSQLI_TYPE_LONGLONG, MYSQLI_TYPE_YEAR => (int)$columnValue,
                     MYSQLI_TYPE_FLOAT, MYSQLI_TYPE_DOUBLE, MYSQLI_TYPE_DECIMAL, MYSQLI_TYPE_NEWDECIMAL                               => (float)$columnValue,
-                    MYSQLI_TYPE_BIT                                                                                                  => (bool)$columnValue,
                     default                                                                                                          => $columnValue
                 };
             }
