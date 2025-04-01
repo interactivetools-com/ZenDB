@@ -3,16 +3,12 @@ declare(strict_types=1);
 
 namespace Itools\ZenDB\Internal;
 
-use Itools\ZenDB\Assert;
+use Itools\SmartArray\SmartArray;
 use Itools\ZenDB\DB;
 use Itools\ZenDB\DBException;
-use Itools\ZenDB\MysqliWrapper;
 use Itools\ZenDB\Parser;
-use Itools\SmartArray\SmartArray;
-use mysqli_driver;
-use mysqli_result;
-use InvalidArgumentException;
-use mysqli_stmt;
+use mysqli_driver, mysqli_result, mysqli_stmt;
+use Throwable;
 
 /**
  * Internal class to handle query execution and result fetching.
@@ -27,11 +23,11 @@ class QueryExecutor
      * @param Parser $parser The parser containing the query and parameters
      * @param string $baseTable Optional base table name for smart joins
      * @return SmartArray The result set
-     * @throws DBException
+     * @throws DBException|Throwable
      */
     public static function executeAndFetch(Parser $parser, string $baseTable = ''): SmartArray
     {
-        $sqlTemplate = $parser->getFinalizedSqlTemplate();
+        $parser->finalizeQuery();
 
         // throw exceptions for all MySQL errors, so we can catch them
         $oldReportMode = (new mysqli_driver())->report_mode;
@@ -42,7 +38,7 @@ class QueryExecutor
             $useEscapedQuery = !$parser->isDmlQuery();                // use escaped value query for non-DML (Data Manipulation Language) queries
             $escapedQuery    = $parser->getEscapedQuery();
 
-            // TODO: For testing both query types work with testplans
+            // Uncomment to run testplans with escaped queries
             //$useEscapedQuery = true;
 
             // Execute the query and get results
@@ -121,12 +117,12 @@ class QueryExecutor
      *
      * @param Parser $parser The parser containing the query and parameters
      * @return array An array of [rows, affectedRows, insertId]
-     * @throws DBException
+     * @throws DBException|Throwable
      */
     private static function fetchRowsFromMysqliStmt(Parser $parser): array
     {
         // Prepare and execute statement
-        $stmt         = self::prepareAndExecuteStatement($parser);
+        $stmt = self::prepareAndExecuteStatement($parser);
 
         // Initialize common return values
         $affectedRows = $stmt->affected_rows;
@@ -172,7 +168,7 @@ class QueryExecutor
      *
      * @param Parser $parser The parser containing the query and parameters
      * @return mysqli_stmt The prepared and executed statement
-     * @throws DBException
+     * @throws DBException|Throwable
      */
     private static function prepareAndExecuteStatement(Parser $parser): mysqli_stmt
     {
@@ -212,7 +208,7 @@ class QueryExecutor
         // 3) Execute statement
         try {
             $stmt->execute();
-        } catch (DBException $e) {
+        } catch (Throwable $e) {
             $stmt->close(); // Clean up before rethrowing
             throw $e;
         }

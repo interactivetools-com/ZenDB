@@ -396,22 +396,32 @@ class Parser
     }
 
     /**
-     * Gets the SQL template and performs necessary preparation steps:
+     * Finalizes the SQL query by performing necessary preparation steps:
      * 1. Sets the template as the last query for debugging
      * 2. Handles trailing LIMIT clauses if present
      * 3. Validates the template for security and parameter constraints
      *
-     * @return string The prepared and validated SQL template
+     * This method should be called before query execution to ensure
+     * the SQL is properly prepared and validated.
+     *
+     * @return void
      * @throws InvalidArgumentException|DBException
      */
-    public function getFinalizedSqlTemplate(): string
+    public function finalizeQuery(): void
     {
-        $sqlTemplate = $this->sqlTemplate;
-        MysqliWrapper::setLastQuery($sqlTemplate);                        // set $sqlTemplate as last query for debugging
-        $sqlTemplate = $this->allowTrailingLimit($sqlTemplate);           // Handle trailing LIMIT clause if present
-        $this->validateSqlTemplate($sqlTemplate);                         // Validate SQL template, throw exception if invalid
-
-        return $sqlTemplate;
+        MysqliWrapper::setLastQuery($this->sqlTemplate);                  // set template as last query for debugging
+        $this->sqlTemplate = $this->allowTrailingLimit($this->sqlTemplate); // Handle trailing LIMIT clause if present
+        $this->validateSqlTemplate($this->sqlTemplate);                   // Validate SQL template, throw exception if invalid
+    }
+    
+    /**
+     * Returns the current SQL template
+     *
+     * @return string
+     */
+    public function getSqlTemplate(): string
+    {
+        return $this->sqlTemplate;
     }
 
     /**
