@@ -233,19 +233,8 @@ class QueryExecutor
 
         // Process each field/column
         foreach ($fields as $index => $field) {
-            $columnName  = $field->name;
-            $columnValue = $rowData[$index];
-
-            // Cast column value to the correct type based on MySQL field type, some MySQL drivers return all values as strings,
-            // while others might return some type such as DOUBLE as an incorrect type
-            // Note: This can be removed if mysqlnd with MYSQLI_OPT_INT_AND_FLOAT_NATIVE is enabled
-            if (is_string($columnValue)) {
-                $columnValue = match ($field->type) {
-                    MYSQLI_TYPE_TINY, MYSQLI_TYPE_SHORT, MYSQLI_TYPE_LONG, MYSQLI_TYPE_INT24, MYSQLI_TYPE_LONGLONG, MYSQLI_TYPE_YEAR => (int)$columnValue,
-                    MYSQLI_TYPE_FLOAT, MYSQLI_TYPE_DOUBLE, MYSQLI_TYPE_DECIMAL, MYSQLI_TYPE_NEWDECIMAL                               => (float)$columnValue,
-                    default                                                                                                          => $columnValue
-                };
-            }
+            $columnName            = $field->name;
+            $columnValue           = $rowData[$index];
             $assocRow[$columnName] = $columnValue;
 
             // SmartJoins: Add additional "baseTable.column" keys if defined

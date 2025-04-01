@@ -6,10 +6,8 @@ namespace Itools\ZenDB;
 use DateTime, DateTimeZone;
 use Itools\SmartArray\SmartArray;
 use Itools\SmartString\SmartString;
-use mysqli, mysqli_result, mysqli_stmt;
-use mysqli_driver;
+use mysqli;
 use Throwable, InvalidArgumentException, RuntimeException, Exception;
-use Itools\ZenDB\Config;
 use Itools\ZenDB\Internal\QueryExecutor;
 
 /**
@@ -124,7 +122,9 @@ class DB {
             self::$mysqli->options(MYSQLI_OPT_READ_TIMEOUT, $cfg['readTimeout']);       // throw exception after x seconds trying to read
             self::$mysqli->options(MYSQLI_OPT_LOCAL_INFILE, false);                     // disable "LOAD DATA LOCAL INFILE" for security reasons
 
-            // Enable native int and float return types if mysqlnd is available
+            // Enable native int/float return types when mysqlnd driver is available
+            // Converts numeric results from strings to proper PHP types for mysqli::query() results
+            // mysqli_stmt already returns native types by default, this makes them both consistent
             if (defined('MYSQLI_OPT_INT_AND_FLOAT_NATIVE')) {
                 self::$mysqli->options(MYSQLI_OPT_INT_AND_FLOAT_NATIVE, true);
             }
