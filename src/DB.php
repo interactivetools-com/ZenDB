@@ -123,6 +123,11 @@ class DB {
             self::$mysqli->options(MYSQLI_OPT_CONNECT_TIMEOUT, $cfg['connectTimeout']); // throw exception after x seconds trying to connect
             self::$mysqli->options(MYSQLI_OPT_READ_TIMEOUT, $cfg['readTimeout']);       // throw exception after x seconds trying to read
             self::$mysqli->options(MYSQLI_OPT_LOCAL_INFILE, false);                     // disable "LOAD DATA LOCAL INFILE" for security reasons
+            
+            // Enable native int and float return types if mysqlnd is available
+            if (defined('MYSQLI_OPT_INT_AND_FLOAT_NATIVE')) {
+                self::$mysqli->options(MYSQLI_OPT_INT_AND_FLOAT_NATIVE, true);
+            }
             self::$mysqli->real_connect(
                 hostname: $hostname, // can also contain :port
                 username: $username,
@@ -279,7 +284,7 @@ class DB {
         $db->parser->setSqlTemplate($sqlTemplate);
 
         try {
-            $db->resultSet = QueryExecutor::executeAndFetch($db->parser);
+            $db->resultSet = QueryExecutor::fetchAll($db->parser);
         }
         catch (Throwable $e) {
             // mysqli prepare/bind/execute can throw PHP \Error exceptions when a MySQL query is invalid, but without a message or code
@@ -321,7 +326,7 @@ class DB {
 
         // return ResultSet
         $db->parser->setSqlTemplate($sqlTemplate);
-        $db->resultSet = QueryExecutor::executeAndFetch($db->parser, $baseTable);
+        $db->resultSet = QueryExecutor::fetchAll($db->parser, $baseTable);
         return $db->resultSet;
     }
 
@@ -360,7 +365,7 @@ class DB {
 
         // return ResultSet
         try {
-            $db->resultSet = QueryExecutor::executeAndFetch($db->parser, $baseTable);
+            $db->resultSet = QueryExecutor::fetchAll($db->parser, $baseTable);
         } catch (Throwable $e) {
             throw new DBException("Error getting row.", 0, $e);
         }
@@ -396,7 +401,7 @@ class DB {
         // prepare and execute statement
         $db->parser->setSqlTemplate($sqlTemplate);
         try {
-            $db->resultSet = QueryExecutor::executeAndFetch($db->parser, $baseTable);
+            $db->resultSet = QueryExecutor::fetchAll($db->parser, $baseTable);
         }
         catch (Throwable $e) {
             throw new DBException("Error inserting row.", 0, $e);
@@ -434,7 +439,7 @@ class DB {
         // prepare and execute statement
         $db->parser->setSqlTemplate($sqlTemplate);
         try {
-            $db->resultSet = QueryExecutor::executeAndFetch($db->parser, $baseTable);
+            $db->resultSet = QueryExecutor::fetchAll($db->parser, $baseTable);
         } catch (Throwable $e) {
             throw new DBException("Error updating row.", 0, $e);
         }
@@ -467,7 +472,7 @@ class DB {
 
         // prepare and execute statement
         try {
-            $db->resultSet = QueryExecutor::executeAndFetch($db->parser, $baseTable);
+            $db->resultSet = QueryExecutor::fetchAll($db->parser, $baseTable);
         } catch (Throwable $e) {
             throw new DBException("Error updating row.", 0, $e);
         }
@@ -500,7 +505,7 @@ class DB {
 
         // return count
         try {
-            $db->resultSet = QueryExecutor::executeAndFetch($db->parser, $baseTable);
+            $db->resultSet = QueryExecutor::fetchAll($db->parser, $baseTable);
         } catch (Throwable $e) {
             throw new DBException("Error selecting count.", 0, $e);
         }

@@ -23,9 +23,9 @@ class QueryExecutor
      * @param Parser $parser The parser containing the query and parameters
      * @param string $baseTable Optional base table name for smart joins
      * @return SmartArray The result set
-     * @throws DBException|Throwable
+     * @throws DBException
      */
-    public static function executeAndFetch(Parser $parser, string $baseTable = ''): SmartArray
+    public static function fetchAll(Parser $parser, string $baseTable = ''): SmartArray
     {
         $parser->finalizeQuery();
 
@@ -117,7 +117,7 @@ class QueryExecutor
      *
      * @param Parser $parser The parser containing the query and parameters
      * @return array An array of [rows, affectedRows, insertId]
-     * @throws DBException|Throwable
+     * @throws DBException
      */
     private static function fetchRowsFromMysqliStmt(Parser $parser): array
     {
@@ -168,7 +168,7 @@ class QueryExecutor
      *
      * @param Parser $parser The parser containing the query and parameters
      * @return mysqli_stmt The prepared and executed statement
-     * @throws DBException|Throwable
+     * @throws DBException
      */
     private static function prepareAndExecuteStatement(Parser $parser): mysqli_stmt
     {
@@ -210,7 +210,7 @@ class QueryExecutor
             $stmt->execute();
         } catch (Throwable $e) {
             $stmt->close(); // Clean up before rethrowing
-            throw $e;
+            throw new DBException("Error executing statement: " . $e->getMessage(), $e->getCode(), $e);
         }
 
         return $stmt;
