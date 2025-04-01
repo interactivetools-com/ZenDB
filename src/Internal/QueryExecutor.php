@@ -31,10 +31,7 @@ class QueryExecutor
      */
     public static function executeAndFetch(Parser $parser, string $baseTable = ''): SmartArray
     {
-        $sqlTemplate = $parser->getSqlTemplate();
-        MysqliWrapper::setLastQuery($sqlTemplate);                      // set $sqlTemplate as last query for debugging
-        $sqlTemplate = self::allowTrailingLimit($sqlTemplate, $parser); // Handle trailing LIMIT clause if present
-        self::validateSqlTemplate($sqlTemplate);                        // Validate SQL template, throw exception if invalid
+        $sqlTemplate = $parser->getFinalizedSqlTemplate();
 
         // throw exceptions for all MySQL errors, so we can catch them
         $oldReportMode = (new mysqli_driver())->report_mode;
@@ -73,56 +70,6 @@ class QueryExecutor
         }
 
         return $smartRows;
-    }
-
-    /**
-     * Special case handling for allowing trailing "LIMIT #" clauses (common use case)
-     * Detects and parameterizes queries ending in "LIMIT" followed by any number.
-     *
-     * This pattern is safe because:
-     *   1. The regex requires the query to end with "LIMIT #" (where # is a number)
-     *   2. To bypass our filters the injected code would also need to end in "LIMIT #" and multiple limits are invalid
-     *   3. We don't support multi_query() semicolon-separated queries like "SELECT...; DELETE..." and check ; isn't present
-     *   4. There is no possible valid MySql code that both starts with LIMIT and ends with another LIMIT #
-     *
-     * Example injection that fails (even if the user writes insecure code):
-     *   Template: "SELECT * FROM users LIMIT {$_GET['limit']}"
-     *   Attack: "(SELECT id FROM admins LIMIT 1)"         // fails, doesn't end in a number
-     *   Attack: "1; SELECT * FROM users LIMIT 1"          // fails, multiple queries not supported
-     *   Attack: "1 INTO OUTFILE '/var/www/html/temp.php'" // fails, doesn't end in a number
-     *
-     * @param string $sqlTemplate The SQL template to check for trailing LIMIT
-     * @param Parser $parser The parser to add parameter to
-     * @return string The modified SQL template
-     */
-    private static function allowTrailingLimit(string $sqlTemplate, Parser $parser): string
-    {
-        $limitRx = '/\bLIMIT\s+\d+\s*$/i';
-        if (!str_contains($sqlTemplate, ';') && preg_match($limitRx, $sqlTemplate, $matches)) {
-            $limitExpr   = $matches[0];
-            $sqlTemplate = preg_replace($limitRx, ':zdb_limit', $sqlTemplate);
-            $parser->addInternalParam(':zdb_limit', DB::rawSql($limitExpr));
-        }
-        return $sqlTemplate;
-    }
-
-    /**
-     * Validates the SQL template for safety and parameter constraints
-     *
-     * @param string $sqlTemplate The SQL template to validate
-     * @return void
-     * @throws InvalidArgumentException|DBException
-     */
-    private static function validateSqlTemplate(string $sqlTemplate): void
-    {
-        // Check for SQL injection risks
-        Assert::SqlSafeString($sqlTemplate);
-
-        // Check for too many positional parameters
-        $positionalCount = substr_count($sqlTemplate, '?');
-        if ($positionalCount > 4) {
-            throw new InvalidArgumentException("Too many ? parameters, max 4 allowed. Try using :named parameters instead");
-        }
     }
 
     #endregion
@@ -253,7 +200,6 @@ class QueryExecutor
 
         // 2) Bind parameters and execute
         $bindValues = $parser->getBindValues();
-
         if (!empty($bindValues)) {
             // build bind_param() args
             $bindParamTypes = ''; // bind_param requires a string of types, e.g., 'sss' for 3 string parameters
