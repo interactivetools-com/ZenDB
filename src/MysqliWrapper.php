@@ -52,7 +52,10 @@ class MysqliWrapper extends mysqli
         $result = @parent::real_connect($hostname, $username, $password, $database, $port, $socket, $flags); // hide php hostname lookup warnings (catch block will show them)
 
         // log query
-        $logEntry = sprintf("real_connect[%s]: %s %s", DB::$mysqli->thread_id, $_SERVER['REQUEST_METHOD'] ?? '', $_SERVER['REQUEST_URI'] ?? '');
+        $logEntry = sprintf("real_connect[%s]: %s %s",
+            DB::$mysqli?->thread_id,            // e.g. 4471393
+            $_SERVER['REQUEST_METHOD'] ?? '',   // e.g. GET
+            $_SERVER['REQUEST_URI'] ?? '');     // e.g. /file.php?foo=bar
         self::logQuery($startTime, $logEntry);
 
         //

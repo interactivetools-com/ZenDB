@@ -13,16 +13,18 @@ use Itools\ZenDB\Internal\QueryExecutor;
 /**
  * DB is a wrapper for mysqli that provides a simple, secure, and consistent interface for database access.
  */
-class DB {
-    public static string     $tablePrefix;              // table prefix, set by config()
-    public static ?mysqli    $mysqli        = null;     // mysqli object
-    public static DB         $lastInstance;             // for testing
-    public static ?Throwable $lastException = null;
+class DB
+{
+    public static string       $tablePrefix;                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             // table prefix, set by config()
+    public static ?mysqli      $mysqli        = null;                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    // mysqli object
+    public static DB           $lastInstance;                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     // for testing
+    public static ?Throwable   $lastException = null;
+    private static ?Connection $connection    = null;     // connection instance
 
-    private Parser      $parser;
-    private SmartArray  $resultSet;
+    private Parser     $parser;
+    private SmartArray $resultSet;
 
-    #region Config
+    #region Config & Connection
 
     /**
      * Configure database configuration settings.
@@ -33,11 +35,12 @@ class DB {
      * - To set multiple values: self::config(['key1' => 'value1', 'key2' => 'value2'])
      *
      * @param string|array|null $keyOrArray Key to retrieve, or key-value pairs to set.
-     * @param string|bool|null  $keyValue   Value to set for the given key. Ignored if first parameter is an array.
+     * @param string|bool|null $keyValue Value to set for the given key. Ignored if first parameter is an array.
      *
      * @return string|array The value corresponding to a single key or an array of all settings.
      */
-    public static function config(string|array|null $keyOrArray = null, string|int|bool|null $keyValue = null): mixed {
+    public static function config(string|array|null $keyOrArray = null, string|int|bool|null $keyValue = null): mixed
+    {
         $argCount = func_num_args();
 
         // set multiple - self::config($configMap);
@@ -74,7 +77,7 @@ class DB {
         }
 
         // get all - create array from Config static properties
-        $config = [];
+        $config     = [];
         $properties = get_class_vars(Config::class);
         foreach ($properties as $key => $defaultValue) {
             $config[$key] = Config::${$key};
@@ -83,87 +86,30 @@ class DB {
         return $config;
     }
 
-    #endregion
-
-    #region Connection
-
-
     /**
      * @throws Exception
      */
-    public static function connect(): void {
-        // Skip if already connected
+    public static function connect(): void
+    {
+        // Skip if connection exists and is still active (isConnected() checks for a live connection)
         if (self::isConnected(true)) {
             return;
         }
-        //
-        $cfg = self::config(); // shortcut var
 
-        // Check for required config keys
-        $requiredKeys = ['hostname','username','database'];
-        foreach ($requiredKeys as $key) {
-            if (is_null($cfg[$key]) || $cfg[$key] === '') {
-                throw new InvalidArgumentException("Missing required config key: $key");
-            }
+        // Get config and create connection if needed
+        $cfg = self::config();
+
+        // Create Connection instance if it doesn't exist yet
+        // The Connection constructor will attempt connection, but we also call reconnect()
+        // explicitly to ensure we're connected (handles reconnection cases)
+        if (!self::$connection) {
+            self::$connection = new Connection($cfg); // Create & Connect
+        } else {
+            self::$connection->reconnectIfNeeded(); // Try to reconnect if connection was lost
         }
 
-        // Attempt to connect
-        self::$mysqli = null; // set this here so it's available in catch block
-        try {
-            mysqli_report(MYSQLI_REPORT_ERROR|MYSQLI_REPORT_STRICT); // throw exceptions for all MySQL errors, so we can catch them
-
-            // Security: Locally scope credentials and remove them from config to minimize exposure.
-            [$username, $password, $hostname] = [$cfg['username'], $cfg['password'], $cfg['hostname']];
-            $cfg = self::config(['hostname' => null, 'username' => null, 'password' => null]);
-
-            // connect to db
-            self::$mysqli = new MysqliWrapper(); // old way: new mysqli();
-            self::$mysqli->options(MYSQLI_OPT_CONNECT_TIMEOUT, $cfg['connectTimeout']); // throw exception after x seconds trying to connect
-            self::$mysqli->options(MYSQLI_OPT_READ_TIMEOUT, $cfg['readTimeout']);       // throw exception after x seconds trying to read
-            self::$mysqli->options(MYSQLI_OPT_LOCAL_INFILE, false);                     // disable "LOAD DATA LOCAL INFILE" for security reasons
-
-            // Enable native int/float return types when mysqlnd driver is available
-            // Converts numeric results from strings to proper PHP types for mysqli::query() results
-            // mysqli_stmt already returns native types by default, this makes them both consistent
-            if (defined('MYSQLI_OPT_INT_AND_FLOAT_NATIVE')) {
-                self::$mysqli->options(MYSQLI_OPT_INT_AND_FLOAT_NATIVE, true);
-            }
-            self::$mysqli->real_connect(
-                hostname: $hostname, // can also contain :port
-                username: $username,
-                password: $password,
-                flags   : $cfg['requireSSL'] ? MYSQLI_CLIENT_SSL : 0 // require ssl connections
-            );
-        } catch (Throwable $e) {
-            $errorCode    = self::$mysqli->connect_errno;
-            $baseErrorMsg = "MySQL Error($errorCode)";
-            $errorDetail  = $e->getMessage() ?? self::$mysqli->connect_error;
-            $errorMsg     = match (true) {
-                $errorCode === 2002                       => "$baseErrorMsg: Couldn't connect to server, check database server is running and connection settings are correct.\n$errorDetail",
-                $errorCode === 2006 && $cfg['requireSSL'] => "$baseErrorMsg: Try disabling 'requireSSL' in database configuration.\n$errorDetail",  // 2006 = MySQL error constant CR_SERVER_GONE_ERROR: MySQL server has gone away
-                default                                   => "$baseErrorMsg: $errorDetail",
-            };
-            throw new RuntimeException($errorMsg . ", hostname: $hostname"); // TODO
-        } finally {
-            mysqli_report(MYSQLI_REPORT_OFF); // Disable strict mode, errors now return false instead of throwing exceptions
-        }
-
-        // set charset - DO THIS FIRST and use "utf8mb4", required so mysqli_real_escape_string() knows what charset to use.
-        // See: https://www.php.net/manual/en/mysqlinfo.concepts.charset.php#example-1421
-        if (self::$mysqli->character_set_name() !== 'utf8mb4') {
-            self::$mysqli->set_charset('utf8mb4') || throw new RuntimeException("Error setting charset utf8mb4." . self::$mysqli->error);
-        }
-
-        // check mysql version
-        if ($cfg['versionRequired']) {
-            Assert::mysqlVersion(self::$mysqli, $cfg['versionRequired']);
-        }
-
-        // set some database vars based on config settings -  SET time_zone etc
-        self::setDatabaseVars(self::$mysqli, $cfg);
-
-        // Select database and/or try to create it
-        self::selectOrCreateDatabase(self::$mysqli, $cfg);
+        // Update the static mysqli property
+        self::$mysqli = self::$connection->mysqli;
     }
 
     /**
@@ -182,78 +128,18 @@ class DB {
      */
     public static function isConnected(bool $doPing = false): bool
     {
-        return match (true) {
-            is_null(self::$mysqli) => false,
-            $doPing                => self::$mysqli->stat() !== false, // replacement for deprecated ping()
-            default                => true,
-        };
+        return (bool) self::$connection?->isConnected($doPing);
     }
 
     /**
+     * Close the database connection.
+     *
      * @return void
      */
-    public static function disconnect(): void  {
-        if (self::$mysqli instanceof mysqli) {
-            self::$mysqli->close();
-            self::$mysqli = null;
-        }
-    }
-
-    /**
-     * Right after connecting set some database vars based on config settings.
-     *
-     * @param mysqli $mysqli The MySQLi object.
-     * @param array $cfg Configuration array containing settings.
-     * @throws RuntimeException|Exception If any of the initialization queries fail.
-     */
-    private static function setDatabaseVars(mysqli $mysqli, array $cfg): void {
-
-        // Get current vars
-        $mysqlDefaults = $mysqli->query("SELECT @@innodb_strict_mode, @@sql_mode, TIME_FORMAT(TIMEDIFF(NOW(), UTC_TIMESTAMP), '%H:%i') AS timezone_offset")->fetch_assoc();
-
-        // SET time_zone
-        if (!empty($cfg['usePhpTimezone'])) {
-            self::setTimezoneToPhpTimezone($mysqlDefaults['timezone_offset']);
-        }
-
-        // SET innodb_strict_mode
-        if (!is_null($cfg['set_innodb_strict_mode'])) {
-            $newValue = $cfg['set_innodb_strict_mode'] ? '1' : '0';
-            if ($newValue !== $mysqlDefaults['@@innodb_strict_mode']) {
-                // Mysql 8.0 doesn't allow us to SET innodb_strict_mode without SYSTEM_VARIABLES_ADMIN or SESSION_VARIABLES_ADMIN privileges
-                // So this query can generate errno 1227: Access denied; you need (at least one of) the SYSTEM_VARIABLES_ADMIN or SESSION_VARIABLES_ADMIN privilege(s)
-                $mysqli->real_query("SET innodb_strict_mode = '$newValue'"); // ignore errors
-            }
-        }
-
-        // SET sql_mode
-        if (!empty($cfg['set_sql_mode']) && $cfg['set_sql_mode'] !== $mysqlDefaults['@@innodb_strict_mode']) {
-            $query = "SET sql_mode = '{$cfg['set_sql_mode']}';";
-            $mysqli->real_query($query) || throw new RuntimeException("Set command failed:\n$query");
-        }
-    }
-
-    private static function selectOrCreateDatabase(mysqli $mysqli, array $cfg): void {
-
-        // Error checking
-        Assert::ValidDatabaseName($cfg['database']);
-
-        // Select database and/or try to create it
-        $isSuccessful = $mysqli->select_db($cfg['database']);
-
-        // If database doesn't exist, try to create it
-        if (!$isSuccessful && $cfg['databaseAutoCreate']) {
-            $result = $mysqli->query("CREATE DATABASE `{$cfg['database']}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
-            if ($result === false) {
-                throw new RuntimeException("Couldn't create DB: ".$mysqli->error);
-            }
-            $isSuccessful = $mysqli->select_db($cfg['database']) || throw new RuntimeException("MySQL Error selecting database: ".$mysqli->error);
-        }
-
-        // If still not successful, throw an exception
-        if (!$isSuccessful) {
-            throw new RuntimeException("MySQL Error selecting database: ".$mysqli->error);
-        }
+    public static function disconnect(): void
+    {
+        self::$connection?->disconnect();
+        self::$mysqli = null;
     }
 
     #endregion
@@ -271,7 +157,8 @@ class DB {
      * @throws DBException
      * @example DB::query("SELECT * FROM `accounts` WHERE  name = :name AND date <= :targetDate", $params);
      */
-    public static function query(string $sqlTemplate, ...$params): SmartArray {
+    public static function query(string $sqlTemplate, ...$params): SmartArray
+    {
         $db = new DB();
 
         // error checking
@@ -285,8 +172,7 @@ class DB {
 
         try {
             $db->resultSet = QueryExecutor::fetchAll($db->parser);
-        }
-        catch (Throwable $e) {
+        } catch (Throwable $e) {
             // mysqli prepare/bind/execute can throw PHP \Error exceptions when a MySQL query is invalid, but without a message or code
             // since these are thrown before $resultSet is defined, we'll assume relevant errors are in $mysqli->error and $mysqli->errno
             self::$lastException = $e;
@@ -314,12 +200,13 @@ class DB {
      * DB::select("accounts", ['city' => 'New York']); // Selects rows from the "accounts" table where the city is "New York".
      * DB::select("accounts", "WHERE balance > 1000"); // Selects rows from the "accounts" table where the balance is greater than 1000.
      */
-    public static function select(string $baseTable, int|array|string $idArrayOrSql = [], ...$params): SmartArray {
+    public static function select(string $baseTable, int|array|string $idArrayOrSql = [], ...$params): SmartArray
+    {
         // returns array with any (or none) matching rows or throws exception on sql error
         Assert::ValidTableName($baseTable);
 
         // build SQL template
-        $db          = new DB();
+        $db = new DB();
         $db->parser->addParamsFromArgs($params);
         $whereEtc    = $db->getWhereEtc($idArrayOrSql);
         $sqlTemplate = "SELECT * FROM `:_$baseTable` $whereEtc";
@@ -333,9 +220,9 @@ class DB {
     /**
      * Retrieves a single row from the specified table based on the given conditions and parameters.
      *
-     * @param string           $baseTable    The base table name to select from.
+     * @param string $baseTable The base table name to select from.
      * @param int|array|string $idArrayOrSql The condition(s) to match when selecting the row. Can be an ID, an array of IDs, or a custom SQL query.
-     * @param mixed            ...$params    Optional prepared statement parameters to be bound to the SQL template.
+     * @param mixed ...$params Optional prepared statement parameters to be bound to the SQL template.
      *
      * @return SmartArray Returns a Row object representing the first matching row, or null if no row is found.
      *
@@ -345,7 +232,8 @@ class DB {
      * DB::get("orders", ["id" => 123]); // Retrieve a row from the "orders" table where the ID is 123
      * DB::get("products", "price > :price", ["price" => 50]); // Retrieve a row from the "products" table based on a custom SQL query
      */
-    public static function get(string $baseTable, int|array|string $idArrayOrSql = [], ...$params): SmartArray {
+    public static function get(string $baseTable, int|array|string $idArrayOrSql = [], ...$params): SmartArray
+    {
         Assert::ValidTableName($baseTable);
         $db = new DB();
 
@@ -382,19 +270,20 @@ class DB {
     /**
      * Insert rows into a database table using the provided column-value pairs.
      *
-     * @param string $baseTable    The name of the base table where the rows will be inserted.
-     * @param array  $colsToValues An associative array mapping column names to their corresponding values.
+     * @param string $baseTable The name of the base table where the rows will be inserted.
+     * @param array $colsToValues An associative array mapping column names to their corresponding values.
      *
      * @return int                           The id of the inserted record
      * @throws DBException                   If there is an error inserting the row.
      *
      * @example DB::insert("accounts", ["name" => "John Doe", "age" => 30]);
      */
-    public static function insert(string $baseTable, array $colsToValues): int {
+    public static function insert(string $baseTable, array $colsToValues): int
+    {
         Assert::ValidTableName($baseTable);
 
         // Create insert query
-        $db = new DB();
+        $db          = new DB();
         $setClause   = $db->getSetClause($colsToValues);
         $sqlTemplate = "INSERT INTO `:_$baseTable` $setClause";
 
@@ -402,8 +291,7 @@ class DB {
         $db->parser->setSqlTemplate($sqlTemplate);
         try {
             $db->resultSet = QueryExecutor::fetchAll($db->parser, $baseTable);
-        }
-        catch (Throwable $e) {
+        } catch (Throwable $e) {
             throw new DBException("Error inserting row.", 0, $e);
         }
 
@@ -415,10 +303,10 @@ class DB {
      * Updates records in a table based on conditions and returns affected rows.  Note that if you update a
      * row with the same values, it won't count as an affected row.
      *
-     * @param string           $baseTable    The name of the table to update.
-     * @param array            $colsToValues Associative array representing columns and their new values.
+     * @param string $baseTable The name of the table to update.
+     * @param array $colsToValues Associative array representing columns and their new values.
      * @param int|array|string $idArrayOrSql An array of conditions or a raw SQL condition string.
-     * @param mixed            ...$params    Optional additional prepared statement parameters.
+     * @param mixed ...$params Optional additional prepared statement parameters.
      *
      * @return int  Returns the number of affected rows.
      *
@@ -426,11 +314,12 @@ class DB {
      * @example DB::update('accounts', $colsToValues, "WHERE num = ? AND city = :city", ...$params);
      * @example DB::update('accounts', $colsToValues, ['num' => $num]);
      */
-    public static function update(string $baseTable, array $colsToValues, int|array|string $idArrayOrSql, ...$params): int {
+    public static function update(string $baseTable, array $colsToValues, int|array|string $idArrayOrSql, ...$params): int
+    {
         Assert::ValidTableName($baseTable);
 
         // create query
-        $db          = new DB();
+        $db = new DB();
         $db->parser->addParamsFromArgs($params);
         $setClause   = $db->getSetClause($colsToValues);
         $whereEtc    = $db->getWhereEtc($idArrayOrSql, true); // 2nd argument REQUIRES WHERE to prevent accidental deletions
@@ -451,9 +340,9 @@ class DB {
     /**
      * Deletes a record or records from the 'accounts' table.
      *
-     * @param string           $baseTable
+     * @param string $baseTable
      * @param int|array|string $idArrayOrSql
-     * @param mixed            ...$params Optional additional prepared statement parameters.
+     * @param mixed ...$params Optional additional prepared statement parameters.
      *
      * @return int Returns the number of affected rows, or 0 if no rows were deleted, or -1 if there was an error.
      *
@@ -461,13 +350,14 @@ class DB {
      * @example DB::delete('accounts', ['num' => $num]);
      * @example DB::delete('accounts', "WHERE num = ? AND city = :city", ...$params);
      */
-    public static function delete(string $baseTable, int|array|string $idArrayOrSql, ...$params): int {
+    public static function delete(string $baseTable, int|array|string $idArrayOrSql, ...$params): int
+    {
         Assert::ValidTableName($baseTable);
 
         // create query
-        $db          = new DB();
+        $db = new DB();
         $db->parser->addParamsFromArgs($params);
-        $whereEtc    = $db->getWhereEtc($idArrayOrSql, true); // 2nd argument REQUIRES WHERE to prevent accidental deletions
+        $whereEtc = $db->getWhereEtc($idArrayOrSql, true); // 2nd argument REQUIRES WHERE to prevent accidental deletions
         $db->parser->setSqlTemplate("DELETE FROM `:_$baseTable` $whereEtc");
 
         // prepare and execute statement
@@ -489,7 +379,8 @@ class DB {
      * @return int
      * @throws DBException
      */
-    public static function count(string $baseTable, int|array|string $idArrayOrSql = [], ...$params): int {
+    public static function count(string $baseTable, int|array|string $idArrayOrSql = [], ...$params): int
+    {
         Assert::ValidTableName($baseTable);
 
         // error checking
@@ -498,9 +389,9 @@ class DB {
         }
 
         // create query
-        $db         = new DB();
+        $db = new DB();
         $db->parser->addParamsFromArgs($params);
-        $whereEtc   = $db->getWhereEtc($idArrayOrSql);
+        $whereEtc = $db->getWhereEtc($idArrayOrSql);
         $db->parser->setSqlTemplate("SELECT COUNT(*) FROM `:_$baseTable` $whereEtc");
 
         // return count
@@ -509,7 +400,7 @@ class DB {
         } catch (Throwable $e) {
             throw new DBException("Error selecting count.", 0, $e);
         }
-        $count = (int) $db->resultSet->first()->nth(0)->value();
+        $count = (int)$db->resultSet->first()->nth(0)->value();
         return $count;
     }
 
@@ -522,7 +413,7 @@ class DB {
      * The function sets the property $whereEtc.
      *
      * @param int|array|string $idArrayOrSql The raw SQL string or an associative array of column-value pairs.
-     * @param bool             $whereRequired
+     * @param bool $whereRequired
      *
      * @return string
      */
@@ -544,14 +435,14 @@ class DB {
             }
             $whereEtc = $idArrayOrSql;
         } else {
-            throw new InvalidArgumentException("Invalid type for \$idArrayOrSql: ".gettype($idArrayOrSql));
+            throw new InvalidArgumentException("Invalid type for \$idArrayOrSql: " . gettype($idArrayOrSql));
         }
 
         // Add WHERE if not already present
         $requiredLeadingKeyword = "/^\s*(WHERE|FOR|ORDER|LIMIT|OFFSET)\b/i";
         if (!preg_match($requiredLeadingKeyword, $whereEtc) &&
             !preg_match("/^\s*$/", $whereEtc)) { // don't add where if no content
-            $whereEtc = "WHERE ".$whereEtc;
+            $whereEtc = "WHERE " . $whereEtc;
         }
 
         // Validate: Check SQL clauses start with a valid keyword and don't contain unsafe characters
@@ -580,8 +471,9 @@ class DB {
      * @example $idArrayOrSql = ['column1' => $value1, 'column2' => $value2];
      *          $whereEtcInitForArray($idArrayOrSql);
      */
-    private function getWhereEtcForArray(array $idArrayOrSql): string {
-        $whereEtc = "";
+    private function getWhereEtcForArray(array $idArrayOrSql): string
+    {
+        $whereEtc   = "";
         $conditions = [];
         foreach ($idArrayOrSql as $column => $value) {
             Assert::ValidColumnName($column);
@@ -593,12 +485,13 @@ class DB {
             }
         }
         if ($conditions) {
-            $whereEtc = "WHERE ".implode(" AND ", $conditions);
+            $whereEtc = "WHERE " . implode(" AND ", $conditions);
         }
         return $whereEtc;
     }
 
     //
+
     /**
      * Create set clause from colsToValues array for INSERT/UPDATE SET.  e.g., SET `column1` = :colVal1, `column2` = :colVal2
      * Usage: $this->buildSetClause($colsToValues);
@@ -630,7 +523,7 @@ class DB {
         }
 
         //
-        return "SET ".implode(", ", $setElements);
+        return "SET " . implode(", ", $setElements);
     }
 
     #endregion
@@ -721,15 +614,14 @@ class DB {
         $columnDefinitions = [];
         try {  // mysql throws an error if table doesn't exist
             $createTableSQL = self::query('SHOW CREATE TABLE `::?`', $baseTable)->first()->nth(1)->value();
-            $lines             = explode("\n", $createTableSQL);
-        }
-        catch (Throwable $e) {
+            $lines          = explode("\n", $createTableSQL);
+        } catch (Throwable $e) {
             $lines = [];
         }
 
         // Extract charset/collation from last line (table defaults)
         $defaults = [];
-        if (preg_match('/\bDEFAULT CHARSET=(\S+) COLLATE=(\S+)\b/', (string) array_pop($lines), $m)) {
+        if (preg_match('/\bDEFAULT CHARSET=(\S+) COLLATE=(\S+)\b/', (string)array_pop($lines), $m)) {
             $defaults = [" CHARACTER SET $m[1]", " COLLATE $m[2]"];
         }
 
@@ -777,7 +669,7 @@ class DB {
      */
     public static function likeContains(string|int|float|null|SmartString $input): rawSQL
     {
-        return self::rawSQL("'%".self::escape($input, true)."%'");
+        return self::rawSQL("'%" . self::escape($input, true) . "%'");
     }
 
     /**
@@ -794,7 +686,7 @@ class DB {
      */
     public static function likeContainsTSV(string|int|float|null|SmartString $input): rawSQL
     {
-        return self::rawSQL("'%\\t".self::escape($input, true)."\\t%'"); // double-escape tab so it's visible as \t in the SQL queries for easier debugging
+        return self::rawSQL("'%\\t" . self::escape($input, true) . "\\t%'"); // double-escape tab so it's visible as \t in the SQL queries for easier debugging
     }
 
     /**
@@ -811,7 +703,7 @@ class DB {
      */
     public static function likeStartsWith(string|int|float|null|SmartString $input): rawSQL
     {
-        return self::rawSQL("'".self::escape($input, true)."%'");
+        return self::rawSQL("'" . self::escape($input, true) . "%'");
     }
 
     /**
@@ -828,7 +720,7 @@ class DB {
      */
     public static function likeEndsWith(string|int|float|null|SmartString $input): rawSQL
     {
-        return self::rawSQL("'%".self::escape($input, true)."'");
+        return self::rawSQL("'%" . self::escape($input, true) . "'");
     }
 
     /**
@@ -846,13 +738,14 @@ class DB {
     public static function escapeCSV(array $array): RawSql
     {
         $safeValues = [];
-        foreach (array_unique($array) as $value) {  // Remove duplicates for efficiency
-            $value = $value instanceof SmartString ? (string) $value->value() : $value;  // Convert SmartString objects to string of raw value
+        foreach (array_unique($array) as $value) {                                                                                                                                                                                                                                                                                                         // Remove duplicates for efficiency
+            $value        = $value instanceof SmartString ? (string)$value->value(
+            ) : $value;                                                                                                                                                                                                                                                                                                                                    // Convert SmartString objects to string of raw value
             $safeValues[] = match (true) {
                 is_int($value) || is_float($value) => $value,
                 is_null($value)                    => 'NULL',
                 is_bool($value)                    => $value ? 'TRUE' : 'FALSE',
-                is_string($value)                  => "'".self::$mysqli->real_escape_string($value)."'",
+                is_string($value)                  => "'" . self::$mysqli->real_escape_string($value) . "'",
                 default                            => throw new InvalidArgumentException("Unsupported value type: " . get_debug_type($value)),
             };
         }
@@ -878,14 +771,14 @@ class DB {
      *
      * @return RawSql LIMIT/OFFSET clause for SQL queries.
      */
-    public static function pagingSql(mixed $pageNum, mixed $perPage = 10): RawSql {
-
+    public static function pagingSql(mixed $pageNum, mixed $perPage = 10): RawSql
+    {
         // Force positive whole numbers
         $pageNum = abs((int)$pageNum) ?: 1;  // defaults to 1 (if set to 0)
         $perPage = abs((int)$perPage) ?: 10; // defaults to 10 (if set to 0)
 
         // Generate LIMIT/OFFSET SQL clause
-        $offset = ($pageNum - 1) * $perPage;
+        $offset         = ($pageNum - 1) * $perPage;
         $limitOffsetSQL = self::rawSql("LIMIT $perPage OFFSET $offset");
 
         return $limitOffsetSQL;
@@ -904,13 +797,15 @@ class DB {
      *
      * @return RawSql
      */
-    public static function rawSql(string|int|float|null $value): RawSql {
+    public static function rawSql(string|int|float|null $value): RawSql
+    {
         return new RawSql((string)$value);
     }
 
 
     // Usage: self::isRawSql($value)
-    public static function isRawSql(mixed $stringOrObj): bool {
+    public static function isRawSql(mixed $stringOrObj): bool
+    {
         return $stringOrObj instanceof RawSql;
     }
 
@@ -922,7 +817,8 @@ class DB {
      *
      * @return void
      */
-    public static function debug(): void {
+    public static function debug(): void
+    {
         /** @noinspection ForgottenDebugOutputInspection */
         print_r(self::$lastInstance->resultSet);
     }
@@ -932,16 +828,16 @@ class DB {
      *
      * @throws RuntimeException|Exception  If not connected to the database or if the set command fails.
      */
-    public static function setTimezoneToPhpTimezone(string $mysqlTzOffset = ''): void {
-
+    public static function setTimezoneToPhpTimezone(string $mysqlTzOffset = ''): void
+    {
         // check we're connected
         if (!self::isConnected()) {
             throw new RuntimeException("Not connected to database");
         }
 
         // get PHP timezone offset
-        $phpDateTz    = new DateTimeZone(date_default_timezone_get());
-        $phpTzOffset  = (new DateTime('now', $phpDateTz))->format('P');  // UTC offset, e.g., +00:00
+        $phpDateTz   = new DateTimeZone(date_default_timezone_get());
+        $phpTzOffset = (new DateTime('now', $phpDateTz))->format('P');  // UTC offset, e.g., +00:00
         if ($phpTzOffset === $mysqlTzOffset) {
             return; // no need to set timezone if it's already set
         }
@@ -956,21 +852,21 @@ class DB {
      */
     public static function occurredInFile($addReportedFileLine = false): string
     {
-        $file = "unknown";
-        $line = "unknown";
-        $inMethod = "";
+        $file      = "unknown";
+        $line      = "unknown";
+        $inMethod  = "";
         $backtrace = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS);
 
         // Add Occurred in file:line
         foreach ($backtrace as $index => $caller) {
             if (empty($caller['file']) || dirname($caller['file']) !== __DIR__) {
-                $file = $caller['file'] ?? $file;
-                $line = $caller['line'] ?? $line;
-                $prevCaller =  $backtrace[$index + 1] ?? [];
-                $inMethod = match (true) {
+                $file       = $caller['file'] ?? $file;
+                $line       = $caller['line'] ?? $line;
+                $prevCaller = $backtrace[$index + 1] ?? [];
+                $inMethod   = match (true) {
                     !empty($prevCaller['class'])    => " in {$prevCaller['class']}{$prevCaller['type']}{$prevCaller['function']}()",
                     !empty($prevCaller['function']) => " in {$prevCaller['function']}()",
-                    default                           => "",
+                    default                         => "",
                 };
                 break;
             }
@@ -982,7 +878,7 @@ class DB {
             $method       = basename($backtrace[1]['class']) . $backtrace[1]['type'] . $backtrace[1]['function'];
             $reportedFile = $backtrace[0]['file'] ?? "unknown";
             $reportedLine = $backtrace[0]['line'] ?? "unknown";
-            $output .= " in $reportedFile:$reportedLine in $method()\n";
+            $output       .= " in $reportedFile:$reportedLine in $method()\n";
         }
 
         // return output
@@ -1003,8 +899,8 @@ class DB {
     /**
      * Handles static calls to the DB Utils methods.
      */
-    public static function __callStatic(string $name, array $args) {
-
+    public static function __callStatic(string $name, array $args)
+    {
         // legacy methods
         return match ($name) {
             'like', 'escapeLikeWildcards' => addcslashes((string)($args[0] ?? ''), '%_'),                           // Replacement: See escape(value, true) and like* methods

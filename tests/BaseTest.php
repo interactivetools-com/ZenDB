@@ -18,29 +18,32 @@ DB::config();
 
 abstract class BaseTest extends TestCase
 {
-    protected static array $configDefaults;
+    // Initialize configDefaults with values from _ENV (set in phpunit.xml)
+    protected static array $configDefaults = [
+        'hostname'               => null, // Will be set in setUpBeforeClass
+        'username'               => null,
+        'password'               => null,
+        'database'               => null,
+        'tablePrefix'            => 'test_',     // prefix for all table names, e.g., 'cms_'
+        'primaryKey'             => 'num',       // primary key used for shortcut where = (int) num queries
+
+        'usePhpTimezone'         => true,        // Set MySQL timezone to the same offset as current PHP timezone
+        'set_sql_mode'           => 'STRICT_ALL_TABLES,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION,ONLY_FULL_GROUP_BY',
+        'versionRequired'        => '5.7.32',    // minimum MySQL version required. An exception will be thrown if the server version is lower than this.
+        'requireSSL'             => false,       // require SSL connections
+        'databaseAutoCreate'     => true,        // automatically creates database if it doesn't exist
+        'connectTimeout'         => 1,           // (low timeout for testing) connection timeout in seconds, sets MYSQLI_OPT_CONNECT_TIMEOUT
+        'readTimeout'            => 60,          // read timeout in seconds, sets MYSQLI_OPT_READ_TIMEOUT
+    ];
 
     public static function setUpBeforeClass(): void
     {
-        // Initialize configDefaults with values from _ENV (set in phpunit.xml)
-        self::$configDefaults = [
-            'hostname'               => $_ENV['DB_HOSTNAME'],
-            'username'               => $_ENV['DB_USERNAME'],
-            'password'               => $_ENV['DB_PASSWORD'],
-            'database'               => $_ENV['DB_DATABASE'],
-            'tablePrefix'            => 'test_',     // prefix for all table names, e.g., 'cms_'
-            'primaryKey'             => 'num',       // primary key used for shortcut where = (int) num queries
-
-            'usePhpTimezone'         => true,        // Set MySQL timezone to the same offset as current PHP timezone
-            'set_sql_mode'           => 'STRICT_ALL_TABLES,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION,ONLY_FULL_GROUP_BY',
-            //
-            'set_innodb_strict_mode' => true,        // Mysql session var: Set to false to allow for restore and upgrade of large MyISAM or older InnoDB tables
-            'versionRequired'        => '5.7.32',    // minimum MySQL version required. An exception will be thrown if the server version is lower than this.
-            'requireSSL'             => false,       // require SSL connections
-            'databaseAutoCreate'     => true,        // automatically creates database if it doesn't exist
-            'connectTimeout'         => 1,           // (low timeout for testing) connection timeout in seconds, sets MYSQLI_OPT_CONNECT_TIMEOUT
-            'readTimeout'            => 60,          // read timeout in seconds, sets MYSQLI_OPT_READ_TIMEOUT
-        ];
+        // Set database credentials from environment variables
+        // Set here because we can't set it at compile time
+        self::$configDefaults['hostname'] = $_ENV['DB_HOSTNAME'];
+        self::$configDefaults['username'] = $_ENV['DB_USERNAME'];
+        self::$configDefaults['password'] = $_ENV['DB_PASSWORD'];
+        self::$configDefaults['database'] = $_ENV['DB_DATABASE'];
     }
 
     public static function resetTempTestTables(): void {

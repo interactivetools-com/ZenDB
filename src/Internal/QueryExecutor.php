@@ -65,6 +65,23 @@ class QueryExecutor
             mysqli_report($oldReportMode);
         }
 
+        // Check for any warnings or errors
+        if (DB::$mysqli->warning_count > 0) {
+            $warnings = DB::$mysqli->query("SHOW WARNINGS");
+            if ($warnings) {
+                while ($warning = $warnings->fetch_assoc()) {
+                    // log warnings to the error log
+                    if ($warning['Level'] !== 'Note') { // Levels: Note, Warning, Error
+                        $warning = "MySQL Warning({$warning['Code']}): {$warning['Level']} - {$warning['Message']}\n";
+                        @trigger_error($warning, E_USER_WARNING);
+                        throw new DBException($warning);
+                    }
+                }
+                $warnings->free();
+            }
+        }
+
+
         return $smartRows;
     }
 
