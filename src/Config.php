@@ -26,9 +26,9 @@ class Config
     #region Database Connection Settings
 
     // Required connection parameters
-    public ?string $hostname    = null;      // automatically cleared after login for security - can also contain :port
-    public ?string $username    = null;      // automatically cleared after login for security
-    public ?string $password    = null;      // automatically cleared after login for security
+    public ?string $hostname    = null;      // can also contain :port
+    public ?string $username    = null;      // username
+    public ?string $password    = null;      // password
     public ?string $database    = null;      // database name
     public ?string $tablePrefix = '';        // prefix for all table names; e.g.; cms_
     public ?string $primaryKey  = '';        // primary key used for shortcut where = (int) num queries
@@ -75,7 +75,7 @@ class Config
         if (!property_exists($this, $key)) {
             throw new InvalidArgumentException("Invalid configuration key: $key");
         }
-        
+
         return $this->$key;
     }
 
@@ -91,7 +91,7 @@ class Config
         if (!property_exists($this, $key)) {
             throw new InvalidArgumentException("Invalid configuration key: $key");
         }
-        
+
         $this->$key = $value;
     }
 
@@ -117,11 +117,11 @@ class Config
     {
         $config = [];
         $properties = get_class_vars(self::class);
-        
+
         foreach ($properties as $key => $defaultValue) {
             $config[$key] = $this->$key;
         }
-        
+
         return $config;
     }
 

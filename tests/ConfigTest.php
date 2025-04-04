@@ -5,12 +5,14 @@ declare(strict_types=1);
 
 namespace tests;
 
-use InvalidArgumentException, TypeError;
+use InvalidArgumentException;
 use Itools\ZenDB\Config;
-use Itools\ZenDB\DB;
-use Itools\ZenDB\DBException;
+use PHPUnit\Framework\TestCase;
 
-class configTest extends BaseTest
+/**
+ * Tests for the Config class directly (not through DB::config wrapper)
+ */
+class ConfigTest extends TestCase
 {
     private Config $config;
     private array $defaultValues;
@@ -18,25 +20,24 @@ class configTest extends BaseTest
     // Runs before each test method in this class
     protected function setUp(): void
     {
-        DB::disconnect();
         // Initialize a new Config instance
         $this->config = new Config();
         
         // Setup default values that match the BaseTest defaults
         $this->defaultValues = [
-            'hostname'               => $_ENV['DB_HOSTNAME'],
-            'username'               => $_ENV['DB_USERNAME'],
-            'password'               => $_ENV['DB_PASSWORD'],
-            'database'               => $_ENV['DB_DATABASE'],
-            'tablePrefix'            => 'test_',     // prefix for all table names, e.g., 'cms_'
-            'primaryKey'             => 'num',       // primary key used for shortcut where = (int) num queries
-            'usePhpTimezone'         => true,        // Set MySQL timezone to the same offset as current PHP timezone
+            'hostname'               => $_ENV['DB_HOSTNAME'],     // hostname can also contain :port
+            'username'               => $_ENV['DB_USERNAME'],     // automatically cleared after login for security
+            'password'               => $_ENV['DB_PASSWORD'],     // automatically cleared after login for security
+            'database'               => $_ENV['DB_DATABASE'],     // database name
+            'tablePrefix'            => 'test_',                  // prefix for all table names; e.g.; cms_
+            'primaryKey'             => 'num',                    // primary key used for shortcut where = (int) num queries
+            'usePhpTimezone'         => true,                     // Set MySQL timezone to the same offset as current PHP timezone
             'set_sql_mode'           => 'STRICT_ALL_TABLES,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION,ONLY_FULL_GROUP_BY',
-            'versionRequired'        => '5.7.32',    // minimum MySQL version required. An exception will be thrown if the server version is lower than this.
-            'requireSSL'             => false,       // require SSL connections
-            'databaseAutoCreate'     => true,        // automatically creates database if it doesn't exist
-            'connectTimeout'         => 1,           // (low timeout for testing) connection timeout in seconds, sets MYSQLI_OPT_CONNECT_TIMEOUT
-            'readTimeout'            => 60,          // read timeout in seconds, sets MYSQLI_OPT_READ_TIMEOUT
+            'versionRequired'        => '5.7.32',                 // minimum MySQL version required
+            'requireSSL'             => false,                    // require SSL connections
+            'databaseAutoCreate'     => true,                     // automatically creates database if it doesn't exist
+            'connectTimeout'         => 1,                        // (low timeout for testing) connection timeout in seconds
+            'readTimeout'            => 60,                       // read timeout in seconds
         ];
         
         // Set default values on the config
@@ -117,6 +118,62 @@ class configTest extends BaseTest
         }
     }
     
+    public function testGetAllReturnsCopy(): void
+    {
+        // Get all configuration
+        $allConfig = $this->config->getAll();
+        
+        // Modify the array (not the Config object)
+        $originalValue = $allConfig['tablePrefix'];
+        $allConfig['tablePrefix'] = 'modified_through_array_';
+        
+        // Verify that modifying the array doesn't affect the Config object
+        $this->assertSame($originalValue, $this->config->get('tablePrefix'), 
+            'The Config object should not be affected by changes to the array returned by getAll()');
+        
+        // Get the config again and verify it's unchanged
+        $newConfig = $this->config->getAll();
+        $this->assertSame($originalValue, $newConfig['tablePrefix'],
+            'The getAll() method should return a fresh copy of the configuration');
+    }
+    
+    public function testSetNumericBoundaries(): void
+    {
+        // Test extreme values for numeric properties
+        $this->config->set('connectTimeout', 0);
+        $this->assertSame(0, $this->config->get('connectTimeout'), 'Zero should be a valid timeout value');
+        
+        $this->config->set('connectTimeout', PHP_INT_MAX);
+        $this->assertSame(PHP_INT_MAX, $this->config->get('connectTimeout'), 'PHP_INT_MAX should be a valid timeout value');
+        
+        // Reset value
+        $this->config->set('connectTimeout', $this->defaultValues['connectTimeout']);
+        
+        // Test boolean values
+        $this->config->set('requireSSL', true);
+        $this->assertTrue($this->config->get('requireSSL'), 'Setting true boolean value should work');
+        
+        $this->config->set('requireSSL', false);
+        $this->assertFalse($this->config->get('requireSSL'), 'Setting false boolean value should work');
+        
+        // Reset value
+        $this->config->set('requireSSL', $this->defaultValues['requireSSL']);
+    }
+    
+    public function testSetManyWithInvalidKey(): void
+    {
+        // Create a values array with an invalid key
+        $mixedValues = [
+            'nonExistentKey' => 'some value'  // This key doesn't exist
+        ];
+        
+        // The setMany method should validate keys individually
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('nonExistentKey');
+        
+        $this->config->setMany($mixedValues);
+    }
+    
     public function testInstancesAreIndependent(): void
     {
         // Create a second instance with different values
@@ -137,31 +194,5 @@ class configTest extends BaseTest
     {
         $this->expectException(InvalidArgumentException::class);
         $this->config->get('nonexistentKey');
-    }
-    
-    public function testDBConfigWrapper(): void
-    {
-        // Test DB::config wrapper for setting and getting values
-        $testKey = 'tablePrefix';
-        $originalValue = DB::config($testKey);
-        $newValue = 'test_db_config_';
-        
-        // Test setting a single value
-        DB::config($testKey, $newValue);
-        $this->assertSame($newValue, DB::config($testKey), 'DB::config() should set and get single values correctly');
-        
-        // Test setting multiple values
-        $multiValues = [
-            'tablePrefix' => 'multi_test_',
-            'connectTimeout' => 5
-        ];
-        DB::config($multiValues);
-        
-        foreach ($multiValues as $key => $expectedValue) {
-            $this->assertSame($expectedValue, DB::config($key), "DB::config() should set multiple values correctly for key: $key");
-        }
-        
-        // Reset to original value
-        DB::config($testKey, $originalValue);
     }
 }
