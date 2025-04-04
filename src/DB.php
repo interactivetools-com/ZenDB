@@ -20,6 +20,7 @@ class DB
     public static DB           $lastInstance;                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     // for testing
     public static ?Throwable   $lastException = null;
     private static ?Connection $connection    = null;     // connection instance
+    private static ?Config     $config        = null;     // config instance
 
     private Parser     $parser;
     private SmartArray $resultSet;
@@ -41,13 +42,18 @@ class DB
      */
     public static function config(string|array|null $keyOrArray = null, string|int|bool|null $keyValue = null): mixed
     {
+        // Initialize config instance if not already created
+        if (self::$config === null) {
+            self::$config = new Config();
+        }
+        
         $argCount = func_num_args();
 
         // set multiple - self::config($configMap);
         if ($argCount === 1 && is_array($keyOrArray)) {
             foreach ($keyOrArray as $key => $value) {
                 if (property_exists(Config::class, $key)) {
-                    Config::${$key} = $value;
+                    self::$config->$key = $value;
                 } else {
                     throw new InvalidArgumentException("Invalid key: $key");
                 }
@@ -58,29 +64,31 @@ class DB
         if ($argCount === 2) {
             $key = $keyOrArray;
             if (property_exists(Config::class, $key)) {
-                Config::${$key} = $keyValue;
+                self::$config->$key = $keyValue;
             } else {
                 throw new InvalidArgumentException("Invalid key: $key");
             }
         }
 
         // Update class properties
-        self::$tablePrefix = Config::$tablePrefix;
+        self::$tablePrefix = self::$config->tablePrefix;
 
         // get single - self::config('username');
         if ($argCount === 1 && is_string($keyOrArray)) {
             $key = $keyOrArray;
             if (property_exists(Config::class, $key)) {
-                return Config::${$key};
+                return self::$config->$key;
             }
             throw new InvalidArgumentException("Invalid key: $key");
         }
 
-        // get all - create array from Config static properties
-        $config     = [];
+        // get all - create array from Config instance properties
+        $config = [];
         $properties = get_class_vars(Config::class);
         foreach ($properties as $key => $defaultValue) {
-            $config[$key] = Config::${$key};
+            if ($key !== 'instance') { // Skip the instance property
+                $config[$key] = self::$config->$key;
+            }
         }
 
         return $config;
