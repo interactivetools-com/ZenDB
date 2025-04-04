@@ -30,6 +30,8 @@ class DB
     /**
      * Configure database configuration settings.
      *
+     * This is a convenience wrapper around the Config class methods.
+     *
      * - To get the entire config: self::config()
      * - To get a single value: self::config('key')
      * - To set a single value: self::config('key', 'value')
@@ -38,60 +40,24 @@ class DB
      * @param string|array|null $keyOrArray Key to retrieve, or key-value pairs to set.
      * @param string|bool|null $keyValue Value to set for the given key. Ignored if first parameter is an array.
      *
-     * @return string|array The value corresponding to a single key or an array of all settings.
+     * @return mixed The requested configuration value, array of all settings, or null after setting values.
      */
     public static function config(string|array|null $keyOrArray = null, string|int|bool|null $keyValue = null): mixed
     {
-        // Initialize config instance if not already created
-        if (self::$config === null) {
-            self::$config = new Config();
-        }
-        
-        $argCount = func_num_args();
+        self::$config ??= new Config();  // Initialize config instance if not already created
+        $argCount     = func_num_args();
+        $result = match (true) {
+            $argCount === 0                           => self::$config->getAll(), // get all config values
+            $argCount === 1 && is_array($keyOrArray)  => self::$config->setMany($keyOrArray),
+            $argCount === 1 && is_string($keyOrArray) => self::$config->get($keyOrArray),
+            $argCount === 2 && is_string($keyOrArray) => self::$config->set($keyOrArray, $keyValue),
+            default                                   => throw new InvalidArgumentException("Invalid arguments for config() method"),
+        };
 
-        // set multiple - self::config($configMap);
-        if ($argCount === 1 && is_array($keyOrArray)) {
-            foreach ($keyOrArray as $key => $value) {
-                if (property_exists(Config::class, $key)) {
-                    self::$config->$key = $value;
-                } else {
-                    throw new InvalidArgumentException("Invalid key: $key");
-                }
-            }
-        }
-
-        // set single - self::config('username', 'John');
-        if ($argCount === 2) {
-            $key = $keyOrArray;
-            if (property_exists(Config::class, $key)) {
-                self::$config->$key = $keyValue;
-            } else {
-                throw new InvalidArgumentException("Invalid key: $key");
-            }
-        }
-
-        // Update class properties
+        // update table prefix alias property in case it changed
         self::$tablePrefix = self::$config->tablePrefix;
 
-        // get single - self::config('username');
-        if ($argCount === 1 && is_string($keyOrArray)) {
-            $key = $keyOrArray;
-            if (property_exists(Config::class, $key)) {
-                return self::$config->$key;
-            }
-            throw new InvalidArgumentException("Invalid key: $key");
-        }
-
-        // get all - create array from Config instance properties
-        $config = [];
-        $properties = get_class_vars(Config::class);
-        foreach ($properties as $key => $defaultValue) {
-            if ($key !== 'instance') { // Skip the instance property
-                $config[$key] = self::$config->$key;
-            }
-        }
-
-        return $config;
+        return $result;
     }
 
     /**

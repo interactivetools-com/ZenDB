@@ -40,9 +40,7 @@ class configTest extends BaseTest
         ];
         
         // Set default values on the config
-        foreach ($this->defaultValues as $key => $value) {
-            $this->config->$key = $value;
-        }
+        $this->config->setMany($this->defaultValues);
     }
 
     public function testConfigProperties(): void
@@ -53,23 +51,39 @@ class configTest extends BaseTest
         }
     }
 
-    public function testConfigCanSetSingleValue(): void
+    public function testConfigDirectPropertyAccess(): void
     {
         $key = 'tablePrefix';
         $newValue = "changed_";
 
-        // Setting a new value
+        // Setting a new value directly
         $this->config->$key = $newValue;
 
         // Retrieving to confirm it has changed
         $actualValue = $this->config->$key;
-        $this->assertSame($newValue, $actualValue, "After setting a new value, the retrieved value should match the newly set value.");
+        $this->assertSame($newValue, $actualValue, "After setting a new value directly, the retrieved value should match the newly set value.");
 
         // reset values
         $this->config->$key = $this->defaultValues[$key];
     }
 
-    public function testConfigCanSetMultipleValues(): void
+    public function testConfigSet(): void
+    {
+        $key = 'tablePrefix';
+        $newValue = "changed_";
+
+        // Setting a new value using set()
+        $this->config->set($key, $newValue);
+
+        // Retrieving to confirm it has changed
+        $actualValue = $this->config->get($key);
+        $this->assertSame($newValue, $actualValue, "After using set(), the value retrieved with get() should match the newly set value.");
+
+        // reset values
+        $this->config->set($key, $this->defaultValues[$key]);
+    }
+
+    public function testConfigSetMany(): void
     {
         // Define a set of key-value pairs to change in the config
         $newValues = [
@@ -78,20 +92,28 @@ class configTest extends BaseTest
             'databaseAutoCreate' => false,
         ];
 
-        // Apply these new settings
-        foreach ($newValues as $key => $value) {
-            $this->config->$key = $value;
-        }
+        // Apply these new settings using setMany()
+        $this->config->setMany($newValues);
 
         // Verify that each setting was updated as expected
         foreach ($newValues as $key => $expectedValue) {
-            $actualValue = $this->config->$key;
+            $actualValue = $this->config->get($key);
             $this->assertSame($expectedValue, $actualValue, sprintf("The value for the key '%s' should be '%s', but got '%s'", $key, $expectedValue, $actualValue));
         }
 
         // reset values
-        foreach ($this->defaultValues as $key => $value) {
-            $this->config->$key = $value;
+        $this->config->setMany($this->defaultValues);
+    }
+    
+    public function testConfigGetAll(): void
+    {
+        // Get all configuration
+        $allConfig = $this->config->getAll();
+        
+        // Verify all default values are included
+        foreach ($this->defaultValues as $key => $expectedValue) {
+            $this->assertArrayHasKey($key, $allConfig, "Configuration array should contain key: $key");
+            $this->assertSame($expectedValue, $allConfig[$key], "Value for key $key should match expected value");
         }
     }
     
@@ -99,15 +121,47 @@ class configTest extends BaseTest
     {
         // Create a second instance with different values
         $config2 = new Config();
-        $config2->tablePrefix = 'different_prefix_';
-        $config2->connectTimeout = 10;
+        $config2->set('tablePrefix', 'different_prefix_');
+        $config2->set('connectTimeout', 10);
         
         // Verify original instance is unchanged
-        $this->assertSame($this->defaultValues['tablePrefix'], $this->config->tablePrefix, 'Original instance tablePrefix should be unchanged');
-        $this->assertSame($this->defaultValues['connectTimeout'], $this->config->connectTimeout, 'Original instance connectTimeout should be unchanged');
+        $this->assertSame($this->defaultValues['tablePrefix'], $this->config->get('tablePrefix'), 'Original instance tablePrefix should be unchanged');
+        $this->assertSame($this->defaultValues['connectTimeout'], $this->config->get('connectTimeout'), 'Original instance connectTimeout should be unchanged');
         
         // Verify second instance has different values
-        $this->assertSame('different_prefix_', $config2->tablePrefix, 'Second instance should have different tablePrefix');
-        $this->assertSame(10, $config2->connectTimeout, 'Second instance should have different connectTimeout');
+        $this->assertSame('different_prefix_', $config2->get('tablePrefix'), 'Second instance should have different tablePrefix');
+        $this->assertSame(10, $config2->get('connectTimeout'), 'Second instance should have different connectTimeout');
+    }
+    
+    public function testInvalidKeyThrowsException(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->config->get('nonexistentKey');
+    }
+    
+    public function testDBConfigWrapper(): void
+    {
+        // Test DB::config wrapper for setting and getting values
+        $testKey = 'tablePrefix';
+        $originalValue = DB::config($testKey);
+        $newValue = 'test_db_config_';
+        
+        // Test setting a single value
+        DB::config($testKey, $newValue);
+        $this->assertSame($newValue, DB::config($testKey), 'DB::config() should set and get single values correctly');
+        
+        // Test setting multiple values
+        $multiValues = [
+            'tablePrefix' => 'multi_test_',
+            'connectTimeout' => 5
+        ];
+        DB::config($multiValues);
+        
+        foreach ($multiValues as $key => $expectedValue) {
+            $this->assertSame($expectedValue, DB::config($key), "DB::config() should set multiple values correctly for key: $key");
+        }
+        
+        // Reset to original value
+        DB::config($testKey, $originalValue);
     }
 }
