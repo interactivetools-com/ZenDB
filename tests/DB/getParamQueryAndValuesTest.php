@@ -77,23 +77,23 @@ class getParamQueryTest extends BaseTest
         // expectedParamQuery, expectedBindValues
         $tests = [
                     '1 positional params' => [
-                        'SELECT * FROM `:_table` WHERE num = ?',    [7, 6, 5],  // includes unused params
+                        'SELECT * FROM `::table` WHERE num = ?',    [7, 6, 5],  // includes unused params
                         'SELECT * FROM `test_table` WHERE num = ?', [7],
                     ],
                     '3 positional params' => [
-                        'SELECT * FROM `:_table` WHERE num = ? AND division = ? AND city = ?',     ['4', 'east', 'New York'],  // includes unused params
+                        'SELECT * FROM `::table` WHERE num = ? AND division = ? AND city = ?',     ['4', 'east', 'New York'],  // includes unused params
                         'SELECT * FROM `test_table` WHERE num = ? AND division = ? AND city = ?',  ['4', 'east', 'New York'],
                     ],
                     '1 named params' => [
-                        'SELECT * FROM `:_table` WHERE num = :num', [[':division' => 'east', ':num' => 16, ':city' => 'New York']], // includes unused params
+                        'SELECT * FROM `::table` WHERE num = :num', [[':division' => 'east', ':num' => 16, ':city' => 'New York']], // includes unused params
                         'SELECT * FROM `test_table` WHERE num = ?', [16],
                     ],
                     '3 named params' => [
-                        'SELECT * FROM `:_table` WHERE num = :num AND division = :division AND city = :city', [[':name' => 'unused', ':division' => 'east', ':num' => 16, ':city' => 'New York']], // includes unused params
+                        'SELECT * FROM `::table` WHERE num = :num AND division = :division AND city = :city', [[':name' => 'unused', ':division' => 'east', ':num' => 16, ':city' => 'New York']], // includes unused params
                         'SELECT * FROM `test_table` WHERE num = ? AND division = ? AND city = ?', [16, 'east', 'New York'],
                     ],
                     'mixed positional and named params' => [
-                        'SELECT * FROM `:_table` WHERE num = ? AND division = :division AND city = ?', [[':name' => 'unused', ':division' => 'east', 16, 'New York', ':position' => 'top']], // includes unused params
+                        'SELECT * FROM `::table` WHERE num = ? AND division = :division AND city = ?', [[':name' => 'unused', ':division' => 'east', 16, 'New York', ':position' => 'top']], // includes unused params
                         'SELECT * FROM `test_table` WHERE num = ? AND division = ? AND city = ?', [16, 'east', 'New York'],
                     ],
                     [
@@ -112,7 +112,7 @@ class getParamQueryTest extends BaseTest
                         'SELECT * FROM `table` WHERE id = ? OR id = ?', [[':1' => 1, ':2' => 2]],
                         'SELECT * FROM `table` WHERE id = ? OR id = ?', [1, 2]
                     ],[
-                        'SELECT * FROM :_table', [],
+                        'SELECT * FROM ::table', [],
                         'SELECT * FROM test_table', []
                     ],[
                         'SELECT * FROM `table` WHERE id = ? AND name = :name', [[':1' => 1, ':name' => 'John']],

@@ -85,7 +85,7 @@ class queryTest extends BaseTest
         return [
             [
                 'name'               => 'positional and prefix placeholder',
-                'sqlTemplate'        => 'SELECT * FROM :_users WHERE num = ?',
+                'sqlTemplate'        => 'SELECT * FROM ::users WHERE num = ?',
                 'expectedParamQuery' => 'SELECT * FROM test_users WHERE num = ?',
                 'mixedParams'        => [1],
                 'expectedParamMap'   => [':1' => 1],
@@ -93,7 +93,7 @@ class queryTest extends BaseTest
                 'expectedResult'     => [['num' => 1, 'name' => 'John Doe', 'isAdmin' => 1, 'status' => 'Active', 'city' => 'Vancouver', 'dob' => '1985-04-10', 'age' => 38]],
             ],[
                 'name'               => 'named and prefix placeholder',
-                'sqlTemplate'        => 'SELECT num, name, city FROM :_users WHERE city = :city',
+                'sqlTemplate'        => 'SELECT num, name, city FROM ::users WHERE city = :city',
                 'expectedParamQuery' => 'SELECT num, name, city FROM test_users WHERE city = ?',
                 'mixedParams'        => [[':city' => 'Toronto']],
                 'expectedParamMap'   => [':city' => 'Toronto'],
@@ -104,7 +104,7 @@ class queryTest extends BaseTest
                 ],
             ],[
                 'name'               => 'mixed and alternating named and positional placeholders',
-                'sqlTemplate'        => 'SELECT * FROM :_users WHERE (status = :status AND age > ?) OR (city = :city AND dob >= ?)',
+                'sqlTemplate'        => 'SELECT * FROM ::users WHERE (status = :status AND age > ?) OR (city = :city AND dob >= ?)',
                 'expectedParamQuery' => 'SELECT * FROM test_users WHERE (status = ? AND age > ?) OR (city = ? AND dob >= ?)',
                 'mixedParams'        => [[':status' => 'Suspended', 30, ':city' => 'Vancouver', '1980-01-01']],
                 'expectedParamMap'   => [':status' => 'Suspended', ':1' => 30, ':city' => 'Vancouver', ':2' => '1980-01-01'],
@@ -117,7 +117,7 @@ class queryTest extends BaseTest
                 ]
             ],[
                 'name'               => 'test all PHP var types (except array, object & null)',
-                'sqlTemplate'        => 'SELECT * FROM :_users WHERE num >= :float AND age < :int AND (isAdmin = :bool OR isAdmin IS NULL) AND name != :string',
+                'sqlTemplate'        => 'SELECT * FROM ::users WHERE num >= :float AND age < :int AND (isAdmin = :bool OR isAdmin IS NULL) AND name != :string',
                 'expectedParamQuery' => 'SELECT * FROM test_users WHERE num >= ? AND age < ? AND (isAdmin = ? OR isAdmin IS NULL) AND name != ?',
                 'mixedParams'        => [[':float' => 8.234, ':int' => 36, ':bool' => true, ':string' => 'a']],
                 'expectedParamMap'   => [':float' => 8.234, ':int' => 36, ':bool' => true, ':string' => 'a'],
@@ -133,10 +133,10 @@ class queryTest extends BaseTest
                 'name'               => 'join test',
                 'sqlTemplate'        => <<<__SQL__
 SELECT *, p.price AS unit_price, (od.quantity * p.price) AS total_price
-FROM :_users         AS u
-JOIN :_orders        AS o  ON u.num         = o.user_id
-JOIN :_order_details AS od ON o.order_id    = od.order_id
-JOIN :_products      AS p  ON od.product_id = p.product_id
+FROM ::users         AS u
+JOIN ::orders        AS o  ON u.num         = o.user_id
+JOIN ::order_details AS od ON o.order_id    = od.order_id
+JOIN ::products      AS p  ON od.product_id = p.product_id
 WHERE u.num = :num
 __SQL__,
                 'expectedParamQuery' => <<<__SQL__
@@ -235,7 +235,7 @@ __SQL__,
     }
 
     public function testReturnObjects(): void {
-      $resultSet = DB::query("SELECT * FROM :_products");
+      $resultSet = DB::query("SELECT * FROM ::products");
       $this->assertInstanceOf(SmartArray::class, $resultSet);
 
       foreach ($resultSet as $row) {

@@ -183,7 +183,7 @@ class DB
         $db = new DB();
         $db->parser->addParamsFromArgs($params);
         $whereEtc    = $db->getWhereEtc($idArrayOrSql);
-        $sqlTemplate = "SELECT * FROM `:_$baseTable` $whereEtc";
+        $sqlTemplate = "SELECT * FROM `::$baseTable` $whereEtc";
 
         // return ResultSet
         $db->parser->setSqlTemplate($sqlTemplate);
@@ -214,7 +214,7 @@ class DB
         // build SQL template
         $db->parser->addParamsFromArgs($params);
         $whereEtc    = $db->getWhereEtc($idArrayOrSql);
-        $sqlTemplate = rtrim("SELECT * FROM `:_$baseTable` $whereEtc") . " LIMIT 1";
+        $sqlTemplate = rtrim("SELECT * FROM `::$baseTable` $whereEtc") . " LIMIT 1";
         $db->parser->setSqlTemplate($sqlTemplate);
 
         // error checking
@@ -259,7 +259,7 @@ class DB
         // Create insert query
         $db          = new DB();
         $setClause   = $db->getSetClause($colsToValues);
-        $sqlTemplate = "INSERT INTO `:_$baseTable` $setClause";
+        $sqlTemplate = "INSERT INTO `::$baseTable` $setClause";
 
         // prepare and execute statement
         $db->parser->setSqlTemplate($sqlTemplate);
@@ -297,7 +297,7 @@ class DB
         $db->parser->addParamsFromArgs($params);
         $setClause   = $db->getSetClause($colsToValues);
         $whereEtc    = $db->getWhereEtc($idArrayOrSql, true); // 2nd argument REQUIRES WHERE to prevent accidental deletions
-        $sqlTemplate = "UPDATE `:_$baseTable` $setClause $whereEtc";
+        $sqlTemplate = "UPDATE `::$baseTable` $setClause $whereEtc";
 
         // prepare and execute statement
         $db->parser->setSqlTemplate($sqlTemplate);
@@ -332,7 +332,7 @@ class DB
         $db = new DB();
         $db->parser->addParamsFromArgs($params);
         $whereEtc = $db->getWhereEtc($idArrayOrSql, true); // 2nd argument REQUIRES WHERE to prevent accidental deletions
-        $db->parser->setSqlTemplate("DELETE FROM `:_$baseTable` $whereEtc");
+        $db->parser->setSqlTemplate("DELETE FROM `::$baseTable` $whereEtc");
 
         // prepare and execute statement
         try {
@@ -366,7 +366,7 @@ class DB
         $db = new DB();
         $db->parser->addParamsFromArgs($params);
         $whereEtc = $db->getWhereEtc($idArrayOrSql);
-        $db->parser->setSqlTemplate("SELECT COUNT(*) FROM `:_$baseTable` $whereEtc");
+        $db->parser->setSqlTemplate("SELECT COUNT(*) FROM `::$baseTable` $whereEtc");
 
         // return count
         try {
