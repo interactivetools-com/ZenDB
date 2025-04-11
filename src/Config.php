@@ -8,33 +8,41 @@ use InvalidArgumentException;
 /**
  * Config class for managing ZenDB configuration values.
  *
- * Configuration values can be manipulated using getter/setter methods or directly:
+ * This class allows setting and retrieving database connection settings,
+ * SQL configuration, logging options, and other ZenDB behaviors.
  *
- * // Using methods (to be deprecated)
+ * Configuration can be set using direct property access (preferred):
+ *
+ * ```php
  * $config = new Config();
- * $config->set('hostname', 'localhost');
- * $config->setMany(['username' => 'root', 'password' => 'password']);
- * $hostname = $config->get('hostname');
- * $allConfig = $config->getAll();
- *
- * // Or direct property access (preferred)
  * $config->hostname = 'localhost';
  * $config->username = 'root';
+ * $config->password = 'password';
+ * ```
+ *
+ * Or via constructor for multiple values:
+ *
+ * ```php
+ * $config = new Config([
+ *     'hostname' => 'localhost',
+ *     'username' => 'root',
+ *     'password' => 'password'
+ * ]);
+ * ```
  */
 class Config
 {
-    #region Configuration Methods
+    #region Constructor
 
     /**
-     * Creates a new Config instance.
+     * Creates a new Config instance with optional initial values.
      *
-     * @param array|null $config Optional array of configuration key-value pairs to set
+     * @param array|null $config Optional configuration key-value pairs
      * @throws InvalidArgumentException If any key doesn't exist in the Config class
      */
     public function __construct(?array $config = null)
     {
         if ($config !== null) {
-            // Direct property setting instead of using setMany
             foreach ($config as $key => $value) {
                 if (!property_exists($this, $key)) {
                     throw new InvalidArgumentException("Invalid configuration key: $key");
@@ -45,45 +53,83 @@ class Config
     }
 
     #endregion
-    #region Database Connection Settings
+    #region Basic Connection Settings
 
-    // Required connection parameters
-    public ?string $hostname    = null;                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          // can also contain :port
-    public ?string $username    = null;                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              // username
-    public ?string $password    = null;                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              // password
-    public ?string $database    = null;                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              // database name
-    public ?string $tablePrefix = '';                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      // prefix for all table names; e.g.; cms_
-    public ?string $primaryKey  = '';                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      // primary key used for shortcut where = (int) num queries
+    /**
+     * Mysql hostname (can include port, e.g. 'localhost:3306')
+     */
+    public ?string $hostname = null;
+
+    /**
+     * Mysql username for authentication
+     */
+    public ?string $username = null;
+
+    /**
+     * Mysql password for authentication
+     */
+    public ?string $password = null;
+
+    /**
+     * Mysql database to connect to
+     */
+    public ?string $database = null;
+
+    /**
+     * Table prefix automatically added to all table names (e.g. 'cms_')
+     */
+    public ?string $tablePrefix = '';
+
+    /**
+     * Default primary key field name used for shorthand where=$num queries
+     */
+    public ?string $primaryKey = '';
 
     #endregion
-    #region SQL Settings
+    #region Advanced Connection Settings
 
-    // SQL mode settings
+    /**
+     * Minimum MySQL version required for compatibility
+     */
+    public ?string $versionRequired = "5.7.32";
+
+    /**
+     * MySQL SQL mode configuration
+     * Default enforces strict mode and important error conditions
+     */
     public ?string $set_sql_mode = "STRICT_ALL_TABLES,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION";
 
+    /**
+     * Whether to require SSL for database connections
+     */
+    public bool $requireSSL = false;
+
+    /**
+     * Connection timeout in seconds (MYSQLI_OPT_CONNECT_TIMEOUT)
+     */
+    public ?int $connectTimeout = 3;
+
+    /**
+     * Read timeout in seconds (MYSQLI_OPT_READ_TIMEOUT)
+     */
+    public ?int $readTimeout = 60;
+
     #endregion
-    #region Advanced Options
+    #region Feature Toggles
 
-    // Connection options
-    public ?bool   $usePhpTimezone     = true;                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               // Set mysql timezone to match PHP timezone (so MySQL NOW() matches PHP time())
-    public ?string $versionRequired    = "5.7.32";                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            // minimum MySQL version required
-    public bool    $requireSSL         = false;                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  // require SSL connections
-    public bool    $databaseAutoCreate = true;                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                // automatically creates database if it doesn't exist
-    public ?int    $connectTimeout     = 3;                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      // connection timeout in seconds; sets MYSQLI_OPT_CONNECT_TIMEOUT
-    public ?int    $readTimeout        = 60;                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     // read timeout in seconds; sets MYSQLI_OPT_READ_TIMEOUT
+    /**
+     * Custom load handler for SmartArray integration
+     *
+     * @var string|callable|null
+     *
+     * Possible values:
+     *
+     * $config->smartArrayLoadHandler = '\Namespace\Class::load';           // Function name as string
+     * $config->smartArrayLoadHandler = [MyLoadHandler::class, 'load'];     // Static method
+     * $config->smartArrayLoadHandler = [$object, 'load'];                  // Instance method
+     */
+    public mixed $smartArrayLoadHandler = null;
 
-    // Feature flags
-    public bool $useSmartJoins         = true;                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     // enable smart joins; can be toggled at runtime
-    public bool $usePreparedStatements = true;                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     // use prepared statements instead of escaped queries
-
-    #endregion
-    #region Logging Options
-
-    // Query logging
-    public bool    $enableLogging = false;                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         // enable live logging of queries to a file
-    public ?string $logFile       = "_mysql_query_log.php";                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        // file to log queries to
-
-    // Error display settings
     /**
      * Controls whether to show SQL in error messages
      *
@@ -95,29 +141,86 @@ class Config
      * - callable = function(): bool - custom logic to determine if SQL should be shown
      *
      * Examples:
-     *   $config->showSqlInErrors = fn() => SomeUserClass::isCurrentUserAdmin(); // Anonymous function
-     *   $config->showSqlInErrors = [UserService::class, 'isAdminUser'];         // Static method
-     *   $config->showSqlInErrors = [$securityService, 'canViewSqlErrors'];      // Instance method
+     * ```php
+     * // Anonymous function
+     * $config->showSqlInErrors = fn() => SomeUserClass::isCurrentUserAdmin();
+     *
+     * // Static method
+     * $config->showSqlInErrors = [UserService::class, 'isAdminUser'];
+     *
+     * // Instance method
+     * $config->showSqlInErrors = [$securityService, 'canViewSqlErrors'];
+     * ```
      */
     public mixed $showSqlInErrors = false;
 
-    // SmartArray integration
     /**
-     * Custom load handler for SmartArray integration
-     *
-     * @var string|callable|null
-     *
-     * Possible values:
-     * - null = no custom handler (default)
-     * - string = fully qualified function name
-     * - callable = custom load handler function
-     *
-     * Examples:
-     *   $config->smartArrayLoadHandler = '\Namespace\Class::load';             // Function name as string
-     *   $config->smartArrayLoadHandler = [MyLoadHandler::class, 'load'];         // Static method
-     *   $config->smartArrayLoadHandler = [$loadService, 'handleLoad'];           // Instance method
+     * Use prepared statements instead of escaped queries
+     * Recommended for security and performance
      */
-    public mixed $smartArrayLoadHandler = null;
+    public bool $usePreparedStatements = true;
+
+    /**
+     * Whether to synchronize MySQL timezone with PHP timezone
+     * Ensures MySQL NOW() matches PHP time() function
+     */
+    public ?bool $usePhpTimezone = true;
+
+    /**
+     * Whether to automatically create the database if it doesn't exist
+     */
+    public bool $databaseAutoCreate = true;
+
+    /**
+     * Enable smart join functionality for table relationships
+     * Can be toggled at runtime
+     */
+    public bool $useSmartJoins = true;
+
+    #endregion
+    #region Logging
+
+    /**
+     * Enable logging of SQL queries to a file
+     */
+    public bool $enableLogging = false;
+
+    /**
+     * Path to file for SQL query logging
+     */
+    public ?string $logFile = "_mysql_query_log.php";
+
+    #endregion
+    #region Magic Methods
+
+    /**
+     * Prevents setting undefined properties
+     * 
+     * @param string $name Property name being set
+     * @param mixed $value Value being assigned to the property
+     * @throws InvalidArgumentException Always throws an exception for undefined properties
+     */
+    public function __set(string $name, mixed $value): void
+    {
+        throw new InvalidArgumentException(
+            "Attempting to set unknown configuration property: '$name'. " .
+            "Config properties must be explicitly declared in the class."
+        );
+    }
+
+    /**
+     * Prevents accessing undefined properties
+     * 
+     * @param string $name Property name being accessed
+     * @throws InvalidArgumentException Always throws an exception for undefined properties
+     */
+    public function __get(string $name): never
+    {
+        throw new InvalidArgumentException(
+            "Attempting to get unknown configuration property: '$name'. " .
+            "Config properties must be explicitly declared in the class."
+        );
+    }
 
     #endregion
 }

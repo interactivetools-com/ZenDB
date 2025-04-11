@@ -9,21 +9,45 @@ require_once __DIR__ . '/bootstrap.php';
 use InvalidArgumentException;
 use RuntimeException;
 use Itools\ZenDB\Config;
-use Itools\ZenDB\DB;
 use PHPUnit\Framework\TestCase;
 
 /**
- * Tests for the Config class directly and through the DB::config wrapper
+ * Tests for the Config class directly
  */
 class ConfigTest extends TestCase
 {
+    #region Setup
+
     private Config $config;
     private array $defaultValues;
-    private array $originalDBConfigValues = [];
+    private array $expectedClassDefaults;
 
     // Runs before each test method in this class
     protected function setUp(): void
     {
+        // Define the expected class default values
+        $this->expectedClassDefaults = [
+            'hostname'               => null,
+            'username'               => null,
+            'password'               => null,
+            'database'               => null,
+            'tablePrefix'            => '',
+            'primaryKey'             => '',
+            'usePhpTimezone'         => true,
+            'set_sql_mode'           => 'STRICT_ALL_TABLES,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION',
+            'versionRequired'        => '5.7.32',
+            'requireSSL'             => false,
+            'databaseAutoCreate'     => true,
+            'connectTimeout'         => 3,
+            'readTimeout'            => 60,
+            'usePreparedStatements'  => true,
+            'useSmartJoins'          => true,
+            'enableLogging'          => false,
+            'logFile'                => '_mysql_query_log.php',
+            'showSqlInErrors'        => false,
+            'smartArrayLoadHandler'  => null,
+        ];
+
         // Initialize a new Config instance
         $this->config = new Config();
 
@@ -48,26 +72,49 @@ class ConfigTest extends TestCase
         foreach ($this->defaultValues as $key => $value) {
             $this->config->$key = $value;
         }
-        
-        // For DB::config tests, store original values
-        DB::disconnect();
-        $this->originalDBConfigValues['tablePrefix'] = DB::config('tablePrefix');
-        $this->originalDBConfigValues['connectTimeout'] = DB::config('connectTimeout');
-        $this->originalDBConfigValues['requireSSL'] = DB::config('requireSSL');
-    }
-    
-    // Runs after each test method in this class
-    protected function tearDown(): void
-    {
-        // Restore original values for DB::config tests
-        if (!empty($this->originalDBConfigValues)) {
-            foreach ($this->originalDBConfigValues as $key => $value) {
-                DB::config($key, $value);
-            }
-        }
     }
 
+    #endregion
     #region Config Class Tests
+
+    public function testClassDefaultValues(): void
+    {
+        // Create a fresh Config instance with no values set
+        $config = new Config();
+
+        // Verify that the default values in the class match what we expect
+        foreach ($this->expectedClassDefaults as $key => $expectedValue) {
+            $this->assertSame(
+                $expectedValue,
+                $config->$key,
+                "Default class value for $key should be " .
+                (is_bool($expectedValue) ? ($expectedValue ? 'true' : 'false') :
+                (is_null($expectedValue) ? 'null' : $expectedValue))
+            );
+        }
+
+        // Check if all properties are accounted for in our test
+        $objectVars = get_object_vars($config);
+        $arrayCast = (array)$config;
+
+        // Check that we've tested all public properties
+        foreach ($objectVars as $key => $value) {
+            $this->assertArrayHasKey(
+                $key,
+                $this->expectedClassDefaults,
+                "Public property '$key' exists in Config but is not being tested"
+            );
+        }
+
+        // Check for any non-public properties that might exist
+        $nonPublicCount = count($arrayCast) - count($objectVars);
+        $this->assertEquals(
+            0,
+            $nonPublicCount,
+            "Found $nonPublicCount non-public properties in Config class. All properties should be public."
+        );
+    }
+
 
     public function testConstructorWithConfig(): void
     {
@@ -79,9 +126,9 @@ class ConfigTest extends TestCase
             'connectTimeout' => 10,
             'readTimeout' => 30,
         ];
-        
+
         $config = new Config($configData);
-        
+
         $this->assertEquals('localhost', $config->hostname);
         $this->assertEquals('root', $config->username);
         $this->assertEquals('password', $config->password);
@@ -89,18 +136,18 @@ class ConfigTest extends TestCase
         $this->assertEquals(10, $config->connectTimeout);
         $this->assertEquals(30, $config->readTimeout);
     }
-    
+
     public function testConfigurationAcceptsAnyValues(): void
     {
         $config = new Config();
-        
+
         // Now we can set any values without validation directly
         $config->connectTimeout = -1;
         $this->assertEquals(-1, $config->connectTimeout, 'Should accept negative connect timeout');
-        
+
         $config->readTimeout = 0;
         $this->assertEquals(0, $config->readTimeout, 'Should accept zero read timeout');
-        
+
         // Set without requiring all fields
         $config->database = 'test_db';
         // No need for username or hostname
@@ -243,81 +290,42 @@ class ConfigTest extends TestCase
         $this->assertSame('different_prefix_', $config2->tablePrefix, 'Second instance should have different tablePrefix');
         $this->assertSame(10, $config2->connectTimeout, 'Second instance should have different connectTimeout');
     }
-    
-    #endregion Config Class Tests
-    
-    #region DB::config Wrapper Tests
-    
-    public function testDBConfigGetSingleValue(): void
+
+    public function testUndefinedPropertyAssignment(): void
     {
-        // Test getting a single configuration value
-        $value = DB::config('tablePrefix');
-        $this->assertIsString($value, 'Getting tablePrefix should return a string');
-        $this->assertSame($this->originalDBConfigValues['tablePrefix'], $value, 'Should return the correct value');
-    }
-
-    public function testDBConfigSetSingleValue(): void
-    {
-        // Test setting a single value
-        $newValue = 'test_db_config_';
-        DB::config('tablePrefix', $newValue);
-
-        // Verify the value was set correctly
-        $this->assertSame($newValue, DB::config('tablePrefix'), 'DB::config() should set value correctly');
-    }
-
-    public function testDBConfigGetAllValues(): void
-    {
-        // Get all configuration
-        $allConfig = DB::config();
-
-        // Verify structure of returned config array
-        $this->assertIsArray($allConfig, 'Getting all config should return an array');
-        $this->assertArrayHasKey('tablePrefix', $allConfig, 'Config array should include tablePrefix');
-        $this->assertArrayHasKey('hostname', $allConfig, 'Config array should include hostname');
-        $this->assertArrayHasKey('username', $allConfig, 'Config array should include username');
-    }
-
-    public function testDBConfigSetMultipleValues(): void
-    {
-        // Test setting multiple values at once
-        $multiValues = [
-            'tablePrefix' => 'multi_test_',
-            'connectTimeout' => 5
-        ];
-
-        DB::config($multiValues);
-
-        // Verify all values were set correctly
-        foreach ($multiValues as $key => $expectedValue) {
-            $this->assertSame($expectedValue, DB::config($key),
-                "DB::config() should set multiple values correctly for key: $key");
+        // Test that using undefined properties throws appropriate exceptions
+        $config = new Config();
+        
+        // Setting an undefined property should throw InvalidArgumentException
+        try {
+            $config->undefinedProperty = 'test value';
+            $this->fail('Setting an undefined property should throw an InvalidArgumentException');
+        } catch (InvalidArgumentException $e) {
+            $this->assertStringContainsString(
+                'unknown configuration property',
+                $e->getMessage(),
+                'Exception message should indicate unknown property'
+            );
         }
+        
+        // Getting an undefined property should also throw InvalidArgumentException
+        try {
+            $value = $config->undefinedProperty;
+            $this->fail('Getting an undefined property should throw an InvalidArgumentException');
+        } catch (InvalidArgumentException $e) {
+            $this->assertStringContainsString(
+                'unknown configuration property',
+                $e->getMessage(),
+                'Exception message should indicate unknown property'
+            );
+        }
+        
+        // Testing isset behavior with undefined property
+        $this->assertFalse(
+            isset($config->undefinedProperty),
+            'isset() should return false for undefined properties'
+        );
     }
 
-    public function testDBConfigInvalidKey(): void
-    {
-        // Test that requesting an invalid key throws an exception
-        $this->expectException(InvalidArgumentException::class);
-        DB::config('nonExistentKey');
-    }
-
-    public function testDBStaticTablePrefixUpdates(): void
-    {
-        // Test that static $tablePrefix is updated when config is changed
-        $originalStaticPrefix = DB::$tablePrefix;
-        $newPrefix = 'static_prefix_test_';
-
-        // Change prefix through config
-        DB::config('tablePrefix', $newPrefix);
-
-        // Verify that static property was updated
-        $this->assertSame($newPrefix, DB::$tablePrefix,
-            'Static DB::$tablePrefix should be updated when tablePrefix is changed via config');
-
-        // Reset to original
-        DB::config('tablePrefix', $originalStaticPrefix);
-    }
-    
-    #endregion DB::config Wrapper Tests
+    #endregion Config Class Tests
 }
