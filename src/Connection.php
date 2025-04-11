@@ -193,8 +193,8 @@ class Connection
         }
 
         // SET sql_mode
-        if (!empty($this->config->set_sql_mode) && $this->config->set_sql_mode !== $mysqlDefaults['@@sql_mode']) {
-            $query = "SET sql_mode = '{$this->config->set_sql_mode}';";
+        if (!empty($this->config->sqlMode) && $this->config->sqlMode !== $mysqlDefaults['@@sql_mode']) {
+            $query = "SET sql_mode = '{$this->config->sqlMode}';";
             $mysqli->real_query($query) || throw new RuntimeException("Set command failed:\n$query");
         }
     }

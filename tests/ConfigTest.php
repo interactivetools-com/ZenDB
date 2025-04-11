@@ -34,7 +34,7 @@ class ConfigTest extends TestCase
             'tablePrefix'            => '',
             'primaryKey'             => '',
             'usePhpTimezone'         => true,
-            'set_sql_mode'           => 'STRICT_ALL_TABLES,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION',
+            'sqlMode'           => 'STRICT_ALL_TABLES,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION',
             'versionRequired'        => '5.7.32',
             'requireSSL'             => false,
             'databaseAutoCreate'     => true,
@@ -60,7 +60,7 @@ class ConfigTest extends TestCase
             'tablePrefix'            => 'test_',                  // prefix for all table names; e.g.; cms_
             'primaryKey'             => 'num',                    // primary key used for shortcut where = (int) num queries
             'usePhpTimezone'         => true,                     // Set MySQL timezone to the same offset as current PHP timezone
-            'set_sql_mode'           => 'STRICT_ALL_TABLES,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION,ONLY_FULL_GROUP_BY',
+            'sqlMode'           => 'STRICT_ALL_TABLES,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION,ONLY_FULL_GROUP_BY',
             'versionRequired'        => '5.7.32',                 // minimum MySQL version required
             'requireSSL'             => false,                    // require SSL connections
             'databaseAutoCreate'     => true,                     // automatically creates database if it doesn't exist

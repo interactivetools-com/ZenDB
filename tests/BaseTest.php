@@ -25,7 +25,7 @@ abstract class BaseTest extends TestCase
         $config->tablePrefix        = 'test_';     // prefix for all table names, e.g., 'cms_'
         $config->primaryKey         = 'num';       // primary key used for shortcut where = (int) num queries
         $config->usePhpTimezone     = true;        // Set MySQL timezone to the same offset as current PHP timezone
-        $config->set_sql_mode       = 'STRICT_ALL_TABLES,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION,ONLY_FULL_GROUP_BY';
+        $config->sqlMode       = 'STRICT_ALL_TABLES,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION,ONLY_FULL_GROUP_BY';
         $config->versionRequired    = '5.7.32';    // minimum MySQL version required. An exception will be thrown if the server version is lower than this.
         $config->requireSSL         = false;       // require SSL connections
         $config->databaseAutoCreate = true;        // automatically creates database if it doesn't exist
@@ -47,7 +47,7 @@ abstract class BaseTest extends TestCase
             'tablePrefix'        => 'test_',
             'primaryKey'         => 'num',
             'usePhpTimezone'     => true,
-            'set_sql_mode'       => 'STRICT_ALL_TABLES,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION,ONLY_FULL_GROUP_BY',
+            'sqlMode'       => 'STRICT_ALL_TABLES,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION,ONLY_FULL_GROUP_BY',
             'versionRequired'    => '5.7.32',
             'requireSSL'         => false,
             'databaseAutoCreate' => true,

@@ -97,7 +97,7 @@ class Config
      * MySQL SQL mode configuration
      * Default enforces strict mode and important error conditions
      */
-    public ?string $set_sql_mode = "STRICT_ALL_TABLES,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION";
+    public ?string $sqlMode = "STRICT_ALL_TABLES,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION";
 
     /**
      * Whether to require SSL for database connections
@@ -195,7 +195,7 @@ class Config
 
     /**
      * Prevents setting undefined properties
-     * 
+     *
      * @param string $name Property name being set
      * @param mixed $value Value being assigned to the property
      * @throws InvalidArgumentException Always throws an exception for undefined properties
@@ -204,13 +204,13 @@ class Config
     {
         throw new InvalidArgumentException(
             "Attempting to set unknown configuration property: '$name'. " .
-            "Config properties must be explicitly declared in the class."
+            "Config properties must be explicitly declared in the class.",
         );
     }
 
     /**
      * Prevents accessing undefined properties
-     * 
+     *
      * @param string $name Property name being accessed
      * @throws InvalidArgumentException Always throws an exception for undefined properties
      */
@@ -218,7 +218,7 @@ class Config
     {
         throw new InvalidArgumentException(
             "Attempting to get unknown configuration property: '$name'. " .
-            "Config properties must be explicitly declared in the class."
+            "Config properties must be explicitly declared in the class.",
         );
     }
 

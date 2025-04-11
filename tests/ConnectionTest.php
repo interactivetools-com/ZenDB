@@ -36,7 +36,7 @@ class ConnectionTest extends TestCase
         $config->tablePrefix        = 'test_';
         $config->primaryKey         = 'num';
         $config->usePhpTimezone     = true;
-        $config->set_sql_mode       = 'STRICT_ALL_TABLES,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION';
+        $config->sqlMode       = 'STRICT_ALL_TABLES,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION';
         $config->versionRequired    = '5.7.32';
         $config->requireSSL         = false;
         $config->databaseAutoCreate = true;
@@ -189,7 +189,7 @@ class ConnectionTest extends TestCase
     public function testSetSqlModeDoesNotBreakConnection(): void
     {
         $config = $this->getConfig([
-            'set_sql_mode' => 'STRICT_ALL_TABLES,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION',
+            'sqlMode' => 'STRICT_ALL_TABLES,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION',
         ]);
 
         $connection = new Connection($config);
