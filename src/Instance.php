@@ -19,10 +19,80 @@ class Instance
 {
     #region Properties
 
-    public Connection   $connection;
-    public Parser       $parser;
-    private ?SmartArray $resultSet = null;
-    public Config       $config;
+    /**
+     * The database connection object
+     */
+    public Connection $connection;
+
+    /**
+     * The SQL parser for query construction
+     */
+    public Parser $parser;
+
+    /**
+     * The last query result set
+     */
+    private ?SmartArray $resultSet;
+
+    #endregion
+    #region Configuration Properties
+
+    /**
+     * Table prefix automatically added to all table names (e.g. 'cms_')
+     */
+    public ?string $tablePrefix;
+
+    /**
+     * Default primary key field name used for shorthand where=$num queries
+     */
+    public ?string $primaryKey;
+
+    /**
+     * Custom load handler for SmartArray integration
+     *
+     * @var string|callable|null
+     *
+     * Possible values:
+     *
+     * $instance->smartArrayLoadHandler = '\Namespace\Class::load';           // Function name as string
+     * $instance->smartArrayLoadHandler = [MyLoadHandler::class, 'load'];     // Static method
+     * $instance->smartArrayLoadHandler = [$object, 'load'];                  // Instance method
+     */
+    public mixed $smartArrayLoadHandler;
+
+    /**
+     * Controls whether to show SQL in error messages
+     *
+     * @var bool|callable
+     *
+     * Possible values:
+     * - false = never show SQL (default)
+     * - true = always show SQL
+     * - callable = function(): bool - custom logic to determine if SQL should be shown
+     */
+    public mixed $showSqlInErrors;
+
+    /**
+     * Use prepared statements instead of escaped queries
+     * Recommended for security and performance
+     */
+    public bool $usePreparedStatements;
+
+    /**
+     * Enable smart join functionality for table relationships
+     * Can be toggled at runtime
+     */
+    public bool $useSmartJoins;
+
+    /**
+     * Enable logging of SQL queries to a file
+     */
+    public bool $enableLogging;
+
+    /**
+     * Path to file for SQL query logging
+     */
+    public ?string $logFile;
 
     #endregion
     #region Config & Connection
@@ -30,33 +100,19 @@ class Instance
     /**
      * Creates a new database instance with the provided configuration or connection.
      *
-     * @param array|Connection|Config $configOrConnection Database configuration array, Connection instance, or Config object
-     * @throws Exception If connection fails or configuration is invalid
+     * @param array $options Configuration array, Connection instance, or Config object (for backward compatibility)
      */
-    public function __construct(array|Connection|Config $configOrConnection)
+    public function __construct(array $options, Connection $connection)
     {
-        $this->parser = new Parser();
-        
-        if ($configOrConnection instanceof Config) {
-            $this->config     = $configOrConnection;
-            $this->connection = new Connection($this->config);
-        } else {
-            if ($configOrConnection instanceof Connection) {
-                $this->connection = $configOrConnection;
-                $this->config     = $this->connection->config;
+        $this->parser     = new Parser();
+        $this->connection = $connection;
+
+        // Set option properties
+        foreach ($options as $property => $value) {
+            if (property_exists($this, $property)) {
+                $this->$property = $value;
             } else {
-                // Array configuration - set properties directly
-                $this->config = new Config();
-
-                // Directly set config properties from array
-                foreach ($configOrConnection as $key => $value) {
-                    if (!property_exists($this->config, $key)) {
-                        throw new InvalidArgumentException("Invalid configuration key: $key");
-                    }
-                    $this->config->$key = $value;
-                }
-
-                $this->connection = new Connection($this->config);
+                throw new InvalidArgumentException("Invalid configuration property: $property");
             }
         }
     }
@@ -88,17 +144,10 @@ class Instance
         $this->parser = new Parser();
 
         // Add parameters and set SQL template
-        $this->parser->addParamsFromArgs($params);
+        $this->parser->params->addParamsFromArgs($params);
         $this->parser->setSqlTemplate($sqlTemplate);
 
         try {
-            // Ensure we have a valid mysqli connection
-            $mysqli = $this->connection->mysqli;
-            if (!$mysqli) {
-                throw new RuntimeException("Missing mysqli connection");
-            }
-
-            // Execute the query with our connection
             $this->resultSet = $this->executeQuery($this->parser);
         } catch (Throwable $e) {
             throw new DBException("Error executing query: {$e->getMessage()}", 0, $e);
@@ -127,16 +176,16 @@ class Instance
     public function select(string $baseTable, int|array|string $idArrayOrSql = [], ...$params): SmartArray
     {
         // returns array with any (or none) matching rows or throws exception on sql error
-        Assert::ValidTableName($baseTable);
+        Assert::validTableName($baseTable);
 
         // Reset parser for new query
         $this->parser = new Parser();
 
         // build SQL template
-        $this->parser->addParamsFromArgs($params);
-        $primaryKey  = $this->config->primaryKey;
+        $this->parser->params->addParamsFromArgs($params);
+        $primaryKey  = $this->primaryKey;
         $whereEtc    = $this->parser->getWhereEtc($idArrayOrSql, false, $primaryKey);
-        $tablePrefix = $this->config->tablePrefix;
+        $tablePrefix = $this->tablePrefix;
         $sqlTemplate = "SELECT * FROM `$tablePrefix$baseTable` $whereEtc";
 
         // return ResultSet
@@ -162,16 +211,16 @@ class Instance
      */
     public function get(string $baseTable, int|array|string $idArrayOrSql = [], ...$params): SmartArray
     {
-        Assert::ValidTableName($baseTable);
+        Assert::validTableName($baseTable);
 
         // Reset parser for new query
         $this->parser = new Parser();
 
         // build SQL template
-        $this->parser->addParamsFromArgs($params);
-        $primaryKey  = $this->config->primaryKey;
+        $this->parser->params->addParamsFromArgs($params);
+        $primaryKey  = $this->primaryKey;
         $whereEtc    = $this->parser->getWhereEtc($idArrayOrSql, false, $primaryKey);
-        $tablePrefix = $this->config->tablePrefix;
+        $tablePrefix = $this->tablePrefix;
         $sqlTemplate = rtrim("SELECT * FROM `$tablePrefix$baseTable` $whereEtc") . " LIMIT 1";
         $this->parser->setSqlTemplate($sqlTemplate);
 
@@ -218,14 +267,14 @@ class Instance
      */
     public function insert(string $baseTable, array $colsToValues): int
     {
-        Assert::ValidTableName($baseTable);
+        Assert::validTableName($baseTable);
 
         // Reset parser for new query
         $this->parser = new Parser();
 
         // Create insert query
         $setClause   = $this->parser->getSetClause($colsToValues);
-        $tablePrefix = $this->config->tablePrefix;
+        $tablePrefix = $this->tablePrefix;
         $sqlTemplate = "INSERT INTO `$tablePrefix$baseTable` $setClause";
 
         // prepare and execute statement
@@ -264,17 +313,17 @@ class Instance
      */
     public function update(string $baseTable, array $colsToValues, int|array|string $idArrayOrSql, ...$params): int
     {
-        Assert::ValidTableName($baseTable);
+        Assert::validTableName($baseTable);
 
         // Reset parser for new query
         $this->parser = new Parser();
 
         // create query
-        $this->parser->addParamsFromArgs($params);
+        $this->parser->params->addParamsFromArgs($params);
         $setClause   = $this->parser->getSetClause($colsToValues);
-        $primaryKey  = $this->config->primaryKey;
+        $primaryKey  = $this->primaryKey;
         $whereEtc    = $this->parser->getWhereEtc($idArrayOrSql, true, $primaryKey); // REQUIRES WHERE to prevent accidental deletions
-        $tablePrefix = $this->config->tablePrefix;
+        $tablePrefix = $this->tablePrefix;
         $sqlTemplate = "UPDATE `$tablePrefix$baseTable` $setClause $whereEtc";
 
         // prepare and execute statement
@@ -311,16 +360,16 @@ class Instance
      */
     public function delete(string $baseTable, int|array|string $idArrayOrSql, ...$params): int
     {
-        Assert::ValidTableName($baseTable);
+        Assert::validTableName($baseTable);
 
         // Reset parser for new query
         $this->parser = new Parser();
 
         // create query
-        $this->parser->addParamsFromArgs($params);
-        $primaryKey  = $this->config->primaryKey;
+        $this->parser->params->addParamsFromArgs($params);
+        $primaryKey  = $this->primaryKey;
         $whereEtc    = $this->parser->getWhereEtc($idArrayOrSql, true, $primaryKey); // REQUIRES WHERE to prevent accidental deletions
-        $tablePrefix = $this->config->tablePrefix;
+        $tablePrefix = $this->tablePrefix;
         $this->parser->setSqlTemplate("DELETE FROM `$tablePrefix$baseTable` $whereEtc");
 
         // prepare and execute statement
@@ -352,7 +401,7 @@ class Instance
      */
     public function count(string $baseTable, int|array|string $idArrayOrSql = [], ...$params): int
     {
-        Assert::ValidTableName($baseTable);
+        Assert::validTableName($baseTable);
 
         // error checking
         if (is_string($idArrayOrSql) && preg_match('/\b(LIMIT|OFFSET)\s+[0-9:?]+\s*/i', $idArrayOrSql)) {
@@ -363,10 +412,10 @@ class Instance
         $this->parser = new Parser();
 
         // create query
-        $this->parser->addParamsFromArgs($params);
-        $primaryKey  = $this->config->primaryKey;
+        $this->parser->params->addParamsFromArgs($params);
+        $primaryKey  = $this->primaryKey;
         $whereEtc    = $this->parser->getWhereEtc($idArrayOrSql, false, $primaryKey);
-        $tablePrefix = $this->config->tablePrefix;
+        $tablePrefix = $this->tablePrefix;
         $this->parser->setSqlTemplate("SELECT COUNT(*) FROM `$tablePrefix$baseTable` $whereEtc");
 
         // return count
@@ -399,7 +448,7 @@ class Instance
      */
     public function getBaseTable(string $table, bool $strict = false): string
     {
-        $tablePrefix = $this->config->tablePrefix;
+        $tablePrefix = $this->tablePrefix;
         return match (true) {
             !str_starts_with($table, $tablePrefix)       => $table,                                                            // doesn't start with prefix
             $strict && $this->tableExists($table, false) => $table,                                                            // exists as baseTable already, meaning there's a double prefix
@@ -417,7 +466,7 @@ class Instance
      */
     public function getFullTable(string $table, bool $strict = false): string
     {
-        $tablePrefix = $this->config->tablePrefix;
+        $tablePrefix = $this->tablePrefix;
         return match (true) {
             $strict && !$this->tableExists($table, true) => $tablePrefix . $table,                                      // doesn't exist, add prefix
             str_starts_with($table, $tablePrefix)        => $table,                                                     // already starts with prefix
@@ -435,7 +484,7 @@ class Instance
      */
     public function tableExists(string $table, bool $isFullTable = false): bool
     {
-        $tablePrefix = $this->config->tablePrefix;
+        $tablePrefix = $this->tablePrefix;
         $fullTable   = $isFullTable ? $table : $tablePrefix . $table;
         return $this->query("SHOW TABLES LIKE ?", $fullTable)->count() > 0;
     }
@@ -449,7 +498,7 @@ class Instance
      */
     public function getTableNames(bool $includePrefix = false): array
     {
-        $tablePrefix = $this->config->tablePrefix;
+        $tablePrefix = $this->tablePrefix;
 
         // get tables that start with the current table prefix
         $likePattern = $this->likeStartsWith($tablePrefix);
@@ -508,9 +557,12 @@ class Instance
     #region SQL Generation
 
     /**
-     * Returns a string that has been escaped for safe inclusion in raw SQL statements.  Does NOT add quotes.
+     * Returns a string that has been escaped for safe inclusion in raw SQL statements.
+     * Does NOT add quotes.
      *
-     * Essentially a shortcut for $mysqli->real_escape_string() that also supports SmartString input.
+     * @param string|int|float|null|SmartString $input Value to escape
+     * @param bool $escapeLikeWildcards Whether to also escape LIKE wildcards (% and _)
+     * @return string Escaped string safe for inclusion in SQL
      */
     public function escape(string|int|float|null|SmartString $input, bool $escapeLikeWildcards = false): string
     {
@@ -587,7 +639,7 @@ class Instance
                 is_int($value) || is_float($value) => $value,
                 is_null($value)                    => 'NULL',
                 is_bool($value)                    => $value ? 'TRUE' : 'FALSE',
-                is_string($value)                  => "'" . $this->mysqli->real_escape_string($value) . "'",
+                is_string($value)                  => "'" . $this->connection->escape($value) . "'",
                 default                            => throw new InvalidArgumentException("Unsupported value type: " . get_debug_type($value)),
             };
         }
@@ -715,10 +767,22 @@ class Instance
     private function executeQuery(Parser $parser, string $baseTable = ''): SmartArray
     {
         try {
-            // Create a QueryExecutor instance with our connection and config
+            // Create a options object with our behavior settings for the QueryExecutor
+            $queryConfig = [
+                'tablePrefix'           => $this->tablePrefix,
+                'primaryKey'            => $this->primaryKey,
+                'smartArrayLoadHandler' => $this->smartArrayLoadHandler,
+                'showSqlInErrors'       => $this->showSqlInErrors,
+                'usePreparedStatements' => $this->usePreparedStatements,
+                'useSmartJoins'         => $this->useSmartJoins,
+                'enableLogging'         => $this->enableLogging,
+                'logFile'               => $this->logFile,
+            ];
+
+            // Create a QueryExecutor instance with our connection and settings
             $queryExecutor = new QueryExecutor(
                 $this->connection,
-                $this->config,
+                $queryConfig,
             );
 
             // Execute the query through the QueryExecutor
@@ -726,6 +790,38 @@ class Instance
         } catch (Throwable $e) {
             throw new DBException("Error executing query: {$e->getMessage()}", 0, $e);
         }
+    }
+
+    #endregion
+    #region Magic Methods
+
+    /**
+     * Prevents setting undefined properties
+     *
+     * @param string $name Property name being set
+     * @param mixed $value Value being assigned to the property
+     * @throws InvalidArgumentException Always throws an exception for undefined properties
+     */
+    public function __set(string $name, mixed $value): void
+    {
+        throw new InvalidArgumentException(
+            "Attempting to set unknown instance property: '$name'. " .
+            "Instance properties must be explicitly declared in the class.",
+        );
+    }
+
+    /**
+     * Prevents accessing undefined properties
+     *
+     * @param string $name Property name being accessed
+     * @throws InvalidArgumentException Always throws an exception for undefined properties
+     */
+    public function __get(string $name): void
+    {
+        throw new InvalidArgumentException(
+            "Attempting to get unknown instance property: '$name'. " .
+            "Instance properties must be explicitly declared in the class.",
+        );
     }
 
     #endregion

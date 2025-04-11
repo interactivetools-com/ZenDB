@@ -31,7 +31,7 @@ class selectTest extends BaseTest
             $this->assertTrue($result->usingSmartStrings(), "Expected SmartStrings to be enabled for $queryType query");
 
             // Test instance method
-            $db             = DB::getDefaultInstance();
+            $db             = DB::newInstance();
             $instanceResult = $db->select($baseTable, $idArrayOrSQL, ...$params);
             $instanceArray  = $instanceResult->toArray();
             $this->assertSame($expectedResult, $instanceArray);
@@ -261,7 +261,7 @@ class selectTest extends BaseTest
 
             // Test instance method throws exception
             try {
-                $db = DB::getDefaultInstance();
+                $db = DB::newInstance();
                 $db->select($baseTable, $idArrayOrSQL, ...$params);
                 $this->fail("Instance \$db->select with $queryType queries did not throw exception");
             } catch (Throwable $e) {

@@ -64,7 +64,7 @@ abstract class BaseTest extends TestCase
     protected function setUp(): void
     {
         DB::config(self::getConfigArray());
-        $instance = DB::getDefaultInstance();
+        $instance = DB::newInstance();
     }
 
     public static function resetTempTestTables(): void

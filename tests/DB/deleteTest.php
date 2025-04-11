@@ -15,7 +15,7 @@ class deleteTest extends BaseTest
 
         // reset config to defaults
         DB::disconnect();
-        DB::config(self::getConfigDefaults());
+        DB::config(self::getConfigArray());
         DB::connect();
     }
 

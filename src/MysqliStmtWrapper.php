@@ -33,7 +33,7 @@ class MysqliStmtWrapper extends mysqli_stmt
             throw $e; // rethrow exception
         }
 
-        // log errors if mysqli_report is off
+        // log errors
         if ($result === false) {
             MySQLiWrapper::logError($this->error, $this->errno);
         }
@@ -51,7 +51,7 @@ class MysqliStmtWrapper extends mysqli_stmt
             throw $e; // rethrow exception
         }
 
-        // log errors if mysqli_report is off
+        // log errors
         MySQLiWrapper::logQuery($this->startTime, "$this->query /* params: $this->boundParamsString */ ");
         if ($result === false) {
             MySQLiWrapper::logError($this->error, $this->errno);

@@ -29,7 +29,7 @@ class countTest extends BaseTest
             $this->assertSame($expectedResult, $result);
 
             // Test instance method
-            $db             = DB::getDefaultInstance();
+            $db             = DB::newInstance();
             $instanceResult = $db->count($baseTable, $idArrayOrSQL, ...$params);
             $this->assertSame($expectedResult, $instanceResult);
 
@@ -170,7 +170,7 @@ class countTest extends BaseTest
 
             // Test instance method throws exception
             try {
-                $db = DB::getDefaultInstance();
+                $db = DB::newInstance();
                 $db->count($baseTable, $idArrayOrSQL, ...$params);
                 $this->fail("Instance \$db->count with $queryType queries did not throw exception");
             } catch (Throwable $e) {

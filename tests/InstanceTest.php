@@ -19,20 +19,24 @@ class InstanceTest extends BaseTest
     protected function setUp(): void
     {
         parent::setUp();
-        $this->instance = new Instance(self::getConfigDefaults());
+        // Get connection first, then create instance
+        DB::disconnect();
+        DB::config(self::getConfigArray());
+        DB::connect();
+        $this->instance = DB::newInstance();
     }
 
     #region DBInstance Core Tests
 
     public function testInstanceCreation(): void
     {
-        // Test creating with config array
-        $instance1 = new Instance(self::getConfigDefaults());
+        // Test creating via DB::newInstance
+        $instance1 = DB::newInstance();
         $this->assertInstanceOf(Instance::class, $instance1);
 
-        // Test creating with Connection object
-        $connection = new Connection(self::getConfigDefaults());
-        $instance2 = new Instance($connection);
+        // Test creating a second instance (not the same instance)
+        $instance2 = DB::newInstance();
+        $this->assertNotSame($instance1, $instance2);
         $this->assertInstanceOf(Instance::class, $instance2);
     }
 
@@ -81,7 +85,7 @@ class InstanceTest extends BaseTest
     public function testFactoryMethod(): void
     {
         // Test DB::newInstance factory method
-        $instance = DB::getDefaultInstance(self::getConfigDefaults());
+        $instance = DB::newInstance();
         $this->assertInstanceOf(Instance::class, $instance);
 
         // Verify it works
@@ -90,10 +94,10 @@ class InstanceTest extends BaseTest
         $this->assertEquals(1, $result->count());
     }
 
-    public function testDefaultInstance(): void
+    public function testNewInstance(): void
     {
-        // Test getting default instance
-        $instance = DB::getDefaultInstance();
+        // Test getting a new instance
+        $instance = DB::newInstance();
         $this->assertInstanceOf(Instance::class, $instance);
 
         // Verify it works
@@ -105,18 +109,12 @@ class InstanceTest extends BaseTest
     public function testMultipleInstancesWithDifferentConnections(): void
     {
         // Create two instances with different table prefixes
-        $config1 = self::getConfigDefaults();
-        $config1->tablePrefix = 'test1_';
-        
-        $config2 = self::getConfigDefaults();
-        $config2->tablePrefix = 'test2_';
-
-        $instance1 = new Instance($config1);
-        $instance2 = new Instance($config2);
+        $instance1 = DB::newInstance(['tablePrefix' => 'test1_']);
+        $instance2 = DB::newInstance(['tablePrefix' => 'test2_']);
 
         // Verify they have different configurations
-        $this->assertEquals('test1_', $instance1->connection->config->tablePrefix);
-        $this->assertEquals('test2_', $instance2->connection->config->tablePrefix);
+        $this->assertEquals('test1_', $instance1->tablePrefix);
+        $this->assertEquals('test2_', $instance2->tablePrefix);
     }
 
     #endregion DBInstance Core Tests
@@ -135,7 +133,7 @@ class InstanceTest extends BaseTest
         $staticCount = DB::count('users');
 
         // Create an instance and use instance method
-        $db = DB::getDefaultInstance();
+        $db = DB::newInstance();
         $instanceCount = $db->count('users');
 
         // Both should return the same result
@@ -153,22 +151,24 @@ class InstanceTest extends BaseTest
     }
 
     /**
-     * Test that DB::getInstance() returns a DBInstance
+     * Test that DB::newInstance() returns instances that share the same connection
      */
-    public function testGetInstanceReturnsSingleton(): void
+    public function testNewInstanceSharesConnection(): void
     {
-        $instance1 = DB::getDefaultInstance();
-        $instance2 = DB::getDefaultInstance();
+        $instance1 = DB::newInstance();
+        $instance2 = DB::newInstance();
 
-        // Both should be the same instance
-        $this->assertSame($instance1, $instance2);
+        // newInstance() creates a fresh instance each time but shares the connection
+        // So we validate they're NOT the same instance but have the same connection
+        $this->assertNotSame($instance1, $instance2, 'Instances should not be the same object');
         $this->assertInstanceOf(Instance::class, $instance1);
+        $this->assertSame($instance1->connection, $instance2->connection, 'Connections should be the same');
     }
 
     /**
-     * Test that DB::newInstance() delegates to the same instance as getInstance()
+     * Test that DB::newInstance() delegates queries correctly and shares data
      */
-    public function testNewDBDelegatesToSameInstance(): void
+    public function testNewInstanceSharesData(): void
     {
         // Reset test tables
         self::resetTempTestTables();

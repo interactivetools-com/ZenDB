@@ -4,68 +4,68 @@ declare(strict_types=1);
 namespace Itools\ZenDB;
 
 use DateTime, DateTimeZone;
-use Itools\SmartArray\SmartArray;
-use Itools\SmartString\SmartString;
-use mysqli;
+use mysqli_driver;
 use Throwable, InvalidArgumentException, RuntimeException, Exception;
-use Itools\ZenDB\QueryExecutor;
+use mysqli;
 
 /**
  * Connection class handles database connection management and configuration.
  */
 class Connection
 {
-    #region Properties
-
-    public ?mysqli $mysqli = null;
-    public Config  $config;
-
-    #endregion
-    #region Constructor
+    #region Public Interface
 
     /**
      * Creates a new Connection instance with the provided configuration and establishes connection.
      *
-     * @throws Exception If connection fails or configuration is invalid
+     * @param array $properties Configuration for the connection
      */
-    public function __construct(Config $config)
+    public function __construct(array $properties)
     {
-        $this->config = $config;
+        // check for required keys
+        $missing = array_filter($properties, 'is_null');
+        if ($missing) {
+            throw new InvalidArgumentException("Missing required connection options: " . implode(', ', array_keys($missing)));
+        }
+
+        // set properties
+        foreach ($properties as $property => $value) {
+            $this->$property = $value;
+        }
+
+        // Establish connection
         $this->connect();
     }
 
-    #endregion
-    #region Connection Management
-
+    /**
+     * Establish a connection to the database server.
+     *
+     * @throws InvalidArgumentException If required configuration is missing
+     * @throws RuntimeException If connection fails
+     */
     private function connect(): void
     {
         // Throw error if called directly after initial connection was made
-        if ($this->mysqli !== null) {
-            return; // Already connected, just return
+        if (isset($this->mysqli)) {
+            throw new RuntimeException("Connection already established. Use isConnected() or reconnectIfNeeded() to check connection status.");
         }
 
-        // For backwards compatibility with existing tests
-        // This check might be redundant with Config validation but preserves error type for existing tests
-        if (empty($this->config->hostname) || empty($this->config->username)) {
-            $missingKeys = [];
-            if (empty($this->config->hostname)) {
-                $missingKeys[] = 'hostname';
-            }
-            if (empty($this->config->username)) {
-                $missingKeys[] = 'username';
-            }
-            throw new InvalidArgumentException("Missing required config keys: " . implode(', ', $missingKeys));
+        // Check for required keys
+        $required = ['hostname', 'username'];
+        $missing  = array_filter($required, fn($property) => !isset($this->$property));
+        if ($missing) {
+            throw new InvalidArgumentException("Missing required connection properties: " . implode(', ', $missing));
         }
+
+        // throw exceptions for all MySQL errors, so we can catch them.  Enables strict error reporting for all DB code from this point on.
+        mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
 
         // Attempt to connect
-        $tempMysqli = null;
         try {
-            mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);                         // throw exceptions for all MySQL errors, so we can catch them
-
             // connect to db
             $tempMysqli = new MysqliWrapper();                                                 // old way: new mysqli();
-            $tempMysqli->options(MYSQLI_OPT_CONNECT_TIMEOUT, $this->config->connectTimeout);   // throw exception after x seconds trying to connect
-            $tempMysqli->options(MYSQLI_OPT_READ_TIMEOUT, $this->config->readTimeout);         // throw exception after x seconds trying to read
+            $tempMysqli->options(MYSQLI_OPT_CONNECT_TIMEOUT, $this->connectTimeout);           // throw exception after x seconds trying to connect
+            $tempMysqli->options(MYSQLI_OPT_READ_TIMEOUT, $this->readTimeout);                 // throw exception after x seconds trying to read
             $tempMysqli->options(MYSQLI_OPT_LOCAL_INFILE, false);                              // disable "LOAD DATA LOCAL INFILE" for security reasons
 
             // Enable native int/float return types when mysqlnd driver is available
@@ -75,10 +75,10 @@ class Connection
                 $tempMysqli->options(MYSQLI_OPT_INT_AND_FLOAT_NATIVE, true);
             }
             $tempMysqli->real_connect(
-                hostname: $this->config->hostname,                               // can also contain :port
-                username: $this->config->username,
-                password: $this->config->password,
-                flags: $this->config->requireSSL ? MYSQLI_CLIENT_SSL : 0,        // require ssl connections
+                hostname: $this->hostname,                               // can also contain :port
+                username: $this->username,
+                password: $this->password,
+                flags: $this->requireSSL ? MYSQLI_CLIENT_SSL : 0,        // require ssl connections
             );
 
             // set charset - DO THIS FIRST and use "utf8mb4", required so mysqli_real_escape_string() knows what charset to use.
@@ -88,11 +88,17 @@ class Connection
             }
 
             // check mysql version
-            if ($this->config->versionRequired) {
-                Assert::mysqlVersion($tempMysqli, $this->config->versionRequired);
+            if ($this->versionRequired) {
+                $requiredVersion = $this->versionRequired;
+                $currentVersion  = preg_replace("/[^0-9.]/", '', $tempMysqli->server_info);
+                if (version_compare($requiredVersion, $currentVersion, '>')) {
+                    $error = "This program requires MySQL v$requiredVersion or newer. This server has v$currentVersion installed.\n";
+                    $error .= "Please ask your server administrator to install MySQL v$requiredVersion or newer.\n";
+                    throw new RuntimeException($error);
+                }
             }
 
-            // set some database vars based on config settings -  SET time_zone etc
+            // set some database vars based on properties settings -  SET time_zone etc
             $this->setDatabaseVars($tempMysqli);
 
             // Only after successful connection, set $this->mysqli
@@ -102,17 +108,16 @@ class Connection
             $baseErrorMsg = "MySQL Error($errorCode)";
             $errorDetail  = $e->getMessage() ?? $tempMysqli?->connect_error ?? 'Unknown error';
             $errorMsg     = match (true) {
-                $errorCode === 2002                              => "$baseErrorMsg: Couldn't connect to server, check database server is running and connection settings are correct.\n$errorDetail",
-                $errorCode === 2006 && $this->config->requireSSL => "$baseErrorMsg: Try disabling 'requireSSL' in database configuration.\n$errorDetail",  // 2006 = MySQL error constant CR_SERVER_GONE_ERROR: MySQL server has gone away
-                default                                          => "$baseErrorMsg: $errorDetail",
+                $errorCode === 2002                      => "$baseErrorMsg: Couldn't connect to server, check database server is running and connection settings are correct.\n$errorDetail",
+                $errorCode === 2006 && $this->requireSSL => "$baseErrorMsg: Try disabling 'requireSSL' in database configuration.\n$errorDetail",  // 2006 = MySQL error constant CR_SERVER_GONE_ERROR: MySQL server has gone away
+                default                                  => "$baseErrorMsg: $errorDetail",
             };
 
             // Clean up failed connection
             $tempMysqli?->close();
 
-            throw new RuntimeException($errorMsg . ", hostname: " . $this->config->hostname);
+            throw new RuntimeException($errorMsg . ", hostname: " . $this->hostname);
         } finally {
-            mysqli_report(MYSQLI_REPORT_OFF); // Disable strict mode, errors now return false instead of throwing exceptions
         }
 
         // Select database and/or try to create it
@@ -125,7 +130,6 @@ class Connection
      * This method checks if the connection is active, and if not, it attempts to reconnect.
      *
      * @return bool True if reconnected successfully or already connected, false if unable to reconnect
-     * @throws Exception If connection fails or configuration is invalid
      */
     public function reconnectIfNeeded(): bool
     {
@@ -173,31 +177,9 @@ class Connection
     public function disconnect(): void
     {
         $this->mysqli?->close();
-        $this->mysqli = null;
+        $this->mysqli;
     }
 
-    /**
-     * Right after connecting set some database vars based on config settings.
-     *
-     * @param mysqli $mysqli The MySQLi object.
-     * @throws RuntimeException|Exception If any of the initialization queries fail.
-     */
-    private function setDatabaseVars(mysqli $mysqli): void
-    {
-        // Get current vars
-        $mysqlDefaults = $mysqli->query("SELECT @@sql_mode, TIME_FORMAT(TIMEDIFF(NOW(), UTC_TIMESTAMP), '%H:%i') AS timezone_offset")->fetch_assoc();
-
-        // SET time_zone
-        if ($this->config->usePhpTimezone) {
-            $this->setTimezoneToPhpTimezone($mysqli, $mysqlDefaults['timezone_offset']);
-        }
-
-        // SET sql_mode
-        if (!empty($this->config->sqlMode) && $this->config->sqlMode !== $mysqlDefaults['@@sql_mode']) {
-            $query = "SET sql_mode = '{$this->config->sqlMode}';";
-            $mysqli->real_query($query) || throw new RuntimeException("Set command failed:\n$query");
-        }
-    }
 
     /**
      * Sets the MySQL timezone to match the PHP timezone.
@@ -228,35 +210,155 @@ class Connection
         $mysqli->real_query($query) || throw new RuntimeException("Set command failed:\n$query");
     }
 
+    #endregion
+    #region Connection State
+
+    /**
+     * The underlying MySQLi connection object
+     */
+    public ?mysqli $mysqli;
+
+#endregion
+#region Basic Connection Properties
+
+    /**
+     * Mysql hostname (can include port, e.g. 'localhost:3306')
+     */
+    private string $hostname;
+
+    /**
+     * Mysql username for authentication
+     */
+    private string $username;
+
+    /**
+     * Mysql password for authentication
+     */
+    private string $password;
+
+    /**
+     * Mysql database to connect to
+     */
+    private string $database;
+
+#endregion
+#region Advanced Connection Settings
+
+    /**
+     * Minimum MySQL version required for compatibility
+     */
+    private string $versionRequired;
+
+    /**
+     * MySQL SQL mode configuration
+     * Default enforces strict mode and important error conditions
+     */
+    private string $sqlMode;
+
+    /**
+     * Whether to require SSL for database connections
+     */
+    private bool $requireSSL;
+
+    /**
+     * Connection timeout in seconds (MYSQLI_OPT_CONNECT_TIMEOUT)
+     */
+    private int $connectTimeout;
+
+    /**
+     * Read timeout in seconds (MYSQLI_OPT_READ_TIMEOUT)
+     */
+    private int $readTimeout;
+
+    /**
+     * Whether to synchronize MySQL timezone with PHP timezone
+     * Ensures MySQL NOW() matches PHP time() function
+     */
+    private bool $usePhpTimezone;
+
+    /**
+     * Whether to automatically create the database if it doesn't exist
+     */
+    private bool $databaseAutoCreate;
+
+    #endregion
+    #region Internals
+
+    /**
+     * Right after connecting set some database vars based on properties settings.
+     *
+     * @param mysqli $mysqli The MySQLi object.
+     * @throws RuntimeException|Exception If any of the initialization queries fail.
+     */
+    private function setDatabaseVars(mysqli $mysqli): void
+    {
+        // Get current vars
+        $mysqlDefaults = $mysqli->query("SELECT @@sql_mode, TIME_FORMAT(TIMEDIFF(NOW(), UTC_TIMESTAMP), '%H:%i') AS timezone_offset")->fetch_assoc();
+
+        // SET time_zone
+        if ($this->usePhpTimezone) {
+            $this->setTimezoneToPhpTimezone($mysqli, $mysqlDefaults['timezone_offset']);
+        }
+
+        // SET sql_mode
+        if (!empty($this->sqlMode) && $this->sqlMode !== $mysqlDefaults['@@sql_mode']) {
+            $query = "SET sql_mode = '{$this->sqlMode}';";
+            $mysqli->real_query($query) || throw new RuntimeException("Set command failed:\n$query");
+        }
+    }
+
     /**
      * Select the database or create it if it doesn't exist and databaseAutoCreate is enabled.
      */
     private function selectOrCreateDatabase(): void
     {
         // Skip if no database name is provided
-        if (empty($this->config->database)) {
+        if (empty($this->database)) {
             return;
         }
 
         // Error checking
-        Assert::ValidDatabaseName($this->config->database);
+        Assert::validDatabaseName($this->database);
 
         // Select database and/or try to create it
-        $isSuccessful = $this->mysqli->select_db($this->config->database);
+        $isSuccessful = $this->mysqli->select_db($this->database);
 
         // If database doesn't exist, try to create it
-        if (!$isSuccessful && $this->config->databaseAutoCreate) {
-            $result = $this->mysqli->query("CREATE DATABASE `{$this->config->database}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
+        if (!$isSuccessful && $this->databaseAutoCreate) {
+            $result = $this->mysqli->query("CREATE DATABASE `{$this->database}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
             if ($result === false) {
                 throw new RuntimeException("Couldn't create DB: " . $this->mysqli->error);
             }
-            $isSuccessful = $this->mysqli->select_db($this->config->database) || throw new RuntimeException("MySQL Error selecting database: " . $this->mysqli->error);
+            $isSuccessful = $this->mysqli->select_db($this->database) || throw new RuntimeException("MySQL Error selecting database: " . $this->mysqli->error);
         }
 
         // If still not successful, throw an exception
         if (!$isSuccessful) {
             throw new RuntimeException("MySQL Error selecting database: " . $this->mysqli->error);
         }
+    }
+
+    /**
+     * Prevents setting undefined properties
+     *
+     * @param string $name Property name being set
+     * @param mixed $value Value being assigned to the property
+     * @throws InvalidArgumentException Always throws an exception for undefined properties
+     */
+    public function __set(string $name, mixed $value): void
+    {
+        throw new InvalidArgumentException("Attempting to set unknown connection property: '$name'. ");
+    }
+
+    /**
+     * Prevents accessing undefined properties
+     *
+     * @param string $name Property name being accessed
+     * @throws InvalidArgumentException Always throws an exception for undefined properties
+     */
+    public function __get(string $name): never
+    {
+        throw new InvalidArgumentException("Attempting to get unknown connection property: '$name'. ");
     }
 
     #endregion

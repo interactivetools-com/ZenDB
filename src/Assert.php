@@ -14,46 +14,6 @@ use mysqli;
 class Assert
 {
 
-    /**
-     * Asserts that a given value matches one of the specified types.
-     *
-     * Usage: assertType($value, ['string', 'integer', 'double', 'boolean', 'array', 'object', 'NULL'], "\$value");
-     *
-     * @param mixed $value The value to be checked.
-     * @param array $allowedTypes An array of allowable types as strings.  eg: ['string', 'integer', 'double', 'boolean', 'array', 'object', 'NULL'];
-     * @param string|null $name Optional name to report in the exception.
-     *
-     * @return void
-     * @throws InvalidArgumentException When the type of value is not in the list of allowed types.
-     */
-    public static function type(mixed $value, array $allowedTypes, ?string $name = null): void {
-        $actualType  = gettype($value);
-        $isValidType = in_array($actualType, $allowedTypes);
-        if (!$isValidType) {
-            $allowedTypesCSV = implode(', ', $allowedTypes);
-            $varName = $name ? " for $name" : '';
-            throw new InvalidArgumentException("Invalid type '$actualType'$varName, expected one of: $allowedTypesCSV");
-        }
-    }
-    /**
-     * Assert that the given value's type is NOT within the disallowed types.
-     *
-     * @param mixed $value The value to check.
-     * @param array $disallowedTypes An array of disallowed types. eg: ['string', 'integer', 'double', 'boolean', 'array', 'object', 'NULL'];
-     * @param string|null $name Optional name to include in the exception message.
-     *
-     * @throws InvalidArgumentException When the type of the value is disallowed.
-     */
-    public static function notType(mixed $value, array $disallowedTypes, ?string $name = null): void {
-        $actualType = gettype($value);
-        $isInvalidType = in_array($actualType, $disallowedTypes);
-        if ($isInvalidType) {
-            $disallowedTypesCSV = implode(', ', $disallowedTypes);
-            $varName = $name ? " for $name" : '';
-            throw new InvalidArgumentException("Invalid type '$actualType'$varName, should not be one of: $disallowedTypesCSV");
-        }
-    }
-
     public static function validDatabaseName(string $identifier): void {
         // Updated to allow leading numbers to support hosting providers that require numeric table prefixes, e.g., 123456789_articles).
         if (!preg_match('/^[\w-]+$/', $identifier)) {
@@ -124,47 +84,6 @@ class Assert
 
         if (isset($error)) {
             throw new DBException($error);
-        }
-    }
-
-
-    /**
-     * Asserts that the input is of an allowed type for htmlEncode, urlEncode, jsEncode
-     *
-     * Usage: Assert::encodableType($input); // throws exception for invalid types
-     *
-     * @param mixed $input The input to validate.
-     *
-     * @throws InvalidArgumentException If the input is of an invalid type.
-     */
-    public static function encodableType(mixed $input): void {
-        $allowedTypes = ['string', 'boolean', 'integer', 'double', 'NULL'];
-        $actualType   = gettype($input);
-
-        if (!in_array($actualType, $allowedTypes, true)) {
-            throw new InvalidArgumentException("Invalid input of type: ".$actualType);
-        }
-    }
-
-
-    /**
-     * Checks if the MySQL version meets the required version.
-     *
-     * Usage: Assert::mysqlVersion($mysqli, '5.7.28');
-     *
-     * @param mysqli $mysqli          The mysqli object representing the connection to the MySQL server.
-     * @param string $requiredVersion The required MySQL version in the format 'x.x.x'.
-     *
-     * @return void
-     * @throws RuntimeException When the MySQL version is older than the required version.
-     */
-    public static function mysqlVersion(mysqli $mysqli, string $requiredVersion): void {
-
-        $currentVersion = preg_replace("/[^0-9.]/", '', $mysqli->server_info);
-        if (version_compare($requiredVersion, $currentVersion, '>')) {
-            $error  = "This program requires MySQL v$requiredVersion or newer. This server has v$currentVersion installed.\n";
-            $error .= "Please ask your server administrator to install MySQL v$requiredVersion or newer.\n";
-            throw new RuntimeException($error);
         }
     }
 

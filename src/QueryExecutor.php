@@ -5,6 +5,7 @@ namespace Itools\ZenDB;
 
 use Itools\SmartArray\SmartArray;
 use mysqli_driver, mysqli_result, mysqli_stmt;
+use mysqli_sql_exception;
 use Throwable;
 
 /**
@@ -22,18 +23,37 @@ class QueryExecutor
     /**
      * The configuration settings to use
      */
-    private Config $config;
+    private array $config;
 
     /**
      * Create a new QueryExecutor instance
      *
      * @param Connection $connection Database connection to use for queries
-     * @param Config|null $config Configuration settings (optional - will use connection's config if not provided)
+     * @param array|Config|null $config Configuration settings array or Config object
      */
-    public function __construct(Connection $connection, ?Config $config = null)
+    public function __construct(Connection $connection, array|Config|null $config = null)
     {
         $this->connection = $connection;
-        $this->config     = $config ?? $connection->config;
+
+        // Convert Config object to array or use empty array as default
+        if ($config instanceof Config) {
+            $this->config = get_object_vars($config);
+        } else {
+            if (is_array($config)) {
+                $this->config = $config;
+            } else {
+                $this->config = [];
+            }
+        }
+
+        // Set default values for required config settings if not provided
+        $this->config['tablePrefix']           = $this->config['tablePrefix'] ?? '';
+        $this->config['primaryKey']            = $this->config['primaryKey'] ?? '';
+        $this->config['usePreparedStatements'] = $this->config['usePreparedStatements'] ?? true;
+        $this->config['showSqlInErrors']       = $this->config['showSqlInErrors'] ?? false;
+        $this->config['useSmartJoins']         = $this->config['useSmartJoins'] ?? true;
+        $this->config['enableLogging']         = $this->config['enableLogging'] ?? false;
+        $this->config['logFile']               = $this->config['logFile'] ?? "_mysql_query_log.php";
     }
 
     /**
@@ -48,24 +68,15 @@ class QueryExecutor
     {
         $parser->finalizeQuery();
 
-        // throw exceptions for all MySQL errors, so we can catch them
-        $oldReportMode = (new mysqli_driver())->report_mode;
-        mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
-
         try {
             // Choose the right execution path based on query type and config
-            $usePreparedStatements = $this->config->usePreparedStatements && $parser->isDmlQuery();
+            $usePreparedStatements = $this->config['usePreparedStatements'] && $parser->isDmlQuery();
             $escapedQuery          = $parser->getEscapedQuery(); // Always generate the escaped query for display purposes
 
             // Execute the query and get results
-            if ($usePreparedStatements) {
-                // DML queries (SELECT, INSERT, UPDATE, DELETE) - use prepared statements
-                [$rows, $affectedRows, $insertId] = $this->fetchRowsFromMysqliStmt($parser);
-            } else {
-                // Non-DML queries don't support prepared statements (e.g., SHOW, DESCRIBE, etc.)
-                // or forceEscapedQueries was enabled
-                [$rows, $affectedRows, $insertId] = $this->fetchRowsFromMysqliResult($escapedQuery);
-            }
+            [$rows, $affectedRows, $insertId] = $usePreparedStatements
+                ? $this->fetchRowsFromMysqliStmt($parser)            // DML queries (SELECT, INSERT, UPDATE, DELETE) - use prepared statements
+                : $this->fetchRowsFromMysqliResult($escapedQuery);   // Non-DML queries don't support prepared statements (e.g., SHOW, DESCRIBE, etc.) or forceEscapedQueries was enabled
 
             // Get the actual query type used (this is crucial for testing)
             $actualQueryType = $usePreparedStatements ? 'prepared' : 'escaped';
@@ -73,7 +84,7 @@ class QueryExecutor
             // Build SmartArray options
             $options = [
                 'useSmartStrings' => true,
-                'loadHandler'     => $this->config->smartArrayLoadHandler,
+                'loadHandler'     => $this->config['smartArrayLoadHandler'],
                 'mysqli'          => [
                     'query'         => $escapedQuery,
                     'baseTable'     => $baseTable,
@@ -85,8 +96,6 @@ class QueryExecutor
 
             $smartRows = new SmartArray($rows, $options);
         } finally {
-            // restore previous error reporting mode
-            mysqli_report($oldReportMode);
         }
 
         // Check for any warnings or errors
@@ -210,14 +219,17 @@ class QueryExecutor
      */
     private function prepareAndExecuteStatement(Parser $parser): mysqli_stmt
     {
+
         // 1) Prepare the statement
-        $stmt = $this->connection->mysqli->prepare($parser->getParamQuery());
-        if (!$stmt || $this->connection->mysqli->errno) {
-            $errorMessage = match ($this->connection->mysqli->errno) {
-                1146    => "Error: Invalid table name, use :: to insert table prefix if needed.",
-                default => '',
-            };
-            throw new DBException($errorMessage, $this->connection->mysqli->errno);
+        try {
+            $stmt = $this->connection->mysqli->prepare($parser->getParamQuery());
+        }
+        catch (mysqli_sql_exception $e) {
+            $tableName = preg_match("/Table '[^'.]+\.([^']+)' doesn't exist/", $e->getMessage(), $matches) ? " `$matches[1]`" : null; // e.g., Table 'cms.accounts' doesn't exist
+            match ($e->getCode()) {
+                1146    => throw new DBException("Error: Invalid table name$tableName, use :: to insert table prefix if needed."),
+                default => throw new DBException("Mysql error #{$e->getCode()}: {$e->getMessage()}"),
+            };;
         }
 
         // 2) Bind parameters and execute
@@ -303,8 +315,8 @@ class QueryExecutor
      */
     private function getSmartJoinColumnMap(array $fields): array
     {
-        $useSmartJoins  = $this->config->useSmartJoins;
-        $tablePrefix    = $this->config->tablePrefix ?? '';
+        $useSmartJoins  = $this->config['useSmartJoins'];
+        $tablePrefix    = $this->config['tablePrefix'];
         $tableColumnMap = [];
 
         // Skip if SmartJoins are not enabled or if not multiple tables

@@ -32,7 +32,7 @@ use InvalidArgumentException;
  */
 class Config
 {
-    #region Constructor
+    #region Main
 
     /**
      * Creates a new Config instance with optional initial values.
@@ -51,6 +51,49 @@ class Config
             }
         }
     }
+
+
+    /**
+     * Returns an array of properties relevant for Connection objects
+     *
+     * @return array Key-value pairs of connection properties from this config
+     */
+    public function getConnectionProperties(): array
+    {
+        return [
+            'hostname'           => $this->hostname,
+            'username'           => $this->username,
+            'password'           => $this->password,
+            'database'           => $this->database,
+            'versionRequired'    => $this->versionRequired,
+            'sqlMode'            => $this->sqlMode,
+            'requireSSL'         => $this->requireSSL,
+            'connectTimeout'     => $this->connectTimeout,
+            'readTimeout'        => $this->readTimeout,
+            'usePhpTimezone'     => $this->usePhpTimezone,
+            'databaseAutoCreate' => $this->databaseAutoCreate,
+        ];
+    }
+
+    /**
+     * Returns an array of properties relevant for Instance objects
+     *
+     * @return array Key-value pairs of instance properties from this config
+     */
+    public function getInstanceProperties(): array
+    {
+        return [
+            'tablePrefix'           => $this->tablePrefix,
+            'primaryKey'            => $this->primaryKey,
+            'smartArrayLoadHandler' => $this->smartArrayLoadHandler,
+            'showSqlInErrors'       => $this->showSqlInErrors,
+            'usePreparedStatements' => $this->usePreparedStatements,
+            'useSmartJoins'         => $this->useSmartJoins,
+            'enableLogging'         => $this->enableLogging,
+            'logFile'               => $this->logFile,
+        ];
+    }
+
 
     #endregion
     #region Basic Connection Settings
@@ -76,17 +119,9 @@ class Config
     public ?string $database = null;
 
     /**
-     * Table prefix automatically added to all table names (e.g. 'cms_')
-     */
-    public ?string $tablePrefix = '';
-
-    /**
      * Default primary key field name used for shorthand where=$num queries
      */
     public ?string $primaryKey = '';
-
-    #endregion
-    #region Advanced Connection Settings
 
     /**
      * Minimum MySQL version required for compatibility
@@ -114,8 +149,24 @@ class Config
      */
     public ?int $readTimeout = 60;
 
+    /**
+     * Whether to synchronize MySQL timezone with PHP timezone
+     * Ensures MySQL NOW() matches PHP time() function
+     */
+    public ?bool $usePhpTimezone = true;
+
+    /**
+     * Whether to automatically create the database if it doesn't exist
+     */
+    public bool $databaseAutoCreate = true;
+
     #endregion
-    #region Feature Toggles
+    #region Instance properties
+
+    /**
+     * Table prefix automatically added to all table names (e.g. 'cms_')
+     */
+    public ?string $tablePrefix = '';
 
     /**
      * Custom load handler for SmartArray integration
@@ -161,24 +212,10 @@ class Config
     public bool $usePreparedStatements = true;
 
     /**
-     * Whether to synchronize MySQL timezone with PHP timezone
-     * Ensures MySQL NOW() matches PHP time() function
-     */
-    public ?bool $usePhpTimezone = true;
-
-    /**
-     * Whether to automatically create the database if it doesn't exist
-     */
-    public bool $databaseAutoCreate = true;
-
-    /**
      * Enable smart join functionality for table relationships
      * Can be toggled at runtime
      */
     public bool $useSmartJoins = true;
-
-    #endregion
-    #region Logging
 
     /**
      * Enable logging of SQL queries to a file

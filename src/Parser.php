@@ -14,13 +14,23 @@ use RuntimeException;
  *
  * Manages SQL parameters for database queries, supporting both named and positional parameters.
  */
-class Parser extends Params
+class Parser
 {
     public string $sqlTemplate;
     public string $paramQuery;
     public array  $bindValues;
+    public Params $params;
+
 
     #region Constructor
+
+    /**
+     * Constructor for Parser
+     */
+    public function __construct()
+    {
+        $this->params = new Params();
+    }
 
     /**
      * For when you need to set the sqlTemplate after the parser has been created
@@ -58,7 +68,7 @@ class Parser extends Params
                 throw new InvalidArgumentException("Primary key not defined in config");
             }
             $whereEtc = "WHERE `$primaryKey` = ?";
-            $this->addPositionalParam($idArrayOrSql); // value is integer
+            $this->params->addPositionalParam($idArrayOrSql); // value is integer
         } elseif (is_array($idArrayOrSql)) {
             $whereEtc = $this->getWhereEtcForArray($idArrayOrSql);
         } elseif (is_string($idArrayOrSql)) { // Use provided sql clauses as-is
@@ -103,17 +113,17 @@ class Parser extends Params
      * @example $idArrayOrSql = ['column1' => $value1, 'column2' => $value2];
      *          $whereEtcInitForArray($idArrayOrSql);
      */
-    public function getWhereEtcForArray(array $idArrayOrSql): string
+    private function getWhereEtcForArray(array $idArrayOrSql): string
     {
         $whereEtc   = "";
         $conditions = [];
         foreach ($idArrayOrSql as $column => $value) {
-            Assert::ValidColumnName($column);
+            Assert::validColumnName($column);
             if (is_null($value)) {
                 $conditions[] = "`$column` IS NULL";
             } else {
                 $conditions[] = "`$column` = ?";
-                $this->addPositionalParam($value);
+                $this->params->addPositionalParam($value);
             }
         }
         if ($conditions) {
@@ -141,7 +151,7 @@ class Parser extends Params
         $setElements          = [];
         $tempPlaceholderCount = 0;
         foreach ($colsToValues as $column => $value) {
-            Assert::ValidColumnName($column);
+            Assert::validColumnName($column);
 
             // add to setClause
             $tempPlaceholderCount++;
@@ -149,7 +159,7 @@ class Parser extends Params
             $setElements[]   = "`$column` = $tempPlaceholder";
 
             // add values to paramMap
-            $this->addInternalParam($tempPlaceholder, $value);
+            $this->params->addInternalParam($tempPlaceholder, $value);
         }
 
         //
@@ -168,7 +178,7 @@ class Parser extends Params
      */
     public function getEscapedQuery(): string
     {
-        $this->finalizeQuery(); // prevent further changes to query
+        $this->finalizeQuery();         // prevent further changes to query
 
         // replace :named and positional ("?") parameters with mysql escaped values
         $positionalCount = 0;           // Index to keep track of positional parameters
@@ -227,9 +237,9 @@ class Parser extends Params
         );
 
         // store values
-        $this->finalizeQuery(); // prevent further changes to query
-        $this->paramQuery       = $preparedQuery;
-        $this->bindValues       = $bindValues;
+        $this->finalizeQuery();         // prevent further changes to query
+        $this->paramQuery = $preparedQuery;
+        $this->bindValues = $bindValues;
 
         // return prepared query
         return $this->paramQuery;
@@ -280,13 +290,13 @@ class Parser extends Params
 
         // get placeholder value
         $mapKey = $isPositional ? ':' . ++$positionalCount : $placeholder;                                  // e.g., :1 or :name
-        if (!array_key_exists($mapKey, $this->paramMap)) {
+        if (!array_key_exists($mapKey, $this->params->paramMap)) {
             match (true) {
                 $isPositional => throw new DBException("Missing value for ? parameter at position $positionalCount"),
                 default       => throw new DBException("Missing value for '$mapKey' parameter"),
             };
         }
-        $value = $this->paramMap[$mapKey];
+        $value = $this->params->paramMap[$mapKey];
 
         // params in backticks, add table prefix if needed
         if ($addTablePrefix) {
@@ -376,12 +386,12 @@ class Parser extends Params
      */
     public function finalizeQuery(): self
     {
-        parent::finalizeQuery();
-        
+        $this->params->finalizeQuery();
+
         MysqliWrapper::setLastQuery($this->sqlTemplate);                    // set template as last query for debugging
         $this->sqlTemplate = $this->allowTrailingLimit($this->sqlTemplate); // Handle trailing LIMIT clause if present
         $this->validateSqlTemplate($this->sqlTemplate);                     // Validate SQL template, throw exception if invalid
-        
+
         return $this;
     }
 
@@ -411,7 +421,7 @@ class Parser extends Params
         if (!str_contains($sqlTemplate, ';') && preg_match($limitRx, $sqlTemplate, $matches)) {
             $limitExpr   = $matches[0];
             $sqlTemplate = preg_replace($limitRx, ':zdb_limit', $sqlTemplate);
-            $this->addInternalParam(':zdb_limit', DB::rawSql($limitExpr));
+            $this->params->addInternalParam(':zdb_limit', DB::rawSql($limitExpr));
         }
         return $sqlTemplate;
     }
@@ -426,7 +436,7 @@ class Parser extends Params
     private function validateSqlTemplate(string $sqlTemplate): void
     {
         // Check for SQL injection risks
-        Assert::SqlSafeString($sqlTemplate);
+        Assert::sqlSafeString($sqlTemplate);
 
         // Check for too many positional parameters
         $positionalCount = substr_count($sqlTemplate, '?');

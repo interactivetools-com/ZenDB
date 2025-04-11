@@ -3,29 +3,21 @@ declare(strict_types=1);
 
 namespace Itools\ZenDB;
 
-use DateTime, DateTimeZone;
 use Itools\SmartArray\SmartArray;
 use Itools\SmartString\SmartString;
 use mysqli;
 use Throwable, InvalidArgumentException, RuntimeException, Exception;
-use Itools\ZenDB\QueryExecutor;
-use Itools\ZenDB\Parser;
 
 /**
  * DB is a wrapper for mysqli that provides a simple, secure, and consistent interface for database access.
  */
 class DB
 {
-    public static string     $tablePrefix     = '';                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              // table prefix, set by config()
-    public static ?mysqli    $mysqli          = null;                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    // mysqli object
-    private static ?Config   $config          = null;                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    // config instance
-    private static ?Instance $defaultInstance = null;                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    // default instance for static methods
-    /**
-     * Parser instance for backward compatibility with tests.
-     * Tests access this through reflection.
-     * @var Parser|null
-     */
-    public static ?Parser $parser = null;
+    public static string       $tablePrefix       = '';    // table prefix, set by config()
+    public static ?mysqli      $mysqli            = null;  // mysqli object
+    private static ?Config     $defaultConfig     = null;  // default config
+    private static ?Connection $defaultConnection = null;  // shared connection
+    private static ?Instance   $db                = null;  // default instance and connection
 
     #region Config & Connection
 
@@ -40,67 +32,57 @@ class DB
      * - To set multiple values: self::config(['key1' => 'value1', 'key2' => 'value2'])
      * - To set configuration from a Config object: self::config($configObj)
      *
-     * @param string|array|Config|null $keyOrArrayOrConfig Key to retrieve, key-value pairs to set, or a Config object.
+     * @param string|array|null $keyOrArrayOrConfig Key to retrieve, key-value pairs to set, or a Config object.
      * @param mixed $keyValue Value to set for the given key. Ignored if first parameter is an array or Config.
      *
      * @return mixed The requested configuration value, array of all settings, or null after setting values.
      */
-    public static function config(string|array|Config|null $keyOrArrayOrConfig = null, mixed $keyValue = null): mixed
+    public static function config(string|array|null $keyOrArrayOrConfig = null, mixed $keyValue = null): mixed
     {
-        self::$config ??= new Config();  // Initialize config instance if not already created
-        $argCount     = func_num_args();
+        self::$defaultConfig ??= new Config();  // Initialize config instance if not already created
+        $args       = func_num_args();
+        [$key, $value] = [$keyOrArrayOrConfig, $keyValue]; // aliases
 
-        // Get all values
-        if ($argCount === 0) {
-            return get_object_vars(self::$config);
-        }
-
-        // Get single value
-        if ($argCount === 1 && is_string($keyOrArrayOrConfig)) {
-            if (!property_exists(self::$config, $keyOrArrayOrConfig)) {
-                throw new InvalidArgumentException("Invalid configuration key: $keyOrArrayOrConfig");
-            }
-            return self::$config->$keyOrArrayOrConfig;
-        }
-
-        // For setting values, map the inputs to key-value pairs
-        $keysToValues = match (true) {
-            is_array($keyOrArrayOrConfig)         => $keyOrArrayOrConfig,
-            is_string($keyOrArrayOrConfig)        => [$keyOrArrayOrConfig => $keyValue],
-            $keyOrArrayOrConfig instanceof Config => get_object_vars($keyOrArrayOrConfig),
-            default                               => throw new InvalidArgumentException("Invalid arguments for config() method"),
+        // set values
+        match (true) {
+            $args === 2 && is_string($key) => self::$defaultConfig->$key = $value,                              // set single value
+            $args === 1 && is_array($key)  => array_walk($key, fn($v, $k) => self::$defaultConfig->$k = $v),    // set multiple values
+            default                        => null,
         };
 
-        // Validate and set all properties
-        foreach ($keysToValues as $key => $value) {
-            if (!property_exists(self::$config, $key)) {
-                throw new InvalidArgumentException("Invalid configuration key: $key");
-            }
-            self::$config->$key = $value;
-        }
-
         // Update table prefix alias property in case it changed
-        self::$tablePrefix = &self::$config->tablePrefix;
+        self::$tablePrefix = &self::$defaultConfig->tablePrefix;
 
-        return null;
+        // return values
+        return match (true) {
+            $args === 0                    => get_object_vars(self::$defaultConfig),                            // get all config values
+            $args === 1 && is_string($key) => self::$defaultConfig->$key,                                       // get single value
+            default                        => null,
+        };
     }
 
     /**
+     * Create connection and set defaults
      * @throws Exception
      */
     public static function connect(): void
     {
-        if (!isset(self::$config)) {
-            throw new RuntimeException("No config, call DB::config() before DB::connect()");
+        // Ensure DB::config() was already called
+        if (self::$defaultConfig === null) {
+            throw new RuntimeException("Call DB::config() first to set your defaults");
         }
 
-        if (self::$defaultInstance !== null) {
-            return;
+        // Ensure DB::connect() is only called once
+        if (self::$defaultConnection !== null) {
+            throw new RuntimeException("DB::connect() has already been called.");
         }
 
-        $connection            = new Connection(self::$config);
-        self::$mysqli          = $connection->mysqli;
-        self::$defaultInstance = new Instance(self::$config);
+        // Create connection
+        $connectionOptions = self::$defaultConfig->getConnectionProperties();
+        self::$defaultConnection = new Connection($connectionOptions);
+
+        // Update the mysqli reference
+        self::$mysqli = self::$defaultConnection->mysqli;
     }
 
     /**
@@ -131,6 +113,34 @@ class DB
         };
     }
 
+
+    /**
+     * Reconnect to the database server if the connection is lost.
+     *
+     * This method checks if the connection is active, and if not, it attempts to reconnect.
+     *
+     * @return bool True if reconnected successfully or already connected, false if unable to reconnect
+     */
+    public function reconnectIfNeeded(): bool
+    {
+        $isConnected = $this->isConnected(true); // check if connection is still alive with stat() (like ping but not deprecated)
+
+        // Reconnect if not connected
+        if (!$isConnected) {
+            try {
+                $this->disconnect();  // Clean up any existing connection resources
+                $this->connect();
+                $isConnected = $this->isConnected(true);
+            } catch (Throwable $e) {
+                // Log the error but don't throw during reconnect
+                // This allows reconnecting without immediately throwing an exception
+                $isConnected = false; // Important: set to false on connection failure
+            }
+        }
+
+        return $isConnected;
+    }
+
     /**
      * Close the database connection.
      *
@@ -140,10 +150,9 @@ class DB
     {
         self::$tablePrefix = '';
         self::$mysqli?->close();
-        self::$mysqli          = null;
-        self::$config          = null;
-        self::$defaultInstance = null;
-        self::$parser          = null;
+        self::$mysqli            = null;
+        self::$defaultConnection = null;
+        self::$db                = null;
     }
 
     #endregion
@@ -157,12 +166,13 @@ class DB
      *
      * @return SmartArray Returns a ResultSet object containing the results or status of the query.
      *
-     * @throws DBException
+     * @throws DBException|Exception
      * @example DB::query("SELECT * FROM `accounts` WHERE  name = :name AND date <= :targetDate", $params);
      */
     public static function query(string $sqlTemplate, ...$params): SmartArray
     {
-        return self::getDefaultInstance()->query($sqlTemplate, ...$params);
+        $db = self::newInstance();
+        return $db->query($sqlTemplate, ...$params);
     }
 
     /**
@@ -183,7 +193,8 @@ class DB
      */
     public static function select(string $baseTable, int|array|string $idArrayOrSql = [], ...$params): SmartArray
     {
-        return self::getDefaultInstance()->select($baseTable, $idArrayOrSql, ...$params);
+        $db = self::newInstance();
+        return $db->select($baseTable, $idArrayOrSql, ...$params);
     }
 
     /**
@@ -203,7 +214,8 @@ class DB
      */
     public static function get(string $baseTable, int|array|string $idArrayOrSql = [], ...$params): SmartArray
     {
-        return self::getDefaultInstance()->get($baseTable, $idArrayOrSql, ...$params);
+        $db = self::newInstance();
+        return $db->get($baseTable, $idArrayOrSql, ...$params);
     }
 
     /**
@@ -219,7 +231,8 @@ class DB
      */
     public static function insert(string $baseTable, array $colsToValues): int
     {
-        return self::getDefaultInstance()->insert($baseTable, $colsToValues);
+        $db = self::newInstance();
+        return $db->insert($baseTable, $colsToValues);
     }
 
     /**
@@ -239,7 +252,8 @@ class DB
      */
     public static function update(string $baseTable, array $colsToValues, int|array|string $idArrayOrSql, ...$params): int
     {
-        return self::getDefaultInstance()->update($baseTable, $colsToValues, $idArrayOrSql, ...$params);
+        $db = self::newInstance();
+        return $db->update($baseTable, $colsToValues, $idArrayOrSql, ...$params);
     }
 
     /**
@@ -257,7 +271,8 @@ class DB
      */
     public static function delete(string $baseTable, int|array|string $idArrayOrSql, ...$params): int
     {
-        return self::getDefaultInstance()->delete($baseTable, $idArrayOrSql, ...$params);
+        $db = self::newInstance();
+        return $db->delete($baseTable, $idArrayOrSql, ...$params);
     }
 
     /**
@@ -271,7 +286,8 @@ class DB
      */
     public static function count(string $baseTable, int|array|string $idArrayOrSql = [], ...$params): int
     {
-        return self::getDefaultInstance()->count($baseTable, $idArrayOrSql, ...$params);
+        $db = self::newInstance();
+        return $db->count($baseTable, $idArrayOrSql, ...$params);
     }
 
     #endregion
@@ -398,7 +414,7 @@ class DB
      */
     public static function escape(string|int|float|null|SmartString $input, bool $escapeLikeWildcards = false): string
     {
-        return self::getDefaultInstance()->escape($input, $escapeLikeWildcards);
+        return self::newInstance()->escape($input, $escapeLikeWildcards);
     }
 
     /**
@@ -416,7 +432,7 @@ class DB
      */
     public static function likeContains(string|int|float|null|SmartString $input): rawSQL
     {
-        return self::getDefaultInstance()->likeContains($input);
+        return self::newInstance()->likeContains($input);
     }
 
     /**
@@ -434,7 +450,7 @@ class DB
      */
     public static function likeContainsTSV(string|int|float|null|SmartString $input): rawSQL
     {
-        return self::getDefaultInstance()->likeContainsTSV($input);
+        return self::newInstance()->likeContainsTSV($input);
     }
 
     /**
@@ -452,7 +468,7 @@ class DB
      */
     public static function likeStartsWith(string|int|float|null|SmartString $input): rawSQL
     {
-        return self::getDefaultInstance()->likeStartsWith($input);
+        return self::newInstance()->likeStartsWith($input);
     }
 
     /**
@@ -470,7 +486,7 @@ class DB
      */
     public static function likeEndsWith(string|int|float|null|SmartString $input): rawSQL
     {
-        return self::getDefaultInstance()->likeEndsWith($input);
+        return self::newInstance()->likeEndsWith($input);
     }
 
     /**
@@ -488,7 +504,7 @@ class DB
      */
     public static function escapeCSV(array $array): RawSql
     {
-        return self::getDefaultInstance()->escapeCSV($array);
+        return self::newInstance()->escapeCSV($array);
     }
 
     /**
@@ -499,10 +515,10 @@ class DB
      *
      * Usage Examples:
      * 1. Using as an inline argument:
-     *    DB::SELECT('table', "date <= NOW() ?", pagingSql(1, 25));
+     *    DB::select('table', "date <= NOW() ?", pagingSql(1, 25));
      *
      * 2. Using as a named parameter:
-     *    DB::SELECT('table', "date <= NOW() :pagingSql", [
+     *    DB::select('table', "date <= NOW() :pagingSql", [
      *      ':pagingSql' => pagingSql(1, 25),
      *    ]);
      *
@@ -511,7 +527,7 @@ class DB
      */
     public static function pagingSql(mixed $pageNum, mixed $perPage = 10): RawSql
     {
-        return self::getDefaultInstance()->pagingSql($pageNum, $perPage);
+        return self::newInstance()->pagingSql($pageNum, $perPage);
     }
 
     /**
@@ -530,14 +546,14 @@ class DB
      */
     public static function rawSql(string|int|float|null $value): RawSql
     {
-        return self::getDefaultInstance()->rawSql($value);
+        return self::newInstance()->rawSql($value);
     }
 
 
     // Usage: self::isRawSql($value)
     public static function isRawSql(mixed $stringOrObj): bool
     {
-        return self::getDefaultInstance()->isRawSql($stringOrObj);
+        return self::newInstance()->isRawSql($stringOrObj);
     }
 
     #endregion
@@ -551,8 +567,8 @@ class DB
      */
     public static function debug(): void
     {
-        if (self::$defaultInstance !== null) {
-            self::getDefaultInstance()->debug();
+        if (self::$mysqli !== null) {
+            self::newInstance()->debug();
         } else {
             echo "No connection or query has been executed yet.\n";
         }
@@ -565,7 +581,7 @@ class DB
      */
     public static function setTimezoneToPhpTimezone(string $mysqlTzOffset = ''): void
     {
-        self::getDefaultInstance()->setTimezoneToPhpTimezone($mysqlTzOffset);
+        self::newInstance()->setTimezoneToPhpTimezone($mysqlTzOffset);
     }
 
     /**
@@ -573,7 +589,7 @@ class DB
      */
     public static function occurredInFile($addReportedFileLine = false): string
     {
-        return self::getDefaultInstance()->occurredInFile($addReportedFileLine);
+        return self::newInstance()->occurredInFile($addReportedFileLine);
     }
 
     #endregion
@@ -581,40 +597,28 @@ class DB
 
 
     /**
-     * Gets the default DBInstance used by static methods. Creates it if it doesn't exist yet.
+     * Creates a new DBInstance that shares the same Connection.  Supports overrides for instance properties by passing an array.
+     * If no connection exists yet, it will be created.  You must call DB::config() first to set the defaults.  If you want to create
+     * a new connection instead, use DB::newConnection().
      *
-     * @return Instance The default database instance
+     * @return Instance A new database instance with shared connection
      * @throws Exception
      */
-    public static function getDefaultInstance(): Instance
+    public static function newInstance(array $overrides = []): Instance
     {
-        if (self::$defaultInstance === null) {
-            self::connect();
-            self::$defaultInstance = new Instance(self::$config);
+        // Ensure DB::config() was already called
+        if (self::$defaultConfig === null) {
+            throw new RuntimeException("Call DB::config() first to set your defaults");
         }
 
-        self::$defaultInstance->parser = new Parser(); // reset parser
+        // Ensure DB::connect() is called to create the default connection
+        if (self::$defaultConnection === null) {
+            self::connect(); // sets self::$defaultConnection
+        }
 
-        return self::$defaultInstance;
-    }
-
-    /**
-     * Creates a new DBInstance that shares the same Connection as the default instance.
-     *
-     * Use this method when you need a separate instance with its own configuration
-     * but want to share the same database connection.
-     *
-     * @return Instance A new database instance with the same connection as the default
-     * @throws Exception
-     */
-    public static function newInstance(): Instance
-    {
-        // Ensure we have a default instance first
-        self::getDefaultInstance();
-
-        // Create a new instance with the same connection object
-        $connection = self::getDefaultInstance()->connection;
-        $instance   = new Instance($connection);
+        // Create new Instance with default connection
+        $instanceOptions = array_merge(self::$defaultConfig->getInstanceProperties(), $overrides);
+        $instance        = new Instance($instanceOptions, self::$defaultConnection);    // use default connection
 
         return $instance;
     }
@@ -630,10 +634,20 @@ class DB
      * @return Instance A new database instance with its own connection
      * @throws Exception
      */
-    public static function newConnection(array $overrides = []): Instance
+    public static function newConnection(array $overrides = [], $connectionOverrides = []): Instance
     {
-        $config = new Config($overrides);
-        return new Instance($config);
+        // Error checking
+        if (self::$defaultConfig === null) {
+            throw new RuntimeException("Call DB::config() first to set your defaults");
+        }
+
+        // create new connection and new instance
+        $instanceOptions   = array_merge(self::$defaultConfig->getInstanceProperties(), $overrides);
+        $connectionOptions = array_merge(self::$defaultConfig->getConnectionProperties(), $connectionOverrides);
+        $connection        = new Connection($connectionOptions);
+        $instance          = new Instance($instanceOptions, $connection);
+
+        return $instance;
     }
 
     /**
@@ -653,7 +667,7 @@ class DB
     {
         // Try delegating to default instance first
         if (method_exists(Instance::class, $name)) {
-            return self::getDefaultInstance()->$name(...$args);
+            return self::newInstance()->$name(...$args);
         }
 
         // legacy methods

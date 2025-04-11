@@ -7,7 +7,6 @@ use InvalidArgumentException;
 use Itools\SmartArray\SmartArray;
 use Itools\SmartArray\SmartNull;
 use Itools\SmartString\SmartString;
-use RuntimeException;
 
 /**
  * Params class for ZenDB
@@ -67,13 +66,13 @@ class Params
                 default              => $this->addNamedParam($indexOrName, $value),
             };
         }
-        
+
         return $this;
     }
 
     /**
      * Adds a positional parameter, automatically assigning it a name with next available number (e.g., ':1', ':2')
-     * that comes after the highest existing number. Supports various value types, including DB::rawSql() for raw SQL.
+     * that comes after the highest existing number. Supports various value types, including RawSql object for raw SQL.
      *
      * @param string|int|float|bool|null|RawSql $value The value of the positional parameter to add.
      * @return self Returns $this for method chaining
@@ -93,13 +92,13 @@ class Params
         $name  = ":$nextUnusedNum";
         $value = $value instanceof SmartString ? $value->value() : $value;
         $this->addParam($name, $value);
-        
+
         return $this;
     }
 
     /**
      * Adds a named SQL parameter. Ensures parameter names are unique, start with ':', and conform to naming rules.
-     * Rejects names starting with 'zdb_' (reserved for internal use). Supports various value types, including DB::rawSql() for raw SQL.
+     * Rejects names starting with 'zdb_' (reserved for internal use). Supports various value types, including RawSql object for raw SQL.
      *
      * @param string $name The parameter name, starting with ':'.
      * @param string|int|float|bool|null|RawSql $value The value to be bound to the named parameter.
@@ -119,7 +118,7 @@ class Params
         // add parameter
         $value = $value instanceof SmartString ? $value->value() : $value;
         $this->addParam($name, $value);
-        
+
         return $this;
     }
 
@@ -140,7 +139,7 @@ class Params
 
         // add parameter
         $this->addParam($name, $value);
-        
+
         return $this;
     }
 
@@ -170,10 +169,10 @@ class Params
             default            => $this->paramMap[$name] = $value,
         };
     }
-    
+
     /**
      * Finalizes the query - does nothing in the base class
-     * 
+     *
      * @return self Returns $this for method chaining
      */
     public function finalizeQuery(): self

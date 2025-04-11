@@ -16,7 +16,7 @@ class insertTest extends BaseTest
 {
     protected function setUp(): void
     {
-        DB::config(self::getConfigDefaults());
+        DB::config(self::getConfigArray());
         self::resetTempTestTables();
         // overrides parent BaseTest class setUp
     }
@@ -45,7 +45,7 @@ class insertTest extends BaseTest
 
             // Test instance method
             self::resetTempTestTables();
-            $db = DB::getDefaultInstance();
+            $db = DB::newInstance();
             $instanceInsertId = $db->insert($baseTable, $colsToValues);
             $this->assertSame($expectedId, $instanceInsertId, "Instance insert ID mismatch for $queryType query");
 
@@ -192,7 +192,7 @@ class insertTest extends BaseTest
 
             // Test instance method throws exception
             try {
-                $db = DB::getDefaultInstance();
+                $db = DB::newInstance();
                 $db->insert($baseTable, $colsToValues);
                 $this->fail("Instance \$db->insert with $queryType query did not throw exception");
             } catch (Throwable $e) {

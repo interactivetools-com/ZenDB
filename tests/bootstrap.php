@@ -13,14 +13,19 @@ class_alias(\Itools\ZenDB\DB::class, '\DB');
 
 // If running inside Windows Subsystem for Linux (WSL), automatically detect Windows host IP to connect to MySQL running on Windows (outside of WSL)
 $isWSL = PHP_OS_FAMILY === 'Linux' && trim(`test -f /proc/sys/fs/binfmt_misc/WSLInterop && echo 1`);  // file only exists in WSL
+$inCLI = PHP_SAPI === 'cli' && !defined('STDIN');
 if ($isWSL) {
     // Only set the hostname if it's not already explicitly set
     $_ENV['DB_HOSTNAME'] = trim(`powershell.exe -Command "(Test-Connection -ComputerName (hostname) -Count 1).IPV4Address.IPAddressToString"`);
-    echo "WSL detected, using MySQL Windows host IP: {$_ENV['DB_HOSTNAME']}\n";
+    if ($inCLI) {
+        echo "WSL detected, using MySQL Windows host IP: {$_ENV['DB_HOSTNAME']}\n";
+    }
 }
 else {
     $_ENV['DB_HOSTNAME'] = 'localhost';
-    echo "Not WSL, using MySQL host: {$_ENV['DB_HOSTNAME']}\n";
+    if ($inCLI) {
+        echo "Not WSL, using MySQL host: {$_ENV['DB_HOSTNAME']}\n";
+    }
 }
 
 // Configure the database
@@ -38,9 +43,6 @@ DB::config([
     'showSqlInErrors'    => true,
 ]);
 
-// Connect to the database
-DB::connect();
-
 // Check for required environment variables from phpunit.xml
 if (!isset($_ENV['DB_HOSTNAME'], $_ENV['DB_USERNAME'], $_ENV['DB_DATABASE'])) {
     echo "\033[31mError: Required database configuration missing.\033[0m\n\n";
@@ -53,8 +55,3 @@ if (!isset($_ENV['DB_HOSTNAME'], $_ENV['DB_USERNAME'], $_ENV['DB_DATABASE'])) {
     echo "</php>\n\n";
     exit(1);
 }
-
-// Connection should have been set up by now
-
-// Create the test database if it doesn't exist
-DB::connect();
