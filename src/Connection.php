@@ -61,6 +61,7 @@ class Connection
         mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
 
         // Attempt to connect
+        $tempMysqli = null;
         try {
             // connect to db
             $tempMysqli = new MysqliWrapper();                                                 // old way: new mysqli();

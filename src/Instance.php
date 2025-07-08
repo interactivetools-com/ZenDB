@@ -566,7 +566,18 @@ class Instance
      */
     public function escape(string|int|float|null|SmartString $input, bool $escapeLikeWildcards = false): string
     {
-        return $this->connection->escape($input, $escapeLikeWildcards);
+        // Convert SmartString to raw value if needed
+        $string = $input instanceof SmartString ? $input->value() : (string)$input;
+        
+        // Escape the string using mysqli
+        $escaped = $this->connection->mysqli->real_escape_string($string);
+        
+        // Optionally escape LIKE wildcards
+        if ($escapeLikeWildcards) {
+            $escaped = addcslashes($escaped, '%_');
+        }
+        
+        return $escaped;
     }
 
     /**
@@ -578,7 +589,8 @@ class Instance
      */
     public function likeContains(string|int|float|null|SmartString $input): RawSql
     {
-        return $this->connection->likeContains($input);
+        $escaped = $this->escape($input, true);
+        return new RawSql("%$escaped%");
     }
 
     /**
@@ -590,7 +602,8 @@ class Instance
      */
     public function likeContainsTSV(string|int|float|null|SmartString $input): RawSql
     {
-        return $this->connection->likeContainsTSV($input);
+        $escaped = $this->escape($input, true);
+        return new RawSql("%\t$escaped\t%");
     }
 
     /**
@@ -602,7 +615,8 @@ class Instance
      */
     public function likeStartsWith(string|int|float|null|SmartString $input): RawSql
     {
-        return $this->connection->likeStartsWith($input);
+        $escaped = $this->escape($input, true);
+        return new RawSql("$escaped%");
     }
 
     /**
@@ -614,7 +628,8 @@ class Instance
      */
     public function likeEndsWith(string|int|float|null|SmartString $input): RawSql
     {
-        return $this->connection->likeEndsWith($input);
+        $escaped = $this->escape($input, true);
+        return new RawSql("%$escaped");
     }
 
     /**
@@ -639,7 +654,7 @@ class Instance
                 is_int($value) || is_float($value) => $value,
                 is_null($value)                    => 'NULL',
                 is_bool($value)                    => $value ? 'TRUE' : 'FALSE',
-                is_string($value)                  => "'" . $this->connection->escape($value) . "'",
+                is_string($value)                  => "'" . $this->escape($value) . "'",
                 default                            => throw new InvalidArgumentException("Unsupported value type: " . get_debug_type($value)),
             };
         }

@@ -11,23 +11,6 @@ error_reporting(E_ALL);
 use Itools\ZenDB\DB;
 class_alias(\Itools\ZenDB\DB::class, '\DB');
 
-// If running inside Windows Subsystem for Linux (WSL), automatically detect Windows host IP to connect to MySQL running on Windows (outside of WSL)
-$isWSL = PHP_OS_FAMILY === 'Linux' && trim(`test -f /proc/sys/fs/binfmt_misc/WSLInterop && echo 1`);  // file only exists in WSL
-$inCLI = PHP_SAPI === 'cli' && !defined('STDIN');
-if ($isWSL) {
-    // Only set the hostname if it's not already explicitly set
-    $_ENV['DB_HOSTNAME'] = trim(`powershell.exe -Command "(Test-Connection -ComputerName (hostname) -Count 1).IPV4Address.IPAddressToString"`);
-    if ($inCLI) {
-        echo "WSL detected, using MySQL Windows host IP: {$_ENV['DB_HOSTNAME']}\n";
-    }
-}
-else {
-    $_ENV['DB_HOSTNAME'] = 'localhost';
-    if ($inCLI) {
-        echo "Not WSL, using MySQL host: {$_ENV['DB_HOSTNAME']}\n";
-    }
-}
-
 // Configure the database
 DB::config([
     'hostname'           => $_ENV['DB_HOSTNAME'],

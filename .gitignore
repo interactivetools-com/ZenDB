@@ -9,3 +9,7 @@ phpunit.xml
 src/_*
 test.php
 vendor/
+old-ZenDB/
+.phpstorm.meta.php
+all.sh
+diff.sh

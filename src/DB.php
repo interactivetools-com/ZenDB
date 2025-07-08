@@ -17,7 +17,7 @@ class DB
     public static ?mysqli      $mysqli            = null;  // mysqli object
     private static ?Config     $defaultConfig     = null;  // default config
     private static ?Connection $defaultConnection = null;  // shared connection
-    private static ?Instance   $db                = null;  // default instance and connection
+    private static ?Instance   $instance          = null;  // cached default instance
 
     #region Config & Connection
 
@@ -43,12 +43,29 @@ class DB
         $args       = func_num_args();
         [$key, $value] = [$keyOrArrayOrConfig, $keyValue]; // aliases
 
-        // set values
-        match (true) {
-            $args === 2 && is_string($key) => self::$defaultConfig->$key = $value,                              // set single value
-            $args === 1 && is_array($key)  => array_walk($key, fn($v, $k) => self::$defaultConfig->$k = $v),    // set multiple values
-            default                        => null,
-        };
+        // Track if instance-affecting configs changed
+        $instanceAffectingKeys = ['usePreparedStatements', 'tablePrefix', 'primaryKey', 'useSmartJoins'];
+        $shouldClearInstance = false;
+
+        // set values and check if we need to clear instance
+        if ($args === 2 && is_string($key)) {
+            if (in_array($key, $instanceAffectingKeys) && self::$defaultConfig->$key !== $value) {
+                $shouldClearInstance = true;
+            }
+            self::$defaultConfig->$key = $value;
+        } elseif ($args === 1 && is_array($key)) {
+            foreach ($key as $k => $v) {
+                if (in_array($k, $instanceAffectingKeys) && self::$defaultConfig->$k !== $v) {
+                    $shouldClearInstance = true;
+                }
+                self::$defaultConfig->$k = $v;
+            }
+        }
+
+        // Clear cached instance if config changed
+        if ($shouldClearInstance && self::$instance !== null) {
+            self::$instance = null;
+        }
 
         // Update table prefix alias property in case it changed
         self::$tablePrefix = &self::$defaultConfig->tablePrefix;
@@ -152,449 +169,41 @@ class DB
         self::$mysqli?->close();
         self::$mysqli            = null;
         self::$defaultConnection = null;
-        self::$db                = null;
+        self::$instance          = null;
     }
 
     #endregion
-    #region Query Methods
-
-    /**
-     * Executes an SQL query and returns a ResultSet object. Static factory function
-     *
-     * @param string $sqlTemplate SQL statement template with placeholders for parameters.
-     * @param mixed ...$params Optional prepared statement parameters to be bound to the SQL template.
-     *
-     * @return SmartArray Returns a ResultSet object containing the results or status of the query.
-     *
-     * @throws DBException|Exception
-     * @example DB::query("SELECT * FROM `accounts` WHERE  name = :name AND date <= :targetDate", $params);
-     */
-    public static function query(string $sqlTemplate, ...$params): SmartArray
-    {
-        $db = self::newInstance();
-        return $db->query($sqlTemplate, ...$params);
-    }
-
-    /**
-     * Executes an SQL SELECT query and returns a ResultSet object. Static factory function.
-     *
-     * @param string $baseTable The base table name for the query.
-     * @param int|array|string $idArrayOrSql Optional array of IDs, SQL condition string, or empty (to select all rows).
-     * @param mixed ...$params Optional prepared statement parameters to be bound to the SQL template.
-     *
-     * @return SmartArray Returns a ResultSet object containing the results or status of the query.
-     *
-     * @throws DBException
-     * @example
-     * DB::select("accounts"); // Selects all rows from the "accounts" table.
-     * DB::select("accounts", 123); // Selects rows with ID 123 from the "accounts" table.
-     * DB::select("accounts", ['city' => 'New York']); // Selects rows from the "accounts" table where the city is "New York".
-     * DB::select("accounts", "WHERE balance > 1000"); // Selects rows from the "accounts" table where the balance is greater than 1000.
-     */
-    public static function select(string $baseTable, int|array|string $idArrayOrSql = [], ...$params): SmartArray
-    {
-        $db = self::newInstance();
-        return $db->select($baseTable, $idArrayOrSql, ...$params);
-    }
-
-    /**
-     * Retrieves a single row from the specified table based on the given conditions and parameters.
-     *
-     * @param string $baseTable The base table name to select from.
-     * @param int|array|string $idArrayOrSql The condition(s) to match when selecting the row. Can be an ID, an array of IDs, or a custom SQL query.
-     * @param mixed ...$params Optional prepared statement parameters to be bound to the SQL template.
-     *
-     * @return SmartArray Returns a Row object representing the first matching row, or null if no row is found.
-     *
-     * @throws DBException If an error occurs while retrieving the row.
-     * @example
-     * DB::get("users", 1); // Retrieve a row with the ID 1 from the "users" table
-     * DB::get("orders", ["id" => 123]); // Retrieve a row from the "orders" table where the ID is 123
-     * DB::get("products", "price > :price", ["price" => 50]); // Retrieve a row from the "products" table based on a custom SQL query
-     */
-    public static function get(string $baseTable, int|array|string $idArrayOrSql = [], ...$params): SmartArray
-    {
-        $db = self::newInstance();
-        return $db->get($baseTable, $idArrayOrSql, ...$params);
-    }
-
-    /**
-     * Insert rows into a database table using the provided column-value pairs.
-     *
-     * @param string $baseTable The name of the base table where the rows will be inserted.
-     * @param array $colsToValues An associative array mapping column names to their corresponding values.
-     *
-     * @return int                           The id of the inserted record
-     * @throws DBException                   If there is an error inserting the row.
-     *
-     * @example DB::insert("accounts", ["name" => "John Doe", "age" => 30]);
-     */
-    public static function insert(string $baseTable, array $colsToValues): int
-    {
-        $db = self::newInstance();
-        return $db->insert($baseTable, $colsToValues);
-    }
-
-    /**
-     * Updates records in a table based on conditions and returns affected rows.  Note that if you update a
-     * row with the same values, it won't count as an affected row.
-     *
-     * @param string $baseTable The name of the table to update.
-     * @param array $colsToValues Associative array representing columns and their new values.
-     * @param int|array|string $idArrayOrSql An array of conditions or a raw SQL condition string.
-     * @param mixed ...$params Optional additional prepared statement parameters.
-     *
-     * @return int  Returns the number of affected rows.
-     *
-     * @throws DBException
-     * @example DB::update('accounts', $colsToValues, "WHERE num = ? AND city = :city", ...$params);
-     * @example DB::update('accounts', $colsToValues, ['num' => $num]);
-     */
-    public static function update(string $baseTable, array $colsToValues, int|array|string $idArrayOrSql, ...$params): int
-    {
-        $db = self::newInstance();
-        return $db->update($baseTable, $colsToValues, $idArrayOrSql, ...$params);
-    }
-
-    /**
-     * Deletes a record or records from a table.
-     *
-     * @param string $baseTable
-     * @param int|array|string $idArrayOrSql
-     * @param mixed ...$params Optional additional prepared statement parameters.
-     *
-     * @return int Returns the number of affected rows, or 0 if no rows were deleted, or -1 if there was an error.
-     *
-     * @throws DBException
-     * @example DB::delete('accounts', ['num' => $num]);
-     * @example DB::delete('accounts', "WHERE num = ? AND city = :city", ...$params);
-     */
-    public static function delete(string $baseTable, int|array|string $idArrayOrSql, ...$params): int
-    {
-        $db = self::newInstance();
-        return $db->delete($baseTable, $idArrayOrSql, ...$params);
-    }
-
-    /**
-     * Returns the count of rows in a table matching the given conditions.
-     *
-     * @param string $baseTable
-     * @param int|array|string $idArrayOrSql
-     * @param ...$params
-     * @return int
-     * @throws DBException
-     */
-    public static function count(string $baseTable, int|array|string $idArrayOrSql = [], ...$params): int
-    {
-        $db = self::newInstance();
-        return $db->count($baseTable, $idArrayOrSql, ...$params);
-    }
-
-    #endregion
-
-
-    #region Table Helpers
-
-    /**
-     * Extracts base table name by removing table prefix, optionally verifying table exists.
-     *
-     * @param string $table Table name with or without prefix
-     * @param bool $strict If true, verifies table exists in database, only needed if table name may contain double prefix
-     * @return string Base table name without prefix
-     * @throws DBException
-     */
-    public static function getBaseTable(string $table, bool $strict = false): string
-    {
-        return match (true) {
-            !str_starts_with($table, self::$tablePrefix) => $table,                                     // doesn't start with prefix
-            $strict && self::tableExists($table, false)  => $table,                                     // exists as baseTable already, meaning there's a double prefix, e.g., 'cms_cms_table'
-            default                                      => substr($table, strlen(self::$tablePrefix)), // remove prefix
-        };
-    }
-
-    /**
-     * Returns the full table name with the current table prefix.  Optionally verifies table exists.
-     *
-     * @param bool $strict If true, verifies table exists in database, only needed if table name may contain double prefix
-     * @throws DBException
-     */
-    public static function getFullTable(string $table, bool $strict = false): string
-    {
-        return match (true) {
-            $strict && !self::tableExists($table, true) => self::$tablePrefix . $table,  // doesn't exist, add prefix.  Catches double prefix, e.g., 'cms_cms_table'
-            str_starts_with($table, self::$tablePrefix) => $table,                       // already starts with prefix, return as is
-            default                                     => self::$tablePrefix . $table,  // doesn't start with prefix, add prefix
-        };
-    }
-
-    /**
-     * Check if table exists in the database.  Assumes baseTable unless isFullTable is true.
-     *
-     * @usage DB::tableExists('tableName');
-     *
-     * @param string $table
-     * @param bool $isFullTable
-     * @return bool
-     * @throws DBException
-     */
-    public static function tableExists(string $table, bool $isFullTable = false): bool
-    {
-        $fullTable = $isFullTable ? $table : self::$tablePrefix . $table;
-        return self::query("SHOW TABLES LIKE ?", $fullTable)->count() > 0;
-    }
-
-    /**
-     * Retrieve MySQL table names without the current table prefix.
-     *
-     * @return string[] Array of table names.
-     * @throws DBException
-     */
-    public static function getTableNames(bool $includePrefix = false): array
-    {
-        // get tables that start with the current table prefix
-        $likePattern = self::likeStartsWith(self::$tablePrefix);
-        $tableNames  = self::query("SHOW TABLES LIKE ?", $likePattern)->pluckNth(0)->toArray();
-
-        // sort _tables to the bottom
-        $baseOffset = strlen(self::$tablePrefix); // get baseTable offset, so we can check if first char is _
-        usort($tableNames, fn($a, $b) => ($a[$baseOffset] === '_') <=> ($b[$baseOffset] === '_') ?: ($a <=> $b));
-
-        // remove prefix
-        if (!$includePrefix) {
-            $tablePrefixRx = preg_quote(self::$tablePrefix, "/");
-            $tableNames    = preg_replace("/^$tablePrefixRx/", "", $tableNames);
-        }
-
-        //
-        return $tableNames;
-    }
-
-    /**
-     * Get column definitions from a table, excluding redundant charset/collation settings.
-     *
-     * @param string $baseTable The base table name without prefix
-     * @return array<string,string> Array of column name => column definition pairs
-     */
-    public static function getColumnDefinitions(string $baseTable): array
-    {
-        $columnDefinitions = [];
-        try {  // mysql throws an error if table doesn't exist
-            $createTableSQL = self::query('SHOW CREATE TABLE `::?`', $baseTable)->first()->nth(1)->value();
-            $lines          = explode("\n", $createTableSQL);
-        } catch (Throwable $e) {
-            $lines = [];
-        }
-
-        // Extract charset/collation from last line (table defaults)
-        $defaults = [];
-        if (preg_match('/\bDEFAULT CHARSET=(\S+) COLLATE=(\S+)\b/', (string)array_pop($lines), $m)) {
-            $defaults = [" CHARACTER SET $m[1]", " COLLATE $m[2]"];
-        }
-
-        // get column definitions
-        foreach ($lines as $line) {
-            if (preg_match('/^  `([^`]+)` (.*?),?$/', $line, $matches)) {
-                [, $columnName, $definition] = $matches;
-                $definition                     = str_replace($defaults, '', $definition);             // remove redundant column values that match table defaults
-                $definition                     = preg_replace("/(int)\(\d*\)/i", "$1", $definition);  // replace int(displayWidth) with int (displayWidth removed in MySQL 8)
-                $columnDefinitions[$columnName] = $definition;
-            }
-        }
-
-        return $columnDefinitions;
-    }
-
-    #endregion
-    #region SQL Generation
-
-    /**
-     * Returns a string that has been escaped for safe inclusion in raw SQL statements.  Does NOT add quotes.
-     *
-     * Essentially a shortcut for $mysqli->real_escape_string() that also supports SmartString input.
-     */
-    public static function escape(string|int|float|null|SmartString $input, bool $escapeLikeWildcards = false): string
-    {
-        return self::newInstance()->escape($input, $escapeLikeWildcards);
-    }
-
-    /**
-     * Creates a MySQL LIKE pattern for "column contains value" searches, e.g., '%value%'.
-     * Escapes MySQL special characters and LIKE wildcards. Returns rawSQL for query params.
-     *
-     * Example:
-     * DB::select('table', "title LIKE :contains", [
-     *   ':contains' => DB::likeContains($keyword)  // creates '%keyword%'
-     * ]);
-     *
-     * @param string|int|float|null|SmartString $input Value to search for
-     * @return rawSQL Escaped LIKE pattern wrapped in wildcards '%value%'
-     * @throws Exception
-     */
-    public static function likeContains(string|int|float|null|SmartString $input): rawSQL
-    {
-        return self::newInstance()->likeContains($input);
-    }
-
-    /**
-     * Creates a MySQL LIKE pattern for matching values in tab-delimited columns, e.g., '%\tValue\t%'.
-     * Escapes MySQL special characters and LIKE wildcards. Returns rawSQL for query params.
-     *
-     * Example:
-     * DB::select('table', "categories LIKE :contains", [
-     *   ':contains' => DB::likeContainsTSV($category)  // creates '%\tValue\t%'
-     * ]);
-     *
-     * @param string|int|float|null|SmartString $input Value to search for
-     * @return rawSQL Escaped LIKE pattern with tab delimiters '%\tValue\t%'
-     * @throws Exception
-     */
-    public static function likeContainsTSV(string|int|float|null|SmartString $input): rawSQL
-    {
-        return self::newInstance()->likeContainsTSV($input);
-    }
-
-    /**
-     * Creates a MySQL LIKE pattern for "column starts with value" searches, e.g., 'value%'.
-     * Escapes MySQL special characters and LIKE wildcards. Returns rawSQL for query params.
-     *
-     * Example:
-     * DB::select('table', "title LIKE :startsWith", [
-     *   ':startsWith' => DB::likeStartsWith($keyword)  // creates 'keyword%'
-     * ]);
-     *
-     * @param string|int|float|null|SmartString $input Value to search for
-     * @return rawSQL Escaped LIKE pattern with trailing wildcard 'value%'
-     * @throws Exception
-     */
-    public static function likeStartsWith(string|int|float|null|SmartString $input): rawSQL
-    {
-        return self::newInstance()->likeStartsWith($input);
-    }
-
-    /**
-     * Creates a MySQL LIKE pattern for "column ends with value" searches, e.g., '%value'.
-     * Escapes MySQL special characters and LIKE wildcards. Returns rawSQL for query params.
-     *
-     * Example:
-     * DB::select('table', "title LIKE :endsWith", [
-     *   ':endsWith' => DB::likeEndsWith($keyword)  // creates '%keyword'
-     * ]);
-     *
-     * @param string|int|float|null|SmartString $input Value to search for
-     * @return rawSQL Escaped LIKE pattern with leading wildcard '%value'
-     * @throws Exception
-     */
-    public static function likeEndsWith(string|int|float|null|SmartString $input): rawSQL
-    {
-        return self::newInstance()->likeEndsWith($input);
-    }
-
-    /**
-     * Converts array values to a safe CSV string for use in MySQL IN clauses, defaults to NULL.
-     * - Numbers are unquoted: 1,2,3
-     * - Strings are escaped and quoted: 'a','b','c'
-     * - NULL becomes SQL NULL keyword
-     * - Booleans become TRUE/FALSE keywords
-     * - Empty arrays return NULL so "column IN (NULL)" is valid SQL but won't match any values
-     *
-     * @param array $array Array of values to convert
-     * @return RawSql SQL-safe comma-separated list wrapped in RawSql
-     * @throws InvalidArgumentException If array contains unsupported value type
-     * @throws Exception
-     */
-    public static function escapeCSV(array $array): RawSql
-    {
-        return self::newInstance()->escapeCSV($array);
-    }
-
-    /**
-     * Generates a LIMIT/OFFSET SQL clause for pagination.
-     *
-     * @param mixed $pageNum The current page number. Must be numeric. Default value set to 1 if zero or negative.
-     * @param mixed $perPage The number of records per page. Must be numeric. Default value set to 10 if zero or negative.
-     *
-     * Usage Examples:
-     * 1. Using as an inline argument:
-     *    DB::select('table', "date <= NOW() ?", pagingSql(1, 25));
-     *
-     * 2. Using as a named parameter:
-     *    DB::select('table', "date <= NOW() :pagingSql", [
-     *      ':pagingSql' => pagingSql(1, 25),
-     *    ]);
-     *
-     * @return RawSql LIMIT/OFFSET clause for SQL queries.
-     * @throws Exception
-     */
-    public static function pagingSql(mixed $pageNum, mixed $perPage = 10): RawSql
-    {
-        return self::newInstance()->pagingSql($pageNum, $perPage);
-    }
-
-    /**
-     * indicate that a value is intended to be a SQL literal and not quoted, e.g., NOW(), CURRENT_TIMESTAMP, etc.
-     * Check with: DB::isRawSql($var)
-     *
-     * Note: DB::rawSql() values get inserted before prepared statements are executed, so they can be used in non-DML SQL
-     * This is because prepared queries are used to bind values not structural components of the SQL query, so you can't
-     * normally use a placeholder for a table name, column name, etc.  However, DB::rawSql() values are inserted before
-     * the prepared statement is executed, so they can be used for constructing queries for non-DML SQL.
-     *
-     * @param string|int|float|null $value
-     *
-     * @return RawSql
-     * @throws Exception
-     */
-    public static function rawSql(string|int|float|null $value): RawSql
-    {
-        return self::newInstance()->rawSql($value);
-    }
-
-
-    // Usage: self::isRawSql($value)
-    public static function isRawSql(mixed $stringOrObj): bool
-    {
-        return self::newInstance()->isRawSql($stringOrObj);
-    }
-
-    #endregion
-    #region Utility Functions
-
-    /**
-     * Show resultSet information about the last query
-     *
-     * @return void
-     * @throws Exception
-     */
-    public static function debug(): void
-    {
-        if (self::$mysqli !== null) {
-            self::newInstance()->debug();
-        } else {
-            echo "No connection or query has been executed yet.\n";
-        }
-    }
-
-    /**
-     * Sets the MySQL timezone to match the PHP timezone.
-     *
-     * @throws RuntimeException|Exception  If not connected to the database or if the set command fails.
-     */
-    public static function setTimezoneToPhpTimezone(string $mysqlTzOffset = ''): void
-    {
-        self::newInstance()->setTimezoneToPhpTimezone($mysqlTzOffset);
-    }
-
-    /**
-     * Add "Occurred in file:line" to the end of the error messages with the first non-SmartArray file and line number.
-     */
-    public static function occurredInFile($addReportedFileLine = false): string
-    {
-        return self::newInstance()->occurredInFile($addReportedFileLine);
-    }
 
     #endregion
     #region Magic Methods
 
+    /**
+     * Get the default cached Instance (singleton pattern).
+     * Creates it on first access using default config and connection.
+     * 
+     * @return Instance The default database instance
+     * @throws Exception
+     */
+    private static function defaultInstance(): Instance
+    {
+        if (self::$instance === null) {
+            // Ensure DB::config() was already called
+            if (self::$defaultConfig === null) {
+                throw new RuntimeException("Call DB::config() first to set your defaults");
+            }
+
+            // Ensure DB::connect() is called to create the default connection
+            if (self::$defaultConnection === null) {
+                self::connect(); // sets self::$defaultConnection
+            }
+
+            // Create and cache the default instance
+            $instanceOptions = self::$defaultConfig->getInstanceProperties();
+            self::$instance  = new Instance($instanceOptions, self::$defaultConnection);
+        }
+
+        return self::$instance;
+    }
 
     /**
      * Creates a new DBInstance that shares the same Connection.  Supports overrides for instance properties by passing an array.
@@ -661,22 +270,43 @@ class DB
     }
 
     /**
-     * Handles static calls to the DB Utils methods.
+     * Handles static calls to delegate to Instance methods.
+     *
+     * All query and utility methods are delegated to a default instance.
+     * This provides a clean static API while maintaining proper object-oriented design.
      */
     public static function __callStatic(string $name, array $args)
     {
-        // Try delegating to default instance first
-        if (method_exists(Instance::class, $name)) {
-            return self::newInstance()->$name(...$args);
-        }
-
-        // legacy methods
         return match ($name) {
-            'like', 'escapeLikeWildcards' => addcslashes((string)($args[0] ?? ''), '%_'),                           // Replacement: See escape(value, true) and like* methods
-            'identifier'                  => self::rawSql("`" . self::$mysqli->real_escape_string(...$args) . "`"), // Replacement: Automatically handled by Prepare->getParamQuery()
-            'getTablePrefix'              => self::$tablePrefix,                                                    // Replacement: DB::$tablePrefix
-            'raw'                         => self::rawSql(...$args),                                                // Replacement: DB::rawSql()
-            'datetime'                    => date('Y-m-d H:i:s', ($args[0] ?? time())),                             // Replacement: date('Y-m-d H:i:s', $unixTime)
+            // Query methods
+            'query', 'select', 'get', 'insert', 'update', 'delete', 'count',
+            // SQL generation
+            'escape', 'escapeCSV', 'rawSql', 'isRawSql', 'pagingSql',
+            'likeContains', 'likeContainsTSV', 'likeStartsWith', 'likeEndsWith',
+            // Table helpers
+            'tableExists', 'getTableNames', 'getColumnDefinitions',
+            // Utility methods
+            'debug', 'setTimezoneToPhpTimezone', 'occurredInFile'
+                => self::defaultInstance()->$name(...$args),
+
+            // Table prefix helpers - use static property directly
+            'getBaseTable' => match (true) {
+                !str_starts_with($args[0], self::$tablePrefix) => $args[0],
+                ($args[1] ?? false) && self::tableExists($args[0], false) => $args[0],
+                default => substr($args[0], strlen(self::$tablePrefix)),
+            },
+            'getFullTable' => match (true) {
+                ($args[1] ?? false) && !self::tableExists($args[0], true) => self::$tablePrefix . $args[0],
+                str_starts_with($args[0], self::$tablePrefix) => $args[0],
+                default => self::$tablePrefix . $args[0],
+            },
+
+            // Legacy methods for backwards compatibility
+            'like', 'escapeLikeWildcards' => addcslashes((string)($args[0] ?? ''), '%_'),
+            'identifier'                  => self::rawSql("`" . self::$mysqli->real_escape_string(...$args) . "`"),
+            'getTablePrefix'              => self::$tablePrefix,
+            'raw'                         => self::rawSql(...$args),
+            'datetime'                    => date('Y-m-d H:i:s', ($args[0] ?? time())),
             default                       => throw new InvalidArgumentException("Unknown static method: $name"),
         };
     }
