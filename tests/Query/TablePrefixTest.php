@@ -28,39 +28,35 @@ class TablePrefixTest extends BaseTestCase
 
     public function testTablePrefixPlaceholder(): void
     {
-        $this->query->addParamsFromArgs([]);
-        $this->query->setSqlTemplate("SELECT * FROM `:_users`");
-        $query = $this->query->getEscapedQuery();
+        $this->query->params->addFromArgs([]);
+        $sql = $this->query->getSql("SELECT * FROM `:_users`");
 
-        $this->assertStringContainsString('`test_users`', $query);
+        $this->assertStringContainsString('`test_users`', $sql);
     }
 
     public function testTablePrefixWithMultipleTables(): void
     {
-        $this->query->addParamsFromArgs([]);
-        $this->query->setSqlTemplate("SELECT * FROM `:_users` JOIN `:_orders` ON `:_users`.id = `:_orders`.user_id");
-        $query = $this->query->getEscapedQuery();
+        $this->query->params->addFromArgs([]);
+        $sql = $this->query->getSql("SELECT * FROM `:_users` JOIN `:_orders` ON `:_users`.id = `:_orders`.user_id");
 
-        $this->assertStringContainsString('`test_users`', $query);
-        $this->assertStringContainsString('`test_orders`', $query);
+        $this->assertStringContainsString('`test_users`', $sql);
+        $this->assertStringContainsString('`test_orders`', $sql);
     }
 
     public function testDoubleColonPrefixPlaceholder(): void
     {
-        $this->query->addParamsFromArgs(['tablename']);
-        $this->query->setSqlTemplate("SELECT * FROM `::?`");
-        $query = $this->query->getEscapedQuery();
+        $this->query->params->addFromArgs(['tablename']);
+        $sql = $this->query->getSql("SELECT * FROM `::?`");
 
-        $this->assertStringContainsString('`test_tablename`', $query);
+        $this->assertStringContainsString('`test_tablename`', $sql);
     }
 
     public function testEmptyTablePrefix(): void
     {
-        $parserNoPrefix = new Query(DB::$mysqli, '');
-        $parserNoPrefix->addParamsFromArgs([]);
-        $parserNoPrefix->setSqlTemplate("SELECT * FROM `:_users`");
-        $query = $parserNoPrefix->getEscapedQuery();
+        $queryNoPrefix = new Query(DB::$mysqli, '');
+        $queryNoPrefix->params->addFromArgs([]);
+        $sql = $queryNoPrefix->getSql("SELECT * FROM `:_users`");
 
-        $this->assertStringContainsString('`users`', $query);
+        $this->assertStringContainsString('`users`', $sql);
     }
 }

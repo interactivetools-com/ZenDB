@@ -30,21 +30,20 @@ class ValidationTest extends BaseTestCase
     public function testReservedPrefixThrows(): void
     {
         $this->expectException(InvalidArgumentException::class);
-        $this->query->addParamsFromArgs([[':zdb_internal' => 'value']]);
+        $this->query->params->addFromArgs([[':zdb_internal' => 'value']]);
     }
 
     public function testReservedPrefixVariation(): void
     {
         $this->expectException(InvalidArgumentException::class);
-        $this->query->addParamsFromArgs([[':zdb_test' => 'value']]);
+        $this->query->params->addFromArgs([[':zdb_test' => 'value']]);
     }
 
     public function testNonReservedPrefixAllowed(): void
     {
-        $this->query->addParamsFromArgs([[':myprefix' => 'value']]);
-        $this->query->setSqlTemplate("SELECT :myprefix");
-        $query = $this->query->getEscapedQuery();
+        $this->query->params->addFromArgs([[':myprefix' => 'value']]);
+        $sql = $this->query->getSql("SELECT :myprefix");
 
-        $this->assertStringContainsString('"value"', $query);
+        $this->assertStringContainsString('"value"', $sql);
     }
 }

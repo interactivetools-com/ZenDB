@@ -29,65 +29,59 @@ class PositionalParamsTest extends BaseTestCase
 
     public function testPositionalParamsAreEscaped(): void
     {
-        $this->query->addParamsFromArgs(['value1', 'value2']);
-        $this->query->setSqlTemplate("SELECT * FROM users WHERE col1 = ? AND col2 = ?");
-        $query = $this->query->getEscapedQuery();
+        $this->query->params->addFromArgs(['value1', 'value2']);
+        $sql = $this->query->getSql("SELECT * FROM users WHERE col1 = ? AND col2 = ?");
 
-        $this->assertStringContainsString('"value1"', $query);
-        $this->assertStringContainsString('"value2"', $query);
+        $this->assertStringContainsString('"value1"', $sql);
+        $this->assertStringContainsString('"value2"', $sql);
     }
 
     public function testPositionalParamWithNull(): void
     {
-        $this->query->addParamsFromArgs([null]);
-        $this->query->setSqlTemplate("SELECT * FROM users WHERE col = ?");
-        $query = $this->query->getEscapedQuery();
+        $this->query->params->addFromArgs([null]);
+        $sql = $this->query->getSql("SELECT * FROM users WHERE col = ?");
 
-        $this->assertStringContainsString('NULL', $query);
+        $this->assertStringContainsString('NULL', $sql);
     }
 
     public function testPositionalParamWithBoolean(): void
     {
-        $this->query->addParamsFromArgs([true, false]);
-        $this->query->setSqlTemplate("SELECT * FROM users WHERE active = ? AND deleted = ?");
-        $query = $this->query->getEscapedQuery();
+        $this->query->params->addFromArgs([true, false]);
+        $sql = $this->query->getSql("SELECT * FROM users WHERE active = ? AND deleted = ?");
 
-        $this->assertStringContainsString('TRUE', $query);
-        $this->assertStringContainsString('FALSE', $query);
+        $this->assertStringContainsString('TRUE', $sql);
+        $this->assertStringContainsString('FALSE', $sql);
     }
 
     public function testPositionalParamWithInteger(): void
     {
-        $this->query->addParamsFromArgs([42]);
-        $this->query->setSqlTemplate("SELECT * FROM users WHERE age = ?");
-        $query = $this->query->getEscapedQuery();
+        $this->query->params->addFromArgs([42]);
+        $sql = $this->query->getSql("SELECT * FROM users WHERE age = ?");
 
-        $this->assertStringContainsString('42', $query);
+        $this->assertStringContainsString('42', $sql);
     }
 
     public function testPositionalParamWithFloat(): void
     {
-        $this->query->addParamsFromArgs([3.14]);
-        $this->query->setSqlTemplate("SELECT * FROM users WHERE score = ?");
-        $query = $this->query->getEscapedQuery();
+        $this->query->params->addFromArgs([3.14]);
+        $sql = $this->query->getSql("SELECT * FROM users WHERE score = ?");
 
-        $this->assertStringContainsString('3.14', $query);
+        $this->assertStringContainsString('3.14', $sql);
     }
 
     public function testMaxThreePositionalArgsThrows(): void
     {
         $this->expectException(InvalidArgumentException::class);
-        $this->query->addParamsFromArgs(['a', 'b', 'c', 'd']);
+        $this->query->params->addFromArgs(['a', 'b', 'c', 'd']);
     }
 
     public function testThreePositionalArgsAllowed(): void
     {
-        $this->query->addParamsFromArgs(['a', 'b', 'c']);
-        $this->query->setSqlTemplate("SELECT * FROM t WHERE a = ? AND b = ? AND c = ?");
-        $query = $this->query->getEscapedQuery();
+        $this->query->params->addFromArgs(['a', 'b', 'c']);
+        $sql = $this->query->getSql("SELECT * FROM t WHERE a = ? AND b = ? AND c = ?");
 
-        $this->assertStringContainsString('"a"', $query);
-        $this->assertStringContainsString('"b"', $query);
-        $this->assertStringContainsString('"c"', $query);
+        $this->assertStringContainsString('"a"', $sql);
+        $this->assertStringContainsString('"b"', $sql);
+        $this->assertStringContainsString('"c"', $sql);
     }
 }

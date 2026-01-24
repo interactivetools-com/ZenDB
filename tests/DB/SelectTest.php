@@ -177,7 +177,7 @@ class SelectTest extends BaseTestCase
 
     public function testGetWithLimitThrowsException(): void
     {
-        $this->expectException(\Itools\ZenDB\DBException::class);
+        $this->expectException(\InvalidArgumentException::class);
         DB::get('users', 'LIMIT 5');
     }
 

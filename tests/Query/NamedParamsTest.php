@@ -28,50 +28,45 @@ class NamedParamsTest extends BaseTestCase
 
     public function testNamedParamsAreEscaped(): void
     {
-        $this->query->addParamsFromArgs([[':name' => 'John', ':age' => 30]]);
-        $this->query->setSqlTemplate("SELECT * FROM users WHERE name = :name AND age = :age");
-        $query = $this->query->getEscapedQuery();
+        $this->query->params->addFromArgs([[':name' => 'John', ':age' => 30]]);
+        $sql = $this->query->getSql("SELECT * FROM users WHERE name = :name AND age = :age");
 
-        $this->assertStringContainsString('"John"', $query);
-        $this->assertStringContainsString('30', $query);
+        $this->assertStringContainsString('"John"', $sql);
+        $this->assertStringContainsString('30', $sql);
     }
 
     public function testNamedParamWithSpecialCharacters(): void
     {
-        $this->query->addParamsFromArgs([[':name' => "O'Brien"]]);
-        $this->query->setSqlTemplate("SELECT * FROM users WHERE name = :name");
-        $query = $this->query->getEscapedQuery();
+        $this->query->params->addFromArgs([[':name' => "O'Brien"]]);
+        $sql = $this->query->getSql("SELECT * FROM users WHERE name = :name");
 
-        $this->assertStringContainsString("O\\'Brien", $query);
+        $this->assertStringContainsString("O\\'Brien", $sql);
     }
 
     public function testNamedParamWithNull(): void
     {
-        $this->query->addParamsFromArgs([[':value' => null]]);
-        $this->query->setSqlTemplate("SELECT * FROM users WHERE col = :value");
-        $query = $this->query->getEscapedQuery();
+        $this->query->params->addFromArgs([[':value' => null]]);
+        $sql = $this->query->getSql("SELECT * FROM users WHERE col = :value");
 
-        $this->assertStringContainsString('NULL', $query);
+        $this->assertStringContainsString('NULL', $sql);
     }
 
     public function testMultipleNamedParams(): void
     {
-        $this->query->addParamsFromArgs([[':a' => 'one', ':b' => 'two', ':c' => 'three']]);
-        $this->query->setSqlTemplate("SELECT * FROM t WHERE a = :a AND b = :b AND c = :c");
-        $query = $this->query->getEscapedQuery();
+        $this->query->params->addFromArgs([[':a' => 'one', ':b' => 'two', ':c' => 'three']]);
+        $sql = $this->query->getSql("SELECT * FROM t WHERE a = :a AND b = :b AND c = :c");
 
-        $this->assertStringContainsString('"one"', $query);
-        $this->assertStringContainsString('"two"', $query);
-        $this->assertStringContainsString('"three"', $query);
+        $this->assertStringContainsString('"one"', $sql);
+        $this->assertStringContainsString('"two"', $sql);
+        $this->assertStringContainsString('"three"', $sql);
     }
 
     public function testRawSqlNamedParamNotEscaped(): void
     {
-        $this->query->addParamsFromArgs([[':raw' => DB::rawSql('NOW()')]]);
-        $this->query->setSqlTemplate("SELECT :raw");
-        $query = $this->query->getEscapedQuery();
+        $this->query->params->addFromArgs([[':raw' => DB::rawSql('NOW()')]]);
+        $sql = $this->query->getSql("SELECT :raw");
 
-        $this->assertStringContainsString('NOW()', $query);
-        $this->assertStringNotContainsString('"NOW()"', $query);
+        $this->assertStringContainsString('NOW()', $sql);
+        $this->assertStringNotContainsString('"NOW()"', $sql);
     }
 }

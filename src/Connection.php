@@ -26,60 +26,6 @@ use Throwable, InvalidArgumentException, RuntimeException;
  */
 class Connection
 {
-    //region Connection State
-
-    /**
-     * The mysqli connection - exposed for backwards compatibility
-     */
-    public ?MysqliWrapper $mysqli = null;
-
-    /**
-     * Whether this instance owns (and should close) the mysqli connection.
-     * Set to false for clones which share the connection.
-     */
-    private bool $ownsConnection = true;
-
-    //endregion
-    //region Settings - Public Properties
-
-    // Connection settings (used during connect)
-    public ?string $hostname = null;
-    public ?string $username = null;
-    public ?string $password = null;
-    public ?string $database = null;
-    public string  $tablePrefix = '';
-    public string  $primaryKey = 'num';
-
-    // Query behavior settings
-    public bool $useSmartJoins   = true;
-    public bool $useSmartStrings = true;
-    public bool $usePhpTimezone  = true;
-
-    // Result handling
-    /** @var callable|null Custom handler for loading results */
-    public mixed $smartArrayLoadHandler = null;
-
-    // Error handling
-    /** @var bool|callable Show SQL in exceptions - true, false, or callable returning bool */
-    public mixed $showSqlInErrors = false;
-
-    // Advanced connection settings
-    public string $versionRequired    = '5.7.32';
-    public bool   $requireSSL         = false;
-    public bool   $databaseAutoCreate = true;
-    public int    $connectTimeout     = 3;
-    public int    $readTimeout        = 60;
-    public bool   $enableLogging      = false;
-    public string $logFile            = '_mysql_query_log.php';
-    public string $sqlMode            = 'STRICT_ALL_TABLES,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION';
-
-    // Debug mode - tracks queries for debug output
-    public bool $debugMode = false;
-
-    /** @var callable|null Callback that returns web root path for relative file paths in debug output */
-    public mixed $webRootCallback = null;
-
-    //endregion
     //region Constructor
 
     /**
@@ -152,7 +98,7 @@ class Connection
 
         // Attempt to connect
         try {
-            mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
+            mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);  // ensure exceptions are thrown (default for PHP 8.1+)
 
             try {
                 $this->mysqli->real_connect($this->hostname, $this->username, $this->password, $this->database, null, null, $flags);
@@ -182,8 +128,6 @@ class Connection
                 default                                  => "$baseErrorMsg: $errorDetail",
             };
             throw new RuntimeException($errorMsg);
-        } finally {
-            mysqli_report(MYSQLI_REPORT_OFF);
         }
 
         // Set charset - DO THIS FIRST
@@ -265,20 +209,25 @@ class Connection
      * @return SmartArrayHtml Result set
      * @throws DBException
      */
-    public function query(string $sqlTemplate, ...$params): SmartArrayHtml
+    public function query(string $template, ...$params): SmartArrayHtml
     {
         // Error checking
-        if (!preg_match('/^\s*([a-zA-Z]+)\b/', $sqlTemplate)) {
+        if (!preg_match('/^\s*([a-zA-Z]+)\b/', $template)) {
             throw new InvalidArgumentException("SQL statement must start with a valid SQL keyword such as SELECT, INSERT, etc.");
         }
 
-        // Create parser and execute
-        $query = new Query($this->mysqli, $this->tablePrefix);
-        $query->addParamsFromArgs($params);
-        $query->setSqlTemplate($sqlTemplate);
+        $query = new Query(
+            mysqli:          $this->mysqli,
+            tablePrefix:     $this->tablePrefix,
+            primaryKey:      $this->primaryKey,
+            useSmartJoins:   $this->useSmartJoins,
+            useSmartStrings: $this->useSmartStrings,
+            loadHandler:     $this->smartArrayLoadHandler,
+            params:          $params,
+        );
 
         try {
-            return $this->fetchResultSet($query);
+            return $query->execute($template);
         } catch (Throwable $e) {
             throw new DBException("Error executing query", 0, $e);
         }
@@ -296,15 +245,19 @@ class Connection
      */
     public function select(string $baseTable, int|array|string $idArrayOrSql = [], ...$params): SmartArrayHtml
     {
-        self::ValidTableName($baseTable);
+        $query = new Query(
+            mysqli:          $this->mysqli,
+            tablePrefix:     $this->tablePrefix,
+            primaryKey:      $this->primaryKey,
+            useSmartJoins:   $this->useSmartJoins,
+            useSmartStrings: $this->useSmartStrings,
+            loadHandler:     $this->smartArrayLoadHandler,
+            baseTable:       $baseTable,
+            params:          $params,
+            where:           $idArrayOrSql,
+        );
 
-        $query = new Query($this->mysqli, $this->tablePrefix);
-        $query->addParamsFromArgs($params);
-        $whereEtc    = $this->getWhereEtc($query, $idArrayOrSql);
-        $sqlTemplate = "SELECT * FROM `:_$baseTable` $whereEtc";
-
-        $query->setSqlTemplate($sqlTemplate);
-        return $this->fetchResultSet($query, $baseTable);
+        return $query->execute("SELECT * FROM `::$query->baseTable` $query->whereEtc");
     }
 
     /**
@@ -318,21 +271,25 @@ class Connection
      */
     public function get(string $baseTable, int|array|string $idArrayOrSql = [], ...$params): SmartArrayHtml
     {
-        self::ValidTableName($baseTable);
-
-        $query = new Query($this->mysqli, $this->tablePrefix);
-        $query->addParamsFromArgs($params);
-        $whereEtc    = $this->getWhereEtc($query, $idArrayOrSql);
-        $sqlTemplate = rtrim("SELECT * FROM `:_$baseTable` $whereEtc") . " LIMIT 1";
-        $query->setSqlTemplate($sqlTemplate);
-
         // Error checking
         if (is_string($idArrayOrSql) && preg_match('/\b(LIMIT|OFFSET)\s+[0-9:?]+\s*/i', $idArrayOrSql)) {
             throw new InvalidArgumentException("This method doesn't support LIMIT or OFFSET, use select() instead");
         }
 
+        $query = new Query(
+            mysqli:          $this->mysqli,
+            tablePrefix:     $this->tablePrefix,
+            primaryKey:      $this->primaryKey,
+            useSmartJoins:   $this->useSmartJoins,
+            useSmartStrings: $this->useSmartStrings,
+            loadHandler:     $this->smartArrayLoadHandler,
+            baseTable:       $baseTable,
+            params:          $params,
+            where:           $idArrayOrSql,
+        );
+
         try {
-            $resultSet = $this->fetchResultSet($query, $baseTable);
+            $resultSet = $query->execute("SELECT * FROM `::$query->baseTable` $query->whereEtc LIMIT 1");
         } catch (Throwable $e) {
             throw new DBException("Error getting row.", 0, $e);
         }
@@ -354,15 +311,19 @@ class Connection
      */
     public function insert(string $baseTable, array $colsToValues): int
     {
-        self::ValidTableName($baseTable);
+        $query = new Query(
+            mysqli:          $this->mysqli,
+            tablePrefix:     $this->tablePrefix,
+            primaryKey:      $this->primaryKey,
+            useSmartJoins:   $this->useSmartJoins,
+            useSmartStrings: $this->useSmartStrings,
+            loadHandler:     $this->smartArrayLoadHandler,
+            baseTable:       $baseTable,
+            set:             $colsToValues,
+        );
 
-        $query      = new Query($this->mysqli, $this->tablePrefix);
-        $setClause   = $this->getSetClause($query, $colsToValues);
-        $sqlTemplate = "INSERT INTO `:_$baseTable` $setClause";
-
-        $query->setSqlTemplate($sqlTemplate);
         try {
-            $resultSet = $this->fetchResultSet($query, $baseTable);
+            $resultSet = $query->execute("INSERT INTO `::$query->baseTable` $query->setClause");
         } catch (Throwable $e) {
             throw new DBException("Error inserting row.", 0, $e);
         }
@@ -382,17 +343,22 @@ class Connection
      */
     public function update(string $baseTable, array $colsToValues, int|array|string $idArrayOrSql, ...$params): int
     {
-        self::ValidTableName($baseTable);
+        $query = new Query(
+            mysqli:          $this->mysqli,
+            tablePrefix:     $this->tablePrefix,
+            primaryKey:      $this->primaryKey,
+            useSmartJoins:   $this->useSmartJoins,
+            useSmartStrings: $this->useSmartStrings,
+            loadHandler:     $this->smartArrayLoadHandler,
+            baseTable:       $baseTable,
+            params:          $params,
+            where:           $idArrayOrSql,
+            whereRequired:   true,
+            set:             $colsToValues,
+        );
 
-        $query      = new Query($this->mysqli, $this->tablePrefix);
-        $query->addParamsFromArgs($params);
-        $setClause   = $this->getSetClause($query, $colsToValues);
-        $whereEtc    = $this->getWhereEtc($query, $idArrayOrSql, true);
-        $sqlTemplate = "UPDATE `:_$baseTable` $setClause $whereEtc";
-
-        $query->setSqlTemplate($sqlTemplate);
         try {
-            $resultSet = $this->fetchResultSet($query, $baseTable);
+            $resultSet = $query->execute("UPDATE `::$query->baseTable` $query->setClause $query->whereEtc");
         } catch (Throwable $e) {
             throw new DBException("Error updating row.", 0, $e);
         }
@@ -411,15 +377,21 @@ class Connection
      */
     public function delete(string $baseTable, int|array|string $idArrayOrSql, ...$params): int
     {
-        self::ValidTableName($baseTable);
-
-        $query   = new Query($this->mysqli, $this->tablePrefix);
-        $query->addParamsFromArgs($params);
-        $whereEtc = $this->getWhereEtc($query, $idArrayOrSql, true);
-        $query->setSqlTemplate("DELETE FROM `:_$baseTable` $whereEtc");
+        $query = new Query(
+            mysqli:          $this->mysqli,
+            tablePrefix:     $this->tablePrefix,
+            primaryKey:      $this->primaryKey,
+            useSmartJoins:   $this->useSmartJoins,
+            useSmartStrings: $this->useSmartStrings,
+            loadHandler:     $this->smartArrayLoadHandler,
+            baseTable:       $baseTable,
+            params:          $params,
+            where:           $idArrayOrSql,
+            whereRequired:   true,
+        );
 
         try {
-            $resultSet = $this->fetchResultSet($query, $baseTable);
+            $resultSet = $query->execute("DELETE FROM `::$query->baseTable` $query->whereEtc");
         } catch (Throwable $e) {
             throw new DBException("Error deleting row.", 0, $e);
         }
@@ -438,19 +410,24 @@ class Connection
      */
     public function count(string $baseTable, int|array|string $idArrayOrSql = [], ...$params): int
     {
-        self::ValidTableName($baseTable);
-
         if (is_string($idArrayOrSql) && preg_match('/\b(LIMIT|OFFSET)\s+[0-9:?]+\s*/i', $idArrayOrSql)) {
             throw new InvalidArgumentException("This method doesn't support LIMIT or OFFSET");
         }
 
-        $query   = new Query($this->mysqli, $this->tablePrefix);
-        $query->addParamsFromArgs($params);
-        $whereEtc = $this->getWhereEtc($query, $idArrayOrSql);
-        $query->setSqlTemplate("SELECT COUNT(*) FROM `:_$baseTable` $whereEtc");
+        $query = new Query(
+            mysqli:          $this->mysqli,
+            tablePrefix:     $this->tablePrefix,
+            primaryKey:      $this->primaryKey,
+            useSmartJoins:   $this->useSmartJoins,
+            useSmartStrings: $this->useSmartStrings,
+            loadHandler:     $this->smartArrayLoadHandler,
+            baseTable:       $baseTable,
+            params:          $params,
+            where:           $idArrayOrSql,
+        );
 
         try {
-            $resultSet = $this->fetchResultSet($query, $baseTable);
+            $resultSet = $query->execute("SELECT COUNT(*) FROM `::$query->baseTable` $query->whereEtc");
         } catch (Throwable $e) {
             throw new DBException("Error selecting count.", 0, $e);
         }
@@ -669,260 +646,6 @@ class Connection
     }
 
     //endregion
-    //region Internal Methods
-
-    /**
-     * Build WHERE clause from various input types.
-     * @throws DBException
-     */
-    private function getWhereEtc(Query $query, int|array|string $where, bool $whereRequired = false): string
-    {
-        // Get SQL clauses from int|array|string
-        if (is_int($where)) {
-            if (!$this->primaryKey) {
-                throw new InvalidArgumentException("Primary key not defined in config");
-            }
-            $whereEtc = "WHERE `$this->primaryKey` = ?";
-            $query->addPositionalParam($where);
-        } elseif (is_array($where)) {
-            $conditions = [];
-            foreach ($where as $column => $value) {
-                self::ValidColumnName($column);
-                if (is_null($value)) {
-                    $conditions[] = "`$column` IS NULL";
-                } else {
-                    $conditions[] = "`$column` = ?";
-                    $query->addPositionalParam($value);
-                }
-            }
-            $whereEtc = $conditions ? "WHERE " . implode(" AND ", $conditions) : "";
-        } elseif (is_string($where)) {
-            if (preg_match("/^\s*\d+\s*$/", $where)) {
-                throw new InvalidArgumentException("Numeric string detected, convert to integer with (int) \$num to search by record number");
-            }
-            $whereEtc = $where;
-        } else {
-            throw new InvalidArgumentException("Invalid type for \$where: " . gettype($where));
-        }
-
-        // Add WHERE if not already present
-        $requiredLeadingKeyword = "/^\s*(WHERE|FOR|ORDER|LIMIT|OFFSET)\b/i";
-        if (!preg_match($requiredLeadingKeyword, $whereEtc) &&
-            !preg_match("/^\s*$/", $whereEtc)) {
-            $whereEtc = "WHERE " . $whereEtc;
-        }
-
-        // Validate
-        if ($whereEtc !== "") {
-            if (!preg_match($requiredLeadingKeyword, $whereEtc)) {
-                throw new InvalidArgumentException("SQL clauses must start with one of: WHERE, ORDER BY, LIMIT, OFFSET. Got: $whereEtc");
-            }
-            self::sqlSafeString($whereEtc);
-        }
-
-        // Require WHERE for destructive operations
-        if ($whereRequired && !preg_match('/^\s*WHERE\b/i', $whereEtc)) {
-            throw new InvalidArgumentException("No where condition, operations that can change multiple rows require a WHERE condition");
-        }
-
-        return $whereEtc;
-    }
-
-    /**
-     * Build SET clause for INSERT/UPDATE.
-     */
-    private function getSetClause(Query $query, array $colsToValues): string
-    {
-        if (!$colsToValues) {
-            throw new InvalidArgumentException("No colsToValues, please specify some column values");
-        }
-
-        $setElements          = [];
-        $tempPlaceholderCount = 0;
-        foreach ($colsToValues as $column => $value) {
-            self::ValidColumnName($column);
-
-            $tempPlaceholderCount++;
-            $tempPlaceholder = ":zdb_$tempPlaceholderCount";
-            $setElements[]   = "`$column` = $tempPlaceholder";
-
-            $query->addInternalParam($tempPlaceholder, $value);
-        }
-
-        return "SET " . implode(", ", $setElements);
-    }
-
-    /**
-     * Execute query and return result set.
-     *
-     * @throws DBException
-     * @throws Throwable
-     */
-    private function fetchResultSet(Query $query, string $baseTable = ''): SmartArrayHtml
-    {
-        $sqlTemplate = $query->getSqlTemplate();
-        MysqliWrapper::setLastQuery($sqlTemplate);
-
-        // Handle trailing LIMIT # clauses
-        $limitRx = '/\bLIMIT\s+\d+\s*$/i';
-        if (!str_contains($sqlTemplate, ';') && preg_match($limitRx, $sqlTemplate, $matches)) {
-            $limitExpr   = $matches[0];
-            $sqlTemplate = preg_replace($limitRx, ':zdb_limit', $sqlTemplate);
-            $query->addInternalParam(':zdb_limit', DB::rawSql($limitExpr));
-        }
-
-        // Template error checking
-        self::SqlSafeString($sqlTemplate);
-
-        // Check for too many positional parameters
-        $positionalCount = substr_count($sqlTemplate, '?');
-        if ($positionalCount > 4) {
-            throw new InvalidArgumentException("Too many ? parameters, max 4 allowed. Try using :named parameters instead");
-        }
-
-        // Enable exceptions for this query
-        $oldReportMode = (new mysqli_driver())->report_mode;
-        mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
-
-        // Execute query
-        $escapedQuery = $query->getEscapedQuery();
-        $result       = $this->fetchSmartRows($escapedQuery, $baseTable);
-
-        // Restore error reporting mode
-        mysqli_report($oldReportMode);
-
-        return $result;
-    }
-
-    /**
-     * Execute query and return results as SmartArrayHtml.
-     *
-     * Smart features:
-     * - "First wins" rule: duplicate column names use the first occurrence
-     * - Smart joins: multi-table queries get additional qualified names (e.g., 'users.name', 'orders.total')
-     * - Self-joins: also adds alias-based names for self-joined tables (e.g., 'a.name', 'b.name')
-     *
-     * @param string $sql       The fully escaped SQL query to execute
-     * @param string $baseTable Base table name for metadata
-     * @return SmartArrayHtml
-     * @throws Throwable
-     */
-    private function fetchSmartRows(string $sql, string $baseTable = ''): SmartArrayHtml
-    {
-        $mysqliResult = $this->mysqli->query($sql);  // mysqli_result for SELECT, true for INSERT/UPDATE/DELETE
-        $rows         = [];
-
-        if ($mysqliResult instanceof mysqli_result) {
-            // First pass: get single column names => indexes, and table aliases
-            $columnMap    = [];                                                         // Column name to index, first wins, e.g., ['name' => 0, 'total' => 1]
-            $tableAliases = [];                                                         // Table alias to name, e.g., ['u' => 'users']
-            foreach ($mysqliResult->fetch_fields() as $index => $field) {
-                $columnMap[$field->name] ??= $index;                                    // First wins for duplicate names
-                if ($field->orgtable) {
-                    $tableAliases[$field->table] = $field->orgtable;                    // 'a' => 'users' or 'users' => 'users'
-                }
-            }
-
-            // Second pass: if smart joins enabled AND multi-table query, add baseTable qualified names to results, e.g., 'users.name' => "John"
-            if ($this->useSmartJoins && count($tableAliases) > 1) {
-                $selfJoinTables = array_filter(array_count_values($tableAliases), fn($c) => $c > 1);
-
-                foreach ($mysqliResult->fetch_fields() as $index => $field) {
-                    if ($field->orgtable && $field->orgname) {
-                        $baseTable = $this->tablePrefix && str_starts_with($field->orgtable, $this->tablePrefix)
-                            ? substr($field->orgtable, strlen($this->tablePrefix))      // 'cms_users' => 'users'
-                            : $field->orgtable;
-
-                        $columnMap["$baseTable.$field->orgname"] ??= $index;            // e.g., 'users.name', first wins
-
-                        // Self-joined tables: add table alias names as well (e.g., 'a.name', 'b.name')
-                        if (isset($selfJoinTables[$field->orgtable])) {
-                            $columnMap["$field->table.$field->orgname"] ??= $index;     // e.g., 'u.name', first wins
-                        }
-                    }
-                }
-            }
-
-            // Fetch all rows and remap to column names
-            foreach ($mysqliResult->fetch_all(MYSQLI_NUM) as $values) {                 // e.g., ['John', 'john@example.com']
-                $row = [];
-                foreach ($columnMap as $name => $index) {
-                    $row[$name] = $values[$index];                                      // Remap indices to column names
-                }
-                $rows[] = $row;
-            }
-
-            $mysqliResult->free();
-        }
-
-        return new SmartArrayHtml($rows, [
-            'useSmartStrings' => $this->useSmartStrings,
-            'loadHandler'     => $this->smartArrayLoadHandler,
-            'mysqli'          => [
-                'query'         => $sql,
-                'baseTable'     => $baseTable,
-                'affected_rows' => $this->mysqli->affected_rows,
-                'insert_id'     => $this->mysqli->insert_id,
-            ],
-        ]);
-    }
-
-    //endregion
-    //region Validation
-
-    private static function validTableName(string $identifier): void
-    {
-        if (!preg_match('/^[\w-]+$/', $identifier)) {
-            throw new InvalidArgumentException("Invalid table name '$identifier', allowed characters: a-z, A-Z, 0-9, _, -");
-        }
-    }
-
-    private static function validColumnName(string $identifier): void
-    {
-        if (!preg_match('/^[\w-]+$/', $identifier)) {
-            throw new InvalidArgumentException("Invalid column name '$identifier', allowed characters: a-z, A-Z, 0-9, _, -");
-        }
-    }
-
-    /**
-     * Asserts that a SQL string is safe to use in a query.
-     * @throws DBException
-     */
-    private static function sqlSafeString(string $string, ?string $inputName = null, bool $allowNumbers = false): void
-    {
-        $inputName ??= "sql template";
-
-        // Standalone numbers - prevent raw numbers that could be SQL injection vectors
-        if (!$allowNumbers && preg_match('/\b(\d+)\b/', $string, $matches)) {
-            $n = $matches[1];
-            throw new DBException("Disallowed standalone number in $inputName. Replace $n with :n$n and add a named parameter: [ ':n$n' => $n ]");
-        }
-
-        // Quote characters - force use of placeholders
-        if (preg_match('/[\'"]/', $string, $matches)) {
-            $quote        = $matches[0];
-            $quotedText   = preg_match('/(([\'"]).*?\2)/', $string, $matches) ? $matches[1] : '';
-            $quoteContext = substr($string, max(0, strpos($string, $quote) - 15), 30);
-
-            $error = $quotedText ? "Quotes are not allowed in $inputName, replace $quotedText with a :paramName and add: [ ':paramName' => $quotedText ]"
-                : "Quotes are not allowed in $inputName, found $quote in: ...$quoteContext...";
-            throw new DBException($error);
-        }
-
-        // Other unsafe characters
-        $error = match (true) {
-            str_contains($string, "\\")   => "Backslashes (\\) are not allowed in $inputName.",
-            str_contains($string, "\x00") => "Disallowed NULL character in $inputName.",
-            str_contains($string, "\x1a") => "Disallowed CTRL-Z character in $inputName.",
-            default                       => null,
-        };
-
-        if (isset($error)) {
-            throw new DBException($error);
-        }
-    }
-
-    //endregion
     //region Magic Methods
 
     /**
@@ -944,6 +667,60 @@ class Connection
             $this->mysqli = null;
         }
     }
+
+    //endregion
+    //region Connection State
+
+    /**
+     * The mysqli connection - exposed for backwards compatibility
+     */
+    public ?MysqliWrapper $mysqli = null;
+
+    /**
+     * Whether this instance owns (and should close) the mysqli connection.
+     * Set to false for clones which share the connection.
+     */
+    private bool $ownsConnection = true;
+
+    //endregion
+    //region Settings - Public Properties
+
+    // Connection settings (used during connect)
+    public ?string $hostname = null;
+    public ?string $username = null;
+    public ?string $password = null;
+    public ?string $database = null;
+    public string  $tablePrefix = '';
+    public string  $primaryKey = 'num';
+
+    // Query behavior settings
+    public bool $useSmartJoins   = true;
+    public bool $useSmartStrings = true;
+    public bool $usePhpTimezone  = true;
+
+    // Result handling
+    /** @var callable|null Custom handler for loading results */
+    public mixed $smartArrayLoadHandler = null;
+
+    // Error handling
+    /** @var bool|callable Show SQL in exceptions - true, false, or callable returning bool */
+    public mixed $showSqlInErrors = false;
+
+    // Advanced connection settings
+    public string $versionRequired    = '5.7.32';
+    public bool   $requireSSL         = false;
+    public bool   $databaseAutoCreate = true;
+    public int    $connectTimeout     = 3;
+    public int    $readTimeout        = 60;
+    public bool   $enableLogging      = false;
+    public string $logFile            = '_mysql_query_log.php';
+    public string $sqlMode            = 'STRICT_ALL_TABLES,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION';
+
+    // Debug mode - tracks queries for debug output
+    public bool $debugMode = false;
+
+    /** @var callable|null Callback that returns web root path for relative file paths in debug output */
+    public mixed $webRootCallback = null;
 
     //endregion
 }
