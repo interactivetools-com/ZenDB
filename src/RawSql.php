@@ -1,4 +1,5 @@
 <?php
+/** @noinspection PhpIllegalPsrClassPathInspection */
 declare(strict_types=1);
 
 namespace Itools\ZenDB;
@@ -15,19 +16,17 @@ namespace Itools\ZenDB;
  */
 class RawSql
 {
-    #region Methods
+    //region Methods
     /**
      * @var string The raw SQL value
      */
     private string $rawSql;
 
-    #endregion
-    #region Magic Methods
+    //endregion
+    //region Magic Methods
 
     /**
      * DBRaw constructor.
-     *
-     * @param string $value
      */
     public function __construct(string $value) {
         $this->rawSql = $value;
@@ -37,5 +36,5 @@ class RawSql
     {
         return $this->rawSql;
     }
-    #endregion
+    //endregion
 }

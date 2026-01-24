@@ -3,21 +3,50 @@ declare(strict_types=1);
 
 namespace Itools\ZenDB;
 
-use Error, Throwable;
-use mysqli, mysqli_result,  mysqli_stmt;
+use Error, Exception, Throwable;
+use mysqli, mysqli_result, mysqli_stmt;
 
 /**
  * Class MysqliWrapper
  *
+ * Extends mysqli to add query logging and debug tracking.
  */
 class MysqliWrapper extends mysqli
 {
-    #region Main
+    //region Main
 
     /**
      * Records the last query.  Recorded just before the query is executed so that it can be accessed in case of an error.
      */
     private static string $lastQuery = "Unknown"; // use setLastQuery() to set this from outside this class
+
+    /**
+     * Query timing data for debug footer
+     * Only populated when debug mode is enabled
+     * Each entry: [webPathAndLine, seconds, query]
+     */
+    public static array $debugData = [];
+
+    /**
+     * Force execute_query() to use polyfill instead of native (for testing)
+     */
+    public static bool $forcePolyfill = false;
+
+    /**
+     * Keeps last statement alive to preserve affected_rows/insert_id (polyfill only)
+     */
+    private ?\mysqli_stmt $lastStmt = null;
+
+    /**
+     * Whether debug mode is enabled (tracks queries for debug footer)
+     */
+    private bool $debugMode = false;
+
+    /**
+     * Callback to get web root for relative paths in debug output
+     * Signature: fn(): string
+     */
+    private $webRootCallback = null;
 
     public static function setLastQuery(string $query): void {
         self::$lastQuery = $query;
@@ -27,14 +56,28 @@ class MysqliWrapper extends mysqli
         return self::hideSensitiveData(self::$lastQuery);
     }
 
-    #endregion
-    #region Overridden Methods
-    public function __construct() {
-        self::initializeLogging();
+    //endregion
+    //region Overridden Methods
+
+    /**
+     * @param bool $enableLogging Whether to enable query logging to file
+     * @param string $logFile Path to log file
+     * @param bool $debugMode Whether to track queries for debug footer
+     * @param callable|null $webRootCallback Optional callback that returns web root path for relative file paths
+     */
+    public function __construct(
+        bool $enableLogging = false,
+        string $logFile = '_mysql_query_log.php',
+        bool $debugMode = false,
+        ?callable $webRootCallback = null
+    ) {
+        $this->debugMode       = $debugMode;
+        $this->webRootCallback = $webRootCallback;
+
+        self::initializeLogging($enableLogging, $logFile);
 
         // Initialize the parent mysqli object
         parent::__construct();
-
     }
 
     public function real_connect(
@@ -51,11 +94,21 @@ class MysqliWrapper extends mysqli
         $startTime = microtime(true);
         $result = @parent::real_connect($hostname, $username, $password, $database, $port, $socket, $flags); // hide php hostname lookup warnings (catch block will show them)
 
+        // track connection for debug footer
+        if ($this->debugMode) {
+            $duration    = microtime(true) - $startTime;
+            $fileAndLine = $this->getCallerWebPathAndLine();
+
+            // Build connection info string with persistent indicator
+            $hostInfo       = $this->host_info ?? 'unknown';                            // e.g. "localhost via TCP/IP"
+            $persistent     = str_starts_with((string)$hostname, 'p:') ? 'p:' : '';     // Add 'p:' prefix if persistent connection
+            $connectionInfo = sprintf("* MySQL Connection (%s)", $persistent . $hostInfo);
+
+            self::$debugData[] = [$fileAndLine, $duration, $connectionInfo];
+        }
+
         // log query
-        $logEntry = sprintf("real_connect[%s]: %s %s",
-            DB::$mysqli?->thread_id,            // e.g. 4471393
-            $_SERVER['REQUEST_METHOD'] ?? '',   // e.g. GET
-            $_SERVER['REQUEST_URI'] ?? '');     // e.g. /file.php?foo=bar
+        $logEntry = sprintf("real_connect[%s]: %s %s", $this->thread_id, $_SERVER['REQUEST_METHOD'] ?? '', $_SERVER['REQUEST_URI'] ?? '');
         self::logQuery($startTime, $logEntry);
 
         //
@@ -71,9 +124,18 @@ class MysqliWrapper extends mysqli
         try {
             $result = parent::query($query, $result_mode);
         } catch (Throwable $e) {
+            // track query for debug footer before logging (to get accurate timing)
+            if ($this->debugMode) {
+                $this->trackQuery($startTime, $query);
+            }
             self::logQuery($startTime, $query);
             self::logError($e->getMessage(), $e->getCode(), $e);
             throw $e; // rethrow exception
+        }
+
+        // track query for debug footer
+        if ($this->debugMode) {
+            $this->trackQuery($startTime, $query);
         }
 
         // log query
@@ -93,6 +155,11 @@ class MysqliWrapper extends mysqli
 
         $result = parent::real_query($query);
 
+        // track query for debug footer
+        if ($this->debugMode) {
+            $this->trackQuery($startTime, $query);
+        }
+
         self::logQuery($startTime, "real_query: $query");
 
         return $result;
@@ -105,6 +172,11 @@ class MysqliWrapper extends mysqli
 
         $result = parent::multi_query($query);
 
+        // track query for debug footer
+        if ($this->debugMode) {
+            $this->trackQuery($startTime, $query);
+        }
+
         self::logQuery($startTime, "multi_query: $query");
 
         return $result;
@@ -116,7 +188,7 @@ class MysqliWrapper extends mysqli
         $startTime = microtime(true);
 
         try {
-            $result = new MysqliStmtWrapper($this, $query, $startTime);
+            $result = new MysqliStmtWrapper($this, $query, $startTime, $this->debugMode);
         } catch (Throwable $e) {
             self::logError($e->getMessage(), $e->getCode(), $e);
             throw $e; // rethrow exception
@@ -125,17 +197,58 @@ class MysqliWrapper extends mysqli
         return $result;
     }
 
-    #endregion
-    #region Logging Methods
+    /**
+     * Wrapper/polyfill for mysqli::execute_query() (native in PHP 8.2+)
+     * Prepares, binds parameters, executes, and returns result in one call.
+     *
+     * @param string $query SQL query with ? placeholders
+     * @param array|null $params Parameters to bind (null or empty for no parameters)
+     * @return mysqli_result|bool Result set for SELECT, or true/false for other queries
+     */
+    public function execute_query(string $query, ?array $params = null): mysqli_result|bool
+    {
+        // Use native execute_query() if available (PHP 8.2+) and not forcing polyfill
+        if (PHP_VERSION_ID >= 80200 && !self::$forcePolyfill) {
+            self::$lastQuery = $query;
+            $startTime       = microtime(true);
 
-    public static string $logFile;
+            $result = parent::execute_query($query, $params);
+
+            if ($this->debugMode) {
+                $this->trackQuery($startTime, $query);
+            }
+            self::logQuery($startTime, $query);
+
+            return $result;
+        }
+
+        // Polyfill for PHP 8.1 - always use prepare/execute for consistent type handling
+        // Destroy previous statement first (its destructor resets affected_rows)
+        $this->lastStmt = null;
+
+        $stmt = $this->prepare($query);
+        if ($stmt === false) {
+            return false;
+        }
+        $stmt->execute($params ?? []);
+
+        // Keep stmt alive so affected_rows/insert_id remain accessible after return
+        $this->lastStmt = $stmt;
+
+        return $stmt->get_result() ?: true;
+    }
+
+    //endregion
+    //region Logging Methods
+
+    public static string $logFile       = '_mysql_query_log.php';
     public static bool   $enableLogging = false;
 
-    public static function initializeLogging(): void
+    public static function initializeLogging(bool $enableLogging, string $logFile): void
     {
         // set properties
-        self::$logFile       = DB::config('logFile');
-        self::$enableLogging = DB::config('enableLogging');
+        self::$logFile       = $logFile;
+        self::$enableLogging = $enableLogging;
 
         // If logging enabled
         if (self::$enableLogging) {
@@ -173,13 +286,13 @@ class MysqliWrapper extends mysqli
 
         // Add latest MySQL error info if available
         $error = "";
-        if ($mysqli->errno) {
+        if ($mysqli && $mysqli->errno) {
             $error .= "MySQL Error($mysqli->errno): $mysqli->error\n";
         }
 
         // Add exception info if available
         $isPreparedStmtFail = $e instanceof Error && preg_match("/is not fully initialized/i", $message);
-        if (!$mysqli->errno && $isPreparedStmtFail) { // only report if we don't have a MySQL error
+        if ($mysqli && !$mysqli->errno && $isPreparedStmtFail) { // only report if we don't have a MySQL error
             // Invalid Prepared MySQL queries sometimes throw Error: MysqliStmtWrapper|stmt object is not fully initialized on bind_param() or execute()
             $error .= "$class Error($code): You have an error in your SQL syntax (prepared statement failed).\n";
         }
@@ -214,12 +327,12 @@ class MysqliWrapper extends mysqli
         $duration  = sprintf('%.3f', $startTime ? $endTime - $startTime : 0);            // in seconds, e.g. 0.001s
         $query     = !$isError ? preg_replace("/\s+/", " ", trim($query)) : $query;      // remove newlines and multiple spaces
         $query     = self::hideSensitiveData($query);                                    // hide sensitive data
-        $threadId  = DB::$mysqli->thread_id;                                             // get thread id
+        $threadId  = DB::$mysqli->thread_id ?? 0;                                        // get thread id
         $ipAddr    = $_SERVER['REMOTE_ADDR'] ?? "";
         $ajaxOrCli = match (true) {
-           self::isAjaxRequest() => "AJAX|",
-           self::inCLI()         => "CLI|",
-            default              => "",
+            self::isAjaxRequest() => "AJAX|",
+            self::inCLI()         => "CLI|",
+            default               => "",
         };
 
         // format log entry
@@ -237,11 +350,6 @@ class MysqliWrapper extends mysqli
         file_put_contents(self::$logFile, $logEntry, FILE_APPEND);
     }
 
-    /**
-     * @param string $query
-     *
-     * @return string
-     */
     public static function hideSensitiveData(string $query): string {
 
         // hide mysql encryption values
@@ -260,45 +368,108 @@ class MysqliWrapper extends mysqli
         return $query;
     }
 
-    #endregion
-    #region Helper Methods
+    //endregion
+    //region Query Tracking Methods
 
     /**
-     * Determines if the current request is an AJAX request.
+     * Track query execution for debug footer
+     * NOTE: Caller must check $this->debugMode before calling for performance
+     *
+     * @param float $startTime Microtime when query started
+     * @param string $query The SQL query that was executed
      */
-    public static function isAjaxRequest(): bool {
+    public function trackQuery(float $startTime, string $query): void
+    {
+        // do this first
+        $duration = microtime(true) - $startTime;
 
-        // Check for manually added X-Requested-With header (common in AJAX requests from libraries like jQuery)
-        $isTraditionalAjax = strtolower($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') === 'xmlhttprequest';
+        $fileAndLine = $this->getCallerWebPathAndLine();
 
-        // Check for Fetch API or AJAX requests with empty destination
-        $isFetchOrAjaxWithEmptyDest = strtolower($_SERVER['HTTP_SEC_FETCH_DEST'] ?? '') === 'empty';
+        // Format raw query for display in debug footer comment
+        $displayQuery = preg_replace('/[ \r\n]+/', ' ', trim($query));  // collapse spaces and newlines
+        $displayQuery = str_replace("\t", '\\t', $displayQuery);        // replace tabs with \t for better readability
 
-        // Checks for requests that explicitly require handling of CORS, common in cross-origin AJAX or Fetch API requests
-        $isCorsRequest = strtolower($_SERVER['HTTP_SEC_FETCH_MODE'] ?? '') === 'cors';
-
-        //
-        $isAjaxRequest = $isTraditionalAjax || $isFetchOrAjaxWithEmptyDest || $isCorsRequest;
-        return $isAjaxRequest;
+        // Store: [$fileAndLine, duration, displayQuery]
+        self::$debugData[] = [$fileAndLine, $duration, $displayQuery];
     }
 
     /**
-     * Determines if the script is running in a Command Line Interface (CLI) environment.
+     * Get the calling location outside of ZenDB
+     *
+     * @return string File path and line number (e.g., "/cmsb/lib/User.php:123")
      */
-    public static function inCLI(): bool {
-        $inCLI = false;
+    public function getCallerWebPathAndLine(): string
+    {
+        $trace    = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 6);    // Increase depth if you're getting unknown:0
+        array_shift($trace); // drop our own frame
 
-        // Check if the Server API (SAPI) is CLI
-        if (constant('PHP_SAPI') === 'cli') { $inCLI = true; }
+        // Skip database library frames so we get to the actual caller
+        $skipStrings = [
+            '/SmartArray/',
+            '/SmartString/',
+            '/lib/ZenDB/',
+            '/src/',
+            '/lib/mysql_functions.php',
+        ];
 
-        // Check if the session name is 'Console' - Windows CLI condition
-        if (($_SERVER['SESSIONNAME'] ?? '') === 'Console') { $inCLI = true; }
+        // Get the current file to skip it as well
+        static $currentFile = null;
+        $currentFile ??= str_replace('\\', '/', __FILE__);
 
-        // Check if SCRIPT_NAME is set, typically only done by web server
-        if (empty($_SERVER['SCRIPT_NAME'])) { $inCLI = true; } // check for (bool) false, not just lack of key
+        // Find the first frame that is not in the skip list
+        foreach ($trace as $frame) {
+            $file = isset($frame['file']) ? str_replace('\\', '/', $frame['file']) : '';
+            if ($file === '') {
+                continue;
+            }
 
-        return $inCLI;
+            // if any of the skip-strings appear in the path, skip this frame
+            $skip = false;
+            foreach ($skipStrings as $skipString) {
+                if (str_contains($file, $skipString)) {
+                    $skip = true;
+                    break;
+                }
+            }
+            if ($skip) {
+                continue;
+            }
+
+            $line = $frame['line'] ?? 0;
+
+            // make it relative to webRoot if applicable (remove webRoot prefix)
+            if ($this->webRootCallback) {
+                $webRoot = ($this->webRootCallback)();
+                if (str_starts_with($file, $webRoot)) {
+                    $file = substr($file, strlen($webRoot));
+                }
+            }
+
+            return "$file:$line";
+        }
+
+        return 'unknown:0';
     }
 
-    #endregion
+    //endregion
+    //region Utility Methods
+
+    /**
+     * Check if current request is an AJAX request
+     */
+    private static function isAjaxRequest(): bool
+    {
+        return !empty($_SERVER['HTTP_X_REQUESTED_WITH']) &&
+               strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest';
+    }
+
+    /**
+     * Check if running from command line
+     */
+    private static function inCLI(): bool
+    {
+        return PHP_SAPI === 'cli' || PHP_SAPI === 'phpdbg';
+    }
+
+    //endregion
 }

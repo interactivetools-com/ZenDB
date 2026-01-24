@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(composer install:*)",
+      "Bash(vendor/bin/phpunit:*)",
+      "Bash(tree:*)",
+      "Bash(php:*)",
+      "Bash(./vendor/bin/phpunit:*)"
+    ]
+  }
+}

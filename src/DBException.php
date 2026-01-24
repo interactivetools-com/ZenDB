@@ -1,10 +1,10 @@
 <?php
+/** @noinspection PhpIllegalPsrClassPathInspection */
 declare(strict_types=1);
 
 namespace Itools\ZenDB;
 
 use mysqli_sql_exception;
-use RuntimeException;
 use Throwable, Exception;
 
 /**
@@ -19,6 +19,24 @@ use Throwable, Exception;
  * }
  */
 class DBException extends Exception {
+
+    /**
+     * Callback to determine if current user is an admin.
+     * Signature: fn(): bool
+     * Set via DBException::setAdminChecker()
+     */
+    private static $adminChecker = null;
+
+    /**
+     * Set a callback to determine if current user is an admin.
+     * Used to show SQL queries in error messages to admins only.
+     *
+     * @param callable $callback Function that returns true if user is admin
+     */
+    public static function setAdminChecker(callable $callback): void {
+        self::$adminChecker = $callback;
+    }
+
     public function __construct(string $message = "", int $code = 0, ?Throwable $previous = null) {
         $message = trim($message);
 
@@ -33,7 +51,7 @@ class DBException extends Exception {
 
         // default code to MySQL error code from exception (first to last) or DB::$mysqli->errno
         if ($code !== 0) {
-            throw new RuntimeException("DBException code must be 0 (got $code), automatically set to MySQL error code");
+            throw new Exception("DBException code must be 0 (got $code), automatically set to MySQL error code");
         }
         foreach ($exceptionChain as $exception) {
             if ($exception instanceof mysqli_sql_exception) {
@@ -74,32 +92,25 @@ class DBException extends Exception {
                                "You have an error in your SQL syntax near", $message);
         $message = preg_replace("/ at line \d+/", "", $message); // remove " at line 1" from end of message, refers to line in SQL query itself and typically not useful
 
-        // Add last SQL query based on showSqlInErrors setting
+        // add last SQL query, only displayed to admins
         $dbExceptionAlreadyThrown = (bool)array_filter($exceptionChain, fn($e) => $e instanceof DBException); // so we don't show further "last queries" between rethrows
-        $thrownFromZenDB = str_starts_with($this->getTrace()[0]['class'] ?? '', 'Itools\\ZenDB\\'); // if this exception was thrown from ZenDB
+        $thrownFromZenDB          = str_starts_with($this->getTrace()[0]['class'] ?? '', 'Itools\\ZenDB\\'); // if this exception was thrown from ZenDB
+        if (!$dbExceptionAlreadyThrown && DB::isConnected(true)) {
+            $adminMessage  = "\n\nLast SQL query (visible to admins only):\n";
+            $adminMessage .= trim(MysqliWrapper::getLastQuery()); // do this first because admin check may run queries
 
-        // Get the showSqlInErrors configuration setting
-        $showSqlSetting = DB::config('showSqlInErrors');
+            try {
+                // Check if user is admin using the registered callback
+                $isAdmin = false;
+                if (self::$adminChecker !== null) {
+                    $isAdmin = (self::$adminChecker)();
+                }
 
-        // Calculate if SQL should be shown:
-        // 1. The exception hasn't already been processed
-        // 2. We have a database connection
-        // 3. Either:
-        //    a. Exception is NOT from internal ZenDB code, OR
-        //    b. showSqlInErrors setting explicitly allows it
-        $showSql = !$dbExceptionAlreadyThrown && DB::isConnected(true) &&
-                  (!$thrownFromZenDB || $showSqlSetting);
-
-        // If it's a callable, let the callback decide
-        if ($showSql && is_callable($showSqlSetting)) {
-            $showSql = call_user_func($showSqlSetting);
-        }
-
-        // Add SQL to message if allowed
-        if ($showSql) {
-            $sqlMessage = "\n\nLast SQL query:\n" . trim(MysqliWrapper::getLastQuery());
-            if (!str_contains($message, $sqlMessage)) { // only add if not already there
-                $message .= $sqlMessage;
+                if ($isAdmin && !str_contains($message, $adminMessage)) {
+                    $message .= $adminMessage;
+                }
+            } catch (Throwable) {
+                // Silently ignore - prevents infinite loops when admin check fails
             }
         }
 
