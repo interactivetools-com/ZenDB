@@ -23,7 +23,16 @@ class TablePrefixTest extends BaseTestCase
 
     protected function setUp(): void
     {
-        $this->query = new Query(DB::$mysqli, 'test_');
+        $this->query = $this->createQuery('test_');
+    }
+
+    private function createQuery(string $tablePrefix): Query
+    {
+        $query              = new Query();
+        $query->mysqli      = DB::$mysqli;
+        $query->tablePrefix = $tablePrefix;
+        $query->params      = new \Itools\ZenDB\Params();
+        return $query;
     }
 
     public function testTablePrefixPlaceholder(): void
@@ -53,7 +62,7 @@ class TablePrefixTest extends BaseTestCase
 
     public function testEmptyTablePrefix(): void
     {
-        $queryNoPrefix = new Query(DB::$mysqli, '');
+        $queryNoPrefix = $this->createQuery('');
         $queryNoPrefix->params->addFromArgs([]);
         $sql = $queryNoPrefix->getSql("SELECT * FROM `:_users`");
 

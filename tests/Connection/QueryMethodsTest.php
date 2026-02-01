@@ -31,7 +31,7 @@ class QueryMethodsTest extends BaseTestCase
 
     public function testInstanceSelect(): void
     {
-        $result = self::$conn->select('users', 1);
+        $result = self::$conn->select('users', ['num' => 1]);
         $this->assertSame('John Doe', $result->first()->get('name')->value());
     }
 
@@ -43,13 +43,13 @@ class QueryMethodsTest extends BaseTestCase
 
     public function testInstanceGet(): void
     {
-        $result = self::$conn->get('users', 2);
+        $result = self::$conn->get('users', ['num' => 2]);
         $this->assertSame('Jane Janey Doe', $result->get('name')->value());
     }
 
     public function testInstanceGetReturnsEmptyForNoMatch(): void
     {
-        $result = self::$conn->get('users', 9999);
+        $result = self::$conn->get('users', ['num' => 9999]);
         $this->assertTrue($result->isEmpty());
     }
 
@@ -75,10 +75,10 @@ class QueryMethodsTest extends BaseTestCase
 
     public function testInstanceUpdate(): void
     {
-        $affected = self::$conn->update('users', ['name' => 'Updated via Instance'], 1);
+        $affected = self::$conn->update('users', ['name' => 'Updated via Instance'], ['num' => 1]);
 
         $this->assertSame(1, $affected);
-        $this->assertSame('Updated via Instance', self::$conn->get('users', 1)->get('name')->value());
+        $this->assertSame('Updated via Instance', self::$conn->get('users', ['num' => 1])->get('name')->value());
     }
 
     //endregion
@@ -87,7 +87,7 @@ class QueryMethodsTest extends BaseTestCase
     public function testInstanceDelete(): void
     {
         $countBefore = self::$conn->count('users');
-        $affected    = self::$conn->delete('users', 1);
+        $affected    = self::$conn->delete('users', ['num' => 1]);
 
         $this->assertSame(1, $affected);
         $this->assertSame($countBefore - 1, self::$conn->count('users'));

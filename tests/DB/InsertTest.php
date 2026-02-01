@@ -39,7 +39,7 @@ class InsertTest extends BaseTestCase
         $this->assertSame(expected: 212, actual: $insertId, message: "insertId should be 212");
         $this->assertSame(
             expected: $colsToValues,
-            actual:   DB::get($baseTable, $insertId)->toArray(),
+            actual:   DB::get($baseTable, ['num' => $insertId])->toArray(),
             message:  "Inserted record should have expected values"
         );
 

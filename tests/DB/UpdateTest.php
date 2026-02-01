@@ -28,10 +28,10 @@ class UpdateTest extends BaseTestCase
 
     public function testUpdateSingleRow(): void
     {
-        $affected = DB::update('users', ['name' => 'Updated Name'], 1);
+        $affected = DB::update('users', ['name' => 'Updated Name'], ['num' => 1]);
         $this->assertSame(1, $affected);
 
-        $result = DB::get('users', 1);
+        $result = DB::get('users', ['num' => 1]);
         $this->assertSame('Updated Name', $result->get('name')->value());
     }
 
@@ -55,8 +55,8 @@ class UpdateTest extends BaseTestCase
 
     public function testUpdateWithNoChangesReturnsZero(): void
     {
-        $original = DB::get('users', 1)->get('name')->value();
-        $affected = DB::update('users', ['name' => $original], 1);
+        $original = DB::get('users', ['num' => 1])->get('name')->value();
+        $affected = DB::update('users', ['name' => $original], ['num' => 1]);
         $this->assertSame(0, $affected);
     }
 }

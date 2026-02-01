@@ -28,7 +28,7 @@ class DeleteTest extends BaseTestCase
     public function testDeleteSingleRow(): void
     {
         $countBefore = DB::count('users');
-        $affected    = DB::delete('users', 1);
+        $affected    = DB::delete('users', ['num' => 1]);
 
         $this->assertSame(1, $affected);
         $this->assertSame($countBefore - 1, DB::count('users'));
@@ -58,7 +58,7 @@ class DeleteTest extends BaseTestCase
 
     public function testDeleteNonExistentRowReturnsZero(): void
     {
-        $affected = DB::delete('users', 9999);
+        $affected = DB::delete('users', ['num' => 9999]);
         $this->assertSame(0, $affected);
     }
 }

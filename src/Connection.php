@@ -7,7 +7,6 @@ use Itools\SmartArray\SmartArrayHtml;
 use Itools\SmartString\SmartString;
 use mysqli;
 use mysqli_driver;
-use mysqli_result;
 use mysqli_sql_exception;
 use Throwable, InvalidArgumentException, RuntimeException;
 
@@ -204,95 +203,130 @@ class Connection
     /**
      * Execute a raw SQL query and return results.
      *
-     * @param string $sqlTemplate SQL statement with placeholders
-     * @param mixed ...$params Parameters to bind
+     * @param string $sqlTemplate
+     * @param mixed  ...$params Parameters to bind
      * @return SmartArrayHtml Result set
      * @throws DBException
      */
-    public function query(string $template, ...$params): SmartArrayHtml
+    public function query(string $sqlTemplate, ...$params): SmartArrayHtml
     {
         // Error checking
-        if (!preg_match('/^\s*([a-zA-Z]+)\b/', $template)) {
+        if (!preg_match('/^\s*([a-zA-Z]+)\b/', $sqlTemplate)) {
             throw new InvalidArgumentException("SQL statement must start with a valid SQL keyword such as SELECT, INSERT, etc.");
         }
 
-        $query = new Query(
-            mysqli:          $this->mysqli,
-            tablePrefix:     $this->tablePrefix,
-            primaryKey:      $this->primaryKey,
-            useSmartJoins:   $this->useSmartJoins,
-            useSmartStrings: $this->useSmartStrings,
-            loadHandler:     $this->smartArrayLoadHandler,
-            params:          $params,
+        // Build query
+        $sql = Query::build(
+            template:    $sqlTemplate,
+            mysqli:      $this->mysqli,
+            tablePrefix: $this->tablePrefix,
+            params:      $params,
         );
 
+        // Execute
         try {
-            return $query->execute($template);
+            $execute = new Execute($this->mysqli, $this->tablePrefix, $this->useSmartJoins);
+            $rows    = $execute->run($sql);
         } catch (Throwable $e) {
             throw new DBException("Error executing query", 0, $e);
         }
+
+        return new SmartArrayHtml($rows, [
+            'useSmartStrings' => $this->useSmartStrings,
+            'loadHandler'     => $this->smartArrayLoadHandler,
+            'mysqli'          => [
+                'query'         => $sql,
+                'baseTable'     => '',
+                'affected_rows' => $this->mysqli->affected_rows,
+                'insert_id'     => $this->mysqli->insert_id,
+            ],
+        ]);
     }
 
     /**
      * Select rows from a table.
      *
-     * @param string           $baseTable    Table name (without prefix)
-     * @param int|array|string $idArrayOrSql WHERE condition
-     * @param mixed            ...$params    Parameters to bind
+     * @param string       $baseTable Table name (without prefix)
+     * @param int|array|string $where     WHERE condition
+     * @param mixed            ...$params Parameters to bind
      * @return SmartArrayHtml Result set
      * @throws DBException
      * @throws Throwable
      */
-    public function select(string $baseTable, int|array|string $idArrayOrSql = [], ...$params): SmartArrayHtml
+    public function select(string $baseTable, int|array|string $where = [], ...$params): SmartArrayHtml
     {
-        $query = new Query(
-            mysqli:          $this->mysqli,
-            tablePrefix:     $this->tablePrefix,
-            primaryKey:      $this->primaryKey,
-            useSmartJoins:   $this->useSmartJoins,
-            useSmartStrings: $this->useSmartStrings,
-            loadHandler:     $this->smartArrayLoadHandler,
-            baseTable:       $baseTable,
-            params:          $params,
-            where:           $idArrayOrSql,
+        // Error checking
+        Query::assertValidTable($baseTable);
+        Query::rejectNumericWhere($where);
+
+        // Build query
+        $sql = Query::build(
+            template:    "SELECT * FROM `::$baseTable` {whereEtc}",
+            mysqli:      $this->mysqli,
+            tablePrefix: $this->tablePrefix,
+            where:       $where,
+            params:      $params,
         );
 
-        return $query->execute("SELECT * FROM `::$query->baseTable` $query->whereEtc");
+        // Execute
+        $execute = new Execute($this->mysqli, $this->tablePrefix, $this->useSmartJoins);
+        $rows    = $execute->run($sql);
+
+        return new SmartArrayHtml($rows, [
+            'useSmartStrings' => $this->useSmartStrings,
+            'loadHandler'     => $this->smartArrayLoadHandler,
+            'mysqli'          => [
+                'query'         => $sql,
+                'baseTable'     => $baseTable,
+                'affected_rows' => $this->mysqli->affected_rows,
+                'insert_id'     => $this->mysqli->insert_id,
+            ],
+        ]);
     }
 
     /**
      * Get a single row from a table.
      *
-     * @param string $baseTable Table name (without prefix)
-     * @param int|array|string $idArrayOrSql WHERE condition
-     * @param mixed ...$params Parameters to bind
+     * @param string       $baseTable Table name (without prefix)
+     * @param int|array|string $where     WHERE condition
+     * @param mixed            ...$params Parameters to bind
      * @return SmartArrayHtml Single row or empty SmartArrayHtml
      * @throws DBException
      */
-    public function get(string $baseTable, int|array|string $idArrayOrSql = [], ...$params): SmartArrayHtml
+    public function get(string $baseTable, int|array|string $where = [], ...$params): SmartArrayHtml
     {
         // Error checking
-        if (is_string($idArrayOrSql) && preg_match('/\b(LIMIT|OFFSET)\s+[0-9:?]+\s*/i', $idArrayOrSql)) {
-            throw new InvalidArgumentException("This method doesn't support LIMIT or OFFSET, use select() instead");
-        }
+        Query::assertValidTable($baseTable);
+        Query::rejectNumericWhere($where);
+        Query::rejectLimitAndOffset($where);
 
-        $query = new Query(
-            mysqli:          $this->mysqli,
-            tablePrefix:     $this->tablePrefix,
-            primaryKey:      $this->primaryKey,
-            useSmartJoins:   $this->useSmartJoins,
-            useSmartStrings: $this->useSmartStrings,
-            loadHandler:     $this->smartArrayLoadHandler,
-            baseTable:       $baseTable,
-            params:          $params,
-            where:           $idArrayOrSql,
+        // Build query
+        $sql = Query::build(
+            template:    "SELECT * FROM `::$baseTable` {whereEtc} LIMIT 1",
+            mysqli:      $this->mysqli,
+            tablePrefix: $this->tablePrefix,
+            where:       $where,
+            params:      $params,
         );
 
+        // Execute
         try {
-            $resultSet = $query->execute("SELECT * FROM `::$query->baseTable` $query->whereEtc LIMIT 1");
+            $execute = new Execute($this->mysqli, $this->tablePrefix, $this->useSmartJoins);
+            $rows    = $execute->run($sql);
         } catch (Throwable $e) {
             throw new DBException("Error getting row.", 0, $e);
         }
+
+        $resultSet = new SmartArrayHtml($rows, [
+            'useSmartStrings' => $this->useSmartStrings,
+            'loadHandler'     => $this->smartArrayLoadHandler,
+            'mysqli'          => [
+                'query'         => $sql,
+                'baseTable'     => $baseTable,
+                'affected_rows' => $this->mysqli->affected_rows,
+                'insert_id'     => $this->mysqli->insert_id,
+            ],
+        ]);
 
         // Return first row
         if ($resultSet->isEmpty()) {
@@ -311,128 +345,136 @@ class Connection
      */
     public function insert(string $baseTable, array $colsToValues): int
     {
-        $query = new Query(
-            mysqli:          $this->mysqli,
-            tablePrefix:     $this->tablePrefix,
-            primaryKey:      $this->primaryKey,
-            useSmartJoins:   $this->useSmartJoins,
-            useSmartStrings: $this->useSmartStrings,
-            loadHandler:     $this->smartArrayLoadHandler,
-            baseTable:       $baseTable,
-            set:             $colsToValues,
+        // Error checking
+        Query::assertValidTable($baseTable);
+
+        // Build query
+        $sql = Query::build(
+            template:    "INSERT INTO `::$baseTable` {setClause}",
+            mysqli:      $this->mysqli,
+            tablePrefix: $this->tablePrefix,
+            set:         $colsToValues,
         );
 
+        // Execute
         try {
-            $resultSet = $query->execute("INSERT INTO `::$query->baseTable` $query->setClause");
+            $execute = new Execute($this->mysqli, $this->tablePrefix, $this->useSmartJoins);
+            $execute->run($sql);
         } catch (Throwable $e) {
             throw new DBException("Error inserting row.", 0, $e);
         }
 
-        return $resultSet->mysqli('insert_id');
+        return $this->mysqli->insert_id;
     }
 
     /**
      * Update rows in a table.
      *
-     * @param string $baseTable Table name (without prefix)
-     * @param array $colsToValues Column => value pairs to update
-     * @param int|array|string $idArrayOrSql WHERE condition (required)
-     * @param mixed ...$params Parameters to bind
+     * @param string       $baseTable    Table name (without prefix)
+     * @param array        $colsToValues Column => value pairs to update
+     * @param int|array|string $where        WHERE condition (required)
+     * @param mixed            ...$params    Parameters to bind
      * @return int Number of affected rows
      * @throws DBException
      */
-    public function update(string $baseTable, array $colsToValues, int|array|string $idArrayOrSql, ...$params): int
+    public function update(string $baseTable, array $colsToValues, int|array|string $where, ...$params): int
     {
-        $query = new Query(
-            mysqli:          $this->mysqli,
-            tablePrefix:     $this->tablePrefix,
-            primaryKey:      $this->primaryKey,
-            useSmartJoins:   $this->useSmartJoins,
-            useSmartStrings: $this->useSmartStrings,
-            loadHandler:     $this->smartArrayLoadHandler,
-            baseTable:       $baseTable,
-            params:          $params,
-            where:           $idArrayOrSql,
-            whereRequired:   true,
-            set:             $colsToValues,
+        // Error checking
+        Query::assertValidTable($baseTable);
+        Query::rejectNumericWhere($where);
+        Query::rejectEmptyWhere($where, 'UPDATE');
+
+        // Build query
+        $sql = Query::build(
+            template:    "UPDATE `::$baseTable` {setClause} {whereEtc}",
+            mysqli:      $this->mysqli,
+            tablePrefix: $this->tablePrefix,
+            where:       $where,
+            params:      $params,
+            set:         $colsToValues,
         );
 
+        // Execute
         try {
-            $resultSet = $query->execute("UPDATE `::$query->baseTable` $query->setClause $query->whereEtc");
+            $execute = new Execute($this->mysqli, $this->tablePrefix, $this->useSmartJoins);
+            $execute->run($sql);
         } catch (Throwable $e) {
             throw new DBException("Error updating row.", 0, $e);
         }
 
-        return $resultSet->mysqli('affected_rows');
+        return $this->mysqli->affected_rows;
     }
 
     /**
      * Delete rows from a table.
      *
-     * @param string $baseTable Table name (without prefix)
-     * @param int|array|string $idArrayOrSql WHERE condition (required)
-     * @param mixed ...$params Parameters to bind
+     * @param string       $baseTable Table name (without prefix)
+     * @param int|array|string $where     WHERE condition (required)
+     * @param mixed            ...$params Parameters to bind
      * @return int Number of affected rows
      * @throws DBException
      */
-    public function delete(string $baseTable, int|array|string $idArrayOrSql, ...$params): int
+    public function delete(string $baseTable, int|array|string $where, ...$params): int
     {
-        $query = new Query(
-            mysqli:          $this->mysqli,
-            tablePrefix:     $this->tablePrefix,
-            primaryKey:      $this->primaryKey,
-            useSmartJoins:   $this->useSmartJoins,
-            useSmartStrings: $this->useSmartStrings,
-            loadHandler:     $this->smartArrayLoadHandler,
-            baseTable:       $baseTable,
-            params:          $params,
-            where:           $idArrayOrSql,
-            whereRequired:   true,
+        // Error checking
+        Query::assertValidTable($baseTable);
+        Query::rejectNumericWhere($where);
+        Query::rejectEmptyWhere($where, 'DELETE');
+
+        // Build query
+        $sql = Query::build(
+            template:    "DELETE FROM `::$baseTable` {whereEtc}",
+            mysqli:      $this->mysqli,
+            tablePrefix: $this->tablePrefix,
+            where:       $where,
+            params:      $params,
         );
 
+        // Execute
         try {
-            $resultSet = $query->execute("DELETE FROM `::$query->baseTable` $query->whereEtc");
+            $execute = new Execute($this->mysqli, $this->tablePrefix, $this->useSmartJoins);
+            $execute->run($sql);
         } catch (Throwable $e) {
             throw new DBException("Error deleting row.", 0, $e);
         }
 
-        return $resultSet->mysqli('affected_rows');
+        return $this->mysqli->affected_rows;
     }
 
     /**
      * Count rows in a table.
      *
-     * @param string $baseTable Table name (without prefix)
-     * @param int|array|string $idArrayOrSql WHERE condition
-     * @param mixed ...$params Parameters to bind
+     * @param string       $baseTable Table name (without prefix)
+     * @param int|array|string $where     WHERE condition
+     * @param mixed            ...$params Parameters to bind
      * @return int Row count
      * @throws DBException
      */
-    public function count(string $baseTable, int|array|string $idArrayOrSql = [], ...$params): int
+    public function count(string $baseTable, int|array|string $where = [], ...$params): int
     {
-        if (is_string($idArrayOrSql) && preg_match('/\b(LIMIT|OFFSET)\s+[0-9:?]+\s*/i', $idArrayOrSql)) {
-            throw new InvalidArgumentException("This method doesn't support LIMIT or OFFSET");
-        }
+        // Error checking
+        Query::assertValidTable($baseTable);
+        Query::rejectNumericWhere($where);
+        Query::rejectLimitAndOffset($where);
 
-        $query = new Query(
-            mysqli:          $this->mysqli,
-            tablePrefix:     $this->tablePrefix,
-            primaryKey:      $this->primaryKey,
-            useSmartJoins:   $this->useSmartJoins,
-            useSmartStrings: $this->useSmartStrings,
-            loadHandler:     $this->smartArrayLoadHandler,
-            baseTable:       $baseTable,
-            params:          $params,
-            where:           $idArrayOrSql,
+        // Build query
+        $sql = Query::build(
+            template:    "SELECT COUNT(*) FROM `::$baseTable` {whereEtc}",
+            mysqli:      $this->mysqli,
+            tablePrefix: $this->tablePrefix,
+            where:       $where,
+            params:      $params,
         );
 
+        // Execute
         try {
-            $resultSet = $query->execute("SELECT COUNT(*) FROM `::$query->baseTable` $query->whereEtc");
+            $execute = new Execute($this->mysqli, $this->tablePrefix, $this->useSmartJoins);
+            $rows    = $execute->run($sql);
         } catch (Throwable $e) {
             throw new DBException("Error selecting count.", 0, $e);
         }
 
-        return (int) $resultSet->first()->nth(0)->value();
+        return (int) array_values($rows[0])[0];
     }
 
     //endregion
@@ -686,12 +728,11 @@ class Connection
     //region Settings - Public Properties
 
     // Connection settings (used during connect)
-    public ?string $hostname = null;
-    public ?string $username = null;
-    public ?string $password = null;
-    public ?string $database = null;
+    public ?string $hostname    = null;
+    public ?string $username    = null;
+    public ?string $password    = null;
+    public ?string $database    = null;
     public string  $tablePrefix = '';
-    public string  $primaryKey = 'num';
 
     // Query behavior settings
     public bool $useSmartJoins   = true;

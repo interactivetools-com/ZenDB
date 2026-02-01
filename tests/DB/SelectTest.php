@@ -31,11 +31,11 @@ class SelectTest extends BaseTestCase
     /**
      * @dataProvider provideValidQueries
      */
-    public function testValidSelect(string $testName, string $baseTable, int|array|string $idArrayOrSQL, array $mixedParams, array $expectedResult): void
+    public function testValidSelect(string $testName, string $baseTable, array|string $where, array $mixedParams, array $expectedResult): void
     {
         $result = false;
         try {
-            $result = DB::select($baseTable, $idArrayOrSQL, ...$mixedParams);
+            $result = DB::select($baseTable, $where, ...$mixedParams);
         } catch (Throwable $e) {
             $error  = "$testName exception: " . $e->getMessage();
             $error .= "\n" . $e->getTraceAsString();
@@ -45,7 +45,7 @@ class SelectTest extends BaseTestCase
         $expected = [
             'testName'     => $testName,
             'baseTable'    => $baseTable,
-            'idArrayOrSQL' => $idArrayOrSQL,
+            'where'        => $where,
             'mixedParams'  => $mixedParams,
             'result'       => $expectedResult,
         ];
@@ -59,16 +59,16 @@ class SelectTest extends BaseTestCase
     {
         return [
             [
-                'testName'       => 'primary key as int',
+                'testName'       => 'primary key as array',
                 'baseTable'      => 'users',
-                'idArrayOrSQL'   => (int) 5,
+                'where'          => ['num' => 5],
                 'mixedParams'    => [],
                 'expectedResult' => [['num' => 5, 'name' => 'Charlie Brown', 'isAdmin' => 1, 'status' => 'Active', 'city' => 'Edmonton', 'dob' => '1989-11-11', 'age' => 34]],
             ],
             [
                 'testName'       => 'array of where conditions',
                 'baseTable'      => 'users',
-                'idArrayOrSQL'   => ['isAdmin' => null, 'status' => 'active'],
+                'where'          => ['isAdmin' => null, 'status' => 'active'],
                 'mixedParams'    => [],
                 'expectedResult' => [
                     ['num' => 7, 'name' => 'Erin Davis', 'isAdmin' => null, 'status' => 'Active', 'city' => 'Quebec', 'dob' => '1998-03-14', 'age' => 25],
@@ -78,7 +78,7 @@ class SelectTest extends BaseTestCase
             [
                 'testName'       => 'sql WITHOUT where keyword',
                 'baseTable'      => 'users',
-                'idArrayOrSQL'   => '(:ageMin <= age AND age <= :ageMax) AND (isAdmin = :isAdmin OR isAdmin IS NULL) LIMIT :limit OFFSET :offset;',
+                'where'          => '(:ageMin <= age AND age <= :ageMax) AND (isAdmin = :isAdmin OR isAdmin IS NULL) LIMIT :limit OFFSET :offset;',
                 'mixedParams'    => [[':ageMin' => 30, ':ageMax' => 40, ':isAdmin' => 0, ':limit' => 3, ':offset' => 1]],
                 'expectedResult' => [
                     ['num' => 8, 'name' => 'Frank <b>Miller</b>', 'isAdmin' => 0, 'status' => 'Suspended', 'city' => 'Winnipeg', 'dob' => '1992-07-22', 'age' => 31],
@@ -89,7 +89,7 @@ class SelectTest extends BaseTestCase
             [
                 'testName'       => 'empty result set',
                 'baseTable'      => 'users',
-                'idArrayOrSQL'   => (int) -1,
+                'where'          => ['num' => -1],
                 'mixedParams'    => [],
                 'expectedResult' => [],
             ],
@@ -99,10 +99,10 @@ class SelectTest extends BaseTestCase
     /**
      * @dataProvider provideInvalidQueries
      */
-    public function testInvalidSelect(string $testName, string $baseTable, int|array|string $idArrayOrSQL, array $mixedParams): void
+    public function testInvalidSelect(string $testName, string $baseTable, array|string $where, array $mixedParams): void
     {
         try {
-            DB::select($baseTable, $idArrayOrSQL, ...$mixedParams);
+            DB::select($baseTable, $where, ...$mixedParams);
         } catch (\Exception) {
             $this->assertTrue(true);
             return;
@@ -115,40 +115,40 @@ class SelectTest extends BaseTestCase
     {
         return [
             [
-                'testName'     => 'primary key as string',
-                'baseTable'    => 'users',
-                'idArrayOrSQL' => "5",
-                'mixedParams'  => [],
+                'testName'   => 'numeric string throws',
+                'baseTable'  => 'users',
+                'where'      => "5",
+                'mixedParams'=> [],
             ],
             [
-                'testName'     => 'array with invalid column names',
-                'baseTable'    => 'users',
-                'idArrayOrSQL' => ['notThere' => null, 'missingColumn' => 'active'],
-                'mixedParams'  => [],
+                'testName'    => 'array with invalid column names',
+                'baseTable'   => 'users',
+                'where'       => ['notThere' => null, 'missingColumn' => 'active'],
+                'mixedParams' => [],
             ],
             [
-                'testName'     => 'sql starting with SELECT',
-                'baseTable'    => 'users',
-                'idArrayOrSQL' => 'SELECT * FROM users',
-                'mixedParams'  => [],
+                'testName'    => 'sql starting with SELECT',
+                'baseTable'   => 'users',
+                'where'       => 'SELECT * FROM users',
+                'mixedParams' => [],
             ],
             [
-                'testName'     => 'missing position param',
-                'baseTable'    => 'users',
-                'idArrayOrSQL' => 'num = ?',
-                'mixedParams'  => [],
+                'testName'    => 'missing position param',
+                'baseTable'   => 'users',
+                'where'       => 'num = ?',
+                'mixedParams' => [],
             ],
             [
-                'testName'     => 'missing named param',
-                'baseTable'    => 'users',
-                'idArrayOrSQL' => 'num = :num',
-                'mixedParams'  => [],
+                'testName'    => 'missing named param',
+                'baseTable'   => 'users',
+                'where'       => 'num = :num',
+                'mixedParams' => [],
             ],
             [
-                'testName'     => 'table with prefix already applied',
-                'baseTable'    => 'test_users',
-                'idArrayOrSQL' => "",
-                'mixedParams'  => [],
+                'testName'    => 'table with prefix already applied',
+                'baseTable'   => 'test_users',
+                'where'       => "",
+                'mixedParams' => [],
             ],
         ];
     }
@@ -158,7 +158,7 @@ class SelectTest extends BaseTestCase
 
     public function testGetSingleRow(): void
     {
-        $result = DB::get('users', 1);
+        $result = DB::get('users', ['num' => 1]);
         $this->assertSame('John Doe', $result->get('name')->value());
         $this->assertSame(1, $result->get('num')->value());
     }
@@ -171,7 +171,7 @@ class SelectTest extends BaseTestCase
 
     public function testGetReturnsEmptyForNoMatch(): void
     {
-        $result = DB::get('users', 9999);
+        $result = DB::get('users', ['num' => 9999]);
         $this->assertTrue($result->isEmpty());
     }
 

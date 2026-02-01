@@ -42,7 +42,7 @@ class CloneTest extends BaseTestCase
     public function testCloneCanExecuteQueries(): void
     {
         $clone  = DB::clone();
-        $result = $clone->select('users', 1);
+        $result = $clone->select('users', ['num' => 1]);
 
         $this->assertSame('John Doe', $result->first()->get('name')->value());
     }
@@ -50,7 +50,7 @@ class CloneTest extends BaseTestCase
     public function testParentCanExecuteQueriesAfterClone(): void
     {
         $clone  = DB::clone();
-        $result = DB::select('users', 1);
+        $result = DB::select('users', ['num' => 1]);
 
         $this->assertSame('John Doe', $result->first()->get('name')->value());
         $this->assertNotNull($clone);
@@ -60,8 +60,8 @@ class CloneTest extends BaseTestCase
     {
         $clone = DB::clone();
 
-        $parentResult = DB::select('users', 1);
-        $cloneResult  = $clone->select('users', 2);
+        $parentResult = DB::select('users', ['num' => 1]);
+        $cloneResult  = $clone->select('users', ['num' => 2]);
 
         $this->assertSame('John Doe', $parentResult->first()->get('name')->value());
         $this->assertSame('Jane Janey Doe', $cloneResult->first()->get('name')->value());
@@ -96,14 +96,6 @@ class CloneTest extends BaseTestCase
 
         $this->assertSame('other_', $clone->tablePrefix);
         $this->assertSame('test_', DB::getDefault()->tablePrefix);
-    }
-
-    public function testCloneHasIndependentPrimaryKey(): void
-    {
-        $clone = DB::clone(['primaryKey' => 'id']);
-
-        $this->assertSame('id', $clone->primaryKey);
-        $this->assertSame('num', DB::getDefault()->primaryKey);
     }
 
     public function testChangingCloneSettingsDoesNotAffectParent(): void

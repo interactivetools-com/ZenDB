@@ -20,7 +20,6 @@ abstract class BaseTestCase extends TestCase
         'password'           => '',
         'database'           => 'phpunit_test_db',
         'tablePrefix'        => 'test_',
-        'primaryKey'         => 'num',
         'usePhpTimezone'     => true,
         'sqlMode'            => 'STRICT_ALL_TABLES,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION,ONLY_FULL_GROUP_BY',
         'versionRequired'    => '5.7.32',

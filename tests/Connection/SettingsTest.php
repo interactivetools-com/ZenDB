@@ -80,20 +80,12 @@ class SettingsTest extends BaseTestCase
     }
 
     //endregion
-    //region primaryKey Setting
-
-    public function testPrimaryKeyDefaultValue(): void
-    {
-        $this->assertSame('num', self::$conn->primaryKey);
-    }
-
-    //endregion
     //region Settings Applied to Queries
 
     public function testSmartStringsEnabledReturnsSmartStringValues(): void
     {
         self::$conn->useSmartStrings = true;
-        $result = self::$conn->get('users', 1);
+        $result = self::$conn->get('users', ['num' => 1]);
 
         $this->assertInstanceOf(\Itools\SmartString\SmartString::class, $result->get('name'));
     }
@@ -104,8 +96,8 @@ class SettingsTest extends BaseTestCase
         // This test verifies the expected exception is thrown
         self::$conn->useSmartStrings = false;
 
-        $this->expectException(\Itools\ZenDB\DBException::class);
-        self::$conn->get('users', 1);
+        $this->expectException(\InvalidArgumentException::class);
+        self::$conn->get('users', ['num' => 1]);
     }
 
     //endregion

@@ -143,29 +143,29 @@ class DB
     /**
      * Select rows from a table.
      *
-     * @param string           $baseTable    Table name (without prefix)
-     * @param int|array|string $idArrayOrSql WHERE condition
-     * @param mixed            ...$params    Parameters to bind
+     * @param string       $baseTable Table name (without prefix)
+     * @param int|array|string $where     WHERE condition
+     * @param mixed            ...$params Parameters to bind
      * @return SmartArrayHtml Result set
      * @throws DBException
      */
-    public static function select(string $baseTable, int|array|string $idArrayOrSql = [], ...$params): SmartArrayHtml
+    public static function select(string $baseTable, int|array|string $where = [], ...$params): SmartArrayHtml
     {
-        return self::getDefault()->select($baseTable, $idArrayOrSql, ...$params);
+        return self::getDefault()->select($baseTable, $where, ...$params);
     }
 
     /**
      * Get a single row from a table.
      *
-     * @param string           $baseTable    Table name (without prefix)
-     * @param int|array|string $idArrayOrSql WHERE condition
-     * @param mixed            ...$params    Parameters to bind
+     * @param string       $baseTable Table name (without prefix)
+     * @param int|array|string $where     WHERE condition
+     * @param mixed            ...$params Parameters to bind
      * @return SmartArrayHtml Single row or empty SmartArrayHtml
      * @throws DBException
      */
-    public static function get(string $baseTable, int|array|string $idArrayOrSql = [], ...$params): SmartArrayHtml
+    public static function get(string $baseTable, int|array|string $where = [], ...$params): SmartArrayHtml
     {
-        return self::getDefault()->get($baseTable, $idArrayOrSql, ...$params);
+        return self::getDefault()->get($baseTable, $where, ...$params);
     }
 
     /**
@@ -184,44 +184,44 @@ class DB
     /**
      * Update rows in a table.
      *
-     * @param string           $baseTable    Table name (without prefix)
-     * @param array            $colsToValues Column => value pairs to update
-     * @param int|array|string $idArrayOrSql WHERE condition (required)
+     * @param string       $baseTable    Table name (without prefix)
+     * @param array        $colsToValues Column => value pairs to update
+     * @param int|array|string $where        WHERE condition (required)
      * @param mixed            ...$params    Parameters to bind
      * @return int Number of affected rows
      * @throws DBException
      */
-    public static function update(string $baseTable, array $colsToValues, int|array|string $idArrayOrSql, ...$params): int
+    public static function update(string $baseTable, array $colsToValues, int|array|string $where, ...$params): int
     {
-        return self::getDefault()->update($baseTable, $colsToValues, $idArrayOrSql, ...$params);
+        return self::getDefault()->update($baseTable, $colsToValues, $where, ...$params);
     }
 
     /**
      * Delete rows from a table.
      *
-     * @param string           $baseTable    Table name (without prefix)
-     * @param int|array|string $idArrayOrSql WHERE condition (required)
-     * @param mixed            ...$params    Parameters to bind
+     * @param string       $baseTable Table name (without prefix)
+     * @param int|array|string $where     WHERE condition (required)
+     * @param mixed            ...$params Parameters to bind
      * @return int Number of affected rows
      * @throws DBException
      */
-    public static function delete(string $baseTable, int|array|string $idArrayOrSql, ...$params): int
+    public static function delete(string $baseTable, int|array|string $where, ...$params): int
     {
-        return self::getDefault()->delete($baseTable, $idArrayOrSql, ...$params);
+        return self::getDefault()->delete($baseTable, $where, ...$params);
     }
 
     /**
      * Count rows in a table.
      *
-     * @param string           $baseTable    Table name (without prefix)
-     * @param int|array|string $idArrayOrSql WHERE condition
-     * @param mixed            ...$params    Parameters to bind
+     * @param string       $baseTable Table name (without prefix)
+     * @param int|array|string $where     WHERE condition
+     * @param mixed            ...$params Parameters to bind
      * @return int Row count
      * @throws DBException
      */
-    public static function count(string $baseTable, int|array|string $idArrayOrSql = [], ...$params): int
+    public static function count(string $baseTable, int|array|string $where = [], ...$params): int
     {
-        return self::getDefault()->count($baseTable, $idArrayOrSql, ...$params);
+        return self::getDefault()->count($baseTable, $where, ...$params);
     }
 
     //endregion

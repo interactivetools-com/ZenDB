@@ -23,7 +23,10 @@ class NamedParamsTest extends BaseTestCase
 
     protected function setUp(): void
     {
-        $this->query = new Query(DB::$mysqli, 'test_');
+        $this->query              = new Query();
+        $this->query->mysqli      = DB::$mysqli;
+        $this->query->tablePrefix = 'test_';
+        $this->query->params      = new \Itools\ZenDB\Params();
     }
 
     public function testNamedParamsAreEscaped(): void
