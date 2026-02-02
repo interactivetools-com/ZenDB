@@ -6,7 +6,7 @@ namespace Itools\ZenDB;
 use Itools\SmartArray\SmartArrayHtml;
 use Itools\SmartString\SmartString;
 use mysqli;
-use mysqli_driver;
+use mysqli_result;
 use mysqli_sql_exception;
 use Throwable, InvalidArgumentException, RuntimeException;
 
@@ -25,7 +25,9 @@ use Throwable, InvalidArgumentException, RuntimeException;
  */
 class Connection
 {
-    //region Constructor
+    use ConnectionInternals;
+
+    //region Connection
 
     /**
      * Create a new database connection.
@@ -56,9 +58,6 @@ class Connection
             DB::setDefault($this);
         }
     }
-
-    //endregion
-    //region Connection Management
 
     /**
      * Connect to the database using the configured settings.
@@ -197,6 +196,28 @@ class Connection
         }
     }
 
+    /**
+     * Clone this connection with optional config overrides.
+     * The clone shares the mysqli connection but has its own settings.
+     *
+     *     $db->clone()                           // Clone with same settings
+     *     $db->clone(['useSmartJoins' => false]) // Clone with overrides
+     *
+     * @param array $config Configuration overrides
+     * @return self New Connection instance sharing this connection
+     */
+    public function clone(array $config = []): self
+    {
+        $clone = clone $this;
+        foreach ($config as $key => $value) {
+            if (!property_exists($clone, $key)) {
+                throw new InvalidArgumentException("Unknown configuration key: '$key'");
+            }
+            $clone->$key = $value;
+        }
+        return $clone;
+    }
+
     //endregion
     //region Query Methods
 
@@ -206,41 +227,24 @@ class Connection
      * @param string $sqlTemplate
      * @param mixed  ...$params Parameters to bind
      * @return SmartArrayHtml Result set
-     * @throws DBException
+     * @throws DBException|Throwable
      */
     public function query(string $sqlTemplate, ...$params): SmartArrayHtml
     {
-        // Error checking
+        // Validate
         if (!preg_match('/^\s*([a-zA-Z]+)\b/', $sqlTemplate)) {
             throw new InvalidArgumentException("SQL statement must start with a valid SQL keyword such as SELECT, INSERT, etc.");
         }
+        $this->assertSafeTemplate($sqlTemplate);
 
-        // Build query
-        $sql = Query::build(
-            template:    $sqlTemplate,
-            mysqli:      $this->mysqli,
-            tablePrefix: $this->tablePrefix,
-            params:      $params,
-        );
+        // Build SQL
+        $sql = $this->replacePlaceholders($sqlTemplate, $params);
 
         // Execute
-        try {
-            $execute = new Execute($this->mysqli, $this->tablePrefix, $this->useSmartJoins);
-            $rows    = $execute->run($sql);
-        } catch (Throwable $e) {
-            throw new DBException("Error executing query", 0, $e);
-        }
+        $result = $this->mysqli->query($sql);
+        $rows   = $this->fetchMappedRows($result);
 
-        return new SmartArrayHtml($rows, [
-            'useSmartStrings' => $this->useSmartStrings,
-            'loadHandler'     => $this->smartArrayLoadHandler,
-            'mysqli'          => [
-                'query'         => $sql,
-                'baseTable'     => '',
-                'affected_rows' => $this->mysqli->affected_rows,
-                'insert_id'     => $this->mysqli->insert_id,
-            ],
-        ]);
+        return $this->toSmartArray($rows, $sql);
     }
 
     /**
@@ -255,80 +259,48 @@ class Connection
      */
     public function select(string $baseTable, int|array|string $where = [], ...$params): SmartArrayHtml
     {
-        // Error checking
-        Query::assertValidTable($baseTable);
-        Query::rejectNumericWhere($where);
+        // Validate
+        $this->assertValidTable($baseTable);
+        $this->rejectNumericWhere($where);
 
-        // Build query
-        $sql = Query::build(
-            template:    "SELECT * FROM `::$baseTable` {whereEtc}",
-            mysqli:      $this->mysqli,
-            tablePrefix: $this->tablePrefix,
-            where:       $where,
-            params:      $params,
-        );
+        // Build SQL
+        $fullTable = $this->tablePrefix . $baseTable;
+        $whereEtc  = $this->whereFromArgs($where, $params);
+        $sql       = "SELECT * FROM `$fullTable` $whereEtc";
 
         // Execute
-        $execute = new Execute($this->mysqli, $this->tablePrefix, $this->useSmartJoins);
-        $rows    = $execute->run($sql);
+        $result = $this->mysqli->query($sql);
+        $rows   = $this->fetchMappedRows($result);
 
-        return new SmartArrayHtml($rows, [
-            'useSmartStrings' => $this->useSmartStrings,
-            'loadHandler'     => $this->smartArrayLoadHandler,
-            'mysqli'          => [
-                'query'         => $sql,
-                'baseTable'     => $baseTable,
-                'affected_rows' => $this->mysqli->affected_rows,
-                'insert_id'     => $this->mysqli->insert_id,
-            ],
-        ]);
+        return $this->toSmartArray($rows, $sql, $baseTable);
     }
 
     /**
      * Get a single row from a table.
      *
-     * @param string       $baseTable Table name (without prefix)
+     * @param string           $baseTable Table name (without prefix)
      * @param int|array|string $where     WHERE condition
      * @param mixed            ...$params Parameters to bind
      * @return SmartArrayHtml Single row or empty SmartArrayHtml
-     * @throws DBException
+     * @throws DBException|Throwable
      */
     public function get(string $baseTable, int|array|string $where = [], ...$params): SmartArrayHtml
     {
-        // Error checking
-        Query::assertValidTable($baseTable);
-        Query::rejectNumericWhere($where);
-        Query::rejectLimitAndOffset($where);
+        // Validate
+        $this->assertValidTable($baseTable);
+        $this->rejectNumericWhere($where);
+        $this->rejectLimitAndOffset($where);
 
-        // Build query
-        $sql = Query::build(
-            template:    "SELECT * FROM `::$baseTable` {whereEtc} LIMIT 1",
-            mysqli:      $this->mysqli,
-            tablePrefix: $this->tablePrefix,
-            where:       $where,
-            params:      $params,
-        );
+        // Build SQL
+        $fullTable = $this->tablePrefix . $baseTable;
+        $whereEtc  = $this->whereFromArgs($where, $params);
+        $sql       = "SELECT * FROM `$fullTable` $whereEtc LIMIT 1";
 
         // Execute
-        try {
-            $execute = new Execute($this->mysqli, $this->tablePrefix, $this->useSmartJoins);
-            $rows    = $execute->run($sql);
-        } catch (Throwable $e) {
-            throw new DBException("Error getting row.", 0, $e);
-        }
+        $result    = $this->mysqli->query($sql);
+        $rows      = $this->fetchMappedRows($result);
+        $resultSet = $this->toSmartArray($rows, $sql, $baseTable);
 
-        $resultSet = new SmartArrayHtml($rows, [
-            'useSmartStrings' => $this->useSmartStrings,
-            'loadHandler'     => $this->smartArrayLoadHandler,
-            'mysqli'          => [
-                'query'         => $sql,
-                'baseTable'     => $baseTable,
-                'affected_rows' => $this->mysqli->affected_rows,
-                'insert_id'     => $this->mysqli->insert_id,
-            ],
-        ]);
-
-        // Return first row
         if ($resultSet->isEmpty()) {
             return $resultSet->filter(fn() => false);
         }
@@ -345,24 +317,16 @@ class Connection
      */
     public function insert(string $baseTable, array $colsToValues): int
     {
-        // Error checking
-        Query::assertValidTable($baseTable);
+        // Validate
+        $this->assertValidTable($baseTable);
 
-        // Build query
-        $sql = Query::build(
-            template:    "INSERT INTO `::$baseTable` {setClause}",
-            mysqli:      $this->mysqli,
-            tablePrefix: $this->tablePrefix,
-            set:         $colsToValues,
-        );
+        // Build SQL
+        $fullTable = $this->tablePrefix . $baseTable;
+        $setClause = $this->getSetClause($colsToValues);
+        $sql       = "INSERT INTO `$fullTable` $setClause";
 
         // Execute
-        try {
-            $execute = new Execute($this->mysqli, $this->tablePrefix, $this->useSmartJoins);
-            $execute->run($sql);
-        } catch (Throwable $e) {
-            throw new DBException("Error inserting row.", 0, $e);
-        }
+        $this->mysqli->query($sql);
 
         return $this->mysqli->insert_id;
     }
@@ -375,32 +339,19 @@ class Connection
      * @param int|array|string $where        WHERE condition (required)
      * @param mixed            ...$params    Parameters to bind
      * @return int Number of affected rows
-     * @throws DBException
+     * @throws DBException|Throwable
      */
     public function update(string $baseTable, array $colsToValues, int|array|string $where, ...$params): int
     {
-        // Error checking
-        Query::assertValidTable($baseTable);
-        Query::rejectNumericWhere($where);
-        Query::rejectEmptyWhere($where, 'UPDATE');
+        $this->assertValidTable($baseTable);
+        $this->rejectNumericWhere($where);
+        $this->rejectEmptyWhere($where, 'UPDATE');
 
-        // Build query
-        $sql = Query::build(
-            template:    "UPDATE `::$baseTable` {setClause} {whereEtc}",
-            mysqli:      $this->mysqli,
-            tablePrefix: $this->tablePrefix,
-            where:       $where,
-            params:      $params,
-            set:         $colsToValues,
-        );
-
-        // Execute
-        try {
-            $execute = new Execute($this->mysqli, $this->tablePrefix, $this->useSmartJoins);
-            $execute->run($sql);
-        } catch (Throwable $e) {
-            throw new DBException("Error updating row.", 0, $e);
-        }
+        $fullTable = $this->tablePrefix . $baseTable;
+        $setClause = $this->getSetClause($colsToValues);
+        $whereEtc  = $this->whereFromArgs($where, $params);
+        $sql       = "UPDATE `$fullTable` $setClause $whereEtc";
+        $this->mysqli->query($sql);
 
         return $this->mysqli->affected_rows;
     }
@@ -416,27 +367,14 @@ class Connection
      */
     public function delete(string $baseTable, int|array|string $where, ...$params): int
     {
-        // Error checking
-        Query::assertValidTable($baseTable);
-        Query::rejectNumericWhere($where);
-        Query::rejectEmptyWhere($where, 'DELETE');
+        $this->assertValidTable($baseTable);
+        $this->rejectNumericWhere($where);
+        $this->rejectEmptyWhere($where, 'DELETE');
 
-        // Build query
-        $sql = Query::build(
-            template:    "DELETE FROM `::$baseTable` {whereEtc}",
-            mysqli:      $this->mysqli,
-            tablePrefix: $this->tablePrefix,
-            where:       $where,
-            params:      $params,
-        );
-
-        // Execute
-        try {
-            $execute = new Execute($this->mysqli, $this->tablePrefix, $this->useSmartJoins);
-            $execute->run($sql);
-        } catch (Throwable $e) {
-            throw new DBException("Error deleting row.", 0, $e);
-        }
+        $fullTable = $this->tablePrefix . $baseTable;
+        $whereEtc  = $this->whereFromArgs($where, $params);
+        $sql       = "DELETE FROM `$fullTable` $whereEtc";
+        $this->mysqli->query($sql);
 
         return $this->mysqli->affected_rows;
     }
@@ -448,33 +386,22 @@ class Connection
      * @param int|array|string $where     WHERE condition
      * @param mixed            ...$params Parameters to bind
      * @return int Row count
-     * @throws DBException
+     * @throws DBException|Throwable
      */
     public function count(string $baseTable, int|array|string $where = [], ...$params): int
     {
-        // Error checking
-        Query::assertValidTable($baseTable);
-        Query::rejectNumericWhere($where);
-        Query::rejectLimitAndOffset($where);
+        $this->assertValidTable($baseTable);
+        $this->rejectNumericWhere($where);
+        $this->rejectLimitAndOffset($where);
 
-        // Build query
-        $sql = Query::build(
-            template:    "SELECT COUNT(*) FROM `::$baseTable` {whereEtc}",
-            mysqli:      $this->mysqli,
-            tablePrefix: $this->tablePrefix,
-            where:       $where,
-            params:      $params,
-        );
+        $fullTable = $this->tablePrefix . $baseTable;
+        $whereEtc  = $this->whereFromArgs($where, $params);
+        $sql       = "SELECT COUNT(*) FROM `$fullTable` $whereEtc";
+        $result    = $this->mysqli->query($sql);
+        $row       = $result->fetch_row();
+        $result->free();
 
-        // Execute
-        try {
-            $execute = new Execute($this->mysqli, $this->tablePrefix, $this->useSmartJoins);
-            $rows    = $execute->run($sql);
-        } catch (Throwable $e) {
-            throw new DBException("Error selecting count.", 0, $e);
-        }
-
-        return (int) array_values($rows[0])[0];
+        return (int) $row[0];
     }
 
     //endregion
@@ -518,10 +445,10 @@ class Connection
     /**
      * Check if table exists in the database.
      *
-     * @param string $table Table name
-     * @param bool $isFullTable If true, treat as full table name (with prefix)
+     * @param string $table       Table name
+     * @param bool   $isFullTable If true, treat as full table name (with prefix)
      * @return bool True if table exists
-     * @throws DBException
+     * @throws DBException|Throwable
      */
     public function tableExists(string $table, bool $isFullTable = false): bool
     {
@@ -534,7 +461,7 @@ class Connection
      *
      * @param bool $includePrefix If true, return names with prefix
      * @return string[] Array of table names
-     * @throws DBException
+     * @throws DBException|Throwable
      */
     public function getTableNames(bool $includePrefix = false): array
     {
@@ -655,113 +582,17 @@ class Connection
     }
 
     //endregion
-    //region Clone Support
+    //region Public Properties
 
     /**
-     * Clone this connection with optional config overrides.
-     * The clone shares the mysqli connection but has its own settings.
-     *
-     *     $db->clone()                           // Clone with same settings
-     *     $db->clone(['useSmartJoins' => false]) // Clone with overrides
-     *
-     * @param array $config Configuration overrides
-     * @return self New Connection instance sharing this connection
-     */
-    public function clone(array $config = []): self
-    {
-        $clone = clone $this;
-        foreach ($config as $key => $value) {
-            if (!property_exists($clone, $key)) {
-                throw new InvalidArgumentException("Unknown configuration key: '$key'");
-            }
-            $clone->$key = $value;
-        }
-        return $clone;
-    }
-
-    /**
-     * Mark cloned connections as non-owners.
-     */
-    public function __clone(): void
-    {
-        $this->ownsConnection = false;
-    }
-
-    //endregion
-    //region Magic Methods
-
-    /**
-     * Clean up connection on destruction.
-     */
-    public function __destruct()
-    {
-        // Only close connection if we own it
-        if ($this->ownsConnection && $this->mysqli instanceof mysqli) {
-            try {
-                // Drain any extra result sets
-                while ($this->mysqli->more_results() && $this->mysqli->next_result()) {
-                    // Drain
-                }
-                $this->mysqli->close();
-            } catch (Throwable) {
-                // Never throw from a destructor
-            }
-            $this->mysqli = null;
-        }
-    }
-
-    //endregion
-    //region Connection State
-
-    /**
-     * The mysqli connection - exposed for backwards compatibility
+     * The mysqli connection instance
      */
     public ?MysqliWrapper $mysqli = null;
 
     /**
-     * Whether this instance owns (and should close) the mysqli connection.
-     * Set to false for clones which share the connection.
+     * Table prefix prepended to table names (e.g., 'cms_')
      */
-    private bool $ownsConnection = true;
-
-    //endregion
-    //region Settings - Public Properties
-
-    // Connection settings (used during connect)
-    public ?string $hostname    = null;
-    public ?string $username    = null;
-    public ?string $password    = null;
-    public ?string $database    = null;
-    public string  $tablePrefix = '';
-
-    // Query behavior settings
-    public bool $useSmartJoins   = true;
-    public bool $useSmartStrings = true;
-    public bool $usePhpTimezone  = true;
-
-    // Result handling
-    /** @var callable|null Custom handler for loading results */
-    public mixed $smartArrayLoadHandler = null;
-
-    // Error handling
-    /** @var bool|callable Show SQL in exceptions - true, false, or callable returning bool */
-    public mixed $showSqlInErrors = false;
-
-    // Advanced connection settings
-    public string $versionRequired    = '5.7.32';
-    public bool   $requireSSL         = false;
-    public bool   $databaseAutoCreate = true;
-    public int    $connectTimeout     = 3;
-    public int    $readTimeout        = 60;
-    public bool   $enableLogging      = false;
-    public string $logFile            = '_mysql_query_log.php';
-    public string $sqlMode            = 'STRICT_ALL_TABLES,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION';
-
-    // Debug mode - tracks queries for debug output
-    public bool $debugMode = false;
-
-    /** @var callable|null Callback that returns web root path for relative file paths in debug output */
-    public mixed $webRootCallback = null;
+    public string $tablePrefix = '';
 
     //endregion
 }

@@ -1,4 +1,5 @@
 <?php
+
 declare(strict_types=1);
 
 namespace Itools\ZenDB;
@@ -22,12 +23,7 @@ use Throwable;
  */
 class DB
 {
-    //region Internal State
-
-    /**
-     * The default Connection instance
-     */
-    private static ?Connection $db = null;
+    //region Public Properties
 
     /**
      * For backwards compatibility - references the default connection's mysqli
@@ -39,18 +35,8 @@ class DB
      */
     public static string $tablePrefix = '';
 
-    /**
-     * Last instance created (for testing/debugging)
-     */
-    public static ?Connection $lastInstance = null;
-
-    /**
-     * Last exception thrown (for testing/debugging)
-     */
-    public static ?Throwable $lastException = null;
-
     //endregion
-    //region Connection Management
+    //region Connection
 
     /**
      * Set the default Connection instance.
@@ -100,9 +86,6 @@ class DB
         }
     }
 
-    //endregion
-    //region Factory Methods
-
     /**
      * Clone the default connection with optional config overrides.
      * The clone shares the mysqli connection but has its own settings.
@@ -119,7 +102,7 @@ class DB
     }
 
     //endregion
-    //region Query Methods (delegate to $db)
+    //region Query Methods
 
     /**
      * Execute a raw SQL query.
@@ -143,7 +126,7 @@ class DB
     /**
      * Select rows from a table.
      *
-     * @param string       $baseTable Table name (without prefix)
+     * @param string           $baseTable Table name (without prefix)
      * @param int|array|string $where     WHERE condition
      * @param mixed            ...$params Parameters to bind
      * @return SmartArrayHtml Result set
@@ -157,7 +140,7 @@ class DB
     /**
      * Get a single row from a table.
      *
-     * @param string       $baseTable Table name (without prefix)
+     * @param string           $baseTable Table name (without prefix)
      * @param int|array|string $where     WHERE condition
      * @param mixed            ...$params Parameters to bind
      * @return SmartArrayHtml Single row or empty SmartArrayHtml
@@ -184,8 +167,8 @@ class DB
     /**
      * Update rows in a table.
      *
-     * @param string       $baseTable    Table name (without prefix)
-     * @param array        $colsToValues Column => value pairs to update
+     * @param string           $baseTable    Table name (without prefix)
+     * @param array            $colsToValues Column => value pairs to update
      * @param int|array|string $where        WHERE condition (required)
      * @param mixed            ...$params    Parameters to bind
      * @return int Number of affected rows
@@ -199,7 +182,7 @@ class DB
     /**
      * Delete rows from a table.
      *
-     * @param string       $baseTable Table name (without prefix)
+     * @param string           $baseTable Table name (without prefix)
      * @param int|array|string $where     WHERE condition (required)
      * @param mixed            ...$params Parameters to bind
      * @return int Number of affected rows
@@ -213,7 +196,7 @@ class DB
     /**
      * Count rows in a table.
      *
-     * @param string       $baseTable Table name (without prefix)
+     * @param string           $baseTable Table name (without prefix)
      * @param int|array|string $where     WHERE condition
      * @param mixed            ...$params Parameters to bind
      * @return int Row count
@@ -225,7 +208,7 @@ class DB
     }
 
     //endregion
-    //region Table Helpers (delegate to $db)
+    //region Table Helpers
 
     /**
      * Get base table name (without prefix).
@@ -268,7 +251,7 @@ class DB
     }
 
     //endregion
-    //region SQL Generation (delegate to $db)
+    //region SQL Generation
 
     /**
      * Escape a string for safe inclusion in raw SQL.
@@ -306,25 +289,6 @@ class DB
         }, $format);
     }
 
-    //endregion
-    //region Static Utility Methods (no connection needed)
-
-    /**
-     * Mark a value as raw SQL (not to be escaped/quoted).
-     */
-    public static function rawSql(string|int|float|null $value): RawSql
-    {
-        return new RawSql((string)$value);
-    }
-
-    /**
-     * Check if a value is a RawSql instance.
-     */
-    public static function isRawSql(mixed $value): bool
-    {
-        return $value instanceof RawSql;
-    }
-
     /**
      * Converts array values to a safe CSV string for use in MySQL IN clauses.
      *
@@ -350,22 +314,6 @@ class DB
 
         $sqlSafeCSV = $safeValues ? implode(',', $safeValues) : 'NULL';
         return self::rawSql($sqlSafeCSV);
-    }
-
-    /**
-     * Generates a LIMIT/OFFSET SQL clause for pagination.
-     *
-     * @param mixed $pageNum The current page number
-     * @param mixed $perPage The number of records per page
-     * @return RawSql LIMIT/OFFSET clause
-     */
-    public static function pagingSql(mixed $pageNum, mixed $perPage = 10): RawSql
-    {
-        $pageNum = abs((int)$pageNum) ?: 1;
-        $perPage = abs((int)$perPage) ?: 10;
-
-        $offset = ($pageNum - 1) * $perPage;
-        return self::rawSql("LIMIT $perPage OFFSET $offset");
     }
 
     /**
@@ -398,6 +346,41 @@ class DB
     public static function likeEndsWith(string|int|float|null|SmartString $input): RawSql
     {
         return self::getDefault()->likeEndsWith($input);
+    }
+
+    //endregion
+    //region Static Utility Methods
+
+    /**
+     * Mark a value as raw SQL (not to be escaped/quoted).
+     */
+    public static function rawSql(string|int|float|null $value): RawSql
+    {
+        return new RawSql((string)$value);
+    }
+
+    /**
+     * Check if a value is a RawSql instance.
+     */
+    public static function isRawSql(mixed $value): bool
+    {
+        return $value instanceof RawSql;
+    }
+
+    /**
+     * Generates a LIMIT/OFFSET SQL clause for pagination.
+     *
+     * @param mixed $pageNum The current page number
+     * @param mixed $perPage The number of records per page
+     * @return RawSql LIMIT/OFFSET clause
+     */
+    public static function pagingSql(mixed $pageNum, mixed $perPage = 10): RawSql
+    {
+        $pageNum = abs((int)$pageNum) ?: 1;
+        $perPage = abs((int)$perPage) ?: 10;
+
+        $offset = ($pageNum - 1) * $perPage;
+        return self::rawSql("LIMIT $perPage OFFSET $offset");
     }
 
     //endregion
@@ -464,6 +447,24 @@ class DB
             default                       => throw new InvalidArgumentException("Unknown static method: $name"),
         };
     }
+
+    //endregion
+    //region Internal State
+
+    /**
+     * The default Connection instance
+     */
+    private static ?Connection $db = null;
+
+    /**
+     * Last instance created (for testing/debugging)
+     */
+    public static ?Connection $lastInstance = null;
+
+    /**
+     * Last exception thrown (for testing/debugging)
+     */
+    public static ?Throwable $lastException = null;
 
     //endregion
 }
