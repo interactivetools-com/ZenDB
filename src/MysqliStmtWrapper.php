@@ -11,33 +11,31 @@ class MysqliStmtWrapper extends mysqli_stmt
     private string $query;
     private float  $startTime;
     private string $boundParamsString = "[]"; // json encoded empty param array for logging
-    private bool   $debugMode = false;
 
-    public function __construct(MysqliWrapper $mysqliWrapper, string $query, float $startTime, bool $debugMode = false) {
+    public function __construct(MysqliWrapper $mysqliWrapper, string $query, float $startTime)
+    {
         $this->query     = $query;
         $this->startTime = $startTime;
-        $this->debugMode = $debugMode;
 
         parent::__construct($mysqliWrapper, $query);
     }
 
     public function bind_param($types, &...$params): bool
     {
-        if (MySQLiWrapper::$enableLogging) {
+        if (MysqliWrapper::$queryLogger) {
             $this->boundParamsString = json_encode($params, JSON_THROW_ON_ERROR);
         }
 
         try {
             $result = parent::bind_param($types, ...$params);
         } catch (Throwable $e) {
-            MySQLiWrapper::logQuery($this->startTime, "$this->query /* params: $this->boundParamsString */ ");
-            MySQLiWrapper::logError($e->getMessage(), $e->getCode(), $e);
-            throw $e; // rethrow exception
+            MysqliWrapper::log("$this->query /* params: $this->boundParamsString */", $this->startTime, $e);
+            throw $e;
         }
 
         // log errors if mysqli_report is off
         if ($result === false) {
-            MySQLiWrapper::logError($this->error, $this->errno);
+            MysqliWrapper::log("$this->query /* params: $this->boundParamsString */", $this->startTime, new \RuntimeException($this->error, $this->errno));
         }
 
         return $result;
@@ -48,21 +46,13 @@ class MysqliStmtWrapper extends mysqli_stmt
         try {
             $result = parent::execute($params);
         } catch (Throwable $e) {
-            MySQLiWrapper::logQuery($this->startTime, "$this->query /* params: $this->boundParamsString */ ");
-            MySQLiWrapper::logError($e->getMessage(), $e->getCode(), $e);
-            throw $e; // rethrow exception
+            MysqliWrapper::log("$this->query /* params: $this->boundParamsString */", $this->startTime, $e);
+            throw $e;
         }
 
-        // log errors if mysqli_report is off
-        MySQLiWrapper::logQuery($this->startTime, "$this->query /* params: $this->boundParamsString */ ");
-        if ($result === false) {
-            MySQLiWrapper::logError($this->error, $this->errno);
-        }
-
-        // track query for debug footer
-        if ($this->debugMode) {
-            MySQLiWrapper::trackQuery($this->startTime, "$this->query /* params: $this->boundParamsString */ ");
-        }
+        // log query (with error if failed without throwing)
+        $error = ($result === false && $this->errno) ? new \RuntimeException($this->error, $this->errno) : null;
+        MysqliWrapper::log("$this->query /* params: $this->boundParamsString */", $this->startTime, $error);
 
         return $result;
     }

@@ -55,7 +55,9 @@ class Connection
 
         // Set as default if requested
         if ($default) {
-            DB::setDefault($this);
+            DB::$db          = $this;
+            DB::$mysqli      = $this->mysqli;
+            DB::$tablePrefix = $this->tablePrefix;
         }
     }
 
@@ -77,12 +79,7 @@ class Connection
         }
 
         // Create a new mysqli instance
-        $this->mysqli = new MysqliWrapper(
-            enableLogging: $this->enableLogging,
-            logFile: $this->logFile,
-            debugMode: $this->debugMode,
-            webRootCallback: $this->webRootCallback
-        );
+        $this->mysqli = new MysqliWrapper(queryLogger: $this->queryLogger);
         $this->mysqli->options(MYSQLI_OPT_CONNECT_TIMEOUT, $this->connectTimeout);
         $this->mysqli->options(MYSQLI_OPT_READ_TIMEOUT, $this->readTimeout);
         $this->mysqli->options(MYSQLI_OPT_LOCAL_INFILE, false); // disable "LOAD DATA LOCAL INFILE" for security
@@ -149,11 +146,6 @@ class Connection
         if ($sets = rtrim($sets, ', ')) {
             $this->mysqli->real_query("SET $sets") || throw new RuntimeException("Set command failed:\nSET $sets");
         }
-
-        // Clear sensitive credentials after connection
-        $this->hostname = null;
-        $this->username = null;
-        $this->password = null;
     }
 
     /**
@@ -227,7 +219,7 @@ class Connection
      * @param string $sqlTemplate
      * @param mixed  ...$params Parameters to bind
      * @return SmartArrayHtml Result set
-     * @throws DBException|Throwable
+     * @throws InvalidArgumentException|Throwable
      */
     public function query(string $sqlTemplate, ...$params): SmartArrayHtml
     {
@@ -250,23 +242,23 @@ class Connection
     /**
      * Select rows from a table.
      *
-     * @param string       $baseTable Table name (without prefix)
-     * @param int|array|string $where     WHERE condition
-     * @param mixed            ...$params Parameters to bind
+     * @param string           $baseTable  Table name (without prefix)
+     * @param int|array|string $whereEtc   WHERE and other clauses (ORDER BY, LIMIT, etc.)
+     * @param mixed            ...$params  Parameters to bind
      * @return SmartArrayHtml Result set
-     * @throws DBException
+     * @throws InvalidArgumentException
      * @throws Throwable
      */
-    public function select(string $baseTable, int|array|string $where = [], ...$params): SmartArrayHtml
+    public function select(string $baseTable, int|array|string $whereEtc = [], ...$params): SmartArrayHtml
     {
         // Validate
         $this->assertValidTable($baseTable);
-        $this->rejectNumericWhere($where);
+        $this->warnDeprecatedNumericWhere($whereEtc);
 
         // Build SQL
-        $fullTable = $this->tablePrefix . $baseTable;
-        $whereEtc  = $this->whereFromArgs($where, $params);
-        $sql       = "SELECT * FROM `$fullTable` $whereEtc";
+        $fullTable   = $this->tablePrefix . $baseTable;
+        $whereClauses = $this->whereFromArgs($whereEtc, $params);
+        $sql         = "SELECT * FROM `$fullTable` $whereClauses";
 
         // Execute
         $result = $this->mysqli->query($sql);
@@ -278,23 +270,23 @@ class Connection
     /**
      * Get a single row from a table.
      *
-     * @param string           $baseTable Table name (without prefix)
-     * @param int|array|string $where     WHERE condition
-     * @param mixed            ...$params Parameters to bind
+     * @param string           $baseTable  Table name (without prefix)
+     * @param int|array|string $whereEtc   WHERE and other clauses (ORDER BY, LIMIT, etc.)
+     * @param mixed            ...$params  Parameters to bind
      * @return SmartArrayHtml Single row or empty SmartArrayHtml
-     * @throws DBException|Throwable
+     * @throws InvalidArgumentException|Throwable
      */
-    public function get(string $baseTable, int|array|string $where = [], ...$params): SmartArrayHtml
+    public function get(string $baseTable, int|array|string $whereEtc = [], ...$params): SmartArrayHtml
     {
         // Validate
         $this->assertValidTable($baseTable);
-        $this->rejectNumericWhere($where);
-        $this->rejectLimitAndOffset($where);
+        $this->warnDeprecatedNumericWhere($whereEtc);
+        $this->rejectLimitAndOffset($whereEtc);
 
         // Build SQL
-        $fullTable = $this->tablePrefix . $baseTable;
-        $whereEtc  = $this->whereFromArgs($where, $params);
-        $sql       = "SELECT * FROM `$fullTable` $whereEtc LIMIT 1";
+        $fullTable    = $this->tablePrefix . $baseTable;
+        $whereClauses = $this->whereFromArgs($whereEtc, $params);
+        $sql          = "SELECT * FROM `$fullTable` $whereClauses LIMIT 1";
 
         // Execute
         $result    = $this->mysqli->query($sql);
@@ -313,7 +305,7 @@ class Connection
      * @param string $baseTable Table name (without prefix)
      * @param array $colsToValues Column => value pairs
      * @return int Insert ID
-     * @throws DBException
+     * @throws InvalidArgumentException
      */
     public function insert(string $baseTable, array $colsToValues): int
     {
@@ -334,23 +326,28 @@ class Connection
     /**
      * Update rows in a table.
      *
-     * @param string       $baseTable    Table name (without prefix)
-     * @param array        $colsToValues Column => value pairs to update
-     * @param int|array|string $where        WHERE condition (required)
+     * @param string           $baseTable    Table name (without prefix)
+     * @param array            $colsToValues Column => value pairs to update
+     * @param int|array|string $whereEtc     WHERE condition (required), may include ORDER BY, LIMIT
      * @param mixed            ...$params    Parameters to bind
      * @return int Number of affected rows
-     * @throws DBException|Throwable
+     * @throws InvalidArgumentException|Throwable
      */
-    public function update(string $baseTable, array $colsToValues, int|array|string $where, ...$params): int
+    public function update(string $baseTable, array $colsToValues, int|array|string $whereEtc, ...$params): int
     {
         $this->assertValidTable($baseTable);
-        $this->rejectNumericWhere($where);
-        $this->rejectEmptyWhere($where, 'UPDATE');
+        $this->warnDeprecatedNumericWhere($whereEtc);
+        $this->rejectEmptyWhere($whereEtc, 'UPDATE');
 
-        $fullTable = $this->tablePrefix . $baseTable;
-        $setClause = $this->getSetClause($colsToValues);
-        $whereEtc  = $this->whereFromArgs($where, $params);
-        $sql       = "UPDATE `$fullTable` $setClause $whereEtc";
+        // Detect likely reversed arguments: SET ['num' => 5] is almost always a mistake
+        if (count($colsToValues) === 1 && in_array(array_key_first($colsToValues), ['num', 'id', 'ID'], true)) {
+            throw new InvalidArgumentException("Suspicious SET clause: only updating '" . array_key_first($colsToValues) . "'. Did you reverse the arguments? Signature is: update(\$table, \$colsToValues, \$where)");
+        }
+
+        $fullTable    = $this->tablePrefix . $baseTable;
+        $setClause    = $this->getSetClause($colsToValues);
+        $whereClauses = $this->whereFromArgs($whereEtc, $params);
+        $sql          = "UPDATE `$fullTable` $setClause $whereClauses";
         $this->mysqli->query($sql);
 
         return $this->mysqli->affected_rows;
@@ -359,21 +356,21 @@ class Connection
     /**
      * Delete rows from a table.
      *
-     * @param string       $baseTable Table name (without prefix)
-     * @param int|array|string $where     WHERE condition (required)
-     * @param mixed            ...$params Parameters to bind
+     * @param string           $baseTable  Table name (without prefix)
+     * @param int|array|string $whereEtc   WHERE condition (required), may include ORDER BY, LIMIT
+     * @param mixed            ...$params  Parameters to bind
      * @return int Number of affected rows
-     * @throws DBException
+     * @throws InvalidArgumentException
      */
-    public function delete(string $baseTable, int|array|string $where, ...$params): int
+    public function delete(string $baseTable, int|array|string $whereEtc, ...$params): int
     {
         $this->assertValidTable($baseTable);
-        $this->rejectNumericWhere($where);
-        $this->rejectEmptyWhere($where, 'DELETE');
+        $this->warnDeprecatedNumericWhere($whereEtc);
+        $this->rejectEmptyWhere($whereEtc, 'DELETE');
 
-        $fullTable = $this->tablePrefix . $baseTable;
-        $whereEtc  = $this->whereFromArgs($where, $params);
-        $sql       = "DELETE FROM `$fullTable` $whereEtc";
+        $fullTable    = $this->tablePrefix . $baseTable;
+        $whereClauses = $this->whereFromArgs($whereEtc, $params);
+        $sql          = "DELETE FROM `$fullTable` $whereClauses";
         $this->mysqli->query($sql);
 
         return $this->mysqli->affected_rows;
@@ -382,21 +379,21 @@ class Connection
     /**
      * Count rows in a table.
      *
-     * @param string       $baseTable Table name (without prefix)
-     * @param int|array|string $where     WHERE condition
-     * @param mixed            ...$params Parameters to bind
+     * @param string           $baseTable  Table name (without prefix)
+     * @param int|array|string $whereEtc   WHERE and other clauses (but not LIMIT/OFFSET)
+     * @param mixed            ...$params  Parameters to bind
      * @return int Row count
-     * @throws DBException|Throwable
+     * @throws InvalidArgumentException|Throwable
      */
-    public function count(string $baseTable, int|array|string $where = [], ...$params): int
+    public function count(string $baseTable, int|array|string $whereEtc = [], ...$params): int
     {
         $this->assertValidTable($baseTable);
-        $this->rejectNumericWhere($where);
-        $this->rejectLimitAndOffset($where);
+        $this->warnDeprecatedNumericWhere($whereEtc);
+        $this->rejectLimitAndOffset($whereEtc);
 
-        $fullTable = $this->tablePrefix . $baseTable;
-        $whereEtc  = $this->whereFromArgs($where, $params);
-        $sql       = "SELECT COUNT(*) FROM `$fullTable` $whereEtc";
+        $fullTable    = $this->tablePrefix . $baseTable;
+        $whereClauses = $this->whereFromArgs($whereEtc, $params);
+        $sql          = "SELECT COUNT(*) FROM `$fullTable` $whereClauses";
         $result    = $this->mysqli->query($sql);
         $row       = $result->fetch_row();
         $result->free();
@@ -413,7 +410,7 @@ class Connection
      * @param string $table  Table name with or without prefix
      * @param bool   $strict If true, verifies table exists in database
      * @return string Base table name without prefix
-     * @throws DBException
+     * @throws InvalidArgumentException
      */
     public function getBaseTable(string $table, bool $strict = false): string
     {
@@ -430,7 +427,7 @@ class Connection
      * @param string $table  Table name
      * @param bool   $strict If true, verifies table exists in database
      * @return string Full table name with prefix
-     * @throws DBException
+     * @throws InvalidArgumentException
      */
     public function getFullTable(string $table, bool $strict = false): string
     {
@@ -448,7 +445,7 @@ class Connection
      * @param string $table       Table name
      * @param bool   $isFullTable If true, treat as full table name (with prefix)
      * @return bool True if table exists
-     * @throws DBException|Throwable
+     * @throws InvalidArgumentException|Throwable
      */
     public function tableExists(string $table, bool $isFullTable = false): bool
     {
@@ -461,7 +458,7 @@ class Connection
      *
      * @param bool $includePrefix If true, return names with prefix
      * @return string[] Array of table names
-     * @throws DBException|Throwable
+     * @throws InvalidArgumentException|Throwable
      */
     public function getTableNames(bool $includePrefix = false): array
     {

@@ -1,40 +1,27 @@
 <?php
-/** @noinspection PhpIllegalPsrClassPathInspection */
 declare(strict_types=1);
 
 namespace Itools\ZenDB;
 
-
 /**
- * Class RawSql
+ * Marks a value as raw SQL that should be inserted as-is, without escaping or quoting.
  *
- * Represents a raw SQL value.
+ * Use this for SQL functions, expressions, or pre-escaped values:
  *
- * Usage:
- * $stringObj = new RawSql("NOW()");
- * if ($stringOrObj instanceof RawSql) { $sqlString = (string) $stringObj; }
+ *     DB::insert('users', [
+ *         'name'       => $userName,              // Escaped: "O'Brien"
+ *         'created_at' => DB::rawSql('NOW()'),    // Raw: NOW()
+ *         'sort_order' => DB::rawSql('num + 1'),  // Raw: num + 1
+ *     ]);
+ *
+ * WARNING: Never pass user input to rawSql() - it bypasses all escaping.
  */
 class RawSql
 {
-    //region Methods
-    /**
-     * @var string The raw SQL value
-     */
-    private string $rawSql;
-
-    //endregion
-    //region Magic Methods
-
-    /**
-     * DBRaw constructor.
-     */
-    public function __construct(string $value) {
-        $this->rawSql = $value;
-    }
+    public function __construct(private readonly string $value) {}
 
     public function __toString(): string
     {
-        return $this->rawSql;
+        return $this->value;
     }
-    //endregion
 }

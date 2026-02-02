@@ -26,8 +26,8 @@ class CloneTest extends BaseTestCase
     protected function tearDown(): void
     {
         // Reset default connection settings after each test
-        DB::getDefault()->useSmartJoins   = true;
-        DB::getDefault()->useSmartStrings = true;
+        DB::$db->useSmartJoins   = true;
+        DB::$db->useSmartStrings = true;
     }
 
     //region Clone Shares Connection
@@ -72,22 +72,22 @@ class CloneTest extends BaseTestCase
 
     public function testCloneHasIndependentUseSmartJoins(): void
     {
-        $this->assertTrue(DB::getDefault()->useSmartJoins);
+        $this->assertTrue(DB::$db->useSmartJoins);
 
         $clone = DB::clone(['useSmartJoins' => false]);
 
         $this->assertFalse($clone->useSmartJoins);
-        $this->assertTrue(DB::getDefault()->useSmartJoins);
+        $this->assertTrue(DB::$db->useSmartJoins);
     }
 
     public function testCloneHasIndependentUseSmartStrings(): void
     {
-        $this->assertTrue(DB::getDefault()->useSmartStrings);
+        $this->assertTrue(DB::$db->useSmartStrings);
 
         $clone = DB::clone(['useSmartStrings' => false]);
 
         $this->assertFalse($clone->useSmartStrings);
-        $this->assertTrue(DB::getDefault()->useSmartStrings);
+        $this->assertTrue(DB::$db->useSmartStrings);
     }
 
     public function testCloneHasIndependentTablePrefix(): void
@@ -95,7 +95,7 @@ class CloneTest extends BaseTestCase
         $clone = DB::clone(['tablePrefix' => 'other_']);
 
         $this->assertSame('other_', $clone->tablePrefix);
-        $this->assertSame('test_', DB::getDefault()->tablePrefix);
+        $this->assertSame('test_', DB::$db->tablePrefix);
     }
 
     public function testChangingCloneSettingsDoesNotAffectParent(): void
@@ -106,16 +106,16 @@ class CloneTest extends BaseTestCase
         $clone->useSmartStrings = false;
         $clone->tablePrefix     = 'changed_';
 
-        $this->assertTrue(DB::getDefault()->useSmartJoins);
-        $this->assertTrue(DB::getDefault()->useSmartStrings);
-        $this->assertSame('test_', DB::getDefault()->tablePrefix);
+        $this->assertTrue(DB::$db->useSmartJoins);
+        $this->assertTrue(DB::$db->useSmartStrings);
+        $this->assertSame('test_', DB::$db->tablePrefix);
     }
 
     public function testChangingParentSettingsDoesNotAffectClone(): void
     {
         $clone = DB::clone();
 
-        DB::getDefault()->useSmartJoins = false;
+        DB::$db->useSmartJoins = false;
 
         $this->assertTrue($clone->useSmartJoins);
     }

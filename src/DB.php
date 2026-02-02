@@ -39,33 +39,6 @@ class DB
     //region Connection
 
     /**
-     * Set the default Connection instance.
-     * Called automatically by new Connection($config, default: true).
-     *
-     * @internal
-     */
-    public static function setDefault(Connection $conn): void
-    {
-        self::$db           = $conn;
-        self::$mysqli       = $conn->mysqli;
-        self::$tablePrefix  = $conn->tablePrefix;
-        self::$lastInstance = $conn;
-    }
-
-    /**
-     * Get the default Connection instance.
-     *
-     * @throws RuntimeException If no default connection is set
-     */
-    public static function getDefault(): Connection
-    {
-        if (self::$db === null) {
-            throw new RuntimeException("No default database connection. Create one with: new Connection(\$config, default: true)");
-        }
-        return self::$db;
-    }
-
-    /**
      * Check if connected to the database.
      *
      * @param bool $doPing Whether to ping the server to verify connection
@@ -98,7 +71,7 @@ class DB
      */
     public static function clone(array $config = []): Connection
     {
-        return self::getDefault()->clone($config);
+        return self::$db->clone($config);
     }
 
     //endregion
@@ -110,13 +83,13 @@ class DB
      * @param string $sqlTemplate SQL statement with placeholders
      * @param mixed  ...$params   Parameters to bind
      * @return SmartArrayHtml Result set
-     * @throws DBException
+     * @throws InvalidArgumentException
      * @throws Throwable
      */
     public static function query(string $sqlTemplate, ...$params): SmartArrayHtml
     {
         try {
-            return self::getDefault()->query($sqlTemplate, ...$params);
+            return self::$db->query($sqlTemplate, ...$params);
         } catch (Throwable $e) {
             self::$lastException = $e;
             throw $e;
@@ -126,29 +99,29 @@ class DB
     /**
      * Select rows from a table.
      *
-     * @param string           $baseTable Table name (without prefix)
-     * @param int|array|string $where     WHERE condition
-     * @param mixed            ...$params Parameters to bind
+     * @param string           $baseTable  Table name (without prefix)
+     * @param int|array|string $whereEtc   WHERE and other clauses (ORDER BY, LIMIT, etc.)
+     * @param mixed            ...$params  Parameters to bind
      * @return SmartArrayHtml Result set
-     * @throws DBException
+     * @throws InvalidArgumentException
      */
-    public static function select(string $baseTable, int|array|string $where = [], ...$params): SmartArrayHtml
+    public static function select(string $baseTable, int|array|string $whereEtc = [], ...$params): SmartArrayHtml
     {
-        return self::getDefault()->select($baseTable, $where, ...$params);
+        return self::$db->select($baseTable, $whereEtc, ...$params);
     }
 
     /**
      * Get a single row from a table.
      *
-     * @param string           $baseTable Table name (without prefix)
-     * @param int|array|string $where     WHERE condition
-     * @param mixed            ...$params Parameters to bind
+     * @param string           $baseTable  Table name (without prefix)
+     * @param int|array|string $whereEtc   WHERE and other clauses (ORDER BY, LIMIT, etc.)
+     * @param mixed            ...$params  Parameters to bind
      * @return SmartArrayHtml Single row or empty SmartArrayHtml
-     * @throws DBException
+     * @throws InvalidArgumentException
      */
-    public static function get(string $baseTable, int|array|string $where = [], ...$params): SmartArrayHtml
+    public static function get(string $baseTable, int|array|string $whereEtc = [], ...$params): SmartArrayHtml
     {
-        return self::getDefault()->get($baseTable, $where, ...$params);
+        return self::$db->get($baseTable, $whereEtc, ...$params);
     }
 
     /**
@@ -157,11 +130,11 @@ class DB
      * @param string $baseTable    Table name (without prefix)
      * @param array  $colsToValues Column => value pairs
      * @return int Insert ID
-     * @throws DBException
+     * @throws InvalidArgumentException
      */
     public static function insert(string $baseTable, array $colsToValues): int
     {
-        return self::getDefault()->insert($baseTable, $colsToValues);
+        return self::$db->insert($baseTable, $colsToValues);
     }
 
     /**
@@ -169,42 +142,42 @@ class DB
      *
      * @param string           $baseTable    Table name (without prefix)
      * @param array            $colsToValues Column => value pairs to update
-     * @param int|array|string $where        WHERE condition (required)
+     * @param int|array|string $whereEtc     WHERE condition (required), may include ORDER BY, LIMIT
      * @param mixed            ...$params    Parameters to bind
      * @return int Number of affected rows
-     * @throws DBException
+     * @throws InvalidArgumentException
      */
-    public static function update(string $baseTable, array $colsToValues, int|array|string $where, ...$params): int
+    public static function update(string $baseTable, array $colsToValues, int|array|string $whereEtc, ...$params): int
     {
-        return self::getDefault()->update($baseTable, $colsToValues, $where, ...$params);
+        return self::$db->update($baseTable, $colsToValues, $whereEtc, ...$params);
     }
 
     /**
      * Delete rows from a table.
      *
-     * @param string           $baseTable Table name (without prefix)
-     * @param int|array|string $where     WHERE condition (required)
-     * @param mixed            ...$params Parameters to bind
+     * @param string           $baseTable  Table name (without prefix)
+     * @param int|array|string $whereEtc   WHERE condition (required), may include ORDER BY, LIMIT
+     * @param mixed            ...$params  Parameters to bind
      * @return int Number of affected rows
-     * @throws DBException
+     * @throws InvalidArgumentException
      */
-    public static function delete(string $baseTable, int|array|string $where, ...$params): int
+    public static function delete(string $baseTable, int|array|string $whereEtc, ...$params): int
     {
-        return self::getDefault()->delete($baseTable, $where, ...$params);
+        return self::$db->delete($baseTable, $whereEtc, ...$params);
     }
 
     /**
      * Count rows in a table.
      *
-     * @param string           $baseTable Table name (without prefix)
-     * @param int|array|string $where     WHERE condition
-     * @param mixed            ...$params Parameters to bind
+     * @param string           $baseTable  Table name (without prefix)
+     * @param int|array|string $whereEtc   WHERE and other clauses (but not LIMIT/OFFSET)
+     * @param mixed            ...$params  Parameters to bind
      * @return int Row count
-     * @throws DBException
+     * @throws InvalidArgumentException
      */
-    public static function count(string $baseTable, int|array|string $where = [], ...$params): int
+    public static function count(string $baseTable, int|array|string $whereEtc = [], ...$params): int
     {
-        return self::getDefault()->count($baseTable, $where, ...$params);
+        return self::$db->count($baseTable, $whereEtc, ...$params);
     }
 
     //endregion
@@ -215,7 +188,7 @@ class DB
      */
     public static function getBaseTable(string $table, bool $strict = false): string
     {
-        return self::getDefault()->getBaseTable($table, $strict);
+        return self::$db->getBaseTable($table, $strict);
     }
 
     /**
@@ -223,7 +196,7 @@ class DB
      */
     public static function getFullTable(string $table, bool $strict = false): string
     {
-        return self::getDefault()->getFullTable($table, $strict);
+        return self::$db->getFullTable($table, $strict);
     }
 
     /**
@@ -231,7 +204,7 @@ class DB
      */
     public static function tableExists(string $table, bool $isFullTable = false): bool
     {
-        return self::getDefault()->tableExists($table, $isFullTable);
+        return self::$db->tableExists($table, $isFullTable);
     }
 
     /**
@@ -239,7 +212,7 @@ class DB
      */
     public static function getTableNames(bool $includePrefix = false): array
     {
-        return self::getDefault()->getTableNames($includePrefix);
+        return self::$db->getTableNames($includePrefix);
     }
 
     /**
@@ -247,7 +220,7 @@ class DB
      */
     public static function getColumnDefinitions(string $baseTable): array
     {
-        return self::getDefault()->getColumnDefinitions($baseTable);
+        return self::$db->getColumnDefinitions($baseTable);
     }
 
     //endregion
@@ -258,7 +231,7 @@ class DB
      */
     public static function escape(string|int|float|null|SmartString $input, bool $escapeLikeWildcards = false): string
     {
-        return self::getDefault()->escape($input, $escapeLikeWildcards);
+        return self::$db->escape($input, $escapeLikeWildcards);
     }
 
     /**
@@ -267,11 +240,11 @@ class DB
      * @param string $format    Format string with ? placeholders
      * @param mixed  ...$values Values to escape and insert
      * @return string SQL-safe string
-     * @throws DBException
+     * @throws InvalidArgumentException
      */
     public static function escapef(string $format, mixed ...$values): string
     {
-        self::$mysqli || throw new DBException(__METHOD__ . "() called before DB connection established");
+        self::$mysqli || throw new RuntimeException(__METHOD__ . "() called before DB connection established");
 
         return preg_replace_callback('/\?/', function () use (&$values) {
             $value = array_shift($values);
@@ -294,11 +267,11 @@ class DB
      *
      * @param array $array Array of values to convert
      * @return RawSql SQL-safe comma-separated list
-     * @throws DBException
+     * @throws InvalidArgumentException
      */
     public static function escapeCSV(array $array): RawSql
     {
-        self::$mysqli || throw new DBException(__METHOD__ . "() called before DB connection established");
+        self::$mysqli || throw new RuntimeException(__METHOD__ . "() called before DB connection established");
 
         $safeValues = [];
         foreach (array_unique($array) as $value) {
@@ -321,7 +294,7 @@ class DB
      */
     public static function likeContains(string|int|float|null|SmartString $input): RawSql
     {
-        return self::getDefault()->likeContains($input);
+        return self::$db->likeContains($input);
     }
 
     /**
@@ -329,7 +302,7 @@ class DB
      */
     public static function likeContainsTSV(string|int|float|null|SmartString $input): RawSql
     {
-        return self::getDefault()->likeContainsTSV($input);
+        return self::$db->likeContainsTSV($input);
     }
 
     /**
@@ -337,7 +310,7 @@ class DB
      */
     public static function likeStartsWith(string|int|float|null|SmartString $input): RawSql
     {
-        return self::getDefault()->likeStartsWith($input);
+        return self::$db->likeStartsWith($input);
     }
 
     /**
@@ -345,26 +318,7 @@ class DB
      */
     public static function likeEndsWith(string|int|float|null|SmartString $input): RawSql
     {
-        return self::getDefault()->likeEndsWith($input);
-    }
-
-    //endregion
-    //region Static Utility Methods
-
-    /**
-     * Mark a value as raw SQL (not to be escaped/quoted).
-     */
-    public static function rawSql(string|int|float|null $value): RawSql
-    {
-        return new RawSql((string)$value);
-    }
-
-    /**
-     * Check if a value is a RawSql instance.
-     */
-    public static function isRawSql(mixed $value): bool
-    {
-        return $value instanceof RawSql;
+        return self::$db->likeEndsWith($input);
     }
 
     /**
@@ -384,15 +338,34 @@ class DB
     }
 
     //endregion
+    //region RawSql Helpers
+
+    /**
+     * Mark a value as raw SQL (not to be escaped/quoted).
+     */
+    public static function rawSql(string|int|float|null $value): RawSql
+    {
+        return new RawSql((string)$value);
+    }
+
+    /**
+     * Check if a value is a RawSql instance.
+     */
+    public static function isRawSql(mixed $value): bool
+    {
+        return $value instanceof RawSql;
+    }
+
+    //endregion
     //region Utility Methods
 
     /**
-     * Show debug information about the last query.
+     * Show debug information about the default connection.
      */
     public static function debug(): void
     {
         /** @noinspection ForgottenDebugOutputInspection */
-        print_r(self::$lastInstance);
+        print_r(self::$db);
     }
 
     /**
@@ -430,6 +403,23 @@ class DB
         return $output;
     }
 
+    /**
+     * Log a deprecation warning with caller location.
+     *
+     * @param string $message Deprecation message (caller file:line will be appended)
+     */
+    public static function logDeprecation(string $message): void
+    {
+        // Find first caller outside ZenDB src directory
+        foreach (debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS) as $caller) {
+            if (!empty($caller['file']) && dirname($caller['file']) !== __DIR__) {
+                $message .= " in {$caller['file']}:{$caller['line']}";
+                break;
+            }
+        }
+        @trigger_error($message, E_USER_DEPRECATED);
+    }
+
     //endregion
     //region Legacy Support
 
@@ -438,14 +428,17 @@ class DB
      */
     public static function __callStatic(string $name, array $args)
     {
-        return match ($name) {
-            'like', 'escapeLikeWildcards' => addcslashes((string)($args[0] ?? ''), '%_'),
-            'identifier'                  => self::rawSql("`" . self::$mysqli->real_escape_string(...$args) . "`"),
-            'getTablePrefix'              => self::$tablePrefix,
-            'raw'                         => self::rawSql(...$args),
-            'datetime'                    => date('Y-m-d H:i:s', ($args[0] ?? time())),
+        [$replacement, $result] = match (strtolower($name)) {
+            'like', 'escapelikewildcards' => ["DB::escape(\$value, true)",       addcslashes((string)($args[0] ?? ''), '%_')],
+            'identifier'                  => ["backtick placeholders: `?` or `:name`", self::rawSql("`" . self::$mysqli->real_escape_string(...$args) . "`")],
+            'gettableprefix'              => ["DB::\$tablePrefix",               self::$tablePrefix],
+            'raw'                         => ["DB::rawSql()",                    self::rawSql(...$args)],
+            'datetime'                    => ["date('Y-m-d H:i:s', \$time)",     date('Y-m-d H:i:s', ($args[0] ?? time()))],
             default                       => throw new InvalidArgumentException("Unknown static method: $name"),
         };
+        self::logDeprecation("DB::$name() is deprecated, use $replacement instead");
+
+        return $result;
     }
 
     //endregion
@@ -454,12 +447,7 @@ class DB
     /**
      * The default Connection instance
      */
-    private static ?Connection $db = null;
-
-    /**
-     * Last instance created (for testing/debugging)
-     */
-    public static ?Connection $lastInstance = null;
+    public static ?Connection $db = null;
 
     /**
      * Last exception thrown (for testing/debugging)

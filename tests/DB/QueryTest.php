@@ -7,9 +7,9 @@ namespace Itools\ZenDB\Tests\DB;
 
 use Itools\ZenDB\DB;
 use Itools\ZenDB\Connection;
-use Itools\ZenDB\DBException;
 use Itools\ZenDB\Tests\BaseTestCase;
 use InvalidArgumentException;
+use mysqli_sql_exception;
 
 /**
  * Tests for DB::query() static method
@@ -43,7 +43,7 @@ class QueryTest extends BaseTestCase
 
     public function testQueryInvalidSqlThrows(): void
     {
-        $this->expectException(DBException::class);
+        $this->expectException(mysqli_sql_exception::class);
         DB::query("INVALID SQL STATEMENT");
     }
 

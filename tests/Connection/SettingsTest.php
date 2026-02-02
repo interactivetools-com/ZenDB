@@ -10,7 +10,7 @@ use Itools\ZenDB\Connection;
 use Itools\ZenDB\Tests\BaseTestCase;
 
 /**
- * Tests for Connection settings: useSmartJoins, showSqlInErrors, etc.
+ * Tests for Connection settings: useSmartJoins, useSmartStrings, etc.
  */
 class SettingsTest extends BaseTestCase
 {
@@ -27,7 +27,6 @@ class SettingsTest extends BaseTestCase
         // Reset settings after each test
         self::$conn->useSmartJoins   = true;
         self::$conn->useSmartStrings = true;
-        self::$conn->showSqlInErrors = false;
     }
 
     //region useSmartJoins Setting
@@ -55,20 +54,6 @@ class SettingsTest extends BaseTestCase
     {
         self::$conn->useSmartStrings = false;
         $this->assertFalse(self::$conn->useSmartStrings);
-    }
-
-    //endregion
-    //region showSqlInErrors Setting
-
-    public function testShowSqlInErrorsDefaultValue(): void
-    {
-        $this->assertFalse(self::$conn->showSqlInErrors);
-    }
-
-    public function testShowSqlInErrorsCanBeEnabled(): void
-    {
-        self::$conn->showSqlInErrors = true;
-        $this->assertTrue(self::$conn->showSqlInErrors);
     }
 
     //endregion
