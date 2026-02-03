@@ -11,7 +11,6 @@ declare(strict_types=1);
 namespace Itools\ZenDB\Tests\DB;
 
 use Itools\ZenDB\DB;
-use Itools\ZenDB\Connection;
 use Itools\ZenDB\Tests\BaseTestCase;
 use Throwable;
 
@@ -22,7 +21,8 @@ class SelectTest extends BaseTestCase
 {
     public static function setUpBeforeClass(): void
     {
-        new Connection(self::$configDefaults, default: true);
+        DB::disconnect();
+        DB::connect(self::$configDefaults);
         self::resetTempTestTables();
     }
 

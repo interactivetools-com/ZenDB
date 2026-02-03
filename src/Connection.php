@@ -3,21 +3,23 @@ declare(strict_types=1);
 
 namespace Itools\ZenDB;
 
+use InvalidArgumentException;
+use Itools\SmartArray\SmartArrayBase;
 use Itools\SmartArray\SmartArrayHtml;
 use Itools\SmartString\SmartString;
+use RuntimeException;
+use Throwable;
 use mysqli;
-use mysqli_result;
 use mysqli_sql_exception;
-use Throwable, InvalidArgumentException, RuntimeException;
 
 /**
  * Connection class for ZenDB - manages a single database connection with its own settings.
  *
  * Usage:
- *     // Create default connection
- *     new Connection(['hostname' => 'localhost', 'database' => 'mydb'], default: true);
+ *     // Create default connection (use DB::connect)
+ *     DB::connect(['hostname' => 'localhost', 'database' => 'my_db', ...]);
  *
- *     // Create additional connection
+ *     // Create standalone connection
  *     $remote = new Connection(['hostname' => 'remote.example.com', 'database' => 'legacy']);
  *
  *     // Clone with different settings
@@ -32,13 +34,12 @@ class Connection
     /**
      * Create a new database connection.
      *
-     *     new Connection($config)                  // Create connection
-     *     new Connection($config, default: true)   // Create and set as default
+     *     DB::connect($config)      // Create and set as default connection
+     *     new Connection($config)   // Create standalone connection
      *
      * @param array $config Configuration options to set as properties
-     * @param bool $default If true, set this connection as the default (DB::setDefault)
      */
-    public function __construct(array $config = [], bool $default = false)
+    public function __construct(array $config = [])
     {
         // Apply configuration
         foreach ($config as $key => $value) {
@@ -52,13 +53,6 @@ class Connection
         if ($this->hostname !== null) {
             $this->connect();
         }
-
-        // Set as default if requested
-        if ($default) {
-            DB::$db          = $this;
-            DB::$mysqli      = $this->mysqli;
-            DB::$tablePrefix = $this->tablePrefix;
-        }
     }
 
     /**
@@ -68,9 +62,9 @@ class Connection
      */
     public function connect(): void
     {
-        // Skip if already connected
-        if ($this->isConnected(true)) {
-            return;
+        // Throw if already connected
+        if ($this->isConnected()) {
+            throw new RuntimeException("Already connected. To reconnect, call disconnect() first.");
         }
 
         // Validate required connection credentials
@@ -149,17 +143,6 @@ class Connection
     }
 
     /**
-     * Disconnect from the database.
-     */
-    public function disconnect(): void
-    {
-        if ($this->mysqli instanceof mysqli) {
-            $this->mysqli->close();
-            $this->mysqli = null;
-        }
-    }
-
-    /**
      * Check if database connection was made and optionally check if it's still active.
      *
      * @param bool $doPing Whether to ping the server to check for active connection
@@ -175,16 +158,13 @@ class Connection
     }
 
     /**
-     * Ensure connection is alive, reconnect if needed.
-     * Useful for long-running processes where MySQL may drop idle connections.
-     *
-     * @throws RuntimeException If reconnection fails
+     * Disconnect from the database.
      */
-    public function ensureConnected(): void
+    public function disconnect(): void
     {
-        if (!$this->isConnected(true)) {
-            $this->disconnect();
-            $this->connect();
+        if ($this->mysqli instanceof mysqli) {
+            $this->mysqli->close();
+            $this->mysqli = null;
         }
     }
 
@@ -219,7 +199,7 @@ class Connection
      * @param string $sqlTemplate
      * @param mixed  ...$params Parameters to bind
      * @return SmartArrayHtml Result set
-     * @throws InvalidArgumentException|Throwable
+     * @throws InvalidArgumentException
      */
     public function query(string $sqlTemplate, ...$params): SmartArrayHtml
     {
@@ -247,7 +227,6 @@ class Connection
      * @param mixed            ...$params  Parameters to bind
      * @return SmartArrayHtml Result set
      * @throws InvalidArgumentException
-     * @throws Throwable
      */
     public function select(string $baseTable, int|array|string $whereEtc = [], ...$params): SmartArrayHtml
     {
@@ -274,7 +253,7 @@ class Connection
      * @param int|array|string $whereEtc   WHERE and other clauses (ORDER BY, LIMIT, etc.)
      * @param mixed            ...$params  Parameters to bind
      * @return SmartArrayHtml Single row or empty SmartArrayHtml
-     * @throws InvalidArgumentException|Throwable
+     * @throws InvalidArgumentException
      */
     public function get(string $baseTable, int|array|string $whereEtc = [], ...$params): SmartArrayHtml
     {
@@ -331,7 +310,7 @@ class Connection
      * @param int|array|string $whereEtc     WHERE condition (required), may include ORDER BY, LIMIT
      * @param mixed            ...$params    Parameters to bind
      * @return int Number of affected rows
-     * @throws InvalidArgumentException|Throwable
+     * @throws InvalidArgumentException
      */
     public function update(string $baseTable, array $colsToValues, int|array|string $whereEtc, ...$params): int
     {
@@ -383,7 +362,7 @@ class Connection
      * @param int|array|string $whereEtc   WHERE and other clauses (but not LIMIT/OFFSET)
      * @param mixed            ...$params  Parameters to bind
      * @return int Row count
-     * @throws InvalidArgumentException|Throwable
+     * @throws InvalidArgumentException
      */
     public function count(string $baseTable, int|array|string $whereEtc = [], ...$params): int
     {
@@ -445,7 +424,7 @@ class Connection
      * @param string $table       Table name
      * @param bool   $isFullTable If true, treat as full table name (with prefix)
      * @return bool True if table exists
-     * @throws InvalidArgumentException|Throwable
+     * @throws InvalidArgumentException
      */
     public function tableExists(string $table, bool $isFullTable = false): bool
     {
@@ -458,7 +437,7 @@ class Connection
      *
      * @param bool $includePrefix If true, return names with prefix
      * @return string[] Array of table names
-     * @throws InvalidArgumentException|Throwable
+     * @throws InvalidArgumentException
      */
     public function getTableNames(bool $includePrefix = false): array
     {
@@ -491,7 +470,7 @@ class Connection
         try {
             $createTableSQL = $this->query('SHOW CREATE TABLE `::?`', $baseTable)->first()->nth(1)->value();
             $lines          = explode("\n", $createTableSQL);
-        } catch (Throwable) {
+        } catch (mysqli_sql_exception) {
             $lines = [];
         }
 
@@ -504,7 +483,7 @@ class Connection
         // Get column definitions
         $intTypesRx = 'tinyint|smallint|mediumint|int|bigint';
         foreach ($lines as $line) {
-            if (preg_match('/^  `([^`]+)` (.*?),?$/', $line, $matches)) {
+            if (preg_match('/^ {2}`([^`]+)` (.*?),?$/', $line, $matches)) {
                 [, $columnName, $definition] = $matches;
                 $definition                     = str_replace($defaults, '', $definition);
                 $definition                     = preg_replace("/\b($intTypesRx)\(\d+\)/i", '$1', $definition);
@@ -527,11 +506,75 @@ class Connection
      */
     public function escape(string|int|float|null|SmartString $input, bool $escapeLikeWildcards = false): string
     {
-        $input   = $input instanceof SmartString ? $input->value() : $input;
-        $string  = (string)$input;
-        $escaped = $this->mysqli->real_escape_string($string);
-        $escaped = $escapeLikeWildcards ? addcslashes($escaped, '%_') : $escaped;
+        // Unwrap SmartString
+        if ($input instanceof SmartString) {
+            $input = $input->value();
+        }
+
+        // Escape using mysqli
+        $escaped = $this->mysqli->real_escape_string((string)$input);
+
+        // Escape LIKE wildcards if needed
+        if ($escapeLikeWildcards) {
+            $escaped = addcslashes($escaped, '%_');
+        }
+
         return $escaped;
+    }
+
+    /**
+     * Escapes and quotes values, inserting them into a format string with ? placeholders.
+     *
+     * @param string $format    Format string with ? placeholders
+     * @param mixed  ...$values Values to escape and insert
+     * @return string SQL-safe string
+     * @throws InvalidArgumentException
+     */
+    public function escapef(string $format, mixed ...$values): string
+    {
+        $this->mysqli || throw new RuntimeException(__METHOD__ . "() called before DB connection established");
+
+        return preg_replace_callback('/\?/', function () use (&$values) {
+            $value = array_shift($values);
+
+            return match (true) {
+                is_string($value)                => "'" . $this->mysqli->real_escape_string($value) . "'",
+                is_int($value), is_float($value) => $value,
+                is_null($value)                  => 'NULL',
+                is_array($value)                 => (string) $this->escapeCSV($value),
+                $value instanceof SmartArrayBase => (string) $this->escapeCSV($value->toArray()),
+                $value instanceof SmartString    => "'" . $this->mysqli->real_escape_string((string) $value->value()) . "'",
+                is_bool($value)                  => $value ? 'TRUE' : 'FALSE',
+                default                          => throw new InvalidArgumentException("Unsupported type: " . get_debug_type($value)),
+            };
+        }, $format);
+    }
+
+    /**
+     * Converts array values to a safe CSV string for use in MySQL IN clauses.
+     *
+     * @param array $array Array of values to convert
+     * @return RawSql SQL-safe comma-separated list
+     * @throws InvalidArgumentException
+     */
+    public function escapeCSV(array $array): RawSql
+    {
+        $this->mysqli || throw new RuntimeException(__METHOD__ . "() called before DB connection established");
+
+        $safeValues = [];
+        foreach (array_unique($array) as $value) {
+            $value        = $value instanceof SmartString ? (string) $value->value() : $value;
+            $safeValues[] = match (true) {
+                is_int($value) || is_float($value) => $value,
+                is_null($value)                    => 'NULL',
+                is_bool($value)                    => $value ? 'TRUE' : 'FALSE',
+                is_string($value)                  => "'" . $this->mysqli->real_escape_string($value) . "'",
+                default                            => throw new InvalidArgumentException("Unsupported value type: " . get_debug_type($value)),
+            };
+        }
+
+        $sqlSafeCSV = $safeValues ? implode(',', $safeValues) : 'NULL';
+        return new RawSql($sqlSafeCSV);
     }
 
     /**

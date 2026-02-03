@@ -1,3 +1,4 @@
+.claude/
 .idea/
 .phpunit.result.cache
 _*.php

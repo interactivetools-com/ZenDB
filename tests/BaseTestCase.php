@@ -32,12 +32,14 @@ abstract class BaseTestCase extends TestCase
     /**
      * Helper method to create a new default connection with test config.
      * Disconnects any existing connection first.
+     * Returns a clone for tests that need an instance to work with.
      */
     protected static function createDefaultConnection(array $configOverrides = []): Connection
     {
         DB::disconnect();
         $config = array_merge(self::$configDefaults, $configOverrides);
-        return new Connection($config, default: true);
+        DB::connect($config);
+        return DB::clone();
     }
 
     public static function resetTempTestTables(): void {

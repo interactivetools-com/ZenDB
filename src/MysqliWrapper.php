@@ -5,8 +5,8 @@ namespace Itools\ZenDB;
 
 use mysqli;
 use mysqli_result;
+use mysqli_sql_exception;
 use mysqli_stmt;
-use RuntimeException;
 use Throwable;
 
 /**
@@ -31,7 +31,7 @@ class MysqliWrapper extends mysqli
     /**
      * Keeps last statement alive to preserve affected_rows/insert_id (polyfill only)
      */
-    private ?\mysqli_stmt $lastStmt = null;
+    private ?mysqli_stmt $stmtKeepAlive = null;
 
     /**
      * Query logger callback: fn(string $query, float $durationSecs, ?Throwable $error): void
@@ -80,14 +80,12 @@ class MysqliWrapper extends mysqli
         // execute query
         try {
             $result = parent::query($query, $result_mode);
-        } catch (Throwable $e) {
+        } catch (mysqli_sql_exception $e) {
             self::log($query, $startTime, $e);
             throw $e;
         }
 
-        // log query (pass mysqli error as exception if query failed without throwing)
-        $error = ($result === false && $this->errno) ? new RuntimeException($this->error, $this->errno) : null;
-        self::log($query, $startTime, $error);
+        self::log($query, $startTime);
 
         return $result;
     }
@@ -123,7 +121,7 @@ class MysqliWrapper extends mysqli
 
         try {
             $result = new MysqliStmtWrapper($this, $query, $startTime);
-        } catch (Throwable $e) {
+        } catch (mysqli_sql_exception $e) {
             self::log($query, $startTime, $e);
             throw $e;
         }
@@ -155,7 +153,7 @@ class MysqliWrapper extends mysqli
 
         // Polyfill for PHP 8.1 - always use prepare/execute for consistent type handling
         // Destroy previous statement first (its destructor resets affected_rows)
-        $this->lastStmt = null;
+        $this->stmtKeepAlive = null;
 
         $stmt = $this->prepare($query);
         if ($stmt === false) {
@@ -164,9 +162,18 @@ class MysqliWrapper extends mysqli
         $stmt->execute($params ?? []);
 
         // Keep stmt alive so affected_rows/insert_id remain accessible after return
-        $this->lastStmt = $stmt;
+        $this->stmtKeepAlive = $stmt;
 
         return $stmt->get_result() ?: true;
+    }
+
+    /**
+     * Close the connection and clean up resources.
+     */
+    public function close(): bool
+    {
+        $this->stmtKeepAlive = null;
+        return parent::close();
     }
 
     //endregion

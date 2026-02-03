@@ -1,10 +1,12 @@
 <?php
-
 declare(strict_types=1);
 
 namespace Itools\ZenDB;
 
-use Exception, mysqli_stmt, mysqli_result;
+use BadMethodCallException;
+use InvalidArgumentException;
+use mysqli_result;
+use mysqli_stmt;
 
 /**
  * Class MysqliResultPolyfill
@@ -28,6 +30,7 @@ class MysqliResultPolyfill extends mysqli_result
      * Returns object that emulates mysqli_result.
      *
      * @param mysqli_stmt $stmt The mysqli statement from which results are to be fetched.
+     * @noinspection PhpMissingParentConstructorInspection - Intentionally not calling parent; this polyfill emulates mysqli_result without a real connection
      */
     public function __construct(mysqli_stmt $stmt)
     {
@@ -67,10 +70,7 @@ class MysqliResultPolyfill extends mysqli_result
         }
 
         // Dynamically bind the columns to the $row array elements
-        $bindResult = $this->stmt->bind_result(...$params);
-        if (!$bindResult) {
-            throw new Exception("Failed to bind result");
-        }
+        $this->stmt->bind_result(...$params);
 
         if ($this->stmt->fetch()) {
             $result       = [];
@@ -149,26 +149,28 @@ class MysqliResultPolyfill extends mysqli_result
      */
     public function free(): void
     {
-        $this->meta->free();  // Free the metadata
+        $this->meta->free();
     }
 
     /**
      * Emulate properties
+     * @throws InvalidArgumentException
      */
     public function __get(string $name)
     {
         return match ($name) {
             'field_count' => $this->stmt->field_count,
             'num_rows'    => $this->stmt->num_rows,
-            default       => throw new Exception("Property $name is not accessible or does not exist."),
+            default       => throw new InvalidArgumentException("Property $name is not accessible or does not exist."),
         };
     }
 
     /**
      * Throw exception for unimplemented methods
+     * @throws BadMethodCallException
      */
     public function __call($name, $arguments)
     {
-        throw new Exception("Mysqlnd isn't installed and $name() is not implemented in polyfill.");
+        throw new BadMethodCallException("Mysqlnd isn't installed and $name() is not implemented in polyfill.");
     }
 }

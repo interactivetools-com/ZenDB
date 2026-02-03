@@ -32,13 +32,13 @@ class LifecycleTest extends BaseTestCase
         $this->assertFalse(DB::isConnected());
     }
 
-    public function testNewConnectionSetsDefault(): void
+    public function testDBConnectSetsDefault(): void
     {
-        new Connection(self::$configDefaults, default: true);
+        DB::connect(self::$configDefaults);
         $this->assertTrue(DB::isConnected());
     }
 
-    public function testNewConnectionWithoutDefaultDoesNotSetDefault(): void
+    public function testNewConnectionDoesNotSetDefault(): void
     {
         $conn = new Connection(self::$configDefaults);
         $this->assertTrue($conn->isConnected());
@@ -47,14 +47,14 @@ class LifecycleTest extends BaseTestCase
 
     public function testConnectionBackwardsCompatMysqli(): void
     {
-        new Connection(self::$configDefaults, default: true);
+        DB::connect(self::$configDefaults);
         $this->assertNotNull(DB::$mysqli);
         $this->assertInstanceOf(\mysqli::class, DB::$mysqli);
     }
 
     public function testConnectionBackwardsCompatTablePrefix(): void
     {
-        new Connection(self::$configDefaults, default: true);
+        DB::connect(self::$configDefaults);
         $this->assertSame('test_', DB::$tablePrefix);
     }
 
@@ -62,21 +62,21 @@ class LifecycleTest extends BaseTestCase
     {
         $this->expectException(RuntimeException::class);
         $config = array_merge(self::$configDefaults, ['hostname' => 'invalid_value']);
-        new Connection($config, default: true);
+        DB::connect($config);
     }
 
     public function testConnectWithInvalidUsername(): void
     {
         $this->expectException(RuntimeException::class);
         $config = array_merge(self::$configDefaults, ['username' => 'invalid_value']);
-        new Connection($config, default: true);
+        DB::connect($config);
     }
 
     public function testConnectWithInvalidPassword(): void
     {
         $this->expectException(RuntimeException::class);
         $config = array_merge(self::$configDefaults, ['password' => 'invalid_value']);
-        new Connection($config, default: true);
+        DB::connect($config);
     }
 
     public function testConnectWithMissingCredentials(): void
@@ -92,7 +92,7 @@ class LifecycleTest extends BaseTestCase
     {
         $database = "testplan_test_auto_create_database";
         $config   = array_merge(self::$configDefaults, ['database' => $database]);
-        new Connection($config, default: true);
+        DB::connect($config);
 
         $selectedDatabase = DB::$mysqli->query("SELECT DATABASE() as db")->fetch_assoc()['db'];
         $this->assertSame($database, $selectedDatabase);
@@ -104,7 +104,7 @@ class LifecycleTest extends BaseTestCase
     {
         $this->expectException(RuntimeException::class);
         $config = array_merge(self::$configDefaults, ['versionRequired' => '100.100.100']);
-        new Connection($config, default: true);
+        DB::connect($config);
     }
 
     public function testUnknownConfigKeyThrowsException(): void
@@ -112,12 +112,12 @@ class LifecycleTest extends BaseTestCase
         $this->expectException(InvalidArgumentException::class);
         $this->expectExceptionMessage("Unknown configuration key: 'invalidKey'");
         $config = array_merge(self::$configDefaults, ['invalidKey' => 'value']);
-        new Connection($config, default: true);
+        DB::connect($config);
     }
 
     public function testDisconnect(): void
     {
-        new Connection(self::$configDefaults, default: true);
+        DB::connect(self::$configDefaults);
         $this->assertTrue(DB::isConnected());
 
         DB::disconnect();
@@ -126,7 +126,7 @@ class LifecycleTest extends BaseTestCase
 
     public function testIndependentConnectionHasOwnMysqli(): void
     {
-        new Connection(self::$configDefaults, default: true);
+        DB::connect(self::$configDefaults);
         $defaultMysqli = DB::$mysqli;
 
         $independent = new Connection(self::$configDefaults);
@@ -136,7 +136,7 @@ class LifecycleTest extends BaseTestCase
 
     public function testIndependentConnectionDestructorClosesConnection(): void
     {
-        new Connection(self::$configDefaults, default: true);
+        DB::connect(self::$configDefaults);
 
         $independent = new Connection(self::$configDefaults);
         unset($independent);

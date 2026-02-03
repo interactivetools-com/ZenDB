@@ -1,20 +1,19 @@
 <?php
-
 declare(strict_types=1);
 
 namespace Itools\ZenDB;
 
-use Itools\SmartArray\SmartArrayBase;
+use Exception;
+use InvalidArgumentException;
 use Itools\SmartArray\SmartArrayHtml;
 use Itools\SmartString\SmartString;
-use InvalidArgumentException, RuntimeException;
-use Throwable;
+use RuntimeException;
 
 /**
  * DB is a static facade for ZenDB that provides convenient static methods for database access.
  *
- * For the common case (single CMS connection), use the static methods:
- *     new Connection(['hostname' => 'localhost', ...], default: true);
+ * For the common case (single connection), use the static methods:
+ *     DB::connect(['hostname' => 'localhost', ...]);
  *     $users = DB::select('users');
  *
  * For multiple connections or different settings, use Connection instances directly:
@@ -37,6 +36,29 @@ class DB
 
     //endregion
     //region Connection
+
+    /**
+     * Connect to the database and set as the default connection.
+     * Throws if already connected. To reconnect, call disconnect() first.
+     *
+     *     DB::connect(['hostname' => 'localhost', 'database' => 'my_db', ...]);
+     *     DB::select('users');  // Uses the default connection
+     *
+     * @param array $config Configuration options (hostname, username, password, database, tablePrefix, etc.)
+     * @throws RuntimeException If already connected
+     */
+    public static function connect(array $config = []): void
+    {
+        if (self::isConnected()) {
+            throw new RuntimeException("Already connected. To reconnect, call disconnect() first.");
+        }
+
+        $conn = new Connection($config);
+
+        self::$db          = $conn;
+        self::$mysqli      = $conn->mysqli;
+        self::$tablePrefix = $conn->tablePrefix;
+    }
 
     /**
      * Check if connected to the database.
@@ -83,17 +105,11 @@ class DB
      * @param string $sqlTemplate SQL statement with placeholders
      * @param mixed  ...$params   Parameters to bind
      * @return SmartArrayHtml Result set
-     * @throws InvalidArgumentException
-     * @throws Throwable
+     * @throws Exception
      */
     public static function query(string $sqlTemplate, ...$params): SmartArrayHtml
     {
-        try {
-            return self::$db->query($sqlTemplate, ...$params);
-        } catch (Throwable $e) {
-            self::$lastException = $e;
-            throw $e;
-        }
+        return self::$db->query($sqlTemplate, ...$params);
     }
 
     /**
@@ -236,57 +252,18 @@ class DB
 
     /**
      * Escapes and quotes values, inserting them into a format string with ? placeholders.
-     *
-     * @param string $format    Format string with ? placeholders
-     * @param mixed  ...$values Values to escape and insert
-     * @return string SQL-safe string
-     * @throws InvalidArgumentException
      */
     public static function escapef(string $format, mixed ...$values): string
     {
-        self::$mysqli || throw new RuntimeException(__METHOD__ . "() called before DB connection established");
-
-        return preg_replace_callback('/\?/', function () use (&$values) {
-            $value = array_shift($values);
-
-            return match (true) {
-                is_string($value)                => "'" . self::$mysqli->real_escape_string($value) . "'",
-                is_int($value), is_float($value) => $value,
-                is_null($value)                  => 'NULL',
-                is_array($value)                 => (string)self::escapeCSV($value),
-                $value instanceof SmartArrayBase => (string)self::escapeCSV($value->toArray()),
-                $value instanceof SmartString    => "'" . self::$mysqli->real_escape_string((string)$value->value()) . "'",
-                is_bool($value)                  => $value ? 'TRUE' : 'FALSE',
-                default                          => throw new InvalidArgumentException("Unsupported type: " . get_debug_type($value)),
-            };
-        }, $format);
+        return self::$db->escapef($format, ...$values);
     }
 
     /**
      * Converts array values to a safe CSV string for use in MySQL IN clauses.
-     *
-     * @param array $array Array of values to convert
-     * @return RawSql SQL-safe comma-separated list
-     * @throws InvalidArgumentException
      */
     public static function escapeCSV(array $array): RawSql
     {
-        self::$mysqli || throw new RuntimeException(__METHOD__ . "() called before DB connection established");
-
-        $safeValues = [];
-        foreach (array_unique($array) as $value) {
-            $value        = $value instanceof SmartString ? (string)$value->value() : $value;
-            $safeValues[] = match (true) {
-                is_int($value) || is_float($value) => $value,
-                is_null($value)                    => 'NULL',
-                is_bool($value)                    => $value ? 'TRUE' : 'FALSE',
-                is_string($value)                  => "'" . self::$mysqli->real_escape_string($value) . "'",
-                default                            => throw new InvalidArgumentException("Unsupported value type: " . get_debug_type($value)),
-            };
-        }
-
-        $sqlSafeCSV = $safeValues ? implode(',', $safeValues) : 'NULL';
-        return self::rawSql($sqlSafeCSV);
+        return self::$db->escapeCSV($array);
     }
 
     /**
@@ -360,50 +337,6 @@ class DB
     //region Utility Methods
 
     /**
-     * Show debug information about the default connection.
-     */
-    public static function debug(): void
-    {
-        /** @noinspection ForgottenDebugOutputInspection */
-        print_r(self::$db);
-    }
-
-    /**
-     * Add "Occurred in file:line" to error messages.
-     */
-    public static function occurredInFile(bool $addReportedFileLine = false): string
-    {
-        $file      = "unknown";
-        $line      = "unknown";
-        $inMethod  = "";
-        $backtrace = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS);
-
-        foreach ($backtrace as $index => $caller) {
-            if (empty($caller['file']) || dirname($caller['file']) !== __DIR__) {
-                $file       = $caller['file'] ?? $file;
-                $line       = $caller['line'] ?? $line;
-                $prevCaller = $backtrace[$index + 1] ?? [];
-                $inMethod   = match (true) {
-                    !empty($prevCaller['class'])    => " in {$prevCaller['class']}{$prevCaller['type']}{$prevCaller['function']}()",
-                    !empty($prevCaller['function']) => " in {$prevCaller['function']}()",
-                    default                         => "",
-                };
-                break;
-            }
-        }
-        $output = "Occurred in $file:$line$inMethod\nReported";
-
-        if ($addReportedFileLine) {
-            $method       = basename($backtrace[1]['class']) . $backtrace[1]['type'] . $backtrace[1]['function'];
-            $reportedFile = $backtrace[0]['file'] ?? "unknown";
-            $reportedLine = $backtrace[0]['line'] ?? "unknown";
-            $output       .= " in $reportedFile:$reportedLine in $method()\n";
-        }
-
-        return $output;
-    }
-
-    /**
      * Log a deprecation warning with caller location.
      *
      * @param string $message Deprecation message (caller file:line will be appended)
@@ -425,6 +358,7 @@ class DB
 
     /**
      * Handle legacy static method calls.
+     * @noinspection SpellCheckingInspection for lowercase method names
      */
     public static function __callStatic(string $name, array $args)
     {
@@ -447,12 +381,7 @@ class DB
     /**
      * The default Connection instance
      */
-    public static ?Connection $db = null;
-
-    /**
-     * Last exception thrown (for testing/debugging)
-     */
-    public static ?Throwable $lastException = null;
+    private static ?Connection $db = null;
 
     //endregion
 }
