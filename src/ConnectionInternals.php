@@ -140,6 +140,12 @@ trait ConnectionInternals
      */
     private function assertSafeTemplate(string $sql): void
     {
+        // Fast path: skip all checks if no suspicious patterns found (covers most queries)
+        // Uses \b\d+\b for standalone numbers so col1/user2 don't trigger false positives
+        if (!preg_match('/\b\d+\b|[\'\"\\\\\\x00\\x1a]/', $sql)) {
+            return;
+        }
+
         /**
          * Allow trailing "LIMIT #" clause - this is safe and commonly used.
          *
