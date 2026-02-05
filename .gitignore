@@ -10,6 +10,8 @@ phpunit.xml
 src/_*
 test.php
 vendor/
+coverage/
+htdocs/
 old-ZenDB/
 .phpstorm.meta.php
 all.sh

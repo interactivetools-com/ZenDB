@@ -7,10 +7,28 @@ use mysqli_result;
 use mysqli_sql_exception;
 use mysqli_stmt;
 
+/**
+ * Wraps mysqli_stmt to add query logging support.
+ */
 class MysqliStmtWrapper extends mysqli_stmt
 {
     private string $query;
     private float  $startTime;
+
+    /** @internal For testing only - forces MysqliResultPolyfill even when mysqlnd is available */
+    private static bool $forceResultPolyfill = false;
+
+    /**
+     * Enable result polyfill for testing purposes.
+     * Only works when PHPUnit is loaded (test environment).
+     */
+    public static function enableTestResultPolyfill(bool $enable): void
+    {
+        if (!class_exists(\PHPUnit\Framework\TestCase::class, false)) {
+            throw new \RuntimeException("forceResultPolyfill can only be set in test environment");
+        }
+        self::$forceResultPolyfill = $enable;
+    }
 
     public function __construct(MysqliWrapper $mysqliWrapper, string $query, float $startTime)
     {
@@ -43,7 +61,7 @@ class MysqliStmtWrapper extends mysqli_stmt
     public function get_result(): mysqli_result|false
     {
         // get_result() requires mysqlnd (mandatory in PHP 8.2+, optional in 8.1)
-        if (method_exists(parent::class, 'get_result')) {
+        if (!self::$forceResultPolyfill && method_exists(parent::class, 'get_result')) {
             return parent::get_result();
         }
         return new MysqliResultPolyfill($this);

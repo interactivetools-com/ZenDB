@@ -1,10 +1,25 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<phpunit bootstrap="tests/bootstrap.php" colors="true">
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="vendor/phpunit/phpunit/phpunit.xsd"
+         bootstrap="tests/bootstrap.php"
+         colors="true"
+         executionOrder="depends,defects"
+         beStrictAboutOutputDuringTests="true"
+         failOnRisky="true"
+         failOnWarning="true">
+
   <testsuites>
     <testsuite name="ZenDB Test Suite">
       <directory suffix="Test.php">./tests</directory>
     </testsuite>
   </testsuites>
+
+  <coverage includeUncoveredFiles="true"
+            ignoreDeprecatedCodeUnits="true">
+    <include>
+      <directory suffix=".php">./src</directory>
+    </include>
+  </coverage>
 
   <php>
     <env name="DB_HOSTNAME" value="127.0.0.1"/>

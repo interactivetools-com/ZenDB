@@ -39,12 +39,26 @@ class UpdateTest extends BaseTestCase
     {
         $affected = DB::update('users', ['city' => 'NewCity'], ['name' => 'John Doe']);
         $this->assertSame(1, $affected);
+
+        // Read back and verify
+        $result = DB::get('users', ['name' => 'John Doe']);
+        $this->assertSame('NewCity', $result->get('city')->value());
     }
 
     public function testUpdateMultipleRows(): void
     {
         $affected = DB::update('users', ['city' => 'SameCity'], 'status = ?', 'Active');
-        $this->assertGreaterThan(1, $affected);
+        $this->assertSame(10, $affected);
+
+        // Verify all Active users have the new city
+        $activeUsers = DB::select('users', ['status' => 'Active']);
+        foreach ($activeUsers as $row) {
+            $this->assertSame('SameCity', $row->get('city')->value());
+        }
+
+        // Verify no non-Active users were changed
+        $nonActiveChanged = DB::query("SELECT * FROM ::users WHERE status != ? AND city = ?", ['Active', 'SameCity']);
+        $this->assertCount(0, $nonActiveChanged);
     }
 
     public function testUpdateRequiresWhereCondition(): void
@@ -55,8 +69,8 @@ class UpdateTest extends BaseTestCase
 
     public function testUpdateWithNoChangesReturnsZero(): void
     {
-        $original = DB::get('users', ['num' => 1])->get('name')->value();
-        $affected = DB::update('users', ['name' => $original], ['num' => 1]);
+        $this->assertSame('John Doe', DB::get('users', ['num' => 1])->get('name')->value());
+        $affected = DB::update('users', ['name' => 'John Doe'], ['num' => 1]);
         $this->assertSame(0, $affected);
     }
 }

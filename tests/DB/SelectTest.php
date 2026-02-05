@@ -101,14 +101,8 @@ class SelectTest extends BaseTestCase
      */
     public function testInvalidSelect(string $testName, string $baseTable, array|string $where, array $mixedParams): void
     {
-        try {
-            DB::select($baseTable, $where, ...$mixedParams);
-        } catch (\Exception) {
-            $this->assertTrue(true);
-            return;
-        }
-
-        $this->fail("Exception NOT thrown for: $testName");
+        $this->expectException(\Exception::class);
+        DB::select($baseTable, $where, ...$mixedParams);
     }
 
     public static function provideInvalidQueries(): array
@@ -183,8 +177,11 @@ class SelectTest extends BaseTestCase
 
     public function testGetAutoAddsLimit(): void
     {
+        // get() adds LIMIT 1, so result should be a single row
         $result = DB::get('users', '');
-        $this->assertFalse($result->isFirst() && $result->isLast() === false);
+        $this->assertFalse($result->isEmpty());
+        $this->assertTrue($result->isFirst());
+        $this->assertTrue($result->isLast());
     }
 
     //endregion

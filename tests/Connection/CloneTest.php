@@ -53,7 +53,7 @@ class CloneTest extends BaseTestCase
         $result = DB::select('users', ['num' => 1]);
 
         $this->assertSame('John Doe', $result->first()->get('name')->value());
-        $this->assertNotNull($clone);
+        $this->assertInstanceOf(\Itools\ZenDB\Connection::class, $clone);
     }
 
     public function testBothParentAndCloneCanExecuteSequentially(): void

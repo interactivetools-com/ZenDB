@@ -73,6 +73,7 @@ class SettingsTest extends BaseTestCase
         $result = self::$conn->get('users', ['num' => 1]);
 
         $this->assertInstanceOf(\Itools\SmartString\SmartString::class, $result->get('name'));
+        $this->assertSame('John Doe', $result->get('name')->value());
     }
 
     public function testSmartStringsCannotBeDisabledWithSmartArrayHtml(): void

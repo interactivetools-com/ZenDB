@@ -38,7 +38,7 @@ class QueryMethodsTest extends BaseTestCase
     public function testInstanceSelectWithConditions(): void
     {
         $result = self::$conn->select('users', ['status' => 'Active']);
-        $this->assertGreaterThan(0, $result->count());
+        $this->assertSame(10, $result->count());
     }
 
     public function testInstanceGet(): void
@@ -68,6 +68,11 @@ class QueryMethodsTest extends BaseTestCase
         ]);
 
         $this->assertSame(21, $insertId);
+
+        // Read back and verify inserted data
+        $row = self::$conn->get('users', ['num' => 21]);
+        $this->assertSame('Instance Insert Test', $row->get('name')->value());
+        $this->assertSame('TestCity', $row->get('city')->value());
     }
 
     //endregion
@@ -86,11 +91,12 @@ class QueryMethodsTest extends BaseTestCase
 
     public function testInstanceDelete(): void
     {
-        $countBefore = self::$conn->count('users');
-        $affected    = self::$conn->delete('users', ['num' => 1]);
+        $this->assertSame(20, self::$conn->count('users'));
+        $affected = self::$conn->delete('users', ['num' => 1]);
 
         $this->assertSame(1, $affected);
-        $this->assertSame($countBefore - 1, self::$conn->count('users'));
+        $this->assertSame(19, self::$conn->count('users'));
+        $this->assertTrue(self::$conn->get('users', ['num' => 1])->isEmpty());
     }
 
     //endregion
@@ -105,7 +111,7 @@ class QueryMethodsTest extends BaseTestCase
     public function testInstanceCountWithCondition(): void
     {
         $count = self::$conn->count('users', ['status' => 'Active']);
-        $this->assertGreaterThan(0, $count);
+        $this->assertSame(10, $count);
     }
 
     //endregion

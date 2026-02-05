@@ -30,13 +30,13 @@ class CountTest extends BaseTestCase
     public function testCountWithCondition(): void
     {
         $count = DB::count('users', ['status' => 'Active']);
-        $this->assertGreaterThan(0, $count);
+        $this->assertSame(10, $count);
     }
 
     public function testCountWithSqlCondition(): void
     {
         $count = DB::count('users', 'age > ?', 30);
-        $this->assertGreaterThan(0, $count);
+        $this->assertSame(14, $count);
     }
 
     public function testCountReturnsZeroForNoMatch(): void

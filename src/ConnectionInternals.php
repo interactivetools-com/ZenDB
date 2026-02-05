@@ -632,7 +632,7 @@ trait ConnectionInternals
                 }
                 // Note: We intentionally don't call close() here - see PHPDoc above
             } catch (Throwable) {
-                // Never throw from a destructor
+                // Defensive: destructors must never throw
             }
         }
     }

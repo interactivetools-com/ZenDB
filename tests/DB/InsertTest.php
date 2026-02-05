@@ -44,13 +44,8 @@ class InsertTest extends BaseTestCase
         );
 
         // Test inserting record with duplicate primary key throws exception
-        $exceptionThrown = false;
-        try {
-            DB::insert($baseTable, $colsToValues);
-        } catch (\Exception) {
-            $exceptionThrown = true;
-        }
-        $this->assertTrue($exceptionThrown, "Expected exception thrown");
+        $this->expectException(\mysqli_sql_exception::class);
+        DB::insert($baseTable, $colsToValues);
     }
 
     public function testInsertReturnsAutoIncrement(): void
@@ -67,6 +62,11 @@ class InsertTest extends BaseTestCase
         ]);
 
         $this->assertSame(21, $insertId);
+
+        // Read back and verify inserted data
+        $row = DB::get('users', ['num' => 21]);
+        $this->assertSame('New User', $row->get('name')->value());
+        $this->assertSame('TestCity', $row->get('city')->value());
     }
 
     public function testInsertEmptyArrayThrows(): void

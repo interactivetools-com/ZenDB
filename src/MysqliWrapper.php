@@ -156,9 +156,10 @@ class MysqliWrapper extends mysqli
         $this->stmtKeepAlive = null;
 
         $stmt = $this->prepare($query);
-        if ($stmt === false) {
-            return false;
-        }
+        // Dead code: prepare() always returns MysqliStmtWrapper or throws, never returns false
+        // if ($stmt === false) {
+        //     return false;
+        // }
         $stmt->execute($params ?? []);
 
         // Keep stmt alive so affected_rows/insert_id remain accessible after return

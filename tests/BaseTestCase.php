@@ -158,6 +158,36 @@ INSERT INTO test_order_details (order_id, product_id, quantity) VALUES
     (29, 4, 3),
     (30, 5, 2);
 
+-- Table for self-join tests (employees with managers)
+DROP TEMPORARY TABLE IF EXISTS test_employees;
+CREATE TEMPORARY TABLE test_employees (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    name VARCHAR(255),
+    manager_id INT NULL,
+    department VARCHAR(100)
+);
+
+INSERT INTO test_employees (id, name, manager_id, department) VALUES
+    (1, 'CEO', NULL, 'Executive'),
+    (2, 'VP Engineering', 1, 'Engineering'),
+    (3, 'VP Sales', 1, 'Sales'),
+    (4, 'Developer 1', 2, 'Engineering'),
+    (5, 'Developer 2', 2, 'Engineering'),
+    (6, 'Sales Rep 1', 3, 'Sales');
+
+-- Table for special character tests
+DROP TEMPORARY TABLE IF EXISTS test_special_chars;
+CREATE TEMPORARY TABLE test_special_chars (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    content TEXT,
+    html_content TEXT
+);
+
+INSERT INTO test_special_chars (content, html_content) VALUES
+    ('O''Reilly', '<script>alert("xss")</script>'),
+    ('100% discount', '<b>Bold</b> & "quoted"'),
+    ('Line1\nLine2', 'Tab\there');
+
 __SQL__;
 
         // Execute SQL

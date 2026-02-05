@@ -27,11 +27,12 @@ class DeleteTest extends BaseTestCase
 
     public function testDeleteSingleRow(): void
     {
-        $countBefore = DB::count('users');
-        $affected    = DB::delete('users', ['num' => 1]);
+        $this->assertSame(20, DB::count('users'));
+        $affected = DB::delete('users', ['num' => 1]);
 
         $this->assertSame(1, $affected);
-        $this->assertSame($countBefore - 1, DB::count('users'));
+        $this->assertSame(19, DB::count('users'));
+        $this->assertTrue(DB::get('users', ['num' => 1])->isEmpty());
     }
 
     public function testDeleteWithArrayCondition(): void
@@ -43,10 +44,10 @@ class DeleteTest extends BaseTestCase
 
     public function testDeleteMultipleRows(): void
     {
-        $countBefore = DB::count('users', 'status = ?', 'Suspended');
-        $affected    = DB::delete('users', 'status = ?', 'Suspended');
+        $this->assertSame(5, DB::count('users', 'status = ?', 'Suspended'));
+        $affected = DB::delete('users', 'status = ?', 'Suspended');
 
-        $this->assertSame($countBefore, $affected);
+        $this->assertSame(5, $affected);
         $this->assertSame(0, DB::count('users', 'status = ?', 'Suspended'));
     }
 
