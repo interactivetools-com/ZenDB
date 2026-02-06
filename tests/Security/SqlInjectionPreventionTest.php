@@ -173,7 +173,7 @@ class SqlInjectionPreventionTest extends BaseTestCase
         $result = DB::query("SELECT * FROM ::users WHERE name = ?", $maliciousValue);
 
         // Query executes safely - just returns no results
-        $this->assertIsObject($result, "Failed: $description");
+        $this->assertInstanceOf(\Itools\SmartArray\SmartArrayHtml::class, $result, "Failed: $description");
 
         // Verify we can still query the table (it wasn't dropped)
         $count = DB::count('users');
@@ -202,6 +202,7 @@ class SqlInjectionPreventionTest extends BaseTestCase
     public function testInvalidTemplatesRejected(string $description, string $template): void
     {
         $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage("in template");
 
         DB::query($template, 1);
     }

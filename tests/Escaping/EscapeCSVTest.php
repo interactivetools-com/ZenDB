@@ -157,6 +157,7 @@ class EscapeCSVTest extends BaseTestCase
     public function testEscapeCSVWithUnsupportedTypeThrows(): void
     {
         $this->expectException(\Error::class);
+        $this->expectExceptionMessage("could not be converted to string");
 
         DB::escapeCSV([1, new \stdClass(), 3]);
     }

@@ -45,6 +45,7 @@ class InsertTest extends BaseTestCase
 
         // Test inserting record with duplicate primary key throws exception
         $this->expectException(\mysqli_sql_exception::class);
+        $this->expectExceptionMessage("Duplicate entry");
         DB::insert($baseTable, $colsToValues);
     }
 
@@ -72,6 +73,7 @@ class InsertTest extends BaseTestCase
     public function testInsertEmptyArrayThrows(): void
     {
         $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage("No colsToValues");
         DB::insert('users', []);
     }
 }

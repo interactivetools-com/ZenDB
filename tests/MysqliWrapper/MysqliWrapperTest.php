@@ -138,6 +138,38 @@ class MysqliWrapperTest extends BaseTestCase
     }
 
     //endregion
+    //region execute_query Native (PHP 8.2+)
+
+    public function testNativeExecuteQuerySelect(): void
+    {
+        // Test native execute_query path (forcePolyfill=false, PHP 8.2+)
+        $conn = new Connection(self::$configDefaults);
+        $conn->mysqli->query("DROP TEMPORARY TABLE IF EXISTS test_native_eq");
+        $conn->mysqli->query("CREATE TEMPORARY TABLE test_native_eq (id INT, name VARCHAR(50))");
+        $conn->mysqli->query("INSERT INTO test_native_eq VALUES (1, 'Alice'), (2, 'Bob')");
+
+        MysqliWrapper::$forcePolyfill = false;
+        $result = $conn->mysqli->execute_query("SELECT * FROM test_native_eq WHERE id = ?", [1]);
+
+        $this->assertInstanceOf(\mysqli_result::class, $result);
+        $row = $result->fetch_assoc();
+        $this->assertSame('Alice', $row['name']);
+    }
+
+    public function testNativeExecuteQueryInsert(): void
+    {
+        $conn = new Connection(self::$configDefaults);
+        $conn->mysqli->query("DROP TEMPORARY TABLE IF EXISTS test_native_eq2");
+        $conn->mysqli->query("CREATE TEMPORARY TABLE test_native_eq2 (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(50))");
+
+        MysqliWrapper::$forcePolyfill = false;
+        $result = $conn->mysqli->execute_query("INSERT INTO test_native_eq2 (name) VALUES (?)", ['Native Test']);
+
+        $this->assertTrue($result);
+        $this->assertSame(1, $conn->mysqli->insert_id);
+    }
+
+    //endregion
     //region execute_query Polyfill
 
     public function testForcePolyfillFlag(): void
@@ -224,6 +256,7 @@ class MysqliWrapperTest extends BaseTestCase
             $conn = new Connection(self::$configDefaults);
 
             $this->expectException(mysqli_sql_exception::class);
+            $this->expectExceptionMessage("doesn't exist");
 
             // This should fail and exercise MysqliStmtWrapper error handling
             $conn->mysqli->execute_query(
@@ -288,6 +321,7 @@ class MysqliWrapperTest extends BaseTestCase
         $conn = new Connection(self::$configDefaults);
 
         $this->expectException(mysqli_sql_exception::class);
+        $this->expectExceptionMessage("doesn't exist");
 
         // Invalid table should throw exception
         $conn->mysqli->prepare("SELECT * FROM nonexistent_prepare_table");

@@ -54,6 +54,7 @@ class DeleteTest extends BaseTestCase
     public function testDeleteRequiresWhereCondition(): void
     {
         $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage("DELETE requires a WHERE condition");
         DB::delete('users', '');
     }
 

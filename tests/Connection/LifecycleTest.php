@@ -60,6 +60,7 @@ class LifecycleTest extends BaseTestCase
     public function testConnectWithInvalidHostname(): void
     {
         $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage("MySQL Error");
         $config = array_merge(self::$configDefaults, ['hostname' => 'invalid_value']);
         DB::connect($config);
     }
@@ -67,6 +68,7 @@ class LifecycleTest extends BaseTestCase
     public function testConnectWithInvalidUsername(): void
     {
         $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage("MySQL Error");
         $config = array_merge(self::$configDefaults, ['username' => 'invalid_value']);
         DB::connect($config);
     }
@@ -74,6 +76,7 @@ class LifecycleTest extends BaseTestCase
     public function testConnectWithInvalidPassword(): void
     {
         $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage("MySQL Error");
         $config = array_merge(self::$configDefaults, ['password' => 'invalid_value']);
         DB::connect($config);
     }
@@ -81,6 +84,7 @@ class LifecycleTest extends BaseTestCase
     public function testConnectWithMissingCredentials(): void
     {
         $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage("Missing required database credentials");
         $conn           = new Connection();
         $conn->hostname = null;
         $conn->username = null;
@@ -102,6 +106,7 @@ class LifecycleTest extends BaseTestCase
     public function testConnectWithRequiredVersion(): void
     {
         $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage("requires MySQL v100.100.100 or newer");
         $config = array_merge(self::$configDefaults, ['versionRequired' => '100.100.100']);
         DB::connect($config);
     }

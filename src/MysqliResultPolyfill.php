@@ -149,7 +149,9 @@ class MysqliResultPolyfill extends mysqli_result
      */
     public function free(): void
     {
-        $this->meta->free();
+        if ($this->meta) {
+            $this->meta->free();
+        }
     }
 
     /**

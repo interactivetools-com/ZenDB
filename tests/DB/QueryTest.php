@@ -48,12 +48,14 @@ class QueryTest extends BaseTestCase
     public function testQueryInvalidSqlThrows(): void
     {
         $this->expectException(mysqli_sql_exception::class);
+        $this->expectExceptionMessage("You have an error in your SQL syntax");
         DB::query("INVALID SQL STATEMENT");
     }
 
     public function testQueryMustStartWithKeyword(): void
     {
         $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage("must start with a valid SQL keyword");
         DB::query("* FROM users");
     }
 }

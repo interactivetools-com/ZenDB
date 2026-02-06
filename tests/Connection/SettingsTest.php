@@ -83,6 +83,7 @@ class SettingsTest extends BaseTestCase
         self::$conn->useSmartStrings = false;
 
         $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage("Cannot create SmartArrayHtml with useSmartStrings=false");
         self::$conn->get('users', ['num' => 1]);
     }
 

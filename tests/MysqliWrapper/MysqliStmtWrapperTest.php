@@ -40,6 +40,7 @@ class MysqliStmtWrapperTest extends BaseTestCase
         $conn->mysqli->query("INSERT INTO stmt_test VALUES (1)");
 
         $this->expectException(\mysqli_sql_exception::class);
+        $this->expectExceptionMessage("Duplicate entry");
 
         // This will fail because we're inserting a duplicate key - exercises the catch block
         $conn->mysqli->execute_query("INSERT INTO stmt_test VALUES (?)", [1]);

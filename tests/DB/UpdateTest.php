@@ -64,6 +64,7 @@ class UpdateTest extends BaseTestCase
     public function testUpdateRequiresWhereCondition(): void
     {
         $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage("UPDATE requires a WHERE condition");
         DB::update('users', ['name' => 'Test'], '');
     }
 

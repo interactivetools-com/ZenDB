@@ -36,7 +36,7 @@ class MysqliWrapper extends mysqli
     /**
      * Query logger callback: fn(string $query, float $durationSecs, ?Throwable $error): void
      */
-    public static $queryLogger = null;
+    public static mixed $queryLogger = null;
 
     //endregion
     //region Overridden Methods
@@ -171,6 +171,7 @@ class MysqliWrapper extends mysqli
     /**
      * Close the connection and clean up resources.
      */
+    #[\ReturnTypeWillChange]
     public function close(): bool
     {
         $this->stmtKeepAlive = null;

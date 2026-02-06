@@ -216,6 +216,7 @@ class IdentifierValidationTest extends BaseTestCase
     public function testInvalidIdentifiers(string $identifier, string $description): void
     {
         $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage("Invalid backtick identifier");
 
         DB::query("SELECT * FROM `?`", $identifier);
     }

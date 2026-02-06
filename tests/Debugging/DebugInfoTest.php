@@ -92,7 +92,7 @@ class DebugInfoTest extends BaseTestCase
         $debugInfo = $conn->__debugInfo();
 
         $this->assertArrayHasKey('mysqli', $debugInfo);
-        $this->assertIsObject($debugInfo['mysqli']);
+        $this->assertInstanceOf(\Itools\ZenDB\MysqliWrapper::class, $debugInfo['mysqli']);
     }
 
     public function testDebugInfoIncludesSettings(): void

@@ -48,6 +48,7 @@ class CountTest extends BaseTestCase
     public function testCountWithLimitThrowsException(): void
     {
         $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage("doesn't support LIMIT or OFFSET");
         DB::count('users', 'LIMIT 5');
     }
 }

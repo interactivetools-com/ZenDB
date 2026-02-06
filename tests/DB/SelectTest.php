@@ -99,9 +99,10 @@ class SelectTest extends BaseTestCase
     /**
      * @dataProvider provideInvalidQueries
      */
-    public function testInvalidSelect(string $testName, string $baseTable, array|string $where, array $mixedParams): void
+    public function testInvalidSelect(string $testName, string $baseTable, array|string $where, array $mixedParams, string $expectedMessage): void
     {
         $this->expectException(\Exception::class);
+        $this->expectExceptionMessage($expectedMessage);
         DB::select($baseTable, $where, ...$mixedParams);
     }
 
@@ -109,40 +110,46 @@ class SelectTest extends BaseTestCase
     {
         return [
             [
-                'testName'   => 'numeric string throws',
-                'baseTable'  => 'users',
-                'where'      => "5",
-                'mixedParams'=> [],
+                'testName'        => 'numeric string throws',
+                'baseTable'       => 'users',
+                'where'           => "5",
+                'mixedParams'     => [],
+                'expectedMessage' => "Numeric string '5' detected",
             ],
             [
-                'testName'    => 'array with invalid column names',
-                'baseTable'   => 'users',
-                'where'       => ['notThere' => null, 'missingColumn' => 'active'],
-                'mixedParams' => [],
+                'testName'        => 'array with invalid column names',
+                'baseTable'       => 'users',
+                'where'           => ['notThere' => null, 'missingColumn' => 'active'],
+                'mixedParams'     => [],
+                'expectedMessage' => "Unknown column 'notThere'",
             ],
             [
-                'testName'    => 'sql starting with SELECT',
-                'baseTable'   => 'users',
-                'where'       => 'SELECT * FROM users',
-                'mixedParams' => [],
+                'testName'        => 'sql starting with SELECT',
+                'baseTable'       => 'users',
+                'where'           => 'SELECT * FROM users',
+                'mixedParams'     => [],
+                'expectedMessage' => "You have an error in your SQL syntax",
             ],
             [
-                'testName'    => 'missing position param',
-                'baseTable'   => 'users',
-                'where'       => 'num = ?',
-                'mixedParams' => [],
+                'testName'        => 'missing position param',
+                'baseTable'       => 'users',
+                'where'           => 'num = ?',
+                'mixedParams'     => [],
+                'expectedMessage' => "Missing value for ? parameter",
             ],
             [
-                'testName'    => 'missing named param',
-                'baseTable'   => 'users',
-                'where'       => 'num = :num',
-                'mixedParams' => [],
+                'testName'        => 'missing named param',
+                'baseTable'       => 'users',
+                'where'           => 'num = :num',
+                'mixedParams'     => [],
+                'expectedMessage' => "Missing value for ':num' parameter",
             ],
             [
-                'testName'    => 'table with prefix already applied',
-                'baseTable'   => 'test_users',
-                'where'       => "",
-                'mixedParams' => [],
+                'testName'        => 'table with prefix already applied',
+                'baseTable'       => 'test_users',
+                'where'           => "",
+                'mixedParams'     => [],
+                'expectedMessage' => "doesn't exist",
             ],
         ];
     }
@@ -172,6 +179,7 @@ class SelectTest extends BaseTestCase
     public function testGetWithLimitThrowsException(): void
     {
         $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage("doesn't support LIMIT or OFFSET");
         DB::get('users', 'LIMIT 5');
     }
 

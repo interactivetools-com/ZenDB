@@ -157,7 +157,7 @@ class MysqliResultPolyfillTest extends BaseTestCase
         $result = $this->conn->mysqli->execute_query("SELECT num, name FROM polyfill_test WHERE num = ?", [1]);
 
         $obj = $result->fetch_object();
-        $this->assertIsObject($obj);
+        $this->assertInstanceOf(\stdClass::class, $obj);
         $this->assertObjectHasProperty('num', $obj);
         $this->assertObjectHasProperty('name', $obj);
         $this->assertSame(1, $obj->num);
@@ -232,11 +232,9 @@ class MysqliResultPolyfillTest extends BaseTestCase
     {
         $result = $this->conn->mysqli->execute_query("SELECT * FROM polyfill_test LIMIT 1");
 
-        // free() should not throw
+        // free() should complete without throwing
+        $this->expectNotToPerformAssertions();
         $result->free();
-
-        // Verify free() completed without errors
-        $this->assertTrue(true);
     }
 
     public function testEmptyResultSet(): void
@@ -255,7 +253,7 @@ class MysqliResultPolyfillTest extends BaseTestCase
 
         // First fetch succeeds
         $obj1 = $result->fetch_object();
-        $this->assertIsObject($obj1);
+        $this->assertInstanceOf(\stdClass::class, $obj1);
 
         // Second fetch returns null (exhausted)
         $obj2 = $result->fetch_object();
@@ -272,6 +270,20 @@ class MysqliResultPolyfillTest extends BaseTestCase
         $this->assertInstanceOf(PolyfillTestRow::class, $obj);
         $this->assertSame(1, $obj->num);
         $this->assertSame('Alice', $obj->name);
+    }
+
+    public function testFreeWithFalseMetaDoesNotCrash(): void
+    {
+        // Non-SELECT statements have result_metadata() === false
+        $this->conn->mysqli->query("DROP TEMPORARY TABLE IF EXISTS polyfill_free_test");
+        $this->conn->mysqli->query("CREATE TEMPORARY TABLE polyfill_free_test (id INT)");
+
+        // INSERT via polyfill returns MysqliResultPolyfill with meta=false
+        $result = $this->conn->mysqli->execute_query("INSERT INTO polyfill_free_test VALUES (?)", [1]);
+        $this->assertInstanceOf(MysqliResultPolyfill::class, $result);
+
+        // free() should not crash even when meta is false
+        $result->free();
     }
 
     public function testFetchObjectWithCustomClassAndConstructorArgs(): void
