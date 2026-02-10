@@ -53,7 +53,13 @@ DB::connect([
 | `connectTimeout` | int | `3` | Connection timeout in seconds |
 | `readTimeout` | int | `60` | Read timeout in seconds |
 | `queryLogger` | callable\|null | `null` | Callback for logging queries: `fn(string $query, float $durationSecs, ?Throwable $error): void` |
-| `sqlMode` | string | `'STRICT_ALL_TABLES,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION'` | MySQL SQL mode set on connection |
+| `sqlMode` | string | *See below* | MySQL SQL mode set on connection |
+
+The default `sqlMode` is:
+
+```
+STRICT_ALL_TABLES,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION
+```
 
 For most projects, you only need `hostname`, `username`, `password`, and
 `database`. The defaults are sensible and secure.
