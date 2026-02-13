@@ -139,7 +139,7 @@ class EmptyWhereProtectionTest extends BaseTestCase
         $this->assertSame(1, $affected);
 
         // Verify only one row changed
-        $result = DB::get('users', ['num' => 1]);
+        $result = DB::selectOne('users', ['num' => 1]);
         $this->assertSame('New City', $result->get('city')->value());
     }
 
@@ -203,7 +203,7 @@ class EmptyWhereProtectionTest extends BaseTestCase
         $this->assertSame(1, $affected);
 
         // Verify the right row was updated
-        $row = DB::get('users', ['num' => 3]);
+        $row = DB::selectOne('users', ['num' => 3]);
         $this->assertSame('Int City', $row->get('city')->value());
     }
 

@@ -18,6 +18,19 @@ class GetBaseTableTest extends BaseTestCase
     {
         self::createDefaultConnection();
         self::resetTempTestTables();
+
+        // Create permanent tables for strict-mode tests (temp tables are invisible to tableExists)
+        DB::$mysqli->query("DROP TABLE IF EXISTS test_strict_base");
+        DB::$mysqli->query("CREATE TABLE test_strict_base (id INT PRIMARY KEY)");
+    }
+
+    public static function tearDownAfterClass(): void
+    {
+        try {
+            DB::$mysqli->query("DROP TABLE IF EXISTS test_strict_base");
+        } catch (\Exception) {
+            // Ignore cleanup errors
+        }
     }
 
     public function testStripsPrefix(): void
@@ -54,13 +67,11 @@ class GetBaseTableTest extends BaseTestCase
         $this->assertSame('', $result);
     }
 
-    public function testStrictModeExistingTable(): void
+    public function testStrictModeTempTableNotDetected(): void
     {
-        // With strict=true, the logic checks if the base table exists
-        // If the table starts with prefix and the base (with prefix) exists, return as-is
-        // But test_users is a TEMPORARY table so it won't be found
+        // Temp tables are invisible to tableExists (uses INFORMATION_SCHEMA),
+        // so strict mode falls through and strips the prefix
         $result = DB::getBaseTable('test_users', true);
-        // Without the table existing, it just strips the prefix
         $this->assertSame('users', $result);
     }
 
@@ -69,6 +80,15 @@ class GetBaseTableTest extends BaseTestCase
         // Non-existing table with strict=true, strips prefix
         $result = DB::getBaseTable('test_nonexistent', true);
         $this->assertSame('nonexistent', $result);
+    }
+
+    public function testStrictModeWithRealTable(): void
+    {
+        // Strict mode with a real (permanent) table that exists as a base table.
+        // 'test_strict_base' starts with prefix, and tableExists('test_strict_base', false)
+        // checks if 'test_test_strict_base' exists -- it doesn't, so strip the prefix.
+        $result = DB::getBaseTable('test_strict_base', true);
+        $this->assertSame('strict_base', $result);
     }
 
     public function testTableNameNotStartingWithPrefix(): void

@@ -14,12 +14,11 @@
     </testsuite>
   </testsuites>
 
-  <coverage includeUncoveredFiles="true"
-            ignoreDeprecatedCodeUnits="true">
+  <source>
     <include>
       <directory suffix=".php">./src</directory>
     </include>
-  </coverage>
+  </source>
 
   <php>
     <env name="DB_HOSTNAME" value="127.0.0.1"/>

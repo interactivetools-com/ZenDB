@@ -21,7 +21,7 @@ class MysqliWrapper extends mysqli
     /**
      * Last query executed (for error debugging)
      */
-    public static string $lastQuery = '';
+    public string $lastQuery = '';
 
     /**
      * Force execute_query() to use polyfill instead of native (for testing)
@@ -36,7 +36,7 @@ class MysqliWrapper extends mysqli
     /**
      * Query logger callback: fn(string $query, float $durationSecs, ?Throwable $error): void
      */
-    public static mixed $queryLogger = null;
+    public mixed $queryLogger = null;
 
     //endregion
     //region Overridden Methods
@@ -46,7 +46,7 @@ class MysqliWrapper extends mysqli
      */
     public function __construct(?callable $queryLogger = null)
     {
-        self::$queryLogger = $queryLogger;
+        $this->queryLogger = $queryLogger;
 
         // Initialize the parent mysqli object
         parent::__construct();
@@ -67,62 +67,62 @@ class MysqliWrapper extends mysqli
         $result = @parent::real_connect($hostname, $username, $password, $database, $port, $socket, $flags); // hide php hostname lookup warnings (catch block will show them)
 
         // log connection
-        self::log("real_connect[$this->thread_id]: " . ($_SERVER['REQUEST_METHOD'] ?? '') . ' ' . ($_SERVER['REQUEST_URI'] ?? ''), $startTime);
+        $this->log("real_connect[$this->thread_id]: " . ($_SERVER['REQUEST_METHOD'] ?? '') . ' ' . ($_SERVER['REQUEST_URI'] ?? ''), $startTime);
 
         return $result;
     }
 
     public function query(string $query, int $result_mode = MYSQLI_STORE_RESULT): mysqli_result|bool
     {
-        self::$lastQuery = $query;
+        $this->lastQuery = $query;
         $startTime       = microtime(true);
 
         // execute query
         try {
             $result = parent::query($query, $result_mode);
         } catch (mysqli_sql_exception $e) {
-            self::log($query, $startTime, $e);
+            $this->log($query, $startTime, $e);
             throw $e;
         }
 
-        self::log($query, $startTime);
+        $this->log($query, $startTime);
 
         return $result;
     }
 
     public function real_query(string $query): bool
     {
-        self::$lastQuery = $query;
+        $this->lastQuery = $query;
         $startTime       = microtime(true);
 
         $result = parent::real_query($query);
 
-        self::log("real_query: $query", $startTime);
+        $this->log("real_query: $query", $startTime);
 
         return $result;
     }
 
     public function multi_query(string $query): bool
     {
-        self::$lastQuery = $query;
+        $this->lastQuery = $query;
         $startTime       = microtime(true);
 
         $result = parent::multi_query($query);
 
-        self::log("multi_query: $query", $startTime);
+        $this->log("multi_query: $query", $startTime);
 
         return $result;
     }
 
     public function prepare(string $query): mysqli_stmt|false
     {
-        self::$lastQuery = $query;
+        $this->lastQuery = $query;
         $startTime       = microtime(true);
 
         try {
             $result = new MysqliStmtWrapper($this, $query, $startTime);
         } catch (mysqli_sql_exception $e) {
-            self::log($query, $startTime, $e);
+            $this->log($query, $startTime, $e);
             throw $e;
         }
 
@@ -141,12 +141,12 @@ class MysqliWrapper extends mysqli
     {
         // Use native execute_query() if available (PHP 8.2+) and not forcing polyfill
         if (PHP_VERSION_ID >= 80200 && !self::$forcePolyfill) {
-            self::$lastQuery = $query;
+            $this->lastQuery = $query;
             $startTime       = microtime(true);
 
             $result = parent::execute_query($query, $params);
 
-            self::log($query, $startTime);
+            $this->log($query, $startTime);
 
             return $result;
         }
@@ -156,10 +156,6 @@ class MysqliWrapper extends mysqli
         $this->stmtKeepAlive = null;
 
         $stmt = $this->prepare($query);
-        // Dead code: prepare() always returns MysqliStmtWrapper or throws, never returns false
-        // if ($stmt === false) {
-        //     return false;
-        // }
         $stmt->execute($params ?? []);
 
         // Keep stmt alive so affected_rows/insert_id remain accessible after return
@@ -184,11 +180,11 @@ class MysqliWrapper extends mysqli
     /**
      * Call the query logger callback if set.
      */
-    public static function log(string $query, float $startTime, ?Throwable $error = null): void
+    public function log(string $query, float $startTime, ?Throwable $error = null): void
     {
-        if (self::$queryLogger) {
+        if ($this->queryLogger) {
             $duration = microtime(true) - $startTime;
-            (self::$queryLogger)($query, $duration, $error);
+            ($this->queryLogger)($query, $duration, $error);
         }
     }
 

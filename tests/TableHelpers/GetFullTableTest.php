@@ -18,6 +18,19 @@ class GetFullTableTest extends BaseTestCase
     {
         self::createDefaultConnection();
         self::resetTempTestTables();
+
+        // Create permanent tables for strict-mode tests (temp tables are invisible to tableExists)
+        DB::$mysqli->query("DROP TABLE IF EXISTS test_strict_full");
+        DB::$mysqli->query("CREATE TABLE test_strict_full (id INT PRIMARY KEY)");
+    }
+
+    public static function tearDownAfterClass(): void
+    {
+        try {
+            DB::$mysqli->query("DROP TABLE IF EXISTS test_strict_full");
+        } catch (\Exception) {
+            // Ignore cleanup errors
+        }
     }
 
     public function testAddsPrefix(): void
@@ -48,9 +61,10 @@ class GetFullTableTest extends BaseTestCase
         $this->assertSame('test__private', $result);
     }
 
-    public function testStrictModeExistingTable(): void
+    public function testStrictModeTempTableNotDetected(): void
     {
-        // With strict=true and table exists, returns prefixed name
+        // Temp tables are invisible to tableExists (uses INFORMATION_SCHEMA),
+        // so strict mode can't find 'test_users' and falls through to prefix check
         $result = DB::getFullTable('users', true);
         $this->assertSame('test_users', $result);
     }
@@ -62,11 +76,26 @@ class GetFullTableTest extends BaseTestCase
         $this->assertSame('test_nonexistent', $result);
     }
 
-    public function testStrictModeAlreadyPrefixed(): void
+    public function testStrictModeAlreadyPrefixedTempTable(): void
     {
-        // If already prefixed and exists, returns as-is
+        // Temp table 'test_users' already has the prefix, detected by str_starts_with
         $result = DB::getFullTable('test_users', true);
         $this->assertSame('test_users', $result);
+    }
+
+    public function testStrictModeWithRealTable(): void
+    {
+        // Strict mode with a real (permanent) table.
+        // Input 'strict_full' -> prefixed to 'test_strict_full' -> tableExists confirms it -> return prefixed
+        $result = DB::getFullTable('strict_full', true);
+        $this->assertSame('test_strict_full', $result);
+    }
+
+    public function testStrictModeAlreadyPrefixedRealTable(): void
+    {
+        // Input already has prefix 'test_strict_full' -> str_starts_with detects prefix -> return as-is
+        $result = DB::getFullTable('test_strict_full', true);
+        $this->assertSame('test_strict_full', $result);
     }
 
     public function testWithDifferentPrefix(): void

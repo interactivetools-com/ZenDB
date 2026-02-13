@@ -34,7 +34,7 @@ class NullValuesTest extends BaseTestCase
             'city' => 'Test City'
         ]);
 
-        $row = DB::get('users', ['num' => $insertId]);
+        $row = DB::selectOne('users', ['num' => $insertId]);
         $this->assertNull($row->get('isAdmin')->value());
 
         // Clean up
@@ -47,7 +47,7 @@ class NullValuesTest extends BaseTestCase
             ['Null Placeholder User', null, 'Active', 'Test']
         );
 
-        $row = DB::get('users', ['name' => 'Null Placeholder User']);
+        $row = DB::selectOne('users', ['name' => 'Null Placeholder User']);
         $this->assertNull($row->get('isAdmin')->value());
 
         // Clean up
@@ -70,7 +70,7 @@ class NullValuesTest extends BaseTestCase
         // Update to NULL
         DB::update('users', ['isAdmin' => null], ['num' => $insertId]);
 
-        $row = DB::get('users', ['num' => $insertId]);
+        $row = DB::selectOne('users', ['num' => $insertId]);
         $this->assertNull($row->get('isAdmin')->value());
 
         // Clean up
@@ -120,7 +120,7 @@ class NullValuesTest extends BaseTestCase
     public function testNullReturnedFromDatabase(): void
     {
         // User 2 has isAdmin = NULL
-        $row = DB::get('users', ['num' => 2]);
+        $row = DB::selectOne('users', ['num' => 2]);
 
         $isAdmin = $row->get('isAdmin');
         $this->assertNull($isAdmin->value());
@@ -162,7 +162,7 @@ class NullValuesTest extends BaseTestCase
             'city' => 'Test'
         ]);
 
-        $row = DB::get('users', ['num' => $insertId]);
+        $row = DB::selectOne('users', ['num' => $insertId]);
         $this->assertSame('', $row->get('name')->value());
         $this->assertFalse($row->get('name')->isNull());
 

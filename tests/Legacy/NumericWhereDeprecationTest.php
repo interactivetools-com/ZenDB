@@ -63,9 +63,9 @@ class NumericWhereDeprecationTest extends BaseTestCase
         $this->assertSame('John Doe', $result->first()->get('name')->value());
     }
 
-    public function testIntegerWhereInGet(): void
+    public function testIntegerWhereInSelectOne(): void
     {
-        $result = @DB::get('users', 5);
+        $result = @DB::selectOne('users', 5);
 
         $this->assertFalse($result->isEmpty());
         $this->assertSame('Charlie Brown', $result->get('name')->value());
@@ -80,7 +80,7 @@ class NumericWhereDeprecationTest extends BaseTestCase
         $this->assertStringContainsString('Numeric WHERE', implode("\n", self::$deprecations));
 
         // Verify update worked
-        $row = DB::get('users', ['num' => 1]);
+        $row = DB::selectOne('users', ['num' => 1]);
         $this->assertSame('Int Where City', $row->get('city')->value());
     }
 
@@ -95,7 +95,7 @@ class NumericWhereDeprecationTest extends BaseTestCase
         $this->assertStringContainsString('Numeric WHERE', implode("\n", self::$deprecations));
 
         // Verify delete worked
-        $result = DB::get('users', ['num' => $insertId]);
+        $result = DB::selectOne('users', ['num' => $insertId]);
         $this->assertTrue($result->isEmpty());
     }
 

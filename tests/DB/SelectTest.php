@@ -15,7 +15,7 @@ use Itools\ZenDB\Tests\BaseTestCase;
 use Throwable;
 
 /**
- * Tests for DB::select() and DB::get() static methods
+ * Tests for DB::select() and DB::selectOne() static methods
  */
 class SelectTest extends BaseTestCase
 {
@@ -155,38 +155,38 @@ class SelectTest extends BaseTestCase
     }
 
     //endregion
-    //region DB::get() Tests
+    //region DB::selectOne() Tests
 
-    public function testGetSingleRow(): void
+    public function testSelectOneSingleRow(): void
     {
-        $result = DB::get('users', ['num' => 1]);
+        $result = DB::selectOne('users', ['num' => 1]);
         $this->assertSame('John Doe', $result->get('name')->value());
         $this->assertSame(1, $result->get('num')->value());
     }
 
-    public function testGetWithArrayCondition(): void
+    public function testSelectOneWithArrayCondition(): void
     {
-        $result = DB::get('users', ['name' => 'Charlie Brown']);
+        $result = DB::selectOne('users', ['name' => 'Charlie Brown']);
         $this->assertSame(5, $result->get('num')->value());
     }
 
-    public function testGetReturnsEmptyForNoMatch(): void
+    public function testSelectOneReturnsEmptyForNoMatch(): void
     {
-        $result = DB::get('users', ['num' => 9999]);
+        $result = DB::selectOne('users', ['num' => 9999]);
         $this->assertTrue($result->isEmpty());
     }
 
-    public function testGetWithLimitThrowsException(): void
+    public function testSelectOneWithLimitThrowsException(): void
     {
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage("doesn't support LIMIT or OFFSET");
-        DB::get('users', 'LIMIT 5');
+        DB::selectOne('users', 'LIMIT 5');
     }
 
-    public function testGetAutoAddsLimit(): void
+    public function testSelectOneAutoAddsLimit(): void
     {
-        // get() adds LIMIT 1, so result should be a single row
-        $result = DB::get('users', '');
+        // selectOne() adds LIMIT 1, so result should be a single row
+        $result = DB::selectOne('users', '');
         $this->assertFalse($result->isEmpty());
         $this->assertTrue($result->isFirst());
         $this->assertTrue($result->isLast());

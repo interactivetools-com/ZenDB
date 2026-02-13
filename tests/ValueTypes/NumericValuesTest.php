@@ -147,7 +147,7 @@ class NumericValuesTest extends BaseTestCase
             'city' => 'Test'
         ]);
 
-        $row = DB::get('users', ['num' => $insertId]);
+        $row = DB::selectOne('users', ['num' => $insertId]);
         $this->assertSame(99, $row->get('age')->value());
 
         // Clean up
@@ -165,7 +165,7 @@ class NumericValuesTest extends BaseTestCase
 
         DB::update('users', ['age' => 50], ['num' => $insertId]);
 
-        $row = DB::get('users', ['num' => $insertId]);
+        $row = DB::selectOne('users', ['num' => $insertId]);
         $this->assertSame(50, $row->get('age')->value());
 
         // Clean up
@@ -180,7 +180,7 @@ class NumericValuesTest extends BaseTestCase
             'total_amount' => 123.45
         ]);
 
-        $row = DB::get('orders', "total_amount = ?", 123.45);
+        $row = DB::selectOne('orders', "total_amount = ?", 123.45);
         $this->assertSame('123.45', $row->get('total_amount')->value());
 
         // Clean up

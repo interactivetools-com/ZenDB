@@ -12,8 +12,9 @@ use mysqli_stmt;
  */
 class MysqliStmtWrapper extends mysqli_stmt
 {
-    private string $query;
-    private float  $startTime;
+    private MysqliWrapper $mysqliWrapper;
+    private string        $query;
+    private float         $startTime;
 
     /** @internal For testing only - forces MysqliResultPolyfill even when mysqlnd is available */
     private static bool $forceResultPolyfill = false;
@@ -32,8 +33,9 @@ class MysqliStmtWrapper extends mysqli_stmt
 
     public function __construct(MysqliWrapper $mysqliWrapper, string $query, float $startTime)
     {
-        $this->query     = $query;
-        $this->startTime = $startTime;
+        $this->mysqliWrapper = $mysqliWrapper;
+        $this->query         = $query;
+        $this->startTime     = $startTime;
 
         parent::__construct($mysqliWrapper, $query);
     }
@@ -45,11 +47,11 @@ class MysqliStmtWrapper extends mysqli_stmt
         try {
             $result = parent::execute($params);
         } catch (mysqli_sql_exception $e) {
-            MysqliWrapper::log("$this->query /* params: $paramsJson */", $this->startTime, $e);
+            $this->mysqliWrapper->log("$this->query /* params: $paramsJson */", $this->startTime, $e);
             throw $e;
         }
 
-        MysqliWrapper::log("$this->query /* params: $paramsJson */", $this->startTime);
+        $this->mysqliWrapper->log("$this->query /* params: $paramsJson */", $this->startTime);
 
         return $result;
     }

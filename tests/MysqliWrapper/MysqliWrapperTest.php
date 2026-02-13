@@ -32,17 +32,17 @@ class MysqliWrapperTest extends BaseTestCase
     {
         DB::query("SELECT * FROM ::users LIMIT 1");
 
-        $this->assertStringContainsString('SELECT', MysqliWrapper::$lastQuery);
-        $this->assertStringContainsString('test_users', MysqliWrapper::$lastQuery);
+        $this->assertStringContainsString('SELECT', DB::$mysqli->lastQuery);
+        $this->assertStringContainsString('test_users', DB::$mysqli->lastQuery);
     }
 
     public function testLastQueryUpdatedOnEachQuery(): void
     {
         DB::query("SELECT * FROM ::users LIMIT 1");
-        $first = MysqliWrapper::$lastQuery;
+        $first = DB::$mysqli->lastQuery;
 
         DB::query("SELECT * FROM ::orders LIMIT 1");
-        $second = MysqliWrapper::$lastQuery;
+        $second = DB::$mysqli->lastQuery;
 
         $this->assertNotSame($first, $second);
         $this->assertStringContainsString('orders', $second);
@@ -52,8 +52,8 @@ class MysqliWrapperTest extends BaseTestCase
     {
         DB::insert('users', ['name' => 'LastQuery Test', 'status' => 'Active', 'city' => 'Test']);
 
-        $this->assertStringContainsString('INSERT', MysqliWrapper::$lastQuery);
-        $this->assertStringContainsString('LastQuery Test', MysqliWrapper::$lastQuery);
+        $this->assertStringContainsString('INSERT', DB::$mysqli->lastQuery);
+        $this->assertStringContainsString('LastQuery Test', DB::$mysqli->lastQuery);
 
         // Clean up
         DB::delete('users', ['name' => 'LastQuery Test']);
@@ -65,8 +65,8 @@ class MysqliWrapperTest extends BaseTestCase
 
         DB::update('users', ['city' => 'Query Test City'], ['num' => 1]);
 
-        $this->assertStringContainsString('UPDATE', MysqliWrapper::$lastQuery);
-        $this->assertStringContainsString('Query Test City', MysqliWrapper::$lastQuery);
+        $this->assertStringContainsString('UPDATE', DB::$mysqli->lastQuery);
+        $this->assertStringContainsString('Query Test City', DB::$mysqli->lastQuery);
     }
 
     public function testLastQueryOnDelete(): void
@@ -76,7 +76,7 @@ class MysqliWrapperTest extends BaseTestCase
 
         DB::delete('users', ['num' => $id]);
 
-        $this->assertStringContainsString('DELETE', MysqliWrapper::$lastQuery);
+        $this->assertStringContainsString('DELETE', DB::$mysqli->lastQuery);
     }
 
     //endregion

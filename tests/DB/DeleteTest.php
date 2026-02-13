@@ -32,14 +32,14 @@ class DeleteTest extends BaseTestCase
 
         $this->assertSame(1, $affected);
         $this->assertSame(19, DB::count('users'));
-        $this->assertTrue(DB::get('users', ['num' => 1])->isEmpty());
+        $this->assertTrue(DB::selectOne('users', ['num' => 1])->isEmpty());
     }
 
     public function testDeleteWithArrayCondition(): void
     {
         $affected = DB::delete('users', ['name' => 'John Doe']);
         $this->assertSame(1, $affected);
-        $this->assertTrue(DB::get('users', ['name' => 'John Doe'])->isEmpty());
+        $this->assertTrue(DB::selectOne('users', ['name' => 'John Doe'])->isEmpty());
     }
 
     public function testDeleteMultipleRows(): void

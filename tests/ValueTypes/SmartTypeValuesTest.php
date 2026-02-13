@@ -62,7 +62,7 @@ class SmartTypeValuesTest extends BaseTestCase
             'city' => new SmartString('Smart City')
         ]);
 
-        $row = DB::get('users', ['num' => $insertId]);
+        $row = DB::selectOne('users', ['num' => $insertId]);
         $this->assertSame('SmartString Test', $row->get('name')->value());
         $this->assertSame('Smart City', $row->get('city')->value());
 
@@ -89,7 +89,7 @@ class SmartTypeValuesTest extends BaseTestCase
             'city' => 'Test'
         ]);
 
-        $row = DB::get('users', ['num' => $insertId]);
+        $row = DB::selectOne('users', ['num' => $insertId]);
         $this->assertSame("O'Brien", $row->get('name')->value());
 
         // Clean up
@@ -110,7 +110,7 @@ class SmartTypeValuesTest extends BaseTestCase
             'city' => 'Test'
         ]);
 
-        $row = DB::get('users', ['num' => $insertId]);
+        $row = DB::selectOne('users', ['num' => $insertId]);
         $this->assertNull($row->get('isAdmin')->value());
 
         // Clean up
@@ -180,7 +180,7 @@ class SmartTypeValuesTest extends BaseTestCase
     public function testSmartStringFromQueryResult(): void
     {
         // Get a SmartString from query result
-        $row = DB::get('users', ['num' => 1]);
+        $row = DB::selectOne('users', ['num' => 1]);
         $name = $row->get('name'); // This is a SmartString
 
         // Use it in another query

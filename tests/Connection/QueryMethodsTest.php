@@ -27,7 +27,7 @@ class QueryMethodsTest extends BaseTestCase
         self::resetTempTestTables();
     }
 
-    //region Instance select() and get()
+    //region Instance select() and selectOne()
 
     public function testInstanceSelect(): void
     {
@@ -41,15 +41,15 @@ class QueryMethodsTest extends BaseTestCase
         $this->assertSame(10, $result->count());
     }
 
-    public function testInstanceGet(): void
+    public function testInstanceSelectOne(): void
     {
-        $result = self::$conn->get('users', ['num' => 2]);
+        $result = self::$conn->selectOne('users', ['num' => 2]);
         $this->assertSame('Jane Janey Doe', $result->get('name')->value());
     }
 
-    public function testInstanceGetReturnsEmptyForNoMatch(): void
+    public function testInstanceSelectOneReturnsEmptyForNoMatch(): void
     {
-        $result = self::$conn->get('users', ['num' => 9999]);
+        $result = self::$conn->selectOne('users', ['num' => 9999]);
         $this->assertTrue($result->isEmpty());
     }
 
@@ -70,7 +70,7 @@ class QueryMethodsTest extends BaseTestCase
         $this->assertSame(21, $insertId);
 
         // Read back and verify inserted data
-        $row = self::$conn->get('users', ['num' => 21]);
+        $row = self::$conn->selectOne('users', ['num' => 21]);
         $this->assertSame('Instance Insert Test', $row->get('name')->value());
         $this->assertSame('TestCity', $row->get('city')->value());
     }
@@ -83,7 +83,7 @@ class QueryMethodsTest extends BaseTestCase
         $affected = self::$conn->update('users', ['name' => 'Updated via Instance'], ['num' => 1]);
 
         $this->assertSame(1, $affected);
-        $this->assertSame('Updated via Instance', self::$conn->get('users', ['num' => 1])->get('name')->value());
+        $this->assertSame('Updated via Instance', self::$conn->selectOne('users', ['num' => 1])->get('name')->value());
     }
 
     //endregion
@@ -96,7 +96,7 @@ class QueryMethodsTest extends BaseTestCase
 
         $this->assertSame(1, $affected);
         $this->assertSame(19, self::$conn->count('users'));
-        $this->assertTrue(self::$conn->get('users', ['num' => 1])->isEmpty());
+        $this->assertTrue(self::$conn->selectOne('users', ['num' => 1])->isEmpty());
     }
 
     //endregion

@@ -29,6 +29,19 @@ class Connection
 {
     use ConnectionInternals;
 
+    //region Public Properties
+
+    /**
+     * The mysqli connection instance
+     */
+    public ?MysqliWrapper $mysqli = null;
+
+    /**
+     * Table prefix prepended to table names (e.g., 'cms_')
+     */
+    public string $tablePrefix = '';
+
+    //endregion
     //region Connection
 
     /**
@@ -37,7 +50,23 @@ class Connection
      *     DB::connect($config)      // Create and set as default connection
      *     new Connection($config)   // Create standalone connection
      *
-     * @param array $config Configuration options to set as properties
+     * @param array $config Configuration options:
+     *     - `hostname`              string   Database server hostname
+     *     - `username`              string   Database username
+     *     - `password`              string   Database password
+     *     - `database`              string   Database name
+     *     - `tablePrefix`           string   Prefix for table names (default: '')
+     *     - `useSmartJoins`         bool     Add table.column keys to JOIN results (default: true)
+     *     - `useSmartStrings`       bool     Return SmartString values (default: true)
+     *     - `usePhpTimezone`        bool     Sync MySQL timezone with PHP (default: true)
+     *     - `smartArrayLoadHandler` callable Custom result loading handler
+     *     - `versionRequired`       string   Minimum MySQL version (default: '5.7.32')
+     *     - `requireSSL`            bool     Require SSL connection (default: false)
+     *     - `databaseAutoCreate`    bool     Create database if missing (default: false)
+     *     - `connectTimeout`        int      Connection timeout in seconds (default: 3)
+     *     - `readTimeout`           int      Read timeout in seconds (default: 60)
+     *     - `queryLogger`           callable fn(string $query, float $secs, ?Throwable $error)
+     *     - `sqlMode`               string   MySQL SQL mode
      */
     public function __construct(array $config = [])
     {
@@ -94,6 +123,9 @@ class Connection
             } catch (mysqli_sql_exception $e) {
                 // if database doesn't exist and auto-create enabled, try again and create database
                 if ($this->databaseAutoCreate && $e->getCode() === 1049) {
+                    if (!preg_match('/^[\w-]+$/', $this->database)) {
+                        throw new InvalidArgumentException("Invalid database name '$this->database', allowed characters: a-z, A-Z, 0-9, _, -");
+                    }
                     $dbCreateQuery = "CREATE DATABASE `$this->database` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci";
                     $this->mysqli->real_connect($this->hostname, $this->username, $this->password, null, null, null, $flags);
                     $this->mysqli->query($dbCreateQuery) ?: throw new RuntimeException("Couldn't create DB: " . $this->mysqli->error);
@@ -204,9 +236,6 @@ class Connection
     public function query(string $sqlTemplate, ...$params): SmartArrayHtml
     {
         // Validate
-        if (!preg_match('/^\s*([a-zA-Z]+)\b/', $sqlTemplate)) {
-            throw new InvalidArgumentException("SQL statement must start with a valid SQL keyword such as SELECT, INSERT, etc.");
-        }
         $this->assertSafeTemplate($sqlTemplate);
 
         // Build SQL
@@ -217,6 +246,29 @@ class Connection
         $rows   = $this->fetchMappedRows($result);
 
         return $this->toSmartArray($rows, $sql);
+    }
+
+    /**
+     * Execute a raw SQL query and return the first row.
+     *
+     *     $row = DB::queryOne("SELECT name, email FROM ::users WHERE num = ?", 5);
+     *     echo "$row->name - $row->email";
+     *
+     *     $row = DB::queryOne("SELECT MAX(price) AS max_price FROM ::products");
+     *     echo $row->max_price;
+     *
+     * @param string $sqlTemplate SQL statement with placeholders
+     * @param mixed  ...$params   Parameters to bind
+     * @return SmartArrayHtml First row, or empty SmartArrayHtml if no rows
+     * @throws InvalidArgumentException
+     */
+    public function queryOne(string $sqlTemplate, ...$params): SmartArrayHtml
+    {
+        $this->rejectLimitAndOffset($sqlTemplate);
+
+        $resultSet = $this->query("$sqlTemplate LIMIT 1", ...$params);
+
+        return $resultSet->first()->asHtml(); // asHtml() ensures SmartNull from empty results becomes SmartArrayHtml
     }
 
     /**
@@ -247,35 +299,34 @@ class Connection
     }
 
     /**
-     * Get a single row from a table.
+     * Select a single row from a table. Always sends LIMIT 1 to MySQL.
+     *
+     *     $user = DB::selectOne('users', ['num' => 5]);
+     *     echo "$user->name - $user->email";
+     *
+     *     $user = DB::selectOne('users', "status = ?", 'Active');
      *
      * @param string           $baseTable  Table name (without prefix)
-     * @param int|array|string $whereEtc   WHERE and other clauses (ORDER BY, LIMIT, etc.)
+     * @param int|array|string $whereEtc   WHERE and other clauses
      * @param mixed            ...$params  Parameters to bind
      * @return SmartArrayHtml Single row or empty SmartArrayHtml
      * @throws InvalidArgumentException
      */
-    public function get(string $baseTable, int|array|string $whereEtc = [], ...$params): SmartArrayHtml
+    public function selectOne(string $baseTable, int|array|string $whereEtc = [], ...$params): SmartArrayHtml
     {
-        // Validate
         $this->assertValidTable($baseTable);
         $this->warnDeprecatedNumericWhere($whereEtc);
         $this->rejectLimitAndOffset($whereEtc);
 
-        // Build SQL
         $fullTable    = $this->tablePrefix . $baseTable;
         $whereClauses = $this->whereFromArgs($whereEtc, $params);
         $sql          = "SELECT * FROM `$fullTable` $whereClauses LIMIT 1";
 
-        // Execute
         $result    = $this->mysqli->query($sql);
         $rows      = $this->fetchMappedRows($result);
         $resultSet = $this->toSmartArray($rows, $sql, $baseTable);
 
-        if ($resultSet->isEmpty()) {
-            return $resultSet->filter(fn() => false);
-        }
-        return $resultSet->first();
+        return $resultSet->first()->asHtml(); // asHtml() ensures SmartNull from empty results becomes SmartArrayHtml
     }
 
     /**
@@ -320,7 +371,7 @@ class Connection
 
         // Detect likely reversed arguments: SET ['num' => 5] is almost always a mistake
         if (count($colsToValues) === 1 && in_array(array_key_first($colsToValues), ['num', 'id', 'ID'], true)) {
-            throw new InvalidArgumentException("Suspicious SET clause: only updating '" . array_key_first($colsToValues) . "'. Did you reverse the arguments? Signature is: update(\$table, \$colsToValues, \$where)");
+            throw new InvalidArgumentException("Suspicious SET clause: only updating '" . array_key_first($colsToValues) . "'. Did you reverse the arguments? Signature is: update(\$table, \$colsToValues, \$whereEtc)");
         }
 
         $fullTable    = $this->tablePrefix . $baseTable;
@@ -419,17 +470,40 @@ class Connection
     }
 
     /**
-     * Check if table exists in the database.
+     * Check if a permanent (non-temporary) table exists in the database.
+     *
+     * Uses INFORMATION_SCHEMA.TABLES instead of SHOW TABLES LIKE for two reasons:
+     * - MariaDB 11.2-11.2.3, 11.3.x, and 11.4.0-11.4.1 have a bug (MDEV-32973)
+     *   where SHOW TABLES LIKE ignores the LIKE pattern for temporary tables,
+     *   returning false positives for any pattern when a temp table exists.
+     * - SHOW TABLES LIKE doesn't escape _ and % wildcards, so table names
+     *   containing underscores (common with prefixes) match unintended tables.
+     *
+     * Note: This method does not detect temporary tables. MySQL doesn't
+     * expose them in INFORMATION_SCHEMA, and MariaDB only added support in
+     * 11.2+ (with TABLE_TYPE = 'TEMPORARY').
      *
      * @param string $table       Table name
      * @param bool   $isFullTable If true, treat as full table name (with prefix)
      * @return bool True if table exists
      * @throws InvalidArgumentException
+     *
+     * @see https://jira.mariadb.org/browse/MDEV-32973
      */
     public function tableExists(string $table, bool $isFullTable = false): bool
     {
         $fullTable = $isFullTable ? $table : $this->tablePrefix . $table;
-        return $this->query("SHOW TABLES LIKE ?", $fullTable)->count() > 0;
+        $result    = $this->mysqli->query(
+            "SELECT 1 FROM INFORMATION_SCHEMA.TABLES"
+            . " WHERE TABLE_SCHEMA = DATABASE()"
+            . " AND TABLE_NAME = '" . $this->mysqli->real_escape_string($fullTable) . "'"
+            . " AND TABLE_TYPE = 'BASE TABLE'"
+            . " LIMIT 1"
+        );
+        $exists = $result->num_rows > 0;
+        $result->free();
+
+        return $exists;
     }
 
     /**
@@ -553,6 +627,17 @@ class Connection
     /**
      * Converts array values to a safe CSV string for use in MySQL IN clauses.
      *
+     * Tip: You probably don't need this! Named placeholders handle arrays
+     * automatically, which is simpler and keeps your values parameterized:
+     *
+     *     // Instead of this:
+     *     DB::select('users', "id IN (?)", DB::escapeCSV([1, 2, 3]));
+     *
+     *     // Do this:
+     *     DB::select('users', "id IN (:ids)", [
+     *         ':ids' => [1, 2, 3],
+     *     ]);
+     *
      * @param array $array Array of values to convert
      * @return RawSql SQL-safe comma-separated list
      * @throws InvalidArgumentException
@@ -585,7 +670,7 @@ class Connection
      */
     public function likeContains(string|int|float|null|SmartString $input): RawSql
     {
-        return DB::rawSql("'%" . $this->escape($input, true) . "%'");
+        return new RawSql("'%" . $this->escape($input, true) . "%'");
     }
 
     /**
@@ -596,7 +681,7 @@ class Connection
      */
     public function likeContainsTSV(string|int|float|null|SmartString $input): RawSql
     {
-        return DB::rawSql("'%\\t" . $this->escape($input, true) . "\\t%'");
+        return new RawSql("'%\\t" . $this->escape($input, true) . "\\t%'");
     }
 
     /**
@@ -607,7 +692,7 @@ class Connection
      */
     public function likeStartsWith(string|int|float|null|SmartString $input): RawSql
     {
-        return DB::rawSql("'" . $this->escape($input, true) . "%'");
+        return new RawSql("'" . $this->escape($input, true) . "%'");
     }
 
     /**
@@ -618,21 +703,8 @@ class Connection
      */
     public function likeEndsWith(string|int|float|null|SmartString $input): RawSql
     {
-        return DB::rawSql("'%" . $this->escape($input, true) . "'");
+        return new RawSql("'%" . $this->escape($input, true) . "'");
     }
-
-    //endregion
-    //region Public Properties
-
-    /**
-     * The mysqli connection instance
-     */
-    public ?MysqliWrapper $mysqli = null;
-
-    /**
-     * Table prefix prepended to table names (e.g., 'cms_')
-     */
-    public string $tablePrefix = '';
 
     //endregion
 }

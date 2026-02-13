@@ -7,7 +7,6 @@ namespace Itools\ZenDB\Tests\DB;
 
 use Itools\ZenDB\DB;
 use Itools\ZenDB\Tests\BaseTestCase;
-use InvalidArgumentException;
 use mysqli_sql_exception;
 
 /**
@@ -52,10 +51,4 @@ class QueryTest extends BaseTestCase
         DB::query("INVALID SQL STATEMENT");
     }
 
-    public function testQueryMustStartWithKeyword(): void
-    {
-        $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage("must start with a valid SQL keyword");
-        DB::query("* FROM users");
-    }
 }

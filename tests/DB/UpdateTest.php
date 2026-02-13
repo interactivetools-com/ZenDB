@@ -31,7 +31,7 @@ class UpdateTest extends BaseTestCase
         $affected = DB::update('users', ['name' => 'Updated Name'], ['num' => 1]);
         $this->assertSame(1, $affected);
 
-        $result = DB::get('users', ['num' => 1]);
+        $result = DB::selectOne('users', ['num' => 1]);
         $this->assertSame('Updated Name', $result->get('name')->value());
     }
 
@@ -41,7 +41,7 @@ class UpdateTest extends BaseTestCase
         $this->assertSame(1, $affected);
 
         // Read back and verify
-        $result = DB::get('users', ['name' => 'John Doe']);
+        $result = DB::selectOne('users', ['name' => 'John Doe']);
         $this->assertSame('NewCity', $result->get('city')->value());
     }
 
@@ -70,7 +70,7 @@ class UpdateTest extends BaseTestCase
 
     public function testUpdateWithNoChangesReturnsZero(): void
     {
-        $this->assertSame('John Doe', DB::get('users', ['num' => 1])->get('name')->value());
+        $this->assertSame('John Doe', DB::selectOne('users', ['num' => 1])->get('name')->value());
         $affected = DB::update('users', ['name' => 'John Doe'], ['num' => 1]);
         $this->assertSame(0, $affected);
     }

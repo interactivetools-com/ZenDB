@@ -76,22 +76,40 @@ class DeprecatedMethodsTest extends BaseTestCase
     }
 
     //endregion
-    //region DB::identifier()
+    //region DB::get() - deprecated, use selectOne()
 
-    public function testIdentifierMethodWorks(): void
+    public function testGetMethodWorks(): void
     {
-        $result = @DB::identifier('users');
-        $this->assertInstanceOf(RawSql::class, $result);
-        $this->assertSame('`users`', (string) $result);
+        $result = @DB::get('users', ['num' => 1]);
+        $this->assertSame('John Doe', $result->get('name')->value());
     }
 
-    public function testIdentifierMethodTriggersDeprecation(): void
+    public function testGetMethodTriggersDeprecation(): void
     {
-        DB::identifier('table');
+        DB::get('users', ['num' => 1]);
 
         $this->assertCount(1, self::$deprecations);
-        $this->assertStringContainsString('DB::identifier()', self::$deprecations[0]);
+        $this->assertStringContainsString('DB::get()', self::$deprecations[0]);
         $this->assertStringContainsString('deprecated', self::$deprecations[0]);
+        $this->assertStringContainsString('selectOne()', self::$deprecations[0]);
+    }
+
+    public function testGetRejectsLimitLikeSelectOne(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage("doesn't support LIMIT or OFFSET");
+        @DB::get('users', 'LIMIT 5');
+    }
+
+    //endregion
+    //region DB::identifier() - removed for security
+
+    public function testIdentifierMethodThrows(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('DB::identifier() has been removed');
+
+        DB::identifier('users');
     }
 
     //endregion

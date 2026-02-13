@@ -94,7 +94,7 @@ class SmartArrayIntegrationTest extends BaseTestCase
 
     public function testRowPropertyAccess(): void
     {
-        $row = DB::get('users', ['num' => 1]);
+        $row = DB::selectOne('users', ['num' => 1]);
 
         // Property-style access returns SmartString
         $name = $row->name;
@@ -103,7 +103,7 @@ class SmartArrayIntegrationTest extends BaseTestCase
 
     public function testRowArrayAccess(): void
     {
-        $row = DB::get('users', ['num' => 1]);
+        $row = DB::selectOne('users', ['num' => 1]);
 
         // Array-style access
         $name = $row['name'];
@@ -112,7 +112,7 @@ class SmartArrayIntegrationTest extends BaseTestCase
 
     public function testRowGetWithDefault(): void
     {
-        $row = DB::get('users', ['num' => 1]);
+        $row = DB::selectOne('users', ['num' => 1]);
 
         // Get with default for missing key - returns SmartString wrapping the default
         $missing = $row->get('nonexistent', 'default');
@@ -122,7 +122,7 @@ class SmartArrayIntegrationTest extends BaseTestCase
 
     public function testRowToArray(): void
     {
-        $row = DB::get('users', ['num' => 1]);
+        $row = DB::selectOne('users', ['num' => 1]);
         $array = $row->toArray();
 
         $this->assertIsArray($array);
@@ -132,7 +132,7 @@ class SmartArrayIntegrationTest extends BaseTestCase
 
     public function testRowKeyExists(): void
     {
-        $row = DB::get('users', ['num' => 1]);
+        $row = DB::selectOne('users', ['num' => 1]);
 
         // Use isset() or array key exists via offsetExists
         $this->assertTrue(isset($row['name']));
@@ -146,7 +146,7 @@ class SmartArrayIntegrationTest extends BaseTestCase
     public function testValueAutoHtmlEncoding(): void
     {
         // User 8 has HTML in name: 'Frank <b>Miller</b>'
-        $row = DB::get('users', ['num' => 8]);
+        $row = DB::selectOne('users', ['num' => 8]);
 
         // In string context, SmartString auto-encodes HTML
         $html = (string) $row->get('name');
@@ -155,7 +155,7 @@ class SmartArrayIntegrationTest extends BaseTestCase
 
     public function testValueMethodAccess(): void
     {
-        $row = DB::get('users', ['num' => 1]);
+        $row = DB::selectOne('users', ['num' => 1]);
 
         // ->value() returns raw value
         $raw = $row->get('name')->value();
@@ -164,7 +164,7 @@ class SmartArrayIntegrationTest extends BaseTestCase
 
     public function testValueHtmlEncode(): void
     {
-        $row = DB::get('users', ['num' => 8]);
+        $row = DB::selectOne('users', ['num' => 8]);
 
         // Explicit HTML encoding
         $html = $row->get('name')->htmlEncode();
@@ -173,7 +173,7 @@ class SmartArrayIntegrationTest extends BaseTestCase
 
     public function testValueUrlEncode(): void
     {
-        $row = DB::get('users', ['num' => 18]);
+        $row = DB::selectOne('users', ['num' => 18]);
         // "St. John's" has apostrophe
 
         $url = $row->get('city')->urlEncode();
@@ -182,7 +182,7 @@ class SmartArrayIntegrationTest extends BaseTestCase
 
     public function testValueJsonEncode(): void
     {
-        $row = DB::get('users', ['num' => 1]);
+        $row = DB::selectOne('users', ['num' => 1]);
 
         $json = $row->get('name')->jsonEncode();
         $this->assertSame('"John Doe"', $json);
@@ -191,7 +191,7 @@ class SmartArrayIntegrationTest extends BaseTestCase
     public function testValueWithNull(): void
     {
         // User 2 has isAdmin = NULL
-        $row = DB::get('users', ['num' => 2]);
+        $row = DB::selectOne('users', ['num' => 2]);
 
         $isAdmin = $row->get('isAdmin');
         $this->assertNull($isAdmin->value());

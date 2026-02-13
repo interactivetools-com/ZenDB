@@ -18,6 +18,10 @@
       "homepage": "https://interactivetools.com/"
     }
   ],
+  "repositories": [
+    {"type": "path", "url": "../SmartArray",  "options": {"symlink": true}, "canonical": false},
+    {"type": "path", "url": "../SmartString", "options": {"symlink": true}, "canonical": false}
+  ],
   "autoload": {
     "psr-4": {
       "Itools\\ZenDB\\": "src/"
@@ -31,13 +35,12 @@
   "require": {
     "php": "^8.1",
     "ext-mysqli": "*",
-    "itools/smartarray": "^2.0.0",
-    "itools/smartstring": "^2.0.0"
+    "itools/smartarray": "^2.5.0",
+    "itools/smartstring": "^2.5.0"
   },
   "require-dev": {
-    "phpunit/phpunit": "^9.6",
-    "squizlabs/php_codesniffer": "^3.12",
-    "phpunit/php-code-coverage": "^9.2"
+    "phpunit/phpunit": "^10.5",
+    "squizlabs/php_codesniffer": "^3.12"
   },
   "suggest": {
     "ext-mbstring": "For proper UTF-8 handling"

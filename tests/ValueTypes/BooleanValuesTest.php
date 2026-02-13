@@ -48,7 +48,7 @@ class BooleanValuesTest extends BaseTestCase
             'city' => 'Test'
         ]);
 
-        $row = DB::get('users', ['num' => $insertId]);
+        $row = DB::selectOne('users', ['num' => $insertId]);
         $this->assertSame(1, $row->get('isAdmin')->value());
 
         // Clean up
@@ -64,7 +64,7 @@ class BooleanValuesTest extends BaseTestCase
             'city' => 'Test'
         ]);
 
-        $row = DB::get('users', ['num' => $insertId]);
+        $row = DB::selectOne('users', ['num' => $insertId]);
         $this->assertSame(0, $row->get('isAdmin')->value());
 
         // Clean up
@@ -119,13 +119,13 @@ class BooleanValuesTest extends BaseTestCase
         // Update with boolean true
         DB::update('users', ['isAdmin' => true], ['num' => $insertId]);
 
-        $row = DB::get('users', ['num' => $insertId]);
+        $row = DB::selectOne('users', ['num' => $insertId]);
         $this->assertSame(1, $row->get('isAdmin')->value());
 
         // Update with boolean false
         DB::update('users', ['isAdmin' => false], ['num' => $insertId]);
 
-        $row = DB::get('users', ['num' => $insertId]);
+        $row = DB::selectOne('users', ['num' => $insertId]);
         $this->assertSame(0, $row->get('isAdmin')->value());
 
         // Clean up
@@ -159,7 +159,7 @@ class BooleanValuesTest extends BaseTestCase
             'city' => 'Test'
         ]);
 
-        $row = DB::get('users', ['num' => $insertId]);
+        $row = DB::selectOne('users', ['num' => $insertId]);
         $this->assertSame($expectedDbValue, $row->get('isAdmin')->value());
 
         // Clean up

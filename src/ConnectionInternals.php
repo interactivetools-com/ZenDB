@@ -226,13 +226,13 @@ trait ConnectionInternals
     }
 
     /**
-     * Reject LIMIT/OFFSET in WHERE clause - use select() instead.
+     * Reject LIMIT/OFFSET - these methods add their own LIMIT internally.
      * @throws InvalidArgumentException
      */
     private function rejectLimitAndOffset(int|array|string $where): void
     {
-        if (is_string($where) && preg_match('/\b(LIMIT|OFFSET)\s+[0-9:?]+\s*/i', $where)) {
-            throw new InvalidArgumentException("This method doesn't support LIMIT or OFFSET, use select() instead");
+        if (is_string($where) && preg_match('/\b(LIMIT|OFFSET)\b/i', $where)) {
+            throw new InvalidArgumentException("This method doesn't support LIMIT or OFFSET");
         }
     }
 
@@ -302,11 +302,11 @@ trait ConnectionInternals
                 is_null($value)                  => "NULL",
                 is_int($value), is_float($value) => $value,
                 is_bool($value)                  => $value ? 'TRUE' : 'FALSE',
-                DB::isRawSql($value)             => (string) $value,
-                $value instanceof SmartString    => '"' . $this->mysqli->real_escape_string((string) $value->value()) . '"',
-                $value instanceof SmartArrayBase => (string) DB::escapeCSV($value->toArray()),
-                is_array($value)                 => (string) DB::escapeCSV($value),
-                is_string($value)                => '"' . $this->mysqli->real_escape_string($value) . '"',
+                $value instanceof RawSql          => (string) $value,
+                $value instanceof SmartString    => "'" . $this->mysqli->real_escape_string((string) $value->value()) . "'",
+                $value instanceof SmartArrayBase => (string) $this->escapeCSV($value->toArray()),
+                is_array($value)                 => (string) $this->escapeCSV($value),
+                is_string($value)                => "'" . $this->mysqli->real_escape_string($value) . "'",
                 default                          => throw new InvalidArgumentException("Unsupported value type for column '$column': " . get_debug_type($value)),
             };
             $setElements[] = "`$column` = $escaped";
@@ -393,11 +393,11 @@ trait ConnectionInternals
                 is_null($value)                  => "`$column` IS NULL",
                 is_int($value), is_float($value) => "`$column` = $value",
                 is_bool($value)                  => "`$column` = " . ($value ? 'TRUE' : 'FALSE'),
-                DB::isRawSql($value)             => "`$column` = " . $value,
-                $value instanceof SmartString    => "`$column` = \"" . $this->mysqli->real_escape_string((string) $value->value()) . "\"",
-                $value instanceof SmartArrayBase => "`$column` IN (" . DB::escapeCSV($value->toArray()) . ")",
-                is_array($value)                 => "`$column` IN (" . DB::escapeCSV($value) . ")",
-                is_string($value)                => "`$column` = \"" . $this->mysqli->real_escape_string($value) . "\"",
+                $value instanceof RawSql          => "`$column` = " . $value,
+                $value instanceof SmartString    => "`$column` = '" . $this->mysqli->real_escape_string((string) $value->value()) . "'",
+                $value instanceof SmartArrayBase => "`$column` IN (" . $this->escapeCSV($value->toArray()) . ")",
+                is_array($value)                 => "`$column` IN (" . $this->escapeCSV($value) . ")",
+                is_string($value)                => "`$column` = '" . $this->mysqli->real_escape_string($value) . "'",
                 default                          => throw new InvalidArgumentException("Unsupported value type for column '$column': " . get_debug_type($value)),
             };
         }
@@ -466,9 +466,9 @@ trait ConnectionInternals
                     is_null($value)                  => 'NULL',
                     is_int($value), is_float($value) => $value,
                     is_bool($value)                  => $value ? 'TRUE' : 'FALSE',
-                    DB::isRawSql($value)             => (string) $value,
-                    is_array($value)                 => (string) DB::escapeCSV($value),
-                    is_string($value)                => '"' . $this->mysqli->real_escape_string($value) . '"',
+                    $value instanceof RawSql          => (string) $value,
+                    is_array($value)                 => (string) $this->escapeCSV($value),
+                    is_string($value)                => "'" . $this->mysqli->real_escape_string($value) . "'",
                     default                          => throw new InvalidArgumentException("Unsupported type for placeholder $match: " . get_debug_type($value)),
                 };
             },
@@ -491,7 +491,7 @@ trait ConnectionInternals
     {
         // Handle bare :: (table prefix alone)
         if ($match === '::') {
-            return DB::rawSql($this->tablePrefix);
+            return new RawSql($this->tablePrefix);
         }
 
         // Parse placeholder: strip backticks and :: prefix
@@ -670,7 +670,7 @@ trait ConnectionInternals
     // Advanced connection settings
     public string $versionRequired    = '5.7.32';
     public bool   $requireSSL         = false;
-    public bool   $databaseAutoCreate = true;
+    public bool   $databaseAutoCreate = false;
     public int    $connectTimeout     = 3;
     public int    $readTimeout        = 60;
     public mixed $queryLogger         = null;   // e.g., fn(string $query, float $durationSecs, ?Throwable $error): void

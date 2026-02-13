@@ -70,7 +70,7 @@ class SettingsTest extends BaseTestCase
     public function testSmartStringsEnabledReturnsSmartStringValues(): void
     {
         self::$conn->useSmartStrings = true;
-        $result = self::$conn->get('users', ['num' => 1]);
+        $result = self::$conn->selectOne('users', ['num' => 1]);
 
         $this->assertInstanceOf(\Itools\SmartString\SmartString::class, $result->get('name'));
         $this->assertSame('John Doe', $result->get('name')->value());
@@ -84,7 +84,7 @@ class SettingsTest extends BaseTestCase
 
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage("Cannot create SmartArrayHtml with useSmartStrings=false");
-        self::$conn->get('users', ['num' => 1]);
+        self::$conn->selectOne('users', ['num' => 1]);
     }
 
     //endregion

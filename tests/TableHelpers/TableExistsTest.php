@@ -10,8 +10,8 @@ use Itools\ZenDB\Tests\BaseTestCase;
 /**
  * Tests for DB::tableExists() method
  *
- * Note: TEMPORARY tables don't show up in SHOW TABLES LIKE, so we test with
- * permanent test tables created for this purpose.
+ * Note: tableExists() queries INFORMATION_SCHEMA.TABLES with TABLE_TYPE = 'BASE TABLE',
+ * so temporary tables are not detected. We test with permanent tables.
  *
  * @covers \Itools\ZenDB\Connection::tableExists
  */
