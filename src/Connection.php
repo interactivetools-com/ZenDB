@@ -445,9 +445,9 @@ class Connection
     public function getBaseTable(string $table, bool $strict = false): string
     {
         return match (true) {
-            !str_starts_with($table, $this->tablePrefix)  => $table,
-            $strict && $this->tableExists($table, false)  => $table,
-            default                                       => substr($table, strlen($this->tablePrefix)),
+            !str_starts_with($table, $this->tablePrefix) => $table,
+            $strict && !$this->tableExists($table, true) => throw new InvalidArgumentException("Table '$table' does not exist"),
+            default => substr($table, strlen($this->tablePrefix)),
         };
     }
 
