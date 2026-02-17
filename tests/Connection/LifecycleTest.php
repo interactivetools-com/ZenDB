@@ -83,12 +83,9 @@ class LifecycleTest extends BaseTestCase
 
     public function testConnectWithMissingCredentials(): void
     {
-        $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage("Missing required database credentials");
-        $conn           = new Connection();
-        $conn->hostname = null;
-        $conn->username = null;
-        $conn->connect();
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage("Missing required config: 'hostname'");
+        new Connection();
     }
 
     public function testConnectWithAutoCreateDatabase(): void
@@ -323,16 +320,14 @@ class LifecycleTest extends BaseTestCase
 
     public function testConnectionInstanceConnect(): void
     {
-        $conn = new Connection();
-        $conn->hostname = self::$configDefaults['hostname'];
-        $conn->username = self::$configDefaults['username'];
-        $conn->password = self::$configDefaults['password'];
-        $conn->database = self::$configDefaults['database'];
+        $conn = new Connection([
+            'hostname' => self::$configDefaults['hostname'],
+            'username' => self::$configDefaults['username'],
+            'password' => self::$configDefaults['password'],
+            'database' => self::$configDefaults['database'],
+        ]);
 
-        $this->assertFalse($conn->isConnected());
-
-        $conn->connect();
-
+        // Constructor auto-connects when hostname is provided
         $this->assertTrue($conn->isConnected());
     }
 

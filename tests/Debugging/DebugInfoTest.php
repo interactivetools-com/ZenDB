@@ -4,8 +4,12 @@ declare(strict_types=1);
 
 namespace Itools\ZenDB\Tests\Debugging;
 
+use InvalidArgumentException;
 use Itools\ZenDB\Connection;
+use Itools\ZenDB\MysqliWrapper;
 use Itools\ZenDB\Tests\BaseTestCase;
+use ReflectionProperty;
+use WeakMap;
 
 /**
  * Tests for __debugInfo() method (var_dump output)
@@ -14,11 +18,38 @@ use Itools\ZenDB\Tests\BaseTestCase;
  */
 class DebugInfoTest extends BaseTestCase
 {
+    /**
+     * Inject a password into a Connection's credential vault for testing.
+     */
+    private function injectVaultPassword(Connection $conn, string $password): void
+    {
+        $prop = new ReflectionProperty($conn, 'secrets');
+        /** @var WeakMap $secrets */
+        $secrets                    = $prop->getValue();
+        $entry                      = $secrets[$conn];
+        $entry['password']          = $password;
+        $secrets[$conn]             = $entry;
+    }
+
     public function testDebugInfoMasksPassword(): void
     {
-        // Create connection instance without connecting, then set password
-        $conn = new Connection();
-        $conn->password = 'secret_password_123';
+        // configDefaults has password '' which is empty and won't be masked
+        // Use a separate connection with a real password to test masking
+        $conn = new Connection(self::$configDefaults);
+
+        // Inject a non-empty password into the vault to test masking
+        $debugInfo = $conn->__debugInfo();
+        $this->assertArrayHasKey('password', $debugInfo);
+
+        // With empty password, should NOT be masked
+        $this->assertSame('', $debugInfo['password']);
+    }
+
+    public function testDebugInfoMasksNonEmptyPassword(): void
+    {
+        // Connect normally, then inject a non-empty password into the vault to test masking
+        $conn = new Connection(self::$configDefaults);
+        $this->injectVaultPassword($conn, 'secret_password_123');
 
         $debugInfo = $conn->__debugInfo();
 
@@ -55,25 +86,11 @@ class DebugInfoTest extends BaseTestCase
         $this->assertSame('', $debugInfo['password']);
     }
 
-    public function testDebugInfoWithNullPassword(): void
-    {
-        // Create connection without setting password
-        $config = self::$configDefaults;
-        $config['password'] = null;
-
-        $conn = new Connection($config);
-        $debugInfo = $conn->__debugInfo();
-
-        // Null password should not be masked
-        $this->assertArrayHasKey('password', $debugInfo);
-        $this->assertNull($debugInfo['password']);
-    }
-
     public function testVarDumpShowsMaskedPassword(): void
     {
-        // Create connection instance without connecting, then set password
-        $conn = new Connection();
-        $conn->password = 'my_secret_pass';
+        // Connect normally, then inject a non-empty password into the vault to test masking
+        $conn = new Connection(self::$configDefaults);
+        $this->injectVaultPassword($conn, 'my_secret_pass');
 
         // Capture var_dump output
         ob_start();
@@ -85,6 +102,15 @@ class DebugInfoTest extends BaseTestCase
         $this->assertStringNotContainsString('my_secret_pass', $output);
     }
 
+    public function testCloneRejectsCredentialOverrides(): void
+    {
+        $conn = new Connection(self::$configDefaults);
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage("Cannot override credentials in clone()");
+        $conn->clone(['password' => 'sneaky']);
+    }
+
     public function testDebugInfoIncludesMysqli(): void
     {
         $conn = new Connection(self::$configDefaults);
@@ -92,7 +118,7 @@ class DebugInfoTest extends BaseTestCase
         $debugInfo = $conn->__debugInfo();
 
         $this->assertArrayHasKey('mysqli', $debugInfo);
-        $this->assertInstanceOf(\Itools\ZenDB\MysqliWrapper::class, $debugInfo['mysqli']);
+        $this->assertInstanceOf(MysqliWrapper::class, $debugInfo['mysqli']);
     }
 
     public function testDebugInfoIncludesSettings(): void
@@ -109,19 +135,6 @@ class DebugInfoTest extends BaseTestCase
 
         $this->assertArrayHasKey('useSmartStrings', $debugInfo);
         $this->assertTrue($debugInfo['useSmartStrings']);
-    }
-
-    public function testDebugInfoBeforeConnection(): void
-    {
-        // Create connection instance without connecting
-        $conn = new Connection();
-
-        $debugInfo = $conn->__debugInfo();
-
-        // Should still return properties
-        $this->assertIsArray($debugInfo);
-        $this->assertNull($debugInfo['hostname']);
-        $this->assertNull($debugInfo['mysqli']);
     }
 
     public function testDebugInfoAfterDisconnect(): void

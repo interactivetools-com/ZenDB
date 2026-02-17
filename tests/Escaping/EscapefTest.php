@@ -142,17 +142,6 @@ class EscapefTest extends BaseTestCase
     //endregion
     //region Error Conditions
 
-    public function testEscapefBeforeConnectionThrows(): void
-    {
-        // Create a new connection instance without connecting
-        $conn = new \Itools\ZenDB\Connection();
-
-        $this->expectException(RuntimeException::class);
-        $this->expectExceptionMessage("called before DB connection established");
-
-        $conn->escapef("name = ?", 'test');
-    }
-
     public function testEscapefUnsupportedTypeThrows(): void
     {
         $this->expectException(InvalidArgumentException::class);

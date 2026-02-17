@@ -4,11 +4,13 @@ declare(strict_types=1);
 namespace Itools\ZenDB;
 
 use InvalidArgumentException;
+use RuntimeException;
 use Itools\SmartArray\SmartArrayBase;
 use Itools\SmartArray\SmartArrayHtml;
 use Itools\SmartArray\SmartNull;
 use Itools\SmartString\SmartString;
 use Throwable;
+use WeakMap;
 use mysqli;
 use mysqli_result;
 
@@ -643,38 +645,88 @@ trait ConnectionInternals
     public function __debugInfo(): array
     {
         $props = get_object_vars($this);
-        if (!empty($props['password'])) {
+
+        // Restore sealed credentials for debug output
+        foreach (self::$secrets[$this] ?? [] as $key => $value) {
+            $props[$key] = $value;
+        }
+        if ($props['password'] !== '' && $props['password'] !== null) {
             $props['password'] = '********';    // mask password
         }
+
         return $props;
+    }
+
+    //endregion
+    //region Credential Vault
+
+    /** @var string[] Keys sealed into the WeakMap vault */
+    private static array $secretKeys = ['hostname', 'username', 'password', 'database'];
+
+    /**
+     * Credentials stored outside instance properties to prevent leakage
+     * via serialize(), var_export(), and (array) cast.
+     */
+    private static WeakMap $secrets;
+
+    /**
+     * Seal credentials into the WeakMap vault and null them on the object.
+     * Requires hostname, username, password, and database to be present
+     * in $config (construct) or $source vault (clone), throws otherwise.
+     *
+     *     $this->sealSecrets(config: $config);    // construct: credentials from config
+     *     $clone->sealSecrets(source: $this);     // clone: copy from source vault
+     *
+     * @param self|null $source Source connection to copy secrets from (for clones)
+     * @param array     $config Config array; credential keys are consumed (construct path only)
+     * @throws RuntimeException If any required credential is missing
+     */
+    private function sealSecrets(?self $source = null, array &$config = []): void
+    {
+        self::$secrets       ??= new WeakMap();
+        self::$secrets[$this] = [];
+
+        foreach (self::$secretKeys as $key) {
+            $value = $source
+                ? self::$secrets[$source][$key] ?? null  // clone: copy from source
+                : $config[$key] ?? null;                 // construct: from config
+
+            self::$secrets[$this][$key] = $value ?? throw new RuntimeException("Missing required config: '$key'");
+            $this->$key = null;            // clear property to prevent leakage
+            unset($config[$key]);          // consume key so it won't hit the property loop
+        }
+    }
+
+    /**
+     * Read a credential from the vault.
+     */
+    private function secret(string $key): ?string
+    {
+        return self::$secrets[$this][$key] ?? null;
     }
 
     //endregion
     //region Connection Settings
 
-    // Connection credentials (kept for reconnection)
-    public ?string $hostname = null;
-    public ?string $username = null;
-    public ?string $password = null;
-    public ?string $database = null;
-
-    // Query behavior
-    public bool $useSmartJoins   = true;
-    public bool $useSmartStrings = true;
-    public bool $usePhpTimezone  = true;
+    // Connection credentials (exist for property_exists validation, values stored in WeakMap)
+    private ?string $hostname = null;
+    private ?string $username = null;
+    private ?string $password = null;
+    private ?string $database = null;
 
     // Result handling
     /** @var callable|null Custom handler for loading results */
-    public mixed $smartArrayLoadHandler = null;
+    private mixed $smartArrayLoadHandler = null;
 
-    // Advanced connection settings
-    public string $versionRequired    = '5.7.32';
-    public bool   $requireSSL         = false;
-    public bool   $databaseAutoCreate = false;
-    public int    $connectTimeout     = 3;
-    public int    $readTimeout        = 60;
-    public mixed $queryLogger         = null;   // e.g., fn(string $query, float $durationSecs, ?Throwable $error): void
-    public string $sqlMode            = 'STRICT_ALL_TABLES,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION';
+    // Connect-time settings (only used during connect(), changing after has no effect)
+    private bool   $usePhpTimezone     = true;
+    private string $versionRequired    = '5.7.32';
+    private bool   $requireSSL         = false;
+    private bool   $databaseAutoCreate = false;
+    private int    $connectTimeout     = 3;
+    private int    $readTimeout        = 60;
+    private mixed  $queryLogger        = null;   // e.g., fn(string $query, float $durationSecs, ?Throwable $error): void
+    private string $sqlMode            = 'STRICT_ALL_TABLES,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION';
 
     //endregion
 }

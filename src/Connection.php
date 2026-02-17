@@ -32,7 +32,7 @@ class Connection
     //region Public Properties
 
     /**
-     * The mysqli connection instance
+     * The raw mysqli connection instance. You can use this for direct access to mysqli methods if needed.
      */
     public ?MysqliWrapper $mysqli = null;
 
@@ -40,6 +40,16 @@ class Connection
      * Table prefix prepended to table names (e.g., 'cms_')
      */
     public string $tablePrefix = '';
+
+    /**
+     * Add table-prefixed keys to JOIN results for column disambiguation
+     */
+    public bool $useSmartJoins = true;
+
+    /**
+     * Return values as SmartString objects with auto HTML-encoding
+     */
+    public bool $useSmartStrings = true;
 
     //endregion
     //region Connection
@@ -50,38 +60,41 @@ class Connection
      *     DB::connect($config)      // Create and set as default connection
      *     new Connection($config)   // Create standalone connection
      *
-     * @param array $config Configuration options:
-     *     - `hostname`              string   Database server hostname
-     *     - `username`              string   Database username
-     *     - `password`              string   Database password
-     *     - `database`              string   Database name
-     *     - `tablePrefix`           string   Prefix for table names (default: '')
-     *     - `useSmartJoins`         bool     Add table.column keys to JOIN results (default: true)
-     *     - `useSmartStrings`       bool     Return SmartString values (default: true)
-     *     - `usePhpTimezone`        bool     Sync MySQL timezone with PHP (default: true)
-     *     - `smartArrayLoadHandler` callable Custom result loading handler
-     *     - `versionRequired`       string   Minimum MySQL version (default: '5.7.32')
-     *     - `requireSSL`            bool     Require SSL connection (default: false)
-     *     - `databaseAutoCreate`    bool     Create database if missing (default: false)
-     *     - `connectTimeout`        int      Connection timeout in seconds (default: 3)
-     *     - `readTimeout`           int      Read timeout in seconds (default: 60)
-     *     - `queryLogger`           callable fn(string $query, float $secs, ?Throwable $error)
-     *     - `sqlMode`               string   MySQL SQL mode
+     * @param array{
+     *     hostname:              string,    // Database server hostname
+     *     username:              string,    // Database username
+     *     password:              string,    // Database password (use '' for none)
+     *     database:              string,    // Database name
+     *     tablePrefix?:          string,    // Prefix for table names (default: '')
+     *     useSmartJoins?:        bool,      // Add table.column keys to JOIN results (default: true)
+     *     useSmartStrings?:      bool,      // Return SmartString values (default: true)
+     *     usePhpTimezone?:       bool,      // Sync MySQL timezone with PHP (default: true)
+     *     smartArrayLoadHandler?: callable, // Custom result loading handler
+     *     versionRequired?:      string,    // Minimum MySQL version (default: '5.7.32')
+     *     requireSSL?:           bool,      // Require SSL connection (default: false)
+     *     databaseAutoCreate?:   bool,      // Create database if missing (default: false)
+     *     connectTimeout?:       int,       // Connection timeout in seconds (default: 3)
+     *     readTimeout?:          int,       // Read timeout in seconds (default: 60)
+     *     queryLogger?:          callable,  // fn(string $query, float $secs, ?Throwable $error)
+     *     sqlMode?:              string,    // MySQL SQL mode
+     * } $config
      */
-    public function __construct(array $config = [])
+    public function __construct(#[\SensitiveParameter] array $config = [])
     {
-        // Apply configuration
+        // Seal credentials into vault (removes credential keys from $config)
+        $this->sealSecrets(config: $config);
+
+        // Apply remaining config to properties
         foreach ($config as $key => $value) {
             if (!property_exists($this, $key)) {
                 throw new InvalidArgumentException("Unknown configuration key: '$key'");
             }
             $this->$key = $value;
         }
+        unset($config);
 
-        // Connect immediately if connection settings provided
-        if ($this->hostname !== null) {
-            $this->connect();
-        }
+        // Connect
+        $this->connect();
     }
 
     /**
@@ -94,11 +107,6 @@ class Connection
         // Throw if already connected
         if ($this->isConnected()) {
             throw new RuntimeException("Already connected. To reconnect, call disconnect() first.");
-        }
-
-        // Validate required connection credentials
-        if ($this->hostname === null || $this->username === null) {
-            throw new InvalidArgumentException("Missing required database credentials: hostname and username must be set");
         }
 
         // Create a new mysqli instance
@@ -119,17 +127,18 @@ class Connection
             mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);  // ensure exceptions are thrown (default for PHP 8.1+)
 
             try {
-                $this->mysqli->real_connect($this->hostname, $this->username, $this->password, $this->database, null, null, $flags);
+                $this->mysqli->real_connect($this->secret('hostname'), $this->secret('username'), $this->secret('password'), $this->secret('database'), null, null, $flags);
             } catch (mysqli_sql_exception $e) {
                 // if database doesn't exist and auto-create enabled, try again and create database
+                $database = $this->secret('database');
                 if ($this->databaseAutoCreate && $e->getCode() === 1049) {
-                    if (!preg_match('/^[\w-]+$/', $this->database)) {
-                        throw new InvalidArgumentException("Invalid database name '$this->database', allowed characters: a-z, A-Z, 0-9, _, -");
+                    if (!preg_match('/^[\w-]+$/', $database)) {
+                        throw new InvalidArgumentException("Invalid database name '$database', allowed characters: a-z, A-Z, 0-9, _, -");
                     }
-                    $dbCreateQuery = "CREATE DATABASE `$this->database` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci";
-                    $this->mysqli->real_connect($this->hostname, $this->username, $this->password, null, null, null, $flags);
+                    $dbCreateQuery = "CREATE DATABASE `$database` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci";
+                    $this->mysqli->real_connect($this->secret('hostname'), $this->secret('username'), $this->secret('password'), null, null, null, $flags);
                     $this->mysqli->query($dbCreateQuery) ?: throw new RuntimeException("Couldn't create DB: " . $this->mysqli->error);
-                    $this->mysqli->select_db($this->database) ?: throw new RuntimeException("MySQL Error selecting database: " . $this->mysqli->error);
+                    $this->mysqli->select_db($database) ?: throw new RuntimeException("MySQL Error selecting database: " . $this->mysqli->error);
                 } else {
                     throw $e;
                 }
@@ -140,7 +149,7 @@ class Connection
             $errorDetail  = $e->getMessage() ?? $this->mysqli->connect_error;
 
             // Detect WSL + Unix socket failure
-            $isWslSocketError = isset($_SERVER['WSL_DISTRO_NAME']) && $errorCode === 2002 && preg_match('/No such file/i', $errorDetail) && preg_match('/^localhost$/i', (string) $this->hostname);
+            $isWslSocketError = isset($_SERVER['WSL_DISTRO_NAME']) && $errorCode === 2002 && preg_match('/No such file/i', $errorDetail) && preg_match('/^localhost$/i', (string) $this->secret('hostname'));
 
             $errorMsg = match (true) {
                 $isWslSocketError                        => "'localhost' uses Unix sockets. To connect to Windows MySQL from WSL, use '127.0.0.1' or 'localhost:3306' with WSL mirrored networking.\n$baseErrorMsg: $errorDetail",
@@ -203,22 +212,34 @@ class Connection
     /**
      * Clone this connection with optional config overrides.
      * The clone shares the mysqli connection but has its own settings.
+     * Credential overrides (hostname, username, password, database) are not
+     * supported since clones share the source connection.
      *
      *     $db->clone()                           // Clone with same settings
      *     $db->clone(['useSmartJoins' => false]) // Clone with overrides
      *
-     * @param array $config Configuration overrides
+     * @param array $config Configuration overrides (excludes credentials)
      * @return self New Connection instance sharing this connection
      */
     public function clone(array $config = []): self
     {
+        // Reject credential overrides - clones share the source connection
+        $rejected = array_intersect_key($config, array_flip(self::$secretKeys));
+        if ($rejected) {
+            throw new InvalidArgumentException("Cannot override credentials in clone() (shares source connection): " . implode(', ', array_keys($rejected)));
+        }
+
         $clone = clone $this;
+        $clone->sealSecrets(source: $this);
+
+        // Apply non-credential config to properties
         foreach ($config as $key => $value) {
             if (!property_exists($clone, $key)) {
                 throw new InvalidArgumentException("Unknown configuration key: '$key'");
             }
             $clone->$key = $value;
         }
+
         return $clone;
     }
 

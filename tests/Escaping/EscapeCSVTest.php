@@ -144,16 +144,6 @@ class EscapeCSVTest extends BaseTestCase
     //endregion
     //region Error Conditions
 
-    public function testEscapeCSVBeforeConnectionThrows(): void
-    {
-        $conn = new \Itools\ZenDB\Connection();
-
-        $this->expectException(RuntimeException::class);
-        $this->expectExceptionMessage("called before DB connection established");
-
-        $conn->escapeCSV([1, 2, 3]);
-    }
-
     public function testEscapeCSVWithUnsupportedTypeThrows(): void
     {
         $this->expectException(\Error::class);
