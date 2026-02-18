@@ -29,6 +29,8 @@ class Connection
 {
     use ConnectionInternals;
 
+    private bool $ownsConnection = true;
+
     //region Public Properties
 
     /**
@@ -190,12 +192,14 @@ class Connection
     }
 
     /**
-     * Disconnect from the database.
+     * Disconnect from the database if it owns the connection (not a clone).
      */
     public function disconnect(): void
     {
         if ($this->mysqli instanceof mysqli) {
-            $this->mysqli->close();
+            if ($this->ownsConnection) {
+                $this->mysqli->close();
+            }
             $this->mysqli = null;
         }
     }
@@ -213,6 +217,7 @@ class Connection
     public function clone(array $config = []): self
     {
         $clone = clone $this;
+        $clone->ownsConnection = false;  // Clones don't own the connection
         foreach ($config as $key => $value) {
             if (!property_exists($clone, $key)) {
                 throw new InvalidArgumentException("Unknown configuration key: '$key'");
