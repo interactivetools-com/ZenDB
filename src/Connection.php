@@ -515,11 +515,16 @@ class Connection
      */
     public function getTableNames(bool $includePrefix = false): array
     {
-        $likePattern = $this->likeStartsWith($this->tablePrefix);
-        $tableNames  = $this->query("SHOW TABLES LIKE ?", $likePattern)->pluckNth(0)->toArray();
+        $baseOffset = strlen($this->tablePrefix);
+        $tableNames = $this->query(
+            "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES"
+            . " WHERE TABLE_SCHEMA = DATABASE()"
+            . " AND LEFT(TABLE_NAME, ?) = ?"
+            . " AND TABLE_TYPE = ?",
+            $baseOffset, $this->tablePrefix, 'BASE TABLE'
+        )->pluckNth(0)->toArray();
 
         // Sort _tables to the bottom
-        $baseOffset = strlen($this->tablePrefix);
         usort($tableNames, fn($a, $b) => ($a[$baseOffset] === '_') <=> ($b[$baseOffset] === '_') ?: ($a <=> $b));
 
         // Remove prefix
