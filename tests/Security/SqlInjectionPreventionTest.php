@@ -100,6 +100,49 @@ class SqlInjectionPreventionTest extends BaseTestCase
     }
 
     //endregion
+    //region Empty String Literals
+
+    public function testEmptySingleQuoteLiteralsAllowed(): void
+    {
+        $result = DB::query("SELECT * FROM ::users WHERE name != ''");
+        $this->assertCount(20, $result);
+    }
+
+    public function testEmptyDoubleQuoteLiteralsAllowed(): void
+    {
+        $result = DB::query('SELECT * FROM ::users WHERE name != ""');
+        $this->assertCount(20, $result);
+    }
+
+    public function testMultipleEmptyLiteralsAllowed(): void
+    {
+        $result = DB::query("SELECT * FROM ::users WHERE name != '' AND city != ''");
+        $this->assertCount(20, $result);
+    }
+
+    public function testNonEmptySingleQuotesStillThrows(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage("Quotes not allowed in template");
+        DB::query("SELECT * FROM ::users WHERE name = 'John'");
+    }
+
+    public function testNonEmptyDoubleQuotesStillThrows(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage("Quotes not allowed in template");
+        DB::query('SELECT * FROM ::users WHERE name = "John"');
+    }
+
+    public function testUnmatchedQuoteStillThrows(): void
+    {
+        // Odd number of quotes - stripping '' leaves a lone ' that the check catches
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage("Quotes not allowed in template");
+        DB::query("SELECT * FROM ::users WHERE name != '''");
+    }
+
+    //endregion
     //region Allowed Patterns
 
     public function testColumnNamesWithNumbersAllowed(): void

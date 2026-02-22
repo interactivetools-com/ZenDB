@@ -142,61 +142,39 @@ trait ConnectionInternals
      */
     private function assertSafeTemplate(string $sql): void
     {
-        // Fast path: skip all checks if no suspicious patterns found (covers most queries)
-        // Uses \b\d+\b for standalone numbers so col1/user2 don't trigger false positives
+        /*
+         * Fast path: skip checks if template has no standalone numbers, quotes, backslashes,
+         * NULL bytes, or CTRL-Z. Word boundaries (\b) match standalone numbers like WHERE num = 5
+         * but not numbers embedded in identifiers like col2, user_id3, address1, etc.
+         */
         if (!preg_match('/\b\d+\b|[\'\"\\\\\\x00\\x1a]/', $sql)) {
             return;
         }
 
-        /**
-         * Allow trailing "LIMIT #" clause - this is safe and commonly used.
+        /*
+         * Allow '' and "" empty string literals - these are safe and commonly used.
          *
-         * We temporarily replace "LIMIT #" at end of string so it doesn't trigger the
-         * standalone number check below. The original query is NOT modified.
+         * We strip '' and "" from a copy of the SQL before the quote check so they
+         * aren't flagged as quoted strings. The original query is NOT modified.
          *
-         * Security analysis - even if developer writes insecure code like:
-         *   $limit = $_GET['limit'];
-         *   DB::query("SELECT * FROM users LIMIT $limit");
-         *
-         * Attack vectors that FAIL:
-         *
-         *   1. Attack: "10; DROP TABLE users"
-         *      Result: "SELECT * FROM users LIMIT 10; DROP TABLE users"
-         *      Why fails: Doesn't end in "LIMIT #", so regex doesn't match.
-         *                 Standalone number check catches the "10".
-         *
-         *   2. Attack: "10 UNION SELECT * FROM secrets LIMIT 5"
-         *      Result: "SELECT * FROM users LIMIT 10 UNION SELECT * FROM secrets LIMIT 5"
-         *      Why fails: Regex matches "LIMIT 5" at end (replaced with ?).
-         *                 Standalone number check catches the "10" from injection.
-         *
-         *   3. Attack: "10 INTO OUTFILE '/tmp/hack.txt'"
-         *      Result: "SELECT * FROM users LIMIT 10 INTO OUTFILE '/tmp/hack.txt'"
-         *      Why fails: Doesn't end in "LIMIT #", regex doesn't match.
-         *                 Standalone number check catches "10".
-         *                 Quote check catches '/tmp/hack.txt'.
-         *
-         *   4. Attack: "10 OR 1=1 LIMIT 5"
-         *      Result: "SELECT * FROM users LIMIT 10 OR 1=1 LIMIT 5"
-         *      Why fails: Regex matches "LIMIT 5" at end (replaced with ?).
-         *                 Standalone number check catches "10", "1", "1".
-         *
-         * The defense works because we only strip the FINAL trailing "LIMIT #". Any injected
-         * content either: (a) prevents the regex from matching, or (b) leaves numbers exposed
-         * for the standalone number check to catch.
+         * Why this is safe: if a developer writes WHERE city = '$city', the only value
+         * that produces valid '' is an empty string, which carries no payload. Any real
+         * value like "Vancouver" produces WHERE city = 'Vancouver', which throws
+         * immediately, forcing the developer to use placeholders.
          */
-        $trailingLimitRx = '/\bLIMIT\s+\d+\s*$/i';
-        $sql = preg_replace($trailingLimitRx, 'LIMIT ?', $sql);
+        $sqlForQuoteCheck = str_replace(["''", '""'], '', $sql);
 
-        // Standalone numbers - force use of placeholders
-        if (preg_match('/\b(\d+)\b/', $sql, $matches)) {
-            $n = $matches[1];
-            throw new InvalidArgumentException("Standalone number in template. Replace $n with :n$n and add: [ ':n$n' => $n ]");
-        }
-
-        // Quotes - force use of placeholders
-        if (preg_match('/[\'"]/', $sql, $matches)) {
-            $quotedText = preg_match('/(([\'"]).*?\2)/', $sql, $matches) ? $matches[1] : '';
+        /*
+         * Quotes are never allowed in templates. Code that embeds a quoted value
+         * throws the first time it runs with real data. This forces the developer to
+         * use placeholders before the code can work at all.
+         *
+         *   // This throws the moment $city contains any real value like "Vancouver"
+         *   DB::query("SELECT * FROM ::users WHERE city = '$city'");
+         *   // Throws: Quotes not allowed in template. Replace 'Vancouver' with ...
+         */
+        if (preg_match('/[\'"]/', $sqlForQuoteCheck, $matches)) {
+            $quotedText = preg_match('/(([\'"]).*?\2)/', $sqlForQuoteCheck, $matches) ? $matches[1] : '';
             if ($quotedText) {
                 throw new InvalidArgumentException("Quotes not allowed in template. Replace $quotedText with :paramName and add: [ ':paramName' => $quotedText ]");
             } else {
@@ -204,7 +182,36 @@ trait ConnectionInternals
             }
         }
 
-        // Dangerous characters - defense in depth
+        /*
+         * Allow trailing "LIMIT #" clause - this is safe and commonly used.
+         *
+         * MySQL LIMIT only accepts literal integers, so \d+ matches the only valid
+         * syntax. We strip the trailing "LIMIT #" from a copy of the SQL so it
+         * doesn't trigger the standalone number check. The original query is NOT
+         * modified. Only the trailing LIMIT is stripped - any injected content
+         * either breaks the regex match or leaves numbers exposed (which throw on
+         * the number check below).
+         *
+         *   $limit = $_GET['limit'];
+         *   DB::query("SELECT * FROM ::users LIMIT $limit");
+         *
+         *   // Even if user input is interpolated directly, attacks still fail:
+         *
+         *   // Attack examples that fail:
+         *   "10; DROP TABLE users"           -> doesn't end in LIMIT #, no match
+         *   "10 INTO OUTFILE '/tmp/hack.txt" -> doesn't end in LIMIT #, "10" + quotes caught
+         *   "10 UNION ... LIMIT 5"           -> LIMIT 5 stripped, but "10" caught by number check
+         *   "1e1 UNION ... LIMIT 1"          -> LIMIT 1 stripped, but MySQL rejects LIMIT 1e1 (LIMIT only accepts integer constants)
+         */
+        $sql = preg_replace('/\bLIMIT\s+\d+\s*$/i', '', $sql);
+
+        // Standalone numbers - force use of placeholders
+        if (preg_match('/\b(\d+)\b/', $sql, $matches)) {
+            $n = $matches[1];
+            throw new InvalidArgumentException("Standalone number in template. Replace $n with :n$n and add: [ ':n$n' => $n ]");
+        }
+
+        // Potentially dangerous characters - backslashes, NULL bytes, CTRL-Z
         $error = match (true) {
             str_contains($sql, "\\")   => "Backslashes not allowed in template",
             str_contains($sql, "\x00") => "NULL character not allowed in template",
