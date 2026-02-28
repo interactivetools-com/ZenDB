@@ -532,11 +532,10 @@ class Connection
     {
         $prefixLen        = strlen($this->tablePrefix);
         $escapedPrefix    = $this->mysqli->real_escape_string($this->tablePrefix);
-        $startsWithPrefix = "LEFT(TABLE_NAME, $prefixLen) = '$escapedPrefix'";
         $query            = <<<__SQL__
             SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES
             WHERE TABLE_SCHEMA = DATABASE()
-              AND $startsWithPrefix
+              AND LEFT(TABLE_NAME, $prefixLen) = '$escapedPrefix'
               AND TABLE_TYPE = 'BASE TABLE'
             __SQL__;
         $result           = $this->mysqli->query($query);
