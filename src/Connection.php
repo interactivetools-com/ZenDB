@@ -517,47 +517,38 @@ class Connection
     }
 
     /**
-     * Check if a table, view, or temporary table exists in the database.
+     * Retrieve table names matching the configured prefix.
      *
-     * Returns true/false, never throws. Invalid table names return false.
+     * Returns base tables only, not views or temporary tables.
+     * Uses INFORMATION_SCHEMA instead of SHOW TABLES LIKE to avoid
+     * MariaDB MDEV-32973 (LIKE pattern ignored when temp tables exist).
      *
-     * @param string $table       Table name
-     * @param bool   $isFullTable If true, table name already includes the prefix
-     * @return bool
-     */
-    public function hasTable(string $table, bool $isFullTable = false): bool
-    {
-        $fullTable = $isFullTable ? $table : $this->tablePrefix . $table;
-        try {
-            $this->assertValidTable($fullTable);
-            $result = $this->mysqli->query("SELECT 1 FROM `$fullTable` LIMIT 0");
-            $result->free();
-            return true;
-        } catch (InvalidArgumentException|mysqli_sql_exception) {
-            return false;
-        }
-    }
-
-    /**
-     * Retrieve MySQL table names.
-     *
-     * @param bool $includePrefix If true, return names with prefix
+     * @param bool $withPrefix If true, return names with prefix
      * @return string[] Array of table names
      * @throws InvalidArgumentException
+     * @see https://jira.mariadb.org/browse/MDEV-32973
      */
-    public function getTableNames(bool $includePrefix = false): array
+    public function getTableNames(bool $withPrefix = false): array
     {
-        $likePattern = $this->likeStartsWith($this->tablePrefix);
-        $tableNames  = $this->query("SHOW TABLES LIKE ?", $likePattern)->pluckNth(0)->toArray();
+        $prefixLen        = strlen($this->tablePrefix);
+        $escapedPrefix    = $this->mysqli->real_escape_string($this->tablePrefix);
+        $startsWithPrefix = "LEFT(TABLE_NAME, $prefixLen) = '$escapedPrefix'";
+        $query            = <<<__SQL__
+            SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND $startsWithPrefix
+              AND TABLE_TYPE = 'BASE TABLE'
+            __SQL__;
+        $result           = $this->mysqli->query($query);
+        $tableNames       = array_column($result->fetch_all(), 0);
+        $result->free();
 
         // Sort _tables to the bottom
-        $baseOffset = strlen($this->tablePrefix);
-        usort($tableNames, fn($a, $b) => ($a[$baseOffset] === '_') <=> ($b[$baseOffset] === '_') ?: ($a <=> $b));
+        usort($tableNames, fn($a, $b) => (($a[$prefixLen] ?? '') === '_') <=> (($b[$prefixLen] ?? '') === '_') ?: ($a <=> $b));
 
         // Remove prefix
-        if (!$includePrefix) {
-            $tablePrefixRx = preg_quote($this->tablePrefix, "/");
-            $tableNames    = preg_replace("/^$tablePrefixRx/", "", $tableNames);
+        if (!$withPrefix) {
+            $tableNames = array_map(fn($name) => substr($name, $prefixLen), $tableNames);
         }
 
         return $tableNames;
@@ -598,6 +589,28 @@ class Connection
         }
 
         return $columnDefinitions;
+    }
+
+    /**
+     * Check if a table, view, or temporary table exists in the database.
+     *
+     * Returns true/false, never throws. Invalid table names return false.
+     *
+     * @param string $table       Table name
+     * @param bool   $isFullTable If true, table name already includes the prefix
+     * @return bool
+     */
+    public function hasTable(string $table, bool $isFullTable = false): bool
+    {
+        $fullTable = $isFullTable ? $table : $this->tablePrefix . $table;
+        try {
+            $this->assertValidTable($fullTable);
+            $result = $this->mysqli->query("SELECT 1 FROM `$fullTable` LIMIT 0");
+            $result->free();
+            return true;
+        } catch (InvalidArgumentException|mysqli_sql_exception) {
+            return false;
+        }
     }
 
     //endregion

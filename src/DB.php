@@ -238,22 +238,11 @@ class DB
     }
 
     /**
-     * Check if a table, view, or temporary table exists.
-     *
-     * @param string $table       Table name
-     * @param bool   $isFullTable If true, table name already includes the prefix
-     */
-    public static function hasTable(string $table, bool $isFullTable = false): bool
-    {
-        return self::db()->hasTable($table, $isFullTable);
-    }
-
-    /**
      * Get list of table names.
      */
-    public static function getTableNames(bool $includePrefix = false): array
+    public static function getTableNames(bool $withPrefix = false): array
     {
-        return self::db()->getTableNames($includePrefix);
+        return self::db()->getTableNames($withPrefix);
     }
 
     /**
@@ -262,6 +251,17 @@ class DB
     public static function getColumnDefinitions(string $baseTable): array
     {
         return self::db()->getColumnDefinitions($baseTable);
+    }
+
+    /**
+     * Check if a table, view, or temporary table exists.
+     *
+     * @param string $table       Table name
+     * @param bool   $isFullTable If true, table name already includes the prefix
+     */
+    public static function hasTable(string $table, bool $isFullTable = false): bool
+    {
+        return self::db()->hasTable($table, $isFullTable);
     }
 
     //endregion

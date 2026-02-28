@@ -54,6 +54,15 @@ class HasTableTest extends BaseTestCase
     //endregion
     //region Tests
 
+    /**
+     * @dataProvider provideHasTableScenarios
+     */
+    public function testHasTableScenarios(string $table, bool $isFullTable, bool $expected): void
+    {
+        $result = DB::hasTable($table, $isFullTable);
+        $this->assertSame($expected, $result);
+    }
+
     public function testWithDifferentPrefix(): void
     {
         $conn = DB::clone(['tablePrefix' => 'other_']);
@@ -73,15 +82,6 @@ class HasTableTest extends BaseTestCase
 
     //endregion
     //region Data Providers
-
-    /**
-     * @dataProvider provideHasTableScenarios
-     */
-    public function testHasTableScenarios(string $table, bool $isFullTable, bool $expected): void
-    {
-        $result = DB::hasTable($table, $isFullTable);
-        $this->assertSame($expected, $result);
-    }
 
     public static function provideHasTableScenarios(): array
     {
