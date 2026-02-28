@@ -232,11 +232,11 @@ class DB
     }
 
     /**
-     * Check if a table exists.
+     * Check if a table, view, or temporary table exists.
      */
-    public static function tableExists(string $table, bool $isFullTable = false): bool
+    public static function hasTable(string $table, bool $prefixed = false): bool
     {
-        return self::db()->tableExists($table, $isFullTable);
+        return self::db()->hasTable($table, $prefixed);
     }
 
     /**
@@ -372,10 +372,21 @@ class DB
     //region Deprecations
 
     /**
+     * @deprecated Use DB::hasTable() instead
+     * @see DB::hasTable()
+     */
+    #[Deprecated(replacement: 'DB::hasTable(%parametersList%)')]
+    public static function tableExists(string $table, bool $prefixed = false): bool
+    {
+        self::logDeprecation("DB::tableExists() is deprecated, use DB::hasTable() instead");
+        return self::db()->hasTable($table, $prefixed);
+    }
+
+    /**
      * @deprecated Use DB::selectOne() instead
      * @see DB::selectOne()
      */
-    #[Deprecated(reason: 'use DB::selectOne() instead', replacement: 'DB::selectOne(%parametersList%)')]
+    #[Deprecated(replacement: 'DB::selectOne(%parametersList%)')]
     public static function get(string $baseTable, int|array|string $whereEtc = [], ...$params): SmartArrayHtml
     {
         self::logDeprecation("DB::get() is deprecated, use DB::selectOne() instead");

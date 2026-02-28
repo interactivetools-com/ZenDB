@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Itools\ZenDB;
 
+use Exception;
 use InvalidArgumentException;
 use Itools\SmartArray\SmartArrayBase;
 use Itools\SmartArray\SmartArrayHtml;
@@ -458,17 +459,25 @@ class Connection
     /**
      * Extracts base table name by removing table prefix.
      *
+     * When $strict is true, checks if the prefixed table actually exists before
+     * stripping. This handles ambiguous names where the table itself starts with
+     * the prefix (e.g., prefix "test_" with table "test_settings" that isn't prefixed).
+     *
+     *     DB::getBaseTable('test_users');              // 'users'
+     *     DB::getBaseTable('users');                   // 'users' (no prefix, unchanged)
+     *     DB::getBaseTable('test_settings', true);     // 'test_settings' (if table exists)
+     *     DB::getBaseTable('test_nonexistent', true);  // 'nonexistent' (table not found, strips)
+     *
      * @param string $table  Table name with or without prefix
-     * @param bool   $strict If true, verifies table exists in database
+     * @param bool   $strict If true, checks if prefixed table exists before stripping
      * @return string Base table name without prefix
-     * @throws InvalidArgumentException
      */
     public function getBaseTable(string $table, bool $strict = false): string
     {
         return match (true) {
-            !str_starts_with($table, $this->tablePrefix)  => $table,
-            $strict && $this->tableExists($table, false)  => $table,
-            default                                       => substr($table, strlen($this->tablePrefix)),
+            !str_starts_with($table, $this->tablePrefix) => $table,
+            $strict && $this->hasTable($table, prefixed: true)  => $table,
+            default                                      => substr($table, strlen($this->tablePrefix)),
         };
     }
 
@@ -484,47 +493,32 @@ class Connection
     {
         $prefixedTable = $this->tablePrefix . $table;
         return match (true) {
-            $strict && $this->tableExists($prefixedTable, true) => $prefixedTable,
+            $strict && $this->hasTable($prefixedTable, prefixed: true) => $prefixedTable,
             str_starts_with($table, $this->tablePrefix)         => $table,
             default                                             => $prefixedTable,
         };
     }
 
     /**
-     * Check if a permanent (non-temporary) table exists in the database.
+     * Check if a table, view, or temporary table exists in the database.
      *
-     * Uses INFORMATION_SCHEMA.TABLES instead of SHOW TABLES LIKE for two reasons:
-     * - MariaDB 11.2-11.2.3, 11.3.x, and 11.4.0-11.4.1 have a bug (MDEV-32973)
-     *   where SHOW TABLES LIKE ignores the LIKE pattern for temporary tables,
-     *   returning false positives for any pattern when a temp table exists.
-     * - SHOW TABLES LIKE doesn't escape _ and % wildcards, so table names
-     *   containing underscores (common with prefixes) match unintended tables.
+     * Returns true/false, never throws. Invalid table names return false.
      *
-     * Note: This method does not detect temporary tables. MySQL doesn't
-     * expose them in INFORMATION_SCHEMA, and MariaDB only added support in
-     * 11.2+ (with TABLE_TYPE = 'TEMPORARY').
-     *
-     * @param string $table       Table name
-     * @param bool   $isFullTable If true, treat as full table name (with prefix)
-     * @return bool True if table exists
-     * @throws InvalidArgumentException
-     *
-     * @see https://jira.mariadb.org/browse/MDEV-32973
+     * @param string $table     Table name
+     * @param bool   $prefixed  If true, table name already includes the prefix
+     * @return bool
      */
-    public function tableExists(string $table, bool $isFullTable = false): bool
+    public function hasTable(string $table, bool $prefixed = false): bool
     {
-        $fullTable = $isFullTable ? $table : $this->tablePrefix . $table;
-        $result    = $this->mysqli->query(
-            "SELECT 1 FROM INFORMATION_SCHEMA.TABLES"
-            . " WHERE TABLE_SCHEMA = DATABASE()"
-            . " AND TABLE_NAME = '" . $this->mysqli->real_escape_string($fullTable) . "'"
-            . " AND TABLE_TYPE = 'BASE TABLE'"
-            . " LIMIT 1"
-        );
-        $exists = $result->num_rows > 0;
-        $result->free();
-
-        return $exists;
+        $fullTable = $prefixed ? $table : $this->tablePrefix . $table;
+        try {
+            $this->assertValidTable($fullTable);
+            $result = $this->mysqli->query("SELECT 1 FROM `$fullTable` LIMIT 0");
+            $result->free();
+            return true;
+        } catch (InvalidArgumentException|mysqli_sql_exception) {
+            return false;
+        }
     }
 
     /**
