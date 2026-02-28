@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Itools\ZenDB\Tests\TableHelpers;
 
+use Exception;
 use Itools\ZenDB\DB;
 use Itools\ZenDB\Tests\BaseTestCase;
 
@@ -14,93 +15,41 @@ use Itools\ZenDB\Tests\BaseTestCase;
  */
 class GetFullTableTest extends BaseTestCase
 {
+    //region Setup & Teardown
+
     public static function setUpBeforeClass(): void
     {
         self::createDefaultConnection();
         self::resetTempTestTables();
 
-        // Create permanent tables for strict-mode tests (temp tables are invisible to tableExists)
-        DB::$mysqli->query("DROP TABLE IF EXISTS test_strict_full");
-        DB::$mysqli->query("CREATE TABLE test_strict_full (id INT PRIMARY KEY)");
+        // Create permanent table for verify-mode tests
+        DB::$mysqli->query("DROP TABLE IF EXISTS test_verify_full");
+        DB::$mysqli->query("CREATE TABLE test_verify_full (id INT PRIMARY KEY)");
     }
 
     public static function tearDownAfterClass(): void
     {
         try {
-            DB::$mysqli->query("DROP TABLE IF EXISTS test_strict_full");
-        } catch (\Exception) {
+            DB::$mysqli->query("DROP TABLE IF EXISTS test_verify_full");
+        } catch (Exception) {
             // Ignore cleanup errors
         }
     }
 
-    public function testAddsPrefix(): void
-    {
-        // users -> test_users
-        $result = DB::getFullTable('users');
-        $this->assertSame('test_users', $result);
-    }
+    //endregion
+    //region Tests
 
-    public function testAlreadyPrefixedNotDoubled(): void
+    /**
+     * @dataProvider provideGetFullTableScenarios
+     */
+    public function testGetFullTable(string $input, bool $verify, string $expected): void
     {
-        // test_users -> test_users (not test_test_users)
-        $result = DB::getFullTable('test_users');
-        $this->assertSame('test_users', $result);
-    }
-
-    public function testEmptyTableName(): void
-    {
-        // '' -> 'test_' (just the prefix)
-        $result = DB::getFullTable('');
-        $this->assertSame('test_', $result);
-    }
-
-    public function testWithUnderscoreTable(): void
-    {
-        // _private -> test__private
-        $result = DB::getFullTable('_private');
-        $this->assertSame('test__private', $result);
-    }
-
-    public function testStrictModeTempTableNotDetected(): void
-    {
-        // Temp tables are invisible to tableExists (uses INFORMATION_SCHEMA),
-        // so strict mode can't find 'test_users' and falls through to prefix check
-        $result = DB::getFullTable('users', true);
-        $this->assertSame('test_users', $result);
-    }
-
-    public function testStrictModeNonExistingTable(): void
-    {
-        // With strict=true and table doesn't exist, still adds prefix
-        $result = DB::getFullTable('nonexistent', true);
-        $this->assertSame('test_nonexistent', $result);
-    }
-
-    public function testStrictModeAlreadyPrefixedTempTable(): void
-    {
-        // Temp table 'test_users' already has the prefix, detected by str_starts_with
-        $result = DB::getFullTable('test_users', true);
-        $this->assertSame('test_users', $result);
-    }
-
-    public function testStrictModeWithRealTable(): void
-    {
-        // Strict mode with a real (permanent) table.
-        // Input 'strict_full' -> prefixed to 'test_strict_full' -> tableExists confirms it -> return prefixed
-        $result = DB::getFullTable('strict_full', true);
-        $this->assertSame('test_strict_full', $result);
-    }
-
-    public function testStrictModeAlreadyPrefixedRealTable(): void
-    {
-        // Input already has prefix 'test_strict_full' -> str_starts_with detects prefix -> return as-is
-        $result = DB::getFullTable('test_strict_full', true);
-        $this->assertSame('test_strict_full', $result);
+        $result = DB::getFullTable($input, $verify);
+        $this->assertSame($expected, $result);
     }
 
     public function testWithDifferentPrefix(): void
     {
-        // Create connection with different prefix
         $conn = DB::clone(['tablePrefix' => 'cms_']);
 
         $result = $conn->getFullTable('pages');
@@ -120,26 +69,28 @@ class GetFullTableTest extends BaseTestCase
         $this->assertSame('users', $result);
     }
 
-    //region Data Provider
-
-    /**
-     * @dataProvider provideGetFullTableScenarios
-     */
-    public function testGetFullTableScenarios(string $input, string $expected): void
-    {
-        $result = DB::getFullTable($input);
-        $this->assertSame($expected, $result);
-    }
+    //endregion
+    //region Data Providers
 
     public static function provideGetFullTableScenarios(): array
     {
+        // [input, verify, expected output]
         return [
-            'base name'           => ['users', 'test_users'],
-            'already prefixed'    => ['test_users', 'test_users'],
-            'multiple underscores'=> ['order_details', 'test_order_details'],
-            'empty'               => ['', 'test_'],
-            'underscore table'    => ['_private', 'test__private'],
-            'different prefix'    => ['cms_pages', 'test_cms_pages'], // treated as base name
+            // Without verify - adds prefix or returns already-prefixed as-is
+            'adds prefix'                                      => ['users',             false, 'test_users'],
+            'already prefixed not doubled'                     => ['test_users',        false, 'test_users'],
+            'adds prefix with multiple underscores'            => ['order_details',     false, 'test_order_details'],
+            'empty table name'                                 => ['',                  false, 'test_'],
+            'adds prefix to underscore table'                  => ['_private',          false, 'test__private'],
+            'different prefix treated as base name'            => ['cms_pages',         false, 'test_cms_pages'],
+
+            // With verify - checks database when input starts with prefix
+            'verify adds prefix for unprefixed name'           => ['users',             true,  'test_users'],
+            'verify keeps existing table as-is'                => ['test_verify_full',  true,  'test_verify_full'],
+            'verify keeps existing temp table as-is'           => ['test_users',        true,  'test_users'],
+            'verify adds prefix when prefixed name not found'  => ['test_nonexistent',  true,  'test_test_nonexistent'],
+            'verify adds prefix for nonexistent unprefixed'    => ['nonexistent',       true,  'test_nonexistent'],
+            'verify adds prefix for prefix-only when not found'=> ['test_',             true,  'test_test_'],
         ];
     }
 

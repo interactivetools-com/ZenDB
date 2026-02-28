@@ -217,26 +217,35 @@ class DB
 
     /**
      * Get base table name (without prefix).
+     *
+     * @param string $table  Table name with or without prefix
+     * @param bool   $verify If true, queries the database before stripping
      */
-    public static function getBaseTable(string $table, bool $strict = false): string
+    public static function getBaseTable(string $table, bool $verify = false): string
     {
-        return self::db()->getBaseTable($table, $strict);
+        return self::db()->getBaseTable($table, $verify);
     }
 
     /**
      * Get full table name (with prefix).
+     *
+     * @param string $table  Table name
+     * @param bool   $verify If true, queries the database when input looks already-prefixed
      */
-    public static function getFullTable(string $table, bool $strict = false): string
+    public static function getFullTable(string $table, bool $verify = false): string
     {
-        return self::db()->getFullTable($table, $strict);
+        return self::db()->getFullTable($table, $verify);
     }
 
     /**
      * Check if a table, view, or temporary table exists.
+     *
+     * @param string $table       Table name
+     * @param bool   $isFullTable If true, table name already includes the prefix
      */
-    public static function hasTable(string $table, bool $prefixed = false): bool
+    public static function hasTable(string $table, bool $isFullTable = false): bool
     {
-        return self::db()->hasTable($table, $prefixed);
+        return self::db()->hasTable($table, $isFullTable);
     }
 
     /**
@@ -376,10 +385,10 @@ class DB
      * @see DB::hasTable()
      */
     #[Deprecated(replacement: 'DB::hasTable(%parametersList%)')]
-    public static function tableExists(string $table, bool $prefixed = false): bool
+    public static function tableExists(string $table, bool $isFullTable = false): bool
     {
         self::logDeprecation("DB::tableExists() is deprecated, use DB::hasTable() instead");
-        return self::db()->hasTable($table, $prefixed);
+        return self::db()->hasTable($table, $isFullTable);
     }
 
     /**

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Itools\ZenDB\Tests\TableHelpers;
 
+use Exception;
 use Itools\ZenDB\DB;
 use Itools\ZenDB\Tests\BaseTestCase;
 
@@ -14,123 +15,90 @@ use Itools\ZenDB\Tests\BaseTestCase;
  */
 class GetBaseTableTest extends BaseTestCase
 {
+    //region Setup & Teardown
+
     public static function setUpBeforeClass(): void
     {
         self::createDefaultConnection();
         self::resetTempTestTables();
 
-        // Create permanent tables for strict-mode tests (temp tables are invisible to tableExists)
-        DB::$mysqli->query("DROP TABLE IF EXISTS test_strict_base");
-        DB::$mysqli->query("CREATE TABLE test_strict_base (id INT PRIMARY KEY)");
+        // Create permanent tables for verify-mode tests
+        DB::$mysqli->query("DROP TABLE IF EXISTS test_verify_base");
+        DB::$mysqli->query("CREATE TABLE test_verify_base (id INT PRIMARY KEY)");
     }
 
     public static function tearDownAfterClass(): void
     {
         try {
-            DB::$mysqli->query("DROP TABLE IF EXISTS test_strict_base");
-        } catch (\Exception) {
+            DB::$mysqli->query("DROP TABLE IF EXISTS test_verify_base");
+        } catch (Exception) {
             // Ignore cleanup errors
         }
     }
 
-    public function testStripsPrefix(): void
-    {
-        // test_users -> users
-        $result = DB::getBaseTable('test_users');
-        $this->assertSame('users', $result);
-    }
+    //endregion
+    //region Tests
 
-    public function testWithoutPrefixReturnsUnchanged(): void
+    /**
+     * @dataProvider provideGetBaseTableScenarios
+     */
+    public function testGetBaseTable(string $input, bool $verify, string $expected): void
     {
-        // 'users' without prefix returns as-is
-        $result = DB::getBaseTable('users');
-        $this->assertSame('users', $result);
-    }
-
-    public function testStripsPrefixFromMultipleUnderscores(): void
-    {
-        // test_order_details -> order_details
-        $result = DB::getBaseTable('test_order_details');
-        $this->assertSame('order_details', $result);
-    }
-
-    public function testEmptyTableName(): void
-    {
-        $result = DB::getBaseTable('');
-        $this->assertSame('', $result);
-    }
-
-    public function testPrefixOnlyReturnsEmpty(): void
-    {
-        // test_ -> '' (empty after stripping prefix)
-        $result = DB::getBaseTable('test_');
-        $this->assertSame('', $result);
-    }
-
-    public function testStrictModeTempTableNotDetected(): void
-    {
-        // Temp tables are invisible to tableExists (uses INFORMATION_SCHEMA),
-        // so strict mode falls through and strips the prefix
-        $result = DB::getBaseTable('test_users', true);
-        $this->assertSame('users', $result);
-    }
-
-    public function testStrictModeNonExistingTableStripsPrefix(): void
-    {
-        // Non-existing table with strict=true, strips prefix
-        $result = DB::getBaseTable('test_nonexistent', true);
-        $this->assertSame('nonexistent', $result);
-    }
-
-    public function testStrictModeWithRealTable(): void
-    {
-        // Strict mode with a real (permanent) table that exists as a base table.
-        // 'test_strict_base' starts with prefix, and tableExists('test_strict_base', false)
-        // checks if 'test_test_strict_base' exists -- it doesn't, so strip the prefix.
-        $result = DB::getBaseTable('test_strict_base', true);
-        $this->assertSame('strict_base', $result);
-    }
-
-    public function testTableNameNotStartingWithPrefix(): void
-    {
-        $result = DB::getBaseTable('other_table');
-        $this->assertSame('other_table', $result);
+        $result = DB::getBaseTable($input, $verify);
+        $this->assertSame($expected, $result);
     }
 
     public function testWithDifferentPrefix(): void
     {
-        // Create connection with different prefix
         $conn = DB::clone(['tablePrefix' => 'cms_']);
 
         $result = $conn->getBaseTable('cms_pages');
         $this->assertSame('pages', $result);
 
-        // Original prefix tables unaffected
+        // Original prefix tables returned as-is
         $result = $conn->getBaseTable('test_users');
         $this->assertSame('test_users', $result);
     }
 
-    //region Data Provider
-
-    /**
-     * @dataProvider provideGetBaseTableScenarios
-     */
-    public function testGetBaseTableScenarios(string $input, string $expected): void
+    public function testWithEmptyPrefix(): void
     {
-        $result = DB::getBaseTable($input);
-        $this->assertSame($expected, $result);
+        $conn = DB::clone(['tablePrefix' => '']);
+
+        // Empty prefix means nothing to strip
+        $result = $conn->getBaseTable('users');
+        $this->assertSame('users', $result);
+
+        $result = $conn->getBaseTable('test_users');
+        $this->assertSame('test_users', $result);
     }
+
+    //endregion
+    //region Data Providers
 
     public static function provideGetBaseTableScenarios(): array
     {
+        // [input, verify, expected output]
         return [
-            'with prefix'         => ['test_users', 'users'],
-            'without prefix'      => ['users', 'users'],
-            'multiple underscores'=> ['test_order_details', 'order_details'],
-            'empty'               => ['', ''],
-            'prefix only'         => ['test_', ''],
-            'different prefix'    => ['cms_users', 'cms_users'], // not matching
-            'underscore table'    => ['test__private', '_private'],
+            // Without prefix - returned as-is, verify has no effect
+            'no prefix returns as-is'                         => ['users',              false, 'users'],
+            'no prefix with verify returns as-is'             => ['users',              true,  'users'],
+            'different prefix returns as-is'                  => ['cms_users',          false, 'cms_users'],
+            'different prefix with verify returns as-is'      => ['cms_users',          true,  'cms_users'],
+            'empty string returns as-is'                      => ['',                   false, ''],
+            'empty string with verify returns as-is'          => ['',                   true,  ''],
+
+            // With prefix, non-verify - strips prefix without validation
+            'strips prefix'                                   => ['test_users',         false, 'users'],
+            'strips prefix with multiple underscores'         => ['test_order_details', false, 'order_details'],
+            'strips prefix leaving empty string'              => ['test_',              false, ''],
+            'strips prefix preserving leading underscore'     => ['test__private',      false, '_private'],
+            'strips prefix for nonexistent table'             => ['test_nonexistent',   false, 'nonexistent'],
+
+            // With prefix, verify - validates table exists before stripping
+            'verify keeps name when table exists'             => ['test_verify_base',   true,  'test_verify_base'],
+            'verify keeps temp table when it exists'          => ['test_users',         true,  'test_users'],
+            'verify strips prefix when table does not exist'  => ['test_nonexistent',   true,  'nonexistent'],
+            'verify strips prefix-only when not exists'       => ['test_',              true,  ''],
         ];
     }
 

@@ -77,25 +77,25 @@ class HasTableTest extends BaseTestCase
     /**
      * @dataProvider provideHasTableScenarios
      */
-    public function testHasTableScenarios(string $table, bool $prefixed, bool $expected): void
+    public function testHasTableScenarios(string $table, bool $isFullTable, bool $expected): void
     {
-        $result = DB::hasTable($table, $prefixed);
+        $result = DB::hasTable($table, $isFullTable);
         $this->assertSame($expected, $result);
     }
 
     public static function provideHasTableScenarios(): array
     {
-        // [table, prefixed, expected]
+        // [table, isFullTable, expected]
         return [
             // Base name (prefix added automatically)
             'base exists'                   => ['exists_check',        false, true],
             'base not exists'               => ['nonexistent_xyz',     false, false],
             'empty string'                  => ['',                    false, false],
 
-            // Has prefix (no prefix added)
-            'prefixed exists'               => ['test_exists_check',   true,  true],
-            'prefixed not exists'           => ['test_nonexistent',    true,  false],
-            'base name as prefixed'         => ['exists_check',        true,  false],
+            // Full table name (no prefix added)
+            'full table exists'             => ['test_exists_check',   true,  true],
+            'full table not exists'         => ['test_nonexistent',    true,  false],
+            'base name as full table'       => ['exists_check',        true,  false],
 
             // Views
             'view detected'                 => ['exists_view',         false, true],
