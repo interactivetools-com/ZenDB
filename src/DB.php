@@ -216,25 +216,19 @@ class DB
     //region Table Helpers
 
     /**
-     * Get base table name (without prefix).
-     *
-     * @param string $table  Table name with or without prefix
-     * @param bool   $verify If true, queries the database before stripping
+     * Wrapper for {@see Connection::getBaseTable()}
      */
-    public static function getBaseTable(string $table, bool $verify = false): string
+    public static function getBaseTable(string $table, bool $checkDb = false): string
     {
-        return self::db()->getBaseTable($table, $verify);
+        return self::db()->getBaseTable($table, $checkDb);
     }
 
     /**
-     * Get full table name (with prefix).
-     *
-     * @param string $table  Table name
-     * @param bool   $verify If true, queries the database when input looks already-prefixed
+     * Wrapper for {@see Connection::getFullTable()}
      */
-    public static function getFullTable(string $table, bool $verify = false): string
+    public static function getFullTable(string $table, bool $checkDb = false): string
     {
-        return self::db()->getFullTable($table, $verify);
+        return self::db()->getFullTable($table, $checkDb);
     }
 
     /**
@@ -254,14 +248,11 @@ class DB
     }
 
     /**
-     * Check if a table, view, or temporary table exists.
-     *
-     * @param string $table       Table name
-     * @param bool   $isFullTable If true, table name already includes the prefix
+     * Wrapper for {@see Connection::hasTable()}
      */
-    public static function hasTable(string $table, bool $isFullTable = false): bool
+    public static function hasTable(string $table, bool $isPrefixed = false): bool
     {
-        return self::db()->hasTable($table, $isFullTable);
+        return self::db()->hasTable($table, $isPrefixed);
     }
 
     //endregion
@@ -385,10 +376,10 @@ class DB
      * @see DB::hasTable()
      */
     #[Deprecated(replacement: 'DB::hasTable(%parametersList%)')]
-    public static function tableExists(string $table, bool $isFullTable = false): bool
+    public static function tableExists(string $table, bool $isPrefixed = false): bool
     {
         self::logDeprecation("DB::tableExists() is deprecated, use DB::hasTable() instead");
-        return self::db()->hasTable($table, $isFullTable);
+        return self::db()->hasTable($table, $isPrefixed);
     }
 
     /**

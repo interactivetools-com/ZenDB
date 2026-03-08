@@ -459,24 +459,34 @@ class Connection
     /**
      * Extracts base table name by removing table prefix.
      *
-     * When $verify is true, queries the database before stripping. This handles
-     * edge cases where the table name itself starts with the prefix string
-     * (e.g., prefix "test_" with an unprefixed table literally named "test_settings").
+     * Without checkDb, blindly strips the prefix if present:
      *
-     *     DB::getBaseTable('test_users');              // 'users'
-     *     DB::getBaseTable('users');                   // 'users' (no prefix, unchanged)
-     *     DB::getBaseTable('test_settings', true);     // 'test_settings' (if table exists)
-     *     DB::getBaseTable('test_nonexistent', true);  // 'nonexistent' (table not found, strips)
+     *     // prefix = "test_"
+     *     DB::getBaseTable('test_users');         // 'users'
+     *     DB::getBaseTable('users');              // 'users' (no prefix found)
+     *     DB::getBaseTable('test_cities');        // 'cities'
      *
-     * @param string $table  Table name with or without prefix
-     * @param bool   $verify If true, queries the database to check if the table exists before stripping
+     * With checkDb, checks the database when the input starts with the prefix.
+     * This handles base names that themselves start with the prefix string.
+     * For example, if the base name IS "test_cities", its full name would be
+     * "test_test_cities". So checkDb checks: does test_test_cities exist?
+     *
+     *     // prefix = "test_", table "test_test_cities" exists in DB
+     *     DB::getBaseTable('test_cities', checkDb: true);      // 'test_cities' (test_test_cities exists, so it's a base name)
+     *     DB::getBaseTable('test_users', checkDb: true);       // 'users' (test_test_users doesn't exist, so it was prefixed)
+     *     DB::getBaseTable('test_nonexistent', checkDb: true); // 'nonexistent' (not found, strips prefix)
+     *
+     * @param string $table   Table name with or without prefix
+     * @param bool   $checkDb When input starts with the prefix, query the database to check
+     *                        if prefixing it AGAIN yields a real table; if so, keep the input as-is
      * @return string Base table name without prefix
      */
-    public function getBaseTable(string $table, bool $verify = false): string
+    public function getBaseTable(string $table, bool $checkDb = false): string
     {
         if (str_starts_with($table, $this->tablePrefix)) {
-            /* Verify: if this name exists as a real table, don't strip (it's an unprefixed table that starts with the prefix string) */
-            if ($verify && $this->hasTable($table, isFullTable: true)) {
+            /* If hasTable($table) finds a match, the input is actually a base name
+               (hasTable prepends the prefix, so it's checking for "test_test_cities") */
+            if ($checkDb && $this->hasTable($table)) {
                 return $table;
             }
             return substr($table, strlen($this->tablePrefix));
@@ -488,28 +498,37 @@ class Connection
     /**
      * Returns the full table name with the current table prefix.
      *
-     * When $verify is true, queries the database to resolve ambiguity when the
-     * input starts with the prefix string. Without verify, "test_settings" is
-     * assumed already prefixed. With verify, if "test_settings" doesn't exist,
-     * it's treated as a base name and prefixed to "test_test_settings".
+     * Without checkDb, assumes any input starting with the prefix is already full:
      *
-     *     DB::getFullTable('users');                   // 'test_users'
-     *     DB::getFullTable('test_users');               // 'test_users' (already prefixed, unchanged)
-     *     DB::getFullTable('test_settings', true);      // 'test_test_settings' (if test_settings not found)
-     *     DB::getFullTable('test_verify_full', true);   // 'test_verify_full' (table exists, unchanged)
+     *     // prefix = "test_"
+     *     DB::getFullTable('users');              // 'test_users'
+     *     DB::getFullTable('test_users');         // 'test_users' (already starts with prefix)
+     *     DB::getFullTable('test_cities');        // 'test_cities' (assumed already prefixed)
      *
-     * @param string $table  Table name
-     * @param bool   $verify If true, queries the database to check if an already-prefixed name actually exists
+     * With checkDb, checks the database when the input starts with the prefix.
+     * This handles base names that themselves start with the prefix string.
+     * For example, "test_cities" could be a full name (table exists) or a base
+     * name that needs prefixing to "test_test_cities".
+     *
+     *     // prefix = "test_", table "test_verify_full" exists in DB
+     *     DB::getFullTable('test_verify_full', checkDb: true);  // 'test_verify_full' (exists in DB, already full)
+     *     DB::getFullTable('test_nonexistent', checkDb: true);  // 'test_test_nonexistent' (not found, must be base name)
+     *     DB::getFullTable('users', checkDb: true);             // 'test_users' (no ambiguity, just prefixes)
+     *
+     * @param string $table   Table name (base or full)
+     * @param bool   $checkDb When input starts with the prefix, query the database to check
+     *                        if it exists as-is; if not, treat it as a base name and add prefix
      * @return string Full table name with prefix
      */
-    public function getFullTable(string $table, bool $verify = false): string
+    public function getFullTable(string $table, bool $checkDb = false): string
     {
         if (!str_starts_with($table, $this->tablePrefix)) {
             return $this->tablePrefix . $table;
         }
 
-        /* Verify: if this name doesn't exist as a real table, it's a base name that starts with the prefix string - add prefix */
-        if ($verify && !$this->hasTable($table, isFullTable: true)) {
+        /* If hasTable($table, isPrefixed: true) finds no match, the input is a base name
+           that happens to start with the prefix string - prefix it */
+        if ($checkDb && !$this->hasTable($table, isPrefixed: true)) {
             return $this->tablePrefix . $table;
         }
 
@@ -595,13 +614,13 @@ class Connection
      *
      * Returns true/false, never throws. Invalid table names return false.
      *
-     * @param string $table       Table name
-     * @param bool   $isFullTable If true, table name already includes the prefix
+     * @param string $table      Table name
+     * @param bool   $isPrefixed If true, table name already includes the prefix
      * @return bool
      */
-    public function hasTable(string $table, bool $isFullTable = false): bool
+    public function hasTable(string $table, bool $isPrefixed = false): bool
     {
-        $fullTable = $isFullTable ? $table : $this->tablePrefix . $table;
+        $fullTable = $isPrefixed ? $table : $this->tablePrefix . $table;
         try {
             $this->assertValidTable($fullTable);
             $result = $this->mysqli->query("SELECT 1 FROM `$fullTable` LIMIT 0");

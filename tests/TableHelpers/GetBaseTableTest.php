@@ -22,15 +22,17 @@ class GetBaseTableTest extends BaseTestCase
         self::createDefaultConnection();
         self::resetTempTestTables();
 
-        // Create permanent tables for verify-mode tests
-        DB::$mysqli->query("DROP TABLE IF EXISTS test_verify_base");
-        DB::$mysqli->query("CREATE TABLE test_verify_base (id INT PRIMARY KEY)");
+        // Create double-prefixed tables for checkDb-mode tests.
+        // These simulate base names that happen to start with the prefix string.
+        // e.g., base name "test_cities" with prefix "test_" becomes "test_test_cities"
+        DB::$mysqli->query("DROP TABLE IF EXISTS test_test_cities");
+        DB::$mysqli->query("CREATE TABLE test_test_cities (id INT PRIMARY KEY)");
     }
 
     public static function tearDownAfterClass(): void
     {
         try {
-            DB::$mysqli->query("DROP TABLE IF EXISTS test_verify_base");
+            DB::$mysqli->query("DROP TABLE IF EXISTS test_test_cities");
         } catch (Exception) {
             // Ignore cleanup errors
         }
@@ -42,9 +44,9 @@ class GetBaseTableTest extends BaseTestCase
     /**
      * @dataProvider provideGetBaseTableScenarios
      */
-    public function testGetBaseTable(string $input, bool $verify, string $expected): void
+    public function testGetBaseTable(string $input, bool $checkDb, string $expected): void
     {
-        $result = DB::getBaseTable($input, $verify);
+        $result = DB::getBaseTable($input, $checkDb);
         $this->assertSame($expected, $result);
     }
 
@@ -77,28 +79,29 @@ class GetBaseTableTest extends BaseTestCase
 
     public static function provideGetBaseTableScenarios(): array
     {
-        // [input, verify, expected output]
+        // [input, checkDb, expected output]
         return [
-            // Without prefix - returned as-is, verify has no effect
-            'no prefix returns as-is'                         => ['users',              false, 'users'],
-            'no prefix with verify returns as-is'             => ['users',              true,  'users'],
-            'different prefix returns as-is'                  => ['cms_users',          false, 'cms_users'],
-            'different prefix with verify returns as-is'      => ['cms_users',          true,  'cms_users'],
-            'empty string returns as-is'                      => ['',                   false, ''],
-            'empty string with verify returns as-is'          => ['',                   true,  ''],
+            // Without prefix - returned as-is, checkDb has no effect
+            'no prefix returns as-is'                           => ['users',              false, 'users'],
+            'no prefix with checkDb returns as-is'              => ['users',              true,  'users'],
+            'different prefix returns as-is'                    => ['cms_users',          false, 'cms_users'],
+            'different prefix with checkDb returns as-is'       => ['cms_users',          true,  'cms_users'],
+            'empty string returns as-is'                        => ['',                   false, ''],
+            'empty string with checkDb returns as-is'           => ['',                   true,  ''],
 
-            // With prefix, non-verify - strips prefix without validation
-            'strips prefix'                                   => ['test_users',         false, 'users'],
-            'strips prefix with multiple underscores'         => ['test_order_details', false, 'order_details'],
-            'strips prefix leaving empty string'              => ['test_',              false, ''],
-            'strips prefix preserving leading underscore'     => ['test__private',      false, '_private'],
-            'strips prefix for nonexistent table'             => ['test_nonexistent',   false, 'nonexistent'],
+            // With prefix, no checkDb - strips prefix without validation
+            'strips prefix'                                     => ['test_users',         false, 'users'],
+            'strips prefix with multiple underscores'           => ['test_order_details', false, 'order_details'],
+            'strips prefix leaving empty string'                => ['test_',              false, ''],
+            'strips prefix preserving leading underscore'       => ['test__private',      false, '_private'],
+            'strips prefix for nonexistent table'               => ['test_nonexistent',   false, 'nonexistent'],
 
-            // With prefix, verify - validates table exists before stripping
-            'verify keeps name when table exists'             => ['test_verify_base',   true,  'test_verify_base'],
-            'verify keeps temp table when it exists'          => ['test_users',         true,  'test_users'],
-            'verify strips prefix when table does not exist'  => ['test_nonexistent',   true,  'nonexistent'],
-            'verify strips prefix-only when not exists'       => ['test_',              true,  ''],
+            // With checkDb - checks if input is actually a base name whose prefixed table exists
+            // e.g., "test_cities" with prefix "test_" checks if "test_test_cities" exists
+            'checkDb keeps base name when prefixed table exists'  => ['test_cities',      true,  'test_cities'],
+            'checkDb strips prefix when no double-prefixed table' => ['test_users',       true,  'users'],
+            'checkDb strips prefix for nonexistent table'         => ['test_nonexistent', true,  'nonexistent'],
+            'checkDb strips prefix-only when not exists'          => ['test_',            true,  ''],
         ];
     }
 
