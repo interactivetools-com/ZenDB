@@ -85,14 +85,7 @@ class DB
     }
 
     /**
-     * Clone the default connection with optional config overrides.
-     * The clone shares the mysqli connection but has its own settings.
-     *
-     *     DB::clone()                                    // Clone with same settings
-     *     DB::clone(['useSmartJoins' => false])          // Clone with overrides
-     *
-     * @param array $config Configuration overrides
-     * @return Connection New Connection instance sharing the mysqli connection
+     * Wrapper for {@see Connection::clone()}
      */
     public static function clone(array $config = []): Connection
     {
@@ -103,12 +96,7 @@ class DB
     //region Query Methods
 
     /**
-     * Execute a raw SQL query.
-     *
-     * @param string $sqlTemplate SQL statement with placeholders
-     * @param mixed  ...$params   Parameters to bind
-     * @return SmartArrayHtml Result set
-     * @throws Exception
+     * Wrapper for {@see Connection::query()}
      */
     public static function query(string $sqlTemplate, ...$params): SmartArrayHtml
     {
@@ -116,12 +104,7 @@ class DB
     }
 
     /**
-     * Execute a raw SQL query and return the first row.
-     *
-     * @param string $sqlTemplate SQL statement with placeholders
-     * @param mixed  ...$params   Parameters to bind
-     * @return SmartArrayHtml First row, or empty SmartArrayHtml if no rows
-     * @throws InvalidArgumentException
+     * Wrapper for {@see Connection::queryOne()}
      */
     public static function queryOne(string $sqlTemplate, ...$params): SmartArrayHtml
     {
@@ -129,13 +112,7 @@ class DB
     }
 
     /**
-     * Select rows from a table.
-     *
-     * @param string           $baseTable  Table name (without prefix)
-     * @param int|array|string $whereEtc   WHERE and other clauses (ORDER BY, LIMIT, etc.)
-     * @param mixed            ...$params  Parameters to bind
-     * @return SmartArrayHtml Result set
-     * @throws InvalidArgumentException
+     * Wrapper for {@see Connection::select()}
      */
     public static function select(string $baseTable, int|array|string $whereEtc = [], ...$params): SmartArrayHtml
     {
@@ -143,13 +120,7 @@ class DB
     }
 
     /**
-     * Select a single row from a table. Tacks on LIMIT 1 and calls select().
-     *
-     * @param string           $baseTable  Table name (without prefix)
-     * @param int|array|string $whereEtc   WHERE and other clauses
-     * @param mixed            ...$params  Parameters to bind
-     * @return SmartArrayHtml Single row or empty SmartArrayHtml
-     * @throws InvalidArgumentException
+     * Wrapper for {@see Connection::selectOne()}
      */
     public static function selectOne(string $baseTable, int|array|string $whereEtc = [], ...$params): SmartArrayHtml
     {
@@ -157,12 +128,7 @@ class DB
     }
 
     /**
-     * Insert a row into a table.
-     *
-     * @param string $baseTable    Table name (without prefix)
-     * @param array  $colsToValues Column => value pairs
-     * @return int Insert ID
-     * @throws InvalidArgumentException
+     * Wrapper for {@see Connection::insert()}
      */
     public static function insert(string $baseTable, array $colsToValues): int
     {
@@ -170,14 +136,7 @@ class DB
     }
 
     /**
-     * Update rows in a table.
-     *
-     * @param string           $baseTable    Table name (without prefix)
-     * @param array            $colsToValues Column => value pairs to update
-     * @param int|array|string $whereEtc     WHERE condition (required), may include ORDER BY, LIMIT
-     * @param mixed            ...$params    Parameters to bind
-     * @return int Number of affected rows
-     * @throws InvalidArgumentException
+     * Wrapper for {@see Connection::update()}
      */
     public static function update(string $baseTable, array $colsToValues, int|array|string $whereEtc, ...$params): int
     {
@@ -185,13 +144,7 @@ class DB
     }
 
     /**
-     * Delete rows from a table.
-     *
-     * @param string           $baseTable  Table name (without prefix)
-     * @param int|array|string $whereEtc   WHERE condition (required), may include ORDER BY, LIMIT
-     * @param mixed            ...$params  Parameters to bind
-     * @return int Number of affected rows
-     * @throws InvalidArgumentException
+     * Wrapper for {@see Connection::delete()}
      */
     public static function delete(string $baseTable, int|array|string $whereEtc, ...$params): int
     {
@@ -199,13 +152,7 @@ class DB
     }
 
     /**
-     * Count rows in a table.
-     *
-     * @param string           $baseTable  Table name (without prefix)
-     * @param int|array|string $whereEtc   WHERE and other clauses (but not LIMIT/OFFSET)
-     * @param mixed            ...$params  Parameters to bind
-     * @return int Row count
-     * @throws InvalidArgumentException
+     * Wrapper for {@see Connection::count()}
      */
     public static function count(string $baseTable, int|array|string $whereEtc = [], ...$params): int
     {
@@ -232,7 +179,7 @@ class DB
     }
 
     /**
-     * Get list of table names.
+     * Wrapper for {@see Connection::getTableNames()}
      */
     public static function getTableNames(bool $withPrefix = false): array
     {
@@ -240,7 +187,7 @@ class DB
     }
 
     /**
-     * Get column definitions for a table.
+     * Wrapper for {@see Connection::getColumnDefinitions()}
      */
     public static function getColumnDefinitions(string $baseTable): array
     {
@@ -283,7 +230,7 @@ class DB
     }
 
     /**
-     * Creates a MySQL LIKE pattern for "contains" searches.
+     * Wrapper for {@see Connection::likeContains()}
      */
     public static function likeContains(string|int|float|null|SmartString $input): RawSql
     {
@@ -291,7 +238,7 @@ class DB
     }
 
     /**
-     * Creates a MySQL LIKE pattern for tab-delimited column searches.
+     * Wrapper for {@see Connection::likeContainsTSV()}
      */
     public static function likeContainsTSV(string|int|float|null|SmartString $input): RawSql
     {
@@ -299,7 +246,7 @@ class DB
     }
 
     /**
-     * Creates a MySQL LIKE pattern for "starts with" searches.
+     * Wrapper for {@see Connection::likeStartsWith()}
      */
     public static function likeStartsWith(string|int|float|null|SmartString $input): RawSql
     {
@@ -307,7 +254,7 @@ class DB
     }
 
     /**
-     * Creates a MySQL LIKE pattern for "ends with" searches.
+     * Wrapper for {@see Connection::likeEndsWith()}
      */
     public static function likeEndsWith(string|int|float|null|SmartString $input): RawSql
     {
@@ -333,7 +280,7 @@ class DB
     }
 
     /**
-     * Escape a string for safe inclusion in raw SQL.
+     * Wrapper for {@see Connection::escape()}
      */
     public static function escape(string|int|float|null|SmartString $input, bool $escapeLikeWildcards = false): string
     {
@@ -341,7 +288,7 @@ class DB
     }
 
     /**
-     * Escapes and quotes values, inserting them into a format string with ? placeholders.
+     * Wrapper for {@see Connection::escapef()}
      */
     public static function escapef(string $format, mixed ...$values): string
     {
@@ -349,19 +296,7 @@ class DB
     }
 
     /**
-     * Converts array values to a safe CSV string for use in MySQL IN clauses.
-     *
-     * Tip: You probably don't need this! Named placeholders handle arrays
-     * automatically, which is simpler and keeps your values parameterized:
-     *
-     *     // Instead of this:
-     *     DB::select('users', "id IN (?)", DB::escapeCSV([1, 2, 3]));
-     *
-     *     // Do this:
-     *     DB::select('users', "id IN (:ids)", [
-     *         ':ids' => [1, 2, 3],
-     *     ]);
-     *
+     * Wrapper for {@see Connection::escapeCSV()}
      */
     public static function escapeCSV(array $array): RawSql
     {
