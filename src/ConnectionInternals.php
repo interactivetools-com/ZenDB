@@ -151,6 +151,11 @@ trait ConnectionInternals
             return;
         }
 
+        /* Update lastQuery with where clause context (so it's available if we throw below) */
+        if (str_starts_with($sql, 'WHERE ') && str_contains($this->mysqli->lastQuery, '[WHERE ...]')) {
+            $this->mysqli->lastQuery = str_replace('[WHERE ...]', $sql, $this->mysqli->lastQuery);
+        }
+
         /*
          * Allow '' and "" empty string literals - these are safe and commonly used.
          *
@@ -359,14 +364,14 @@ trait ConnectionInternals
             );
         }
 
-        // Validate - no quotes or numbers (must use placeholders)
-        $this->assertSafeTemplate($where);
-
         // Prepend WHERE if not already present
         $hasLeadingKeyword = preg_match('/^\s*(WHERE|FOR|ORDER|LIMIT|OFFSET)\b/i', $where);
         if (!$hasLeadingKeyword) {
             $where = "WHERE $where";
         }
+
+        // Validate - no quotes or numbers (must use placeholders)
+        $this->assertSafeTemplate($where);
 
         // Replace ? and :name placeholders with escaped values
         return $this->replacePlaceholders($where);
@@ -402,8 +407,8 @@ trait ConnectionInternals
                 is_null($value)                  => "`$column` IS NULL",
                 is_int($value), is_float($value) => "`$column` = $value",
                 is_bool($value)                  => "`$column` = " . ($value ? 'TRUE' : 'FALSE'),
-                $value instanceof RawSql          => "`$column` = " . $value,
-                $value instanceof SmartString    => "`$column` = '" . $this->mysqli->real_escape_string((string) $value->value()) . "'",
+                $value instanceof RawSql         => "`$column` = " . $value,
+                $value instanceof SmartString    => "`$column` = '" . $this->mysqli->real_escape_string((string)$value->value()) . "'",
                 $value instanceof SmartArrayBase => "`$column` IN (" . $this->escapeCSV($value->toArray()) . ")",
                 is_array($value)                 => "`$column` IN (" . $this->escapeCSV($value) . ")",
                 is_string($value)                => "`$column` = '" . $this->mysqli->real_escape_string($value) . "'",

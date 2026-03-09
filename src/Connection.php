@@ -257,6 +257,8 @@ class Connection
      */
     public function query(string $sqlTemplate, ...$params): SmartArrayHtml
     {
+        $this->mysqli->lastQuery = $sqlTemplate;
+
         // Validate
         $this->assertSafeTemplate($sqlTemplate);
 
@@ -309,9 +311,10 @@ class Connection
         $this->warnDeprecatedNumericWhere($whereEtc);
 
         // Build SQL
-        $fullTable   = $this->tablePrefix . $baseTable;
-        $whereClauses = $this->whereFromArgs($whereEtc, $params);
-        $sql         = "SELECT * FROM `$fullTable` $whereClauses";
+        $fullTable                = $this->tablePrefix . $baseTable;
+        $this->mysqli->lastQuery  = "SELECT * FROM `$fullTable` [WHERE ...]";
+        $whereClauses             = $this->whereFromArgs($whereEtc, $params);
+        $sql                      = "SELECT * FROM `$fullTable` $whereClauses";
 
         // Execute
         $result = $this->mysqli->query($sql);
@@ -340,9 +343,10 @@ class Connection
         $this->warnDeprecatedNumericWhere($whereEtc);
         $this->rejectLimitAndOffset($whereEtc);
 
-        $fullTable    = $this->tablePrefix . $baseTable;
-        $whereClauses = $this->whereFromArgs($whereEtc, $params);
-        $sql          = "SELECT * FROM `$fullTable` $whereClauses LIMIT 1";
+        $fullTable                = $this->tablePrefix . $baseTable;
+        $this->mysqli->lastQuery  = "SELECT * FROM `$fullTable` [WHERE ...] LIMIT 1";
+        $whereClauses             = $this->whereFromArgs($whereEtc, $params);
+        $sql                      = "SELECT * FROM `$fullTable` $whereClauses LIMIT 1";
 
         $result    = $this->mysqli->query($sql);
         $rows      = $this->fetchMappedRows($result);
@@ -365,8 +369,9 @@ class Connection
         $this->assertValidTable($baseTable);
 
         // Build SQL
-        $fullTable = $this->tablePrefix . $baseTable;
-        $setClause = $this->getSetClause($colsToValues);
+        $fullTable                = $this->tablePrefix . $baseTable;
+        $this->mysqli->lastQuery  = "INSERT INTO `$fullTable` [SET ...]";
+        $setClause                = $this->getSetClause($colsToValues);
         $sql       = "INSERT INTO `$fullTable` $setClause";
 
         // Execute
@@ -396,10 +401,11 @@ class Connection
             throw new InvalidArgumentException("Suspicious SET clause: only updating '" . array_key_first($colsToValues) . "'. Did you reverse the arguments? Signature is: update(\$table, \$colsToValues, \$whereEtc)");
         }
 
-        $fullTable    = $this->tablePrefix . $baseTable;
-        $setClause    = $this->getSetClause($colsToValues);
-        $whereClauses = $this->whereFromArgs($whereEtc, $params);
-        $sql          = "UPDATE `$fullTable` $setClause $whereClauses";
+        $fullTable                = $this->tablePrefix . $baseTable;
+        $this->mysqli->lastQuery  = "UPDATE `$fullTable` [SET ...] [WHERE ...]";
+        $setClause                = $this->getSetClause($colsToValues);
+        $whereClauses             = $this->whereFromArgs($whereEtc, $params);
+        $sql                      = "UPDATE `$fullTable` $setClause $whereClauses";
         $this->mysqli->query($sql);
 
         return $this->mysqli->affected_rows;
@@ -420,9 +426,10 @@ class Connection
         $this->warnDeprecatedNumericWhere($whereEtc);
         $this->rejectEmptyWhere($whereEtc, 'DELETE');
 
-        $fullTable    = $this->tablePrefix . $baseTable;
-        $whereClauses = $this->whereFromArgs($whereEtc, $params);
-        $sql          = "DELETE FROM `$fullTable` $whereClauses";
+        $fullTable                = $this->tablePrefix . $baseTable;
+        $this->mysqli->lastQuery  = "DELETE FROM `$fullTable` [WHERE ...]";
+        $whereClauses             = $this->whereFromArgs($whereEtc, $params);
+        $sql                      = "DELETE FROM `$fullTable` $whereClauses";
         $this->mysqli->query($sql);
 
         return $this->mysqli->affected_rows;
@@ -443,9 +450,10 @@ class Connection
         $this->warnDeprecatedNumericWhere($whereEtc);
         $this->rejectLimitAndOffset($whereEtc);
 
-        $fullTable    = $this->tablePrefix . $baseTable;
-        $whereClauses = $this->whereFromArgs($whereEtc, $params);
-        $sql          = "SELECT COUNT(*) FROM `$fullTable` $whereClauses";
+        $fullTable                = $this->tablePrefix . $baseTable;
+        $this->mysqli->lastQuery  = "SELECT COUNT(*) FROM `$fullTable` [WHERE ...]";
+        $whereClauses             = $this->whereFromArgs($whereEtc, $params);
+        $sql                      = "SELECT COUNT(*) FROM `$fullTable` $whereClauses";
         $result    = $this->mysqli->query($sql);
         $row       = $result->fetch_row();
         $result->free();

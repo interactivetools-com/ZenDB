@@ -80,6 +80,47 @@ class MysqliWrapperTest extends BaseTestCase
     }
 
     //endregion
+    //region lastQuery on early throw
+
+    public static function lastQueryOnEarlyThrowProvider(): array
+    {
+        return [
+            'query with quotes' => [
+                fn() => DB::query("SELECT * FROM ::users WHERE city = 'Vancouver'"),
+                "SELECT * FROM ::users WHERE city = 'Vancouver'",
+            ],
+            'query with number' => [
+                fn() => DB::query("SELECT * FROM ::users WHERE num = 5"),
+                "SELECT * FROM ::users WHERE num = 5",
+            ],
+            'select with quotes' => [
+                fn() => DB::select('users', "city = 'Vancouver'"),
+                "SELECT * FROM `test_users` WHERE city = 'Vancouver'",
+            ],
+            'select with number' => [
+                fn() => DB::select('users', "num = 5"),
+                "SELECT * FROM `test_users` WHERE num = 5",
+            ],
+        ];
+    }
+
+    /**
+     * @dataProvider lastQueryOnEarlyThrowProvider
+     */
+    public function testLastQueryOnEarlyThrow(callable $action, string $expectedLastQuery): void
+    {
+        DB::query("SELECT * FROM ::users LIMIT 1"); // set a known lastQuery
+
+        try {
+            $action();
+        } catch (\InvalidArgumentException) {
+            // expected
+        }
+
+        $this->assertSame($expectedLastQuery, DB::$mysqli->lastQuery);
+    }
+
+    //endregion
     //region Query Logging
 
     public function testQueryLoggingCallback(): void
