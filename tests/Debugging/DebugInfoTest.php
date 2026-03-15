@@ -68,9 +68,9 @@ class DebugInfoTest extends BaseTestCase
         $this->assertArrayHasKey('database', $debugInfo);
         $this->assertArrayHasKey('tablePrefix', $debugInfo);
 
-        // Values should be visible (not masked)
+        // Hostname and database should be visible (not masked)
         $this->assertSame(self::$configDefaults['hostname'], $debugInfo['hostname']);
-        $this->assertSame(self::$configDefaults['username'], $debugInfo['username']);
+        $this->assertSame('********', $debugInfo['username']); // username is masked
     }
 
     public function testDebugInfoWithEmptyPassword(): void
@@ -107,7 +107,7 @@ class DebugInfoTest extends BaseTestCase
         $conn = new Connection(self::$configDefaults);
 
         $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage("Cannot override credentials in clone()");
+        $this->expectExceptionMessage("clone() only supports:");
         $conn->clone(['password' => 'sneaky']);
     }
 

@@ -24,7 +24,7 @@ class InsertTest extends BaseTestCase
     public function testInsertSequence(): void
     {
         $baseTable    = "users";
-        $colsToValues = [
+        $values = [
             'num'     => 212,
             'name'    => 'Jillian Ty lair',
             'isAdmin' => 1,
@@ -35,10 +35,10 @@ class InsertTest extends BaseTestCase
         ];
 
         // Test new record number is returned and has expected values
-        $insertId = DB::insert($baseTable, $colsToValues);
+        $insertId = DB::insert($baseTable, $values);
         $this->assertSame(expected: 212, actual: $insertId, message: "insertId should be 212");
         $this->assertSame(
-            expected: $colsToValues,
+            expected: $values,
             actual:   DB::selectOne($baseTable, ['num' => $insertId])->toArray(),
             message:  "Inserted record should have expected values"
         );
@@ -46,7 +46,7 @@ class InsertTest extends BaseTestCase
         // Test inserting record with duplicate primary key throws exception
         $this->expectException(\mysqli_sql_exception::class);
         $this->expectExceptionMessage("Duplicate entry");
-        DB::insert($baseTable, $colsToValues);
+        DB::insert($baseTable, $values);
     }
 
     public function testInsertReturnsAutoIncrement(): void
@@ -73,7 +73,7 @@ class InsertTest extends BaseTestCase
     public function testInsertEmptyArrayThrows(): void
     {
         $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage("No colsToValues");
+        $this->expectExceptionMessage("No values provided");
         DB::insert('users', []);
     }
 }

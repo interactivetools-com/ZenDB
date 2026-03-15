@@ -151,7 +151,7 @@ class CloneTest extends BaseTestCase
     public function testCloneWithUnknownConfigKeyThrows(): void
     {
         $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage("Unknown configuration key: 'invalidKey'");
+        $this->expectExceptionMessage("clone() only supports:");
 
         DB::clone(['invalidKey' => 'value']);
     }

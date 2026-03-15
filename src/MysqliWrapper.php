@@ -3,11 +3,12 @@ declare(strict_types=1);
 
 namespace Itools\ZenDB;
 
+use ReturnTypeWillChange;
+use Throwable;
 use mysqli;
 use mysqli_result;
 use mysqli_sql_exception;
 use mysqli_stmt;
-use Throwable;
 
 /**
  * Class MysqliWrapper
@@ -35,12 +36,13 @@ class MysqliWrapper extends mysqli
     public static bool $forceExecuteQueryPolyfill = false;
 
     /**
-     * Keeps last statement alive to preserve affected_rows/insert_id (polyfill only)
+     * Keeps last statement alive to preserve affected_rows/insert_id (for execute_query polyfill)
+     * @noinspection PhpPropertyOnlyWrittenInspection
      */
     private ?mysqli_stmt $stmtKeepAlive = null;
 
     /**
-     * Query logger callback: fn(string $query, float $durationSecs, ?Throwable $error): void
+     * Query logger callback: fn(string $query, float $duration, ?Throwable $exception): void
      */
     public mixed $queryLogger = null;
 
@@ -48,7 +50,7 @@ class MysqliWrapper extends mysqli
     //region Overridden Methods
 
     /**
-     * @param callable|null $queryLogger Query logger: fn(string $query, float $durationSecs, ?Throwable $error): void
+     * @param callable|null $queryLogger Query logger: fn(string $query, float $duration, ?Throwable $exception): void
      */
     public function __construct(?callable $queryLogger = null)
     {
@@ -58,6 +60,7 @@ class MysqliWrapper extends mysqli
         parent::__construct();
     }
 
+    /** @noinspection PhpFullyQualifiedNameUsageInspection - FQN required until PHP 8.2 minimum (can't import) */
     public function real_connect(
         #[\SensitiveParameter] ?string $hostname = null,
         #[\SensitiveParameter] ?string $username = null,
@@ -101,7 +104,12 @@ class MysqliWrapper extends mysqli
         $this->lastQuery = $query;
         $startTime       = microtime(true);
 
-        $result = parent::real_query($query);
+        try {
+            $result = parent::real_query($query);
+        } catch (mysqli_sql_exception $e) {
+            $this->logQuery("real_query: $query", $startTime, $e);
+            throw $e;
+        }
 
         $this->logQuery("real_query: $query", $startTime);
 
@@ -113,7 +121,12 @@ class MysqliWrapper extends mysqli
         $this->lastQuery = $query;
         $startTime       = microtime(true);
 
-        $result = parent::multi_query($query);
+        try {
+            $result = parent::multi_query($query);
+        } catch (mysqli_sql_exception $e) {
+            $this->logQuery("multi_query: $query", $startTime, $e);
+            throw $e;
+        }
 
         $this->logQuery("multi_query: $query", $startTime);
 
@@ -150,7 +163,12 @@ class MysqliWrapper extends mysqli
             $this->lastQuery = $query;
             $startTime       = microtime(true);
 
-            $result = parent::execute_query($query, $params);
+            try {
+                $result = parent::execute_query($query, $params);
+            } catch (mysqli_sql_exception $e) {
+                $this->logQuery($query, $startTime, $e);
+                throw $e;
+            }
 
             $this->logQuery($query, $startTime);
 
@@ -173,7 +191,7 @@ class MysqliWrapper extends mysqli
     /**
      * Close the connection and clean up resources.
      */
-    #[\ReturnTypeWillChange]
+    #[ReturnTypeWillChange]
     public function close(): bool
     {
         $this->stmtKeepAlive = null;
@@ -186,11 +204,11 @@ class MysqliWrapper extends mysqli
     /**
      * Call the query logger callback if set.
      */
-    public function logQuery(string $query, float $startTime, ?Throwable $error = null): void
+    public function logQuery(string $query, float $startTime, ?Throwable $exception = null): void
     {
         if ($this->queryLogger) {
             $duration = microtime(true) - $startTime;
-            ($this->queryLogger)($query, $duration, $error);
+            ($this->queryLogger)($query, $duration, $exception);
         }
     }
 

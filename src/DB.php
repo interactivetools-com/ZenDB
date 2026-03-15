@@ -3,7 +3,6 @@ declare(strict_types=1);
 
 namespace Itools\ZenDB;
 
-use Exception;
 use InvalidArgumentException;
 use Itools\SmartArray\SmartArrayHtml;
 use Itools\SmartString\SmartString;
@@ -46,8 +45,26 @@ class DB
      *     DB::connect(['hostname' => 'localhost', 'database' => 'my_db', ...]);
      *     DB::select('users');  // Uses the default connection
      *
-     * @param array $config See Connection::__construct() for all supported options
+     * @param array{
+     *     hostname:               string,      // Database server hostname
+     *     username:               string,      // Database username
+     *     password:               string,      // Database password (use '' for none)
+     *     database:               string,      // Database name
+     *     tablePrefix?:           string,      // Prefix for table names (default: '')
+     *     useSmartJoins?:         bool,        // Add `table.column` keys to JOIN results, first-wins on duplicate columns (default: true)
+     *     useSmartStrings?:       bool,        // Wrap values in SmartString objects (default: true)
+     *     usePhpTimezone?:        bool,        // Sync MySQL timezone with PHP (default: true)
+     *     smartArrayLoadHandler?: callable,    // Custom result loading handler
+     *     versionRequired?:       string,      // Minimum MySQL version (default: '5.7.32')
+     *     requireSSL?:            bool,        // Require SSL connection (default: false)
+     *     databaseAutoCreate?:    bool,        // Create database if missing (default: false)
+     *     connectTimeout?:        int,         // Connection timeout in seconds (default: 3)
+     *     readTimeout?:           int,         // Read timeout in seconds (default: 60)
+     *     queryLogger?:           callable,    // fn(string $query, float $secs, ?Throwable $exception)
+     *     sqlMode?:               string,      // MySQL SQL mode
+     * } $config
      * @throws RuntimeException If already connected
+     * @see Connection::__construct()
      */
     public static function connect(array $config = []): void
     {
@@ -65,11 +82,11 @@ class DB
     /**
      * Check if connected to the database.
      *
-     * @param bool $doPing Whether to ping the server to verify connection
+     * @param bool $ping Whether to ping the server to verify connection
      */
-    public static function isConnected(bool $doPing = false): bool
+    public static function isConnected(bool $ping = false): bool
     {
-        return self::$db !== null && self::$db->isConnected($doPing);
+        return self::$db !== null && self::$db->isConnected($ping);
     }
 
     /**
@@ -87,6 +104,12 @@ class DB
 
     /**
      * Wrapper for {@see Connection::clone()}
+     *
+     * @param array{
+     *     tablePrefix?:     string,    // Prefix for table names
+     *     useSmartJoins?:   bool,      // Add `table.column` keys to JOIN results, first-wins on duplicate columns
+     *     useSmartStrings?: bool,      // Wrap values in SmartString objects
+     * } $config Configuration overrides
      */
     public static function clone(array $config = []): Connection
     {
@@ -131,17 +154,17 @@ class DB
     /**
      * Wrapper for {@see Connection::insert()}
      */
-    public static function insert(string $baseTable, array $colsToValues): int
+    public static function insert(string $baseTable, array $values): int
     {
-        return self::db()->insert($baseTable, $colsToValues);
+        return self::db()->insert($baseTable, $values);
     }
 
     /**
      * Wrapper for {@see Connection::update()}
      */
-    public static function update(string $baseTable, array $colsToValues, int|array|string $whereEtc, ...$params): int
+    public static function update(string $baseTable, array $values, int|array|string $whereEtc, ...$params): int
     {
-        return self::db()->update($baseTable, $colsToValues, $whereEtc, ...$params);
+        return self::db()->update($baseTable, $values, $whereEtc, ...$params);
     }
 
     /**
@@ -309,9 +332,9 @@ class DB
     /**
      * Wrapper for {@see Connection::escapeCSV()}
      */
-    public static function escapeCSV(array $array): RawSql
+    public static function escapeCSV(array $values): RawSql
     {
-        return self::db()->escapeCSV($array);
+        return self::db()->escapeCSV($values);
     }
 
     //endregion

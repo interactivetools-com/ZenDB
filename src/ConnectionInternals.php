@@ -302,18 +302,18 @@ trait ConnectionInternals
      *   - SmartString (unwrapped via ->value(), then escaped)
      *   - array, SmartArrayBase (converted via escapeCSV for multi-value columns)
      *
-     * @param array $colsToValues Column => value pairs
+     * @param array $values Column => value pairs
      * @return string SQL SET clause
      * @throws InvalidArgumentException
      */
-    private function getSetClause(array $colsToValues): string
+    private function buildSetClause(array $values): string
     {
-        if (!$colsToValues) {
-            throw new InvalidArgumentException("No colsToValues, please specify some column values");
+        if (!$values) {
+            throw new InvalidArgumentException("No values provided");
         }
 
         $setElements = [];
-        foreach ($colsToValues as $column => $value) {
+        foreach ($values as $column => $value) {
             // Reject non-string keys (e.g., numeric array keys)
             if (!is_string($column)) {
                 throw new InvalidArgumentException("Column names must be strings, got " . get_debug_type($column));

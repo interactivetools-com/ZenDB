@@ -76,7 +76,7 @@ class Connection
      *     databaseAutoCreate?:   bool,      // Create database if missing (default: false)
      *     connectTimeout?:       int,       // Connection timeout in seconds (default: 3)
      *     readTimeout?:          int,       // Read timeout in seconds (default: 60)
-     *     queryLogger?:          callable,  // fn(string $query, float $secs, ?Throwable $error)
+     *     queryLogger?:          callable,  // fn(string $query, float $secs, ?Throwable $exception)
      *     sqlMode?:              string,    // MySQL SQL mode
      * } $config
      */
@@ -187,14 +187,14 @@ class Connection
     /**
      * Check if database connection was made and optionally check if it's still active.
      *
-     * @param bool $doPing Whether to ping the server to check for active connection
-     * @return bool True if connected (and responsive if $doPing is true)
+     * @param bool $ping Whether to ping the server to check for active connection
+     * @return bool True if connected (and responsive if $ping is true)
      */
-    public function isConnected(bool $doPing = false): bool
+    public function isConnected(bool $ping = false): bool
     {
         return match (true) {
             is_null($this->mysqli) => false,
-            $doPing                => $this->mysqli->stat() !== false,
+            $ping                => $this->mysqli->stat() !== false,
             default                => true,
         };
     }
@@ -213,31 +213,30 @@ class Connection
     /**
      * Clone this connection with optional config overrides.
      * The clone shares the mysqli connection but has its own settings.
-     * Credential overrides (hostname, username, password, database) are not
-     * supported since clones share the source connection.
      *
-     *     $db->clone()                           // Clone with same settings
-     *     $db->clone(['useSmartJoins' => false]) // Clone with overrides
+     *     $db->clone()                             // Clone with same settings
+     *     $db->clone(['useSmartStrings' => false]) // Clone with overrides
      *
-     * @param array $config Configuration overrides (excludes credentials)
+     * @param array{
+     *     tablePrefix?:     string,    // Prefix for table names
+     *     useSmartJoins?:   bool,      // Add `table.column` keys to JOIN results, first-wins on duplicate columns
+     *     useSmartStrings?: bool,      // Wrap values in SmartString objects
+     * } $config Configuration overrides
      * @return self New Connection instance sharing this connection
      */
     public function clone(array $config = []): self
     {
-        // Reject credential overrides - clones share the source connection
-        $rejected = array_intersect_key($config, array_flip(self::$secretKeys));
-        if ($rejected) {
-            throw new InvalidArgumentException("Cannot override credentials in clone() (shares source connection): " . implode(', ', array_keys($rejected)));
+        // Only these settings are meaningful on a clone (other settings are connect-time only)
+        $allowedKeys = ['tablePrefix', 'useSmartJoins', 'useSmartStrings'];
+        $invalidKeys = array_diff(array_keys($config), $allowedKeys);
+        if ($invalidKeys) {
+            throw new InvalidArgumentException("clone() only supports: " . implode(', ', $allowedKeys) . ". Got: " . implode(', ', $invalidKeys));
         }
 
         $clone = clone $this;
         $clone->sealSecrets(source: $this);
 
-        // Apply non-credential config to properties
         foreach ($config as $key => $value) {
-            if (!property_exists($clone, $key)) {
-                throw new InvalidArgumentException("Unknown configuration key: '$key'");
-            }
             $clone->$key = $value;
         }
 
@@ -313,8 +312,7 @@ class Connection
         // Build SQL
         $fullTable                = $this->tablePrefix . $baseTable;
         $this->mysqli->lastQuery  = "SELECT * FROM `$fullTable` [WHERE ...]";
-        $whereClauses             = $this->whereFromArgs($whereEtc, $params);
-        $sql                      = "SELECT * FROM `$fullTable` $whereClauses";
+        $sql                      = "SELECT * FROM `$fullTable` {$this->whereFromArgs($whereEtc, $params)}";
 
         // Execute
         $result = $this->mysqli->query($sql);
@@ -345,8 +343,7 @@ class Connection
 
         $fullTable                = $this->tablePrefix . $baseTable;
         $this->mysqli->lastQuery  = "SELECT * FROM `$fullTable` [WHERE ...] LIMIT 1";
-        $whereClauses             = $this->whereFromArgs($whereEtc, $params);
-        $sql                      = "SELECT * FROM `$fullTable` $whereClauses LIMIT 1";
+        $sql                      = "SELECT * FROM `$fullTable` {$this->whereFromArgs($whereEtc, $params)} LIMIT 1";
 
         $result    = $this->mysqli->query($sql);
         $rows      = $this->fetchMappedRows($result);
@@ -359,11 +356,11 @@ class Connection
      * Insert a row into a table.
      *
      * @param string $baseTable Table name (without prefix)
-     * @param array $colsToValues Column => value pairs
+     * @param array $values Column => value pairs
      * @return int Insert ID
      * @throws InvalidArgumentException
      */
-    public function insert(string $baseTable, array $colsToValues): int
+    public function insert(string $baseTable, array $values): int
     {
         // Validate
         $this->assertValidTable($baseTable);
@@ -371,8 +368,8 @@ class Connection
         // Build SQL
         $fullTable                = $this->tablePrefix . $baseTable;
         $this->mysqli->lastQuery  = "INSERT INTO `$fullTable` [SET ...]";
-        $setClause                = $this->getSetClause($colsToValues);
-        $sql       = "INSERT INTO `$fullTable` $setClause";
+        $setClause                = $this->buildSetClause($values);
+        $sql                      = "INSERT INTO `$fullTable` $setClause";
 
         // Execute
         $this->mysqli->query($sql);
@@ -384,28 +381,28 @@ class Connection
      * Update rows in a table.
      *
      * @param string           $baseTable    Table name (without prefix)
-     * @param array            $colsToValues Column => value pairs to update
+     * @param array            $values Column => value pairs to update
      * @param int|array|string $whereEtc     WHERE condition (required), may include ORDER BY, LIMIT
      * @param mixed            ...$params    Parameters to bind
      * @return int Number of affected rows
      * @throws InvalidArgumentException
      */
-    public function update(string $baseTable, array $colsToValues, int|array|string $whereEtc, ...$params): int
+    public function update(string $baseTable, array $values, int|array|string $whereEtc, ...$params): int
     {
         $this->assertValidTable($baseTable);
         $this->logDeprecatedNumericWhere($whereEtc);
         $this->rejectEmptyWhere($whereEtc, 'UPDATE');
 
         // Detect likely reversed arguments: SET ['num' => 5] is almost always a mistake
-        if (count($colsToValues) === 1 && in_array(array_key_first($colsToValues), ['num', 'id', 'ID'], true)) {
-            throw new InvalidArgumentException("Suspicious SET clause: only updating '" . array_key_first($colsToValues) . "'. Did you reverse the arguments? Signature is: update(\$table, \$colsToValues, \$whereEtc)");
+        if (count($values) === 1 && in_array(array_key_first($values), ['num', 'id', 'ID'], true)) {
+            throw new InvalidArgumentException("Suspicious SET clause: only updating '" . array_key_first($values) . "'. Did you reverse the arguments? Signature is: update(\$table, \$values, \$whereEtc)");
         }
 
         $fullTable                = $this->tablePrefix . $baseTable;
         $this->mysqli->lastQuery  = "UPDATE `$fullTable` [SET ...] [WHERE ...]";
-        $setClause                = $this->getSetClause($colsToValues);
-        $whereClauses             = $this->whereFromArgs($whereEtc, $params);
-        $sql                      = "UPDATE `$fullTable` $setClause $whereClauses";
+        $setClause                = $this->buildSetClause($values);
+        $sql                      = "UPDATE `$fullTable` $setClause {$this->whereFromArgs($whereEtc, $params)}";
+
         $this->mysqli->query($sql);
 
         return $this->mysqli->affected_rows;
@@ -428,8 +425,8 @@ class Connection
 
         $fullTable                = $this->tablePrefix . $baseTable;
         $this->mysqli->lastQuery  = "DELETE FROM `$fullTable` [WHERE ...]";
-        $whereClauses             = $this->whereFromArgs($whereEtc, $params);
-        $sql                      = "DELETE FROM `$fullTable` $whereClauses";
+        $sql                      = "DELETE FROM `$fullTable` {$this->whereFromArgs($whereEtc, $params)}";
+
         $this->mysqli->query($sql);
 
         return $this->mysqli->affected_rows;
@@ -452,8 +449,8 @@ class Connection
 
         $fullTable                = $this->tablePrefix . $baseTable;
         $this->mysqli->lastQuery  = "SELECT COUNT(*) FROM `$fullTable` [WHERE ...]";
-        $whereClauses             = $this->whereFromArgs($whereEtc, $params);
-        $sql                      = "SELECT COUNT(*) FROM `$fullTable` $whereClauses";
+        $sql                      = "SELECT COUNT(*) FROM `$fullTable` {$this->whereFromArgs($whereEtc, $params)}";
+
         $result    = $this->mysqli->query($sql);
         $row       = $result->fetch_row();
         $result->free();
@@ -463,7 +460,8 @@ class Connection
 
     /**
      * Run a group of queries together, guaranteeing all changes are applied, or none are.
-     * If the function fails for any reason (exception, die, timeout), all changes are rolled back.
+     * Exceptions trigger an explicit ROLLBACK. For die/exit/timeout, MySQL automatically
+     * rolls back uncommitted transactions when the connection closes.
      * This ensures you never end up with partial data.
      *
      *     // Group related writes so they all succeed or all fail
@@ -548,7 +546,7 @@ class Connection
      * For example, if the base name IS "test_cities", its full name would be
      * "test_test_cities". So checkDb checks: does test_test_cities exist?
      *
-     *     // prefix = "test_", table "test_test_cities" exists in DB
+     *     // prefix = "test_", table "test_test_cities" exists in database
      *     DB::getBaseTable('test_cities', checkDb: true);      // 'test_cities' (test_test_cities exists, so it's a base name)
      *     DB::getBaseTable('test_users', checkDb: true);       // 'users' (test_test_users doesn't exist, so it was prefixed)
      *     DB::getBaseTable('test_nonexistent', checkDb: true); // 'nonexistent' (not found, strips prefix)
@@ -587,7 +585,7 @@ class Connection
      * For example, "test_cities" could be a full name (table exists) or a base
      * name that needs prefixing to "test_test_cities".
      *
-     *     // prefix = "test_", table "test_verify_full" exists in DB
+     *     // prefix = "test_", table "test_verify_full" exists in database
      *     DB::getFullTable('test_verify_full', checkDb: true);  // 'test_verify_full' (exists in DB, already full)
      *     DB::getFullTable('test_nonexistent', checkDb: true);  // 'test_test_nonexistent' (not found, must be base name)
      *     DB::getFullTable('users', checkDb: true);             // 'test_users' (no ambiguity, just prefixes)
@@ -623,15 +621,16 @@ class Connection
      * @return string[] Array of table names
      * @throws InvalidArgumentException
      * @see https://jira.mariadb.org/browse/MDEV-32973
+     * @noinspection SpellCheckingInspection for MDEV
      */
     public function getTableNames(bool $withPrefix = false): array
     {
-        $prefixLen        = strlen($this->tablePrefix);
+        $prefixLength     = strlen($this->tablePrefix);
         $escapedPrefix    = $this->mysqli->real_escape_string($this->tablePrefix);
         $query            = <<<__SQL__
             SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES
             WHERE TABLE_SCHEMA = DATABASE()
-              AND LEFT(TABLE_NAME, $prefixLen) = '$escapedPrefix'
+              AND LEFT(TABLE_NAME, $prefixLength) = '$escapedPrefix'
               AND TABLE_TYPE = 'BASE TABLE'
             __SQL__;
         $result           = $this->mysqli->query($query);
@@ -639,11 +638,11 @@ class Connection
         $result->free();
 
         // Sort _tables to the bottom
-        usort($tableNames, fn($a, $b) => (($a[$prefixLen] ?? '') === '_') <=> (($b[$prefixLen] ?? '') === '_') ?: ($a <=> $b));
+        usort($tableNames, fn($a, $b) => (($a[$prefixLength] ?? '') === '_') <=> (($b[$prefixLength] ?? '') === '_') ?: ($a <=> $b));
 
         // Remove prefix
         if (!$withPrefix) {
-            $tableNames = array_map(fn($name) => substr($name, $prefixLen), $tableNames);
+            $tableNames = array_map(fn($name) => substr($name, $prefixLength), $tableNames);
         }
 
         return $tableNames;
@@ -778,16 +777,16 @@ class Connection
      *         ':ids' => [1, 2, 3],
      *     ]);
      *
-     * @param array $array Array of values to convert
+     * @param array $values Array of values to convert
      * @return RawSql SQL-safe comma-separated list
      * @throws InvalidArgumentException
      */
-    public function escapeCSV(array $array): RawSql
+    public function escapeCSV(array $values): RawSql
     {
         $this->mysqli || throw new RuntimeException(__METHOD__ . "() called before DB connection established");
 
         $safeValues = [];
-        foreach (array_unique($array) as $value) {
+        foreach (array_unique($values) as $value) {
             $value        = $value instanceof SmartString ? (string) $value->value() : $value;
             $safeValues[] = match (true) {
                 is_int($value) || is_float($value) => $value,
@@ -798,8 +797,7 @@ class Connection
             };
         }
 
-        $sqlSafeCSV = $safeValues ? implode(',', $safeValues) : 'NULL';
-        return new RawSql($sqlSafeCSV);
+        return new RawSql($safeValues ? implode(',', $safeValues) : 'NULL');
     }
 
     /**

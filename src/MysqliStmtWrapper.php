@@ -6,6 +6,8 @@ namespace Itools\ZenDB;
 use mysqli_result;
 use mysqli_sql_exception;
 use mysqli_stmt;
+use PHPUnit\Framework\TestCase;
+use RuntimeException;
 
 /**
  * Wraps mysqli_stmt to add query logging support.
@@ -25,8 +27,8 @@ class MysqliStmtWrapper extends mysqli_stmt
      */
     public static function enableTestResultPolyfill(bool $enable): void
     {
-        if (!class_exists(\PHPUnit\Framework\TestCase::class, false)) {
-            throw new \RuntimeException("forceResultPolyfill can only be set in test environment");
+        if (!class_exists(TestCase::class, false)) {
+            throw new RuntimeException("forceResultPolyfill can only be set in test environment");
         }
         self::$forceResultPolyfill = $enable;
     }
