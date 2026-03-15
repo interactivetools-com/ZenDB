@@ -166,8 +166,8 @@ class PagingSqlTest extends BaseTestCase
         // Paginate only Active users
         $activeCount = DB::count('users', ['status' => 'Active']);
 
-        // Use named placeholder for status and positional for pagingSql
-        $page1 = DB::select('users', "status = :status ORDER BY num ?", [':status' => 'Active', DB::pagingSql(1, 5)]);
+        // Use named placeholders for status and pagingSql
+        $page1 = DB::select('users', "status = :status ORDER BY num :paging", [':status' => 'Active', ':paging' => DB::pagingSql(1, 5)]);
         $this->assertCount(5, $page1);
 
         foreach ($page1 as $row) {

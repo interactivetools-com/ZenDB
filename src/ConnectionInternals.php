@@ -42,10 +42,10 @@ trait ConnectionInternals
      * Supports:
      *   - query($sql, 'a', 'b', 'c')                    // Up to 3 positional args (use array for more)
      *   - query($sql, [':name' => 'Bob', ':age' => 45]) // Named params in array
-     *   - query($sql, ['a', 'b', ':name' => 'c'])       // Mixed positional and named in array
+     *   - query($sql, ['a', 'b', 'c'])                    // Positional params in array
      *
      * @param array $args Variadic args from query method
-     * @return array Parameter map [':1' => 'value', ':name' => 'value2']
+     * @return array Parameter map, e.g. [':1' => 'a', ':2' => 'b'] or [':name' => 'Bob']
      * @throws InvalidArgumentException
      */
     private function parseParams(array $args): array
@@ -68,12 +68,16 @@ trait ConnectionInternals
         $inputParams     = $passedAsArray ? $args[0] : $args;
         $values          = [];
         $positionalCount = 0;
+        $hasPositional   = false;
+        $hasNamed        = false;
 
         foreach ($inputParams as $key => $value) {
             // Determine param name
             if (is_int($key)) {
-                $name = ':' . ++$positionalCount;
+                $hasPositional = true;
+                $name          = ':' . ++$positionalCount;
             } else {
+                $hasNamed = true;
                 $name = match (true) {
                     !preg_match("/^:\w+$/", $key)  => throw new InvalidArgumentException("Invalid param name '$key'. Must start with ':' followed by (a-z, A-Z, 0-9, _)"),
                     str_starts_with($key, ':zdb_') => throw new InvalidArgumentException("Invalid param name '$key'. Names can't start with :zdb_ (reserved prefix)"),
@@ -95,6 +99,11 @@ trait ConnectionInternals
                 $value instanceof SmartArrayBase => $value->toArray(),
                 default                          => throw new InvalidArgumentException("Parameters cannot be " . get_debug_type($value)),
             };
+        }
+
+        // Enforce consistent placeholder style
+        if ($hasPositional && $hasNamed) {
+            throw new InvalidArgumentException("Can't mix positional (?) and named (:param) placeholders. Use one style consistently.");
         }
 
         return $values;

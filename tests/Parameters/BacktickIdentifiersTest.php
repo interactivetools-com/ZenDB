@@ -61,13 +61,13 @@ class BacktickIdentifiersTest extends BaseTestCase
     public function testBacktickColumnIdentifier(): void
     {
         // `?` for column name
-        $result = DB::query("SELECT `:col` FROM ::users WHERE num = ?", [':col' => 'name', 1]);
+        $result = DB::query("SELECT `:col` FROM ::users WHERE num = :num", [':col' => 'name', ':num' => 1]);
         $this->assertSame('John Doe', $result->first()->get('name')->value());
     }
 
     public function testBacktickColumnWithTableAlias(): void
     {
-        $result = DB::query("SELECT u.`:col` FROM ::users u WHERE u.num = ?", [':col' => 'name', 1]);
+        $result = DB::query("SELECT u.`:col` FROM ::users u WHERE u.num = :num", [':col' => 'name', ':num' => 1]);
         $this->assertSame('John Doe', $result->first()->get('name')->value());
     }
 
