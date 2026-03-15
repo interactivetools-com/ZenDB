@@ -183,7 +183,7 @@ class MysqliWrapperTest extends BaseTestCase
 
     public function testNativeExecuteQuerySelect(): void
     {
-        // Test native execute_query path (forcePolyfill=false, PHP 8.2+)
+        // Test native execute_query path (forceExecuteQueryPolyfill=false, PHP 8.2+)
         $conn = new Connection(self::$configDefaults);
         $conn->mysqli->query("DROP TEMPORARY TABLE IF EXISTS test_native_eq");
         $conn->mysqli->query("CREATE TEMPORARY TABLE test_native_eq (id INT, name VARCHAR(50))");
