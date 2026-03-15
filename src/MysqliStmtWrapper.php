@@ -47,11 +47,11 @@ class MysqliStmtWrapper extends mysqli_stmt
         try {
             $result = parent::execute($params);
         } catch (mysqli_sql_exception $e) {
-            $this->mysqliWrapper->log("$this->query /* params: $paramsJson */", $this->startTime, $e);
+            $this->mysqliWrapper->logQuery("$this->query /* params: $paramsJson */", $this->startTime, $e);
             throw $e;
         }
 
-        $this->mysqliWrapper->log("$this->query /* params: $paramsJson */", $this->startTime);
+        $this->mysqliWrapper->logQuery("$this->query /* params: $paramsJson */", $this->startTime);
 
         return $result;
     }

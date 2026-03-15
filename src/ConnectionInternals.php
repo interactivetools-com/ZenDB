@@ -232,7 +232,7 @@ trait ConnectionInternals
      * Warn when integer WHERE is used (deprecated feature being phased out).
      * Users should migrate to array syntax: ['num' => $value]
      */
-    private function warnDeprecatedNumericWhere(int|array|string $where): void
+    private function logDeprecatedNumericWhere(int|array|string $where): void
     {
         if (is_int($where)) {
             DB::logDeprecation("Numeric WHERE is deprecated, use array syntax instead: ['num' => $where]");

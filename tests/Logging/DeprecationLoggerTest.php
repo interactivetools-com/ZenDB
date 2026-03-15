@@ -80,7 +80,7 @@ class DeprecationLoggerTest extends BaseTestCase
         // Using deprecated numeric WHERE should trigger deprecation
         @DB::select('users', 1); // @ to suppress display
 
-        // Check that some deprecation was logged (from warnDeprecatedNumericWhere)
+        // Check that some deprecation was logged (from logDeprecatedNumericWhere)
         $found = false;
         foreach (self::$capturedErrors as $error) {
             if (str_contains($error, 'Numeric WHERE')) {

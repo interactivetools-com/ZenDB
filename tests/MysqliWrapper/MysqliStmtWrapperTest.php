@@ -14,23 +14,23 @@ use Itools\ZenDB\Tests\BaseTestCase;
  */
 class MysqliStmtWrapperTest extends BaseTestCase
 {
-    private static bool $originalForcePolyfill;
+    private static bool $originalForceExecuteQueryPolyfill;
 
     public static function setUpBeforeClass(): void
     {
         self::createDefaultConnection();
-        self::$originalForcePolyfill = MysqliWrapper::$forcePolyfill;
+        self::$originalForceExecuteQueryPolyfill = MysqliWrapper::$forceExecuteQueryPolyfill;
     }
 
     public static function tearDownAfterClass(): void
     {
-        MysqliWrapper::$forcePolyfill = self::$originalForcePolyfill;
+        MysqliWrapper::$forceExecuteQueryPolyfill = self::$originalForceExecuteQueryPolyfill;
         MysqliStmtWrapper::enableTestResultPolyfill(false);
     }
 
     public function testExecuteWithErrorLogsAndThrows(): void
     {
-        MysqliWrapper::$forcePolyfill = true;
+        MysqliWrapper::$forceExecuteQueryPolyfill = true;
 
         $conn = new Connection(self::$configDefaults);
 
@@ -49,7 +49,7 @@ class MysqliStmtWrapperTest extends BaseTestCase
     public function testGetResultWithoutForcePolyfill(): void
     {
         // Test the normal path (not using polyfill)
-        MysqliWrapper::$forcePolyfill = true;
+        MysqliWrapper::$forceExecuteQueryPolyfill = true;
         MysqliStmtWrapper::enableTestResultPolyfill(false);
 
         $conn = new Connection(self::$configDefaults);
@@ -66,7 +66,7 @@ class MysqliStmtWrapperTest extends BaseTestCase
 
     public function testPolyfillFieldCountViaDirectCall(): void
     {
-        MysqliWrapper::$forcePolyfill = true;
+        MysqliWrapper::$forceExecuteQueryPolyfill = true;
         MysqliStmtWrapper::enableTestResultPolyfill(true);
 
         $conn = new Connection(self::$configDefaults);
@@ -87,7 +87,7 @@ class MysqliStmtWrapperTest extends BaseTestCase
 
     public function testPolyfillNumRowsViaDirectCall(): void
     {
-        MysqliWrapper::$forcePolyfill = true;
+        MysqliWrapper::$forceExecuteQueryPolyfill = true;
         MysqliStmtWrapper::enableTestResultPolyfill(true);
 
         $conn = new Connection(self::$configDefaults);
@@ -108,7 +108,7 @@ class MysqliStmtWrapperTest extends BaseTestCase
 
     public function testPolyfillInvalidPropertyThrows(): void
     {
-        MysqliWrapper::$forcePolyfill = true;
+        MysqliWrapper::$forceExecuteQueryPolyfill = true;
         MysqliStmtWrapper::enableTestResultPolyfill(true);
 
         $conn = new Connection(self::$configDefaults);
@@ -129,7 +129,7 @@ class MysqliStmtWrapperTest extends BaseTestCase
 
     public function testPolyfillUnimplementedMethodThrows(): void
     {
-        MysqliWrapper::$forcePolyfill = true;
+        MysqliWrapper::$forceExecuteQueryPolyfill = true;
         MysqliStmtWrapper::enableTestResultPolyfill(true);
 
         $conn = new Connection(self::$configDefaults);
@@ -151,7 +151,7 @@ class MysqliStmtWrapperTest extends BaseTestCase
     public function testPolyfillFetchArrayWithNoFields(): void
     {
         // Test the edge case where fieldObjects is empty (non-SELECT query)
-        MysqliWrapper::$forcePolyfill = true;
+        MysqliWrapper::$forceExecuteQueryPolyfill = true;
         MysqliStmtWrapper::enableTestResultPolyfill(true);
 
         $conn = new Connection(self::$configDefaults);

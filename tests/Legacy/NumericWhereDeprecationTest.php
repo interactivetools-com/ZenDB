@@ -13,7 +13,7 @@ use Itools\ZenDB\Tests\BaseTestCase;
 /**
  * Tests for deprecated numeric WHERE clause handling
  *
- * @covers \Itools\ZenDB\ConnectionInternals::warnDeprecatedNumericWhere
+ * @covers \Itools\ZenDB\ConnectionInternals::logDeprecatedNumericWhere
  */
 class NumericWhereDeprecationTest extends BaseTestCase
 {

@@ -308,7 +308,7 @@ class Connection
     {
         // Validate
         $this->assertValidTable($baseTable);
-        $this->warnDeprecatedNumericWhere($whereEtc);
+        $this->logDeprecatedNumericWhere($whereEtc);
 
         // Build SQL
         $fullTable                = $this->tablePrefix . $baseTable;
@@ -340,7 +340,7 @@ class Connection
     public function selectOne(string $baseTable, int|array|string $whereEtc = [], ...$params): SmartArrayHtml
     {
         $this->assertValidTable($baseTable);
-        $this->warnDeprecatedNumericWhere($whereEtc);
+        $this->logDeprecatedNumericWhere($whereEtc);
         $this->rejectLimitAndOffset($whereEtc);
 
         $fullTable                = $this->tablePrefix . $baseTable;
@@ -393,7 +393,7 @@ class Connection
     public function update(string $baseTable, array $colsToValues, int|array|string $whereEtc, ...$params): int
     {
         $this->assertValidTable($baseTable);
-        $this->warnDeprecatedNumericWhere($whereEtc);
+        $this->logDeprecatedNumericWhere($whereEtc);
         $this->rejectEmptyWhere($whereEtc, 'UPDATE');
 
         // Detect likely reversed arguments: SET ['num' => 5] is almost always a mistake
@@ -423,7 +423,7 @@ class Connection
     public function delete(string $baseTable, int|array|string $whereEtc, ...$params): int
     {
         $this->assertValidTable($baseTable);
-        $this->warnDeprecatedNumericWhere($whereEtc);
+        $this->logDeprecatedNumericWhere($whereEtc);
         $this->rejectEmptyWhere($whereEtc, 'DELETE');
 
         $fullTable                = $this->tablePrefix . $baseTable;
@@ -447,7 +447,7 @@ class Connection
     public function count(string $baseTable, int|array|string $whereEtc = [], ...$params): int
     {
         $this->assertValidTable($baseTable);
-        $this->warnDeprecatedNumericWhere($whereEtc);
+        $this->logDeprecatedNumericWhere($whereEtc);
         $this->rejectLimitAndOffset($whereEtc);
 
         $fullTable                = $this->tablePrefix . $baseTable;

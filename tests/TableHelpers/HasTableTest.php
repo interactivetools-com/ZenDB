@@ -109,7 +109,7 @@ class HasTableTest extends BaseTestCase
 
             // Wildcards treated as literals (not LIKE patterns)
             'percent is literal'            => ['nonexistent%table',   false, false],
-            'underscore is literal'         => ['exists_chec_',        false, false],
+            'underscore is literal'         => ['exists_check_',       false, false],
 
             // SQL injection attempt
             'injection returns false'       => ["' OR 1=1 --",        false, false],

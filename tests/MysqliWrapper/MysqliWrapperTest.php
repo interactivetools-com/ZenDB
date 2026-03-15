@@ -189,7 +189,7 @@ class MysqliWrapperTest extends BaseTestCase
         $conn->mysqli->query("CREATE TEMPORARY TABLE test_native_eq (id INT, name VARCHAR(50))");
         $conn->mysqli->query("INSERT INTO test_native_eq VALUES (1, 'Alice'), (2, 'Bob')");
 
-        MysqliWrapper::$forcePolyfill = false;
+        MysqliWrapper::$forceExecuteQueryPolyfill = false;
         $result = $conn->mysqli->execute_query("SELECT * FROM test_native_eq WHERE id = ?", [1]);
 
         $this->assertInstanceOf(\mysqli_result::class, $result);
@@ -203,7 +203,7 @@ class MysqliWrapperTest extends BaseTestCase
         $conn->mysqli->query("DROP TEMPORARY TABLE IF EXISTS test_native_eq2");
         $conn->mysqli->query("CREATE TEMPORARY TABLE test_native_eq2 (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(50))");
 
-        MysqliWrapper::$forcePolyfill = false;
+        MysqliWrapper::$forceExecuteQueryPolyfill = false;
         $result = $conn->mysqli->execute_query("INSERT INTO test_native_eq2 (name) VALUES (?)", ['Native Test']);
 
         $this->assertTrue($result);
@@ -216,11 +216,11 @@ class MysqliWrapperTest extends BaseTestCase
     public function testForcePolyfillFlag(): void
     {
         // Save original state
-        $original = MysqliWrapper::$forcePolyfill;
+        $original = MysqliWrapper::$forceExecuteQueryPolyfill;
 
         try {
             // Enable polyfill
-            MysqliWrapper::$forcePolyfill = true;
+            MysqliWrapper::$forceExecuteQueryPolyfill = true;
 
             $conn = new Connection(self::$configDefaults);
             // Create temp table and query it
@@ -231,18 +231,18 @@ class MysqliWrapperTest extends BaseTestCase
             $this->assertInstanceOf(\mysqli_result::class, $result);
         } finally {
             // Restore
-            MysqliWrapper::$forcePolyfill = $original;
+            MysqliWrapper::$forceExecuteQueryPolyfill = $original;
         }
     }
 
     public function testForcePolyfillWithParams(): void
     {
         // Save original state
-        $original = MysqliWrapper::$forcePolyfill;
+        $original = MysqliWrapper::$forceExecuteQueryPolyfill;
 
         try {
             // Enable polyfill - this exercises MysqliStmtWrapper
-            MysqliWrapper::$forcePolyfill = true;
+            MysqliWrapper::$forceExecuteQueryPolyfill = true;
 
             $conn = new Connection(self::$configDefaults);
             $conn->mysqli->query("DROP TEMPORARY TABLE IF EXISTS test_polyfill_params");
@@ -259,16 +259,16 @@ class MysqliWrapperTest extends BaseTestCase
             $row = $result->fetch_assoc();
             $this->assertSame('Test', $row['name']);
         } finally {
-            MysqliWrapper::$forcePolyfill = $original;
+            MysqliWrapper::$forceExecuteQueryPolyfill = $original;
         }
     }
 
     public function testForcePolyfillInsert(): void
     {
-        $original = MysqliWrapper::$forcePolyfill;
+        $original = MysqliWrapper::$forceExecuteQueryPolyfill;
 
         try {
-            MysqliWrapper::$forcePolyfill = true;
+            MysqliWrapper::$forceExecuteQueryPolyfill = true;
 
             $conn = new Connection(self::$configDefaults);
             $conn->mysqli->query("DROP TEMPORARY TABLE IF EXISTS test_polyfill_insert");
@@ -283,16 +283,16 @@ class MysqliWrapperTest extends BaseTestCase
             $this->assertTrue($result);
             $this->assertSame(1, $conn->mysqli->insert_id);
         } finally {
-            MysqliWrapper::$forcePolyfill = $original;
+            MysqliWrapper::$forceExecuteQueryPolyfill = $original;
         }
     }
 
     public function testForcePolyfillWithError(): void
     {
-        $original = MysqliWrapper::$forcePolyfill;
+        $original = MysqliWrapper::$forceExecuteQueryPolyfill;
 
         try {
-            MysqliWrapper::$forcePolyfill = true;
+            MysqliWrapper::$forceExecuteQueryPolyfill = true;
 
             $conn = new Connection(self::$configDefaults);
 
@@ -305,16 +305,16 @@ class MysqliWrapperTest extends BaseTestCase
                 [1]
             );
         } finally {
-            MysqliWrapper::$forcePolyfill = $original;
+            MysqliWrapper::$forceExecuteQueryPolyfill = $original;
         }
     }
 
     public function testForcePolyfillMultipleRows(): void
     {
-        $original = MysqliWrapper::$forcePolyfill;
+        $original = MysqliWrapper::$forceExecuteQueryPolyfill;
 
         try {
-            MysqliWrapper::$forcePolyfill = true;
+            MysqliWrapper::$forceExecuteQueryPolyfill = true;
 
             $conn = new Connection(self::$configDefaults);
             $conn->mysqli->query("DROP TEMPORARY TABLE IF EXISTS test_polyfill_multi");
@@ -329,7 +329,7 @@ class MysqliWrapperTest extends BaseTestCase
             $rows = $result->fetch_all(MYSQLI_ASSOC);
             $this->assertCount(3, $rows);
         } finally {
-            MysqliWrapper::$forcePolyfill = $original;
+            MysqliWrapper::$forceExecuteQueryPolyfill = $original;
         }
     }
 

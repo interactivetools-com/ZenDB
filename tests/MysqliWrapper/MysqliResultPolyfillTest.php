@@ -14,7 +14,7 @@ use Itools\ZenDB\Tests\BaseTestCase;
  */
 class MysqliResultPolyfillTest extends BaseTestCase
 {
-    private static bool $originalForcePolyfill;
+    private static bool $originalForceExecuteQueryPolyfill;
     private Connection $conn;
 
     public static function setUpBeforeClass(): void
@@ -22,20 +22,20 @@ class MysqliResultPolyfillTest extends BaseTestCase
         self::createDefaultConnection();
 
         // Save original state
-        self::$originalForcePolyfill = MysqliWrapper::$forcePolyfill;
+        self::$originalForceExecuteQueryPolyfill = MysqliWrapper::$forceExecuteQueryPolyfill;
     }
 
     public static function tearDownAfterClass(): void
     {
         // Restore original states
-        MysqliWrapper::$forcePolyfill = self::$originalForcePolyfill;
+        MysqliWrapper::$forceExecuteQueryPolyfill = self::$originalForceExecuteQueryPolyfill;
         MysqliStmtWrapper::enableTestResultPolyfill(false);
     }
 
     protected function setUp(): void
     {
         // Force polyfill for all tests in this class
-        MysqliWrapper::$forcePolyfill = true;
+        MysqliWrapper::$forceExecuteQueryPolyfill = true;
         MysqliStmtWrapper::enableTestResultPolyfill(true);
 
         // Create a fresh connection with test table
@@ -59,7 +59,7 @@ class MysqliResultPolyfillTest extends BaseTestCase
     protected function tearDown(): void
     {
         // Reset after each test
-        MysqliWrapper::$forcePolyfill = self::$originalForcePolyfill;
+        MysqliWrapper::$forceExecuteQueryPolyfill = self::$originalForceExecuteQueryPolyfill;
         MysqliStmtWrapper::enableTestResultPolyfill(false);
     }
 
