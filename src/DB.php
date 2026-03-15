@@ -9,6 +9,7 @@ use Itools\SmartArray\SmartArrayHtml;
 use Itools\SmartString\SmartString;
 use JetBrains\PhpStorm\Deprecated;
 use RuntimeException;
+use Throwable;
 
 /**
  * DB is a static facade for ZenDB that provides convenient static methods for database access.
@@ -157,6 +158,16 @@ class DB
     public static function count(string $baseTable, int|array|string $whereEtc = [], ...$params): int
     {
         return self::db()->count($baseTable, $whereEtc, ...$params);
+    }
+
+    /**
+     * Wrapper for {@see Connection::transaction()}
+     *
+     * @throws Throwable Re-throws any exception after rolling back
+     */
+    public static function transaction(callable $fn): mixed
+    {
+        return self::db()->transaction($fn);
     }
 
     //endregion

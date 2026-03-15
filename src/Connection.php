@@ -3,11 +3,11 @@ declare(strict_types=1);
 
 namespace Itools\ZenDB;
 
-use Exception;
 use InvalidArgumentException;
 use Itools\SmartArray\SmartArrayBase;
 use Itools\SmartArray\SmartArrayHtml;
 use Itools\SmartString\SmartString;
+use mysqli_result;
 use RuntimeException;
 use Throwable;
 use mysqli;
@@ -459,6 +459,75 @@ class Connection
         $result->free();
 
         return (int) $row[0];
+    }
+
+    /**
+     * Run a group of queries together, guaranteeing all changes are applied, or none are.
+     * If the function fails for any reason (exception, die, timeout), all changes are rolled back.
+     * This ensures you never end up with partial data.
+     *
+     *     // Group related writes so they all succeed or all fail
+     *     $orderId = DB::transaction(function() {
+     *         DB::insert('orders', ['customer_id' => 42]);
+     *         $orderId = DB::$mysqli->insert_id;
+     *         DB::insert('order_items', ['order_id' => $orderId, 'product_id' => 7]);
+     *         return $orderId;
+     *     });
+     *
+     * ***IMPORTANT:*** In addition to preventing partial writes, you must also *lock rows*
+     * to prevent race conditions where other connections change your data between your read
+     * and write.
+     *
+     * SELECT ... FOR UPDATE, INSERT, UPDATE, and DELETE lock affected rows from the moment
+     * they run until the transaction commits or rolls back. Locked rows can still be read by
+     * plain SELECTs, but any locking operation from other connections (SELECT ... FOR UPDATE,
+     * INSERT, UPDATE, DELETE) will wait until your transaction completes.
+     *
+     * Use SELECT ... FOR UPDATE to lock rows you don't want changed while your transaction
+     * is running.
+     *
+     *     // WRONG - two requests can both read qty=1, both sell the last item
+     *     DB::transaction(function() use ($productId, $customerId) {
+     *         $qty = DB::queryOne("SELECT qty FROM ::products WHERE id = ?", $productId)->qty->value();
+     *         if ($qty < 1) { throw new RuntimeException("Out of stock"); }
+     *         DB::update('products', ['qty' => $qty - 1], ['id' => $productId]);
+     *         DB::insert('orders', ['customer_id' => $customerId, 'product_id' => $productId]);
+     *     });
+     *
+     *     // RIGHT - FOR UPDATE locks the row, second request waits and reads updated qty
+     *     DB::transaction(function() use ($productId, $customerId) {
+     *         $qty = DB::queryOne("SELECT qty FROM ::products WHERE id = ? FOR UPDATE", $productId)->qty->value();
+     *         if ($qty < 1) { throw new RuntimeException("Out of stock"); }
+     *         DB::update('products', ['qty' => $qty - 1], ['id' => $productId]);
+     *         DB::insert('orders', ['customer_id' => $customerId, 'product_id' => $productId]);
+     *     });
+     *
+     *     // TIP - single queries are already atomic, no transaction needed
+     *     DB::query("UPDATE ::counters SET views = views + 1 WHERE id = ?", $pageId);
+     *
+     * @param callable $fn A function with the operations to execute within the transaction
+     * @return mixed The return value of the callable
+     * @throws RuntimeException If called while already in a transaction
+     * @throws Throwable Re-throws any exception after rolling back
+     */
+    public function transaction(callable $fn): mixed
+    {
+        if ($this->mysqli->inTransaction) {
+            throw new RuntimeException("transaction() cannot be nested - already in a transaction");
+        }
+
+        $this->mysqli->inTransaction = true;
+        $this->mysqli->query("START TRANSACTION");
+        try {
+            $result = $fn();
+            $this->mysqli->query("COMMIT");
+            return $result;
+        } catch (Throwable $e) {
+            $this->mysqli->query("ROLLBACK");
+            throw $e;
+        } finally {
+            $this->mysqli->inTransaction = false;
+        }
     }
 
     //endregion

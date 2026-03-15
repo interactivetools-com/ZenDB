@@ -24,6 +24,12 @@ class MysqliWrapper extends mysqli
     public string $lastQuery = '';
 
     /**
+     * Whether a transaction is currently active on this connection.
+     * Used by Connection::transaction() to detect accidental nesting.
+     */
+    public bool $inTransaction = false;
+
+    /**
      * Force execute_query() to use polyfill instead of native (for testing)
      */
     public static bool $forceExecuteQueryPolyfill = false;
