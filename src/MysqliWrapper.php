@@ -262,10 +262,12 @@ class MysqliWrapper extends mysqli
             throw new RuntimeException("Query uses @ek but encryptionKey is empty. Add 'encryptionKey' to your connection config.");
         }
 
+        $startTime = microtime(true);
         $stmt = parent::prepare("SET @ek = UNHEX(SHA2(?, 512))");
         $stmt->execute([$key]);
         $stmt->close();
         $this->encryptionKeySet = true;
+        $this->logQuery("SET @ek = UNHEX(SHA2(?, 512)) /* params: [\"********\"] */", $startTime);
     }
 
     //endregion
