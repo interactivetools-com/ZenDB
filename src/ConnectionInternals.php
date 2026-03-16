@@ -452,8 +452,8 @@ trait ConnectionInternals
             DB::logDeprecation(":_ syntax is deprecated, use :: instead");
         }
 
-        // {{column}} - expand encrypted column references, see decryptColumnExpr()
-        $template = preg_replace_callback('/\{\{([\w-]+)}}/', fn($m) => $this->decryptColumnExpr($m[1]), $template);
+        // {{column}} or {{table.column}} - expand encrypted column references, see decryptExpr()
+        $template = preg_replace_callback('/\{\{([\w.-]+)}}/', fn($m) => DB::decryptExpr($m[1]), $template);
 
         // Placeholder types
         $placeholderRegex = '/' . implode("|", [
@@ -546,6 +546,99 @@ trait ConnectionInternals
     }
 
     //endregion
+    //region Escape Methods
+
+    /**
+     * Escape a string for safe inclusion in raw SQL.
+     *
+     * @param string|int|float|null|SmartString $input Value to escape
+     * @param bool $escapeLikeWildcards Also escape % and _ for LIKE queries
+     * @return string Escaped string (without quotes)
+     */
+    public function escape(string|int|float|null|SmartString $input, bool $escapeLikeWildcards = false): string
+    {
+        // Unwrap SmartString
+        if ($input instanceof SmartString) {
+            $input = $input->value();
+        }
+
+        // Escape using mysqli
+        $escaped = $this->mysqli->real_escape_string((string)$input);
+
+        // Escape LIKE wildcards if needed
+        if ($escapeLikeWildcards) {
+            $escaped = addcslashes($escaped, '%_');
+        }
+
+        return $escaped;
+    }
+
+    /**
+     * Escapes and quotes values, inserting them into a format string with ? placeholders.
+     *
+     * @param string $format    Format string with ? placeholders
+     * @param mixed  ...$values Values to escape and insert
+     * @return string SQL-safe string
+     * @throws InvalidArgumentException
+     */
+    public function escapef(string $format, mixed ...$values): string
+    {
+        $this->mysqli || throw new RuntimeException(__METHOD__ . "() called before DB connection established");
+
+        return preg_replace_callback('/\?/', function () use (&$values) {
+            $value = array_shift($values);
+
+            return match (true) {
+                is_string($value)                => "'" . $this->mysqli->real_escape_string($value) . "'",
+                is_int($value), is_float($value) => $value,
+                is_null($value)                  => 'NULL',
+                is_array($value)                 => (string) $this->escapeCSV($value),
+                $value instanceof SmartArrayBase => (string) $this->escapeCSV($value->toArray()),
+                $value instanceof SmartString    => "'" . $this->mysqli->real_escape_string((string) $value->value()) . "'",
+                is_bool($value)                  => $value ? 'TRUE' : 'FALSE',
+                default                          => throw new InvalidArgumentException("Unsupported type: " . get_debug_type($value)),
+            };
+        }, $format);
+    }
+
+    /**
+     * Converts array values to a safe CSV string for use in MySQL IN clauses.
+     *
+     * Tip: You probably don't need this! Named placeholders handle arrays
+     * automatically, which is simpler and keeps your values parameterized:
+     *
+     *     // Instead of this:
+     *     DB::select('users', "id IN (?)", DB::escapeCSV([1, 2, 3]));
+     *
+     *     // Do this:
+     *     DB::select('users', "id IN (:ids)", [
+     *         ':ids' => [1, 2, 3],
+     *     ]);
+     *
+     * @param array $values Array of values to convert
+     * @return RawSql SQL-safe comma-separated list
+     * @throws InvalidArgumentException
+     */
+    public function escapeCSV(array $values): RawSql
+    {
+        $this->mysqli || throw new RuntimeException(__METHOD__ . "() called before DB connection established");
+
+        $safeValues = [];
+        foreach (array_unique($values) as $value) {
+            $value        = $value instanceof SmartString ? (string) $value->value() : $value;
+            $safeValues[] = match (true) {
+                is_int($value) || is_float($value) => $value,
+                is_null($value)                    => 'NULL',
+                is_bool($value)                    => $value ? 'TRUE' : 'FALSE',
+                is_string($value)                  => "'" . $this->mysqli->real_escape_string($value) . "'",
+                default                            => throw new InvalidArgumentException("Unsupported value type: " . get_debug_type($value)),
+            };
+        }
+
+        return new RawSql($safeValues ? implode(',', $safeValues) : 'NULL');
+    }
+
+    //endregion
     //region Result Processing
 
     /**
@@ -625,7 +718,7 @@ trait ConnectionInternals
     {
         return new SmartArrayHtml($rows, [
             'useSmartStrings' => $this->useSmartStrings,
-            'loadHandler'     => $this->smartArrayLoadHandler,
+            'loadHandler'     => $this->loadHandler,
             'mysqli'          => [
                 'query'         => $sql,
                 'baseTable'     => $baseTable,
@@ -655,62 +748,6 @@ trait ConnectionInternals
         }
 
         return $cache[$this];
-    }
-
-    /**
-     * Internal decryption function that replaces {{column}} with AES_DECRYPT(`column`, @ek) which
-     * returns the original plaintext value. Used by the {{column}} template syntax in queries.
-     *
-     * @see Connection::encryptValue() for the write side (AES_ENCRYPT)
-     */
-    private function decryptColumnExpr(string $column): string
-    {
-        return "AES_DECRYPT(`$column`, @ek)";
-    }
-
-    /**
-     * Decrypt encrypted columns in fetched rows using the configured encryption key.
-     * Non-encrypted binary data is left untouched (openssl_decrypt returns false on invalid padding).
-     *
-     * Called automatically by query methods. To decrypt in MySQL instead, use AES_DECRYPT with @ek:
-     *
-     *     SELECT AES_DECRYPT(`column`, @ek) FROM prefix_users
-     *     SELECT {{column}} FROM ::users                           // ZenDB shorthand for the above
-     *
-     * To decrypt in PHP (e.g., after a raw $mysqli->query()):
-     *
-     *     DB::decryptRows($rows, $result->fetch_fields());
-     *
-     * @param array   $rows        Fetched rows (modified in place)
-     * @param array   $fetchFields Field objects from fetch_fields()
-     */
-    public function decryptRows(array &$rows, array $fetchFields): void
-    {
-        // Early exit: no encryption key or no rows
-        if (!$this->secret('encryptionKey') || !$rows) {
-            return;
-        }
-
-        // Detect encrypted columns from field metadata
-        $encryptedColumns = DB::getEncryptedColumns($fetchFields);
-        if (!$encryptedColumns) {
-            return;
-        }
-
-        // Decrypt
-        $aesKey = $this->aesKey();
-        foreach ($rows as &$row) {
-            foreach ($encryptedColumns as $col) {
-                if ($row[$col] === null) {
-                    continue;
-                }
-                $decrypted = openssl_decrypt($row[$col], 'aes-128-ecb', $aesKey, OPENSSL_RAW_DATA);
-                if ($decrypted !== false) {
-                    $row[$col] = $decrypted;
-                }
-            }
-        }
-        unset($row);
     }
 
     /**
@@ -749,6 +786,9 @@ trait ConnectionInternals
             $value = $values[$encryptedCol];
             if ($value instanceof SmartString) {
                 $value = $value->value();
+            }
+            if (!is_string($value) && !is_int($value) && !is_float($value)) {
+                continue; // skip RawSql, arrays, and other non-scalar types
             }
             $values[$encryptedCol] = openssl_encrypt((string) $value, 'aes-128-ecb', $aesKey, OPENSSL_RAW_DATA);
         }
@@ -866,7 +906,7 @@ trait ConnectionInternals
 
     // Result handling
     /** @var callable|null Custom handler for loading results */
-    private mixed $smartArrayLoadHandler = null;
+    private mixed $loadHandler = null;
 
     // Connect-time settings (only used during connect(), changing after has no effect)
     private bool   $usePhpTimezone     = true;

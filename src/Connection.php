@@ -4,7 +4,6 @@ declare(strict_types=1);
 namespace Itools\ZenDB;
 
 use InvalidArgumentException;
-use Itools\SmartArray\SmartArrayBase;
 use Itools\SmartArray\SmartArrayHtml;
 use Itools\SmartString\SmartString;
 use RuntimeException;
@@ -69,7 +68,7 @@ class Connection
      *     useSmartJoins?:        bool,      // Add table.column keys to JOIN results (default: true)
      *     useSmartStrings?:      bool,      // Return SmartString values (default: true)
      *     usePhpTimezone?:       bool,      // Sync MySQL timezone with PHP (default: true)
-     *     smartArrayLoadHandler?: callable, // Custom result loading handler
+     *     loadHandler?: callable, // Custom result loading handler
      *     versionRequired?:      string,    // Minimum MySQL version (default: '5.7.32')
      *     requireSSL?:           bool,      // Require SSL connection (default: false)
      *     databaseAutoCreate?:   bool,      // Create database if missing (default: false)
@@ -730,96 +729,6 @@ class Connection
     //region SQL Generation
 
     /**
-     * Escape a string for safe inclusion in raw SQL.
-     *
-     * @param string|int|float|null|SmartString $input Value to escape
-     * @param bool $escapeLikeWildcards Also escape % and _ for LIKE queries
-     * @return string Escaped string (without quotes)
-     */
-    public function escape(string|int|float|null|SmartString $input, bool $escapeLikeWildcards = false): string
-    {
-        // Unwrap SmartString
-        if ($input instanceof SmartString) {
-            $input = $input->value();
-        }
-
-        // Escape using mysqli
-        $escaped = $this->mysqli->real_escape_string((string)$input);
-
-        // Escape LIKE wildcards if needed
-        if ($escapeLikeWildcards) {
-            $escaped = addcslashes($escaped, '%_');
-        }
-
-        return $escaped;
-    }
-
-    /**
-     * Escapes and quotes values, inserting them into a format string with ? placeholders.
-     *
-     * @param string $format    Format string with ? placeholders
-     * @param mixed  ...$values Values to escape and insert
-     * @return string SQL-safe string
-     * @throws InvalidArgumentException
-     */
-    public function escapef(string $format, mixed ...$values): string
-    {
-        $this->mysqli || throw new RuntimeException(__METHOD__ . "() called before DB connection established");
-
-        return preg_replace_callback('/\?/', function () use (&$values) {
-            $value = array_shift($values);
-
-            return match (true) {
-                is_string($value)                => "'" . $this->mysqli->real_escape_string($value) . "'",
-                is_int($value), is_float($value) => $value,
-                is_null($value)                  => 'NULL',
-                is_array($value)                 => (string) $this->escapeCSV($value),
-                $value instanceof SmartArrayBase => (string) $this->escapeCSV($value->toArray()),
-                $value instanceof SmartString    => "'" . $this->mysqli->real_escape_string((string) $value->value()) . "'",
-                is_bool($value)                  => $value ? 'TRUE' : 'FALSE',
-                default                          => throw new InvalidArgumentException("Unsupported type: " . get_debug_type($value)),
-            };
-        }, $format);
-    }
-
-    /**
-     * Converts array values to a safe CSV string for use in MySQL IN clauses.
-     *
-     * Tip: You probably don't need this! Named placeholders handle arrays
-     * automatically, which is simpler and keeps your values parameterized:
-     *
-     *     // Instead of this:
-     *     DB::select('users', "id IN (?)", DB::escapeCSV([1, 2, 3]));
-     *
-     *     // Do this:
-     *     DB::select('users', "id IN (:ids)", [
-     *         ':ids' => [1, 2, 3],
-     *     ]);
-     *
-     * @param array $values Array of values to convert
-     * @return RawSql SQL-safe comma-separated list
-     * @throws InvalidArgumentException
-     */
-    public function escapeCSV(array $values): RawSql
-    {
-        $this->mysqli || throw new RuntimeException(__METHOD__ . "() called before DB connection established");
-
-        $safeValues = [];
-        foreach (array_unique($values) as $value) {
-            $value        = $value instanceof SmartString ? (string) $value->value() : $value;
-            $safeValues[] = match (true) {
-                is_int($value) || is_float($value) => $value,
-                is_null($value)                    => 'NULL',
-                is_bool($value)                    => $value ? 'TRUE' : 'FALSE',
-                is_string($value)                  => "'" . $this->mysqli->real_escape_string($value) . "'",
-                default                            => throw new InvalidArgumentException("Unsupported value type: " . get_debug_type($value)),
-            };
-        }
-
-        return new RawSql($safeValues ? implode(',', $safeValues) : 'NULL');
-    }
-
-    /**
      * Creates a MySQL LIKE pattern for "column contains value" searches.
      *
      * @param string|int|float|null|SmartString $input Value to search for
@@ -890,6 +799,51 @@ class Connection
         }
 
         return openssl_encrypt((string) $value, 'aes-128-ecb', $this->aesKey(), OPENSSL_RAW_DATA);
+    }
+
+    /**
+     * Decrypt encrypted columns in fetched rows using the configured encryption key.
+     * Non-encrypted binary data is left untouched (openssl_decrypt returns false on invalid padding).
+     *
+     * Called automatically by query methods. To decrypt in MySQL instead, use AES_DECRYPT with @ek:
+     *
+     *     SELECT AES_DECRYPT(`column`, @ek) FROM prefix_users
+     *     SELECT {{column}} FROM ::users                           // ZenDB shorthand for the above
+     *
+     * To decrypt in PHP (e.g., after a raw $mysqli->query()):
+     *
+     *     DB::decryptRows($rows, $result->fetch_fields());
+     *
+     * @param array   $rows        Fetched rows (modified in place)
+     * @param array   $fetchFields Field objects from fetch_fields()
+     */
+    public function decryptRows(array &$rows, array $fetchFields): void
+    {
+        // Early exit: no encryption key or no rows
+        if (!$this->secret('encryptionKey') || !$rows) {
+            return;
+        }
+
+        // Detect encrypted columns from field metadata
+        $encryptedColumns = DB::getEncryptedColumns($fetchFields);
+        if (!$encryptedColumns) {
+            return;
+        }
+
+        // Decrypt
+        $aesKey = $this->aesKey();
+        foreach ($rows as &$row) {
+            foreach ($encryptedColumns as $col) {
+                if ($row[$col] === null) {
+                    continue;
+                }
+                $decrypted = openssl_decrypt($row[$col], 'aes-128-ecb', $aesKey, OPENSSL_RAW_DATA);
+                if ($decrypted !== false) {
+                    $row[$col] = $decrypted;
+                }
+            }
+        }
+        unset($row);
     }
 
     //endregion

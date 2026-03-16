@@ -3,10 +3,8 @@ declare(strict_types=1);
 
 namespace Itools\ZenDB;
 
-use InvalidArgumentException;
 use Itools\SmartArray\SmartArrayHtml;
 use Itools\SmartString\SmartString;
-use JetBrains\PhpStorm\Deprecated;
 use RuntimeException;
 use Throwable;
 
@@ -23,15 +21,17 @@ use Throwable;
  */
 class DB
 {
+    use DBInternals;
+
     //region Public Properties
 
     /**
-     * For backwards compatibility - references the default connection's mysqli
+     * The raw mysqli connection instance for direct database access.
      */
     public static ?MysqliWrapper $mysqli = null;
 
     /**
-     * For backwards compatibility - mirrors the default connection's tablePrefix
+     * Table prefix prepended to table names (e.g., 'cms_')
      */
     public static string $tablePrefix = '';
 
@@ -54,7 +54,7 @@ class DB
      *     useSmartJoins?:         bool,        // Add `table.column` keys to JOIN results, first-wins on duplicate columns (default: true)
      *     useSmartStrings?:       bool,        // Wrap values in SmartString objects (default: true)
      *     usePhpTimezone?:        bool,        // Sync MySQL timezone with PHP (default: true)
-     *     smartArrayLoadHandler?: callable,    // Custom result loading handler
+     *     loadHandler?: callable,    // Custom result loading handler
      *     versionRequired?:       string,      // Minimum MySQL version (default: '5.7.32')
      *     requireSSL?:            bool,        // Require SSL connection (default: false)
      *     databaseAutoCreate?:    bool,        // Create database if missing (default: false)
@@ -308,142 +308,20 @@ class DB
     }
 
     /**
-     * @see Connection::decryptRows()
-     */
-    public static function decryptRows(array &$rows, array $fetchFields): void
-    {
-        self::db()->decryptRows($rows, $fetchFields);
-    }
-
-    /**
-     * Detect encrypted columns from field metadata. Returns column names for MEDIUMBLOB fields,
-     * which are the standard storage type for AES_ENCRYPT() data.
+     * Returns the SQL expression to decrypt an encrypted column using the session encryption key (@ek).
+     * Used internally by the {{column}} template syntax and available for custom query building.
      *
-     * Called automatically by query methods when an encryption key is configured.
-     * You don't normally need to call this directly.
+     *     DB::decryptExpr('email')       // "AES_DECRYPT(`email`, @ek)"
+     *     DB::decryptExpr('blog.title')  // "AES_DECRYPT(`blog`.`title`, @ek)"
      *
-     *     $encryptedCols = DB::getEncryptedColumns($result->fetch_fields());
-     *
-     * @param array $fetchFields Field objects from fetch_fields()
-     * @return array<string> Column names of detected encrypted columns
+     * @param string $column Column name, optionally dot-qualified (e.g., "table.column")
+     * @return string SQL expression
+     * @see Connection::encryptValue() for the write side (AES_ENCRYPT)
      */
-    public static function getEncryptedColumns(array $fetchFields): array
+    public static function decryptExpr(string $column): string
     {
-        $encrypted = [];
-        foreach ($fetchFields as $field) {
-            $isMediumBlob = $field->type === MYSQLI_TYPE_BLOB && $field->charsetnr === 63 && $field->length === 16_777_215;
-            if ($isMediumBlob) {
-                $encrypted[] = $field->name;
-            }
-        }
-        return $encrypted;
-    }
-
-    //endregion
-    //region Internals
-
-    /**
-     * The default Connection instance
-     */
-    private static ?Connection $db = null;
-
-    /**
-     * Get the default connection, throwing if not connected.
-     */
-    private static function db(): Connection
-    {
-        return self::$db ?? throw new RuntimeException(
-            "No database connection. Call DB::connect() first."
-        );
-    }
-
-    /**
-     * Wrapper for {@see Connection::escape()}
-     */
-    public static function escape(string|int|float|null|SmartString $input, bool $escapeLikeWildcards = false): string
-    {
-        return self::db()->escape($input, $escapeLikeWildcards);
-    }
-
-    /**
-     * Wrapper for {@see Connection::escapef()}
-     */
-    public static function escapef(string $format, mixed ...$values): string
-    {
-        return self::db()->escapef($format, ...$values);
-    }
-
-    /**
-     * Wrapper for {@see Connection::escapeCSV()}
-     */
-    public static function escapeCSV(array $values): RawSql
-    {
-        return self::db()->escapeCSV($values);
-    }
-
-    //endregion
-    //region Deprecations
-
-    /**
-     * @deprecated Use DB::hasTable() instead
-     * @see DB::hasTable()
-     */
-    #[Deprecated(replacement: 'DB::hasTable(%parametersList%)')]
-    public static function tableExists(string $table, bool $isPrefixed = false): bool
-    {
-        self::logDeprecation("DB::tableExists() is deprecated, use DB::hasTable() instead");
-        return self::db()->hasTable($table, $isPrefixed);
-    }
-
-    /**
-     * @deprecated Use DB::selectOne() instead
-     * @see DB::selectOne()
-     */
-    #[Deprecated(replacement: 'DB::selectOne(%parametersList%)')]
-    public static function get(string $baseTable, int|array|string $whereEtc = [], ...$params): SmartArrayHtml
-    {
-        self::logDeprecation("DB::get() is deprecated, use DB::selectOne() instead");
-        return self::db()->selectOne($baseTable, $whereEtc, ...$params);
-    }
-
-    /**
-     * Handle legacy static method calls.
-     * @noinspection SpellCheckingInspection for lowercase method names
-     */
-    public static function __callStatic(string $name, array $args): mixed
-    {
-        [$replacement, $result] = match (strtolower($name)) {
-            'like', 'escapelikewildcards' => ["DB::escape(\$value, true)",       addcslashes((string)($args[0] ?? ''), '%_')],
-            'identifier'                  => throw new InvalidArgumentException("DB::identifier() has been removed for security. Use backtick placeholders instead: `?` or `:name`"),
-            'gettableprefix'              => ["DB::\$tablePrefix",               self::$tablePrefix],
-            'israwsql'                    => ["\$value instanceof RawSql",       ($args[0] ?? null) instanceof RawSql],
-            'raw'                         => ["DB::rawSql()",                    self::rawSql(...$args)],
-            'datetime'                    => ["date('Y-m-d H:i:s', \$time)",     date('Y-m-d H:i:s', ($args[0] ?? time()))],
-            default                       => throw new InvalidArgumentException("Unknown static method: $name"),
-        };
-        self::logDeprecation("DB::$name() is deprecated, use $replacement instead");
-
-        return $result;
-    }
-
-    /**
-     * Log a deprecation warning with caller location.
-     *
-     * @param string $message Deprecation message (caller file:line will be appended)
-     */
-    public static function logDeprecation(string $message): void
-    {
-        // Find first caller outside ZenDB src directory
-        $file = "unknown";
-        $line = "unknown";
-        foreach (debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS) as $caller) {
-            if (!empty($caller['file']) && dirname($caller['file']) !== __DIR__) {
-                $file = basename($caller['file']);
-                $line = $caller['line'] ?? "unknown";
-                break;
-            }
-        }
-        @trigger_error("$message in $file:$line", E_USER_DEPRECATED);
+        $column = str_replace('.', '`.`', $column); // "blog.title" => "blog`.`title"
+        return "AES_DECRYPT(`$column`, @ek)";       // => AES_DECRYPT(`blog`.`title`, @ek)
     }
 
     //endregion
