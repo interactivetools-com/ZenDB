@@ -301,7 +301,9 @@ class Connection
     {
         $this->rejectLimitAndOffset($sqlTemplate);
 
-        $resultSet = $this->query("$sqlTemplate LIMIT 1", ...$params);
+        $supportsLimit  = preg_match('/^\s*(SELECT|WITH)\b/i', $sqlTemplate);
+        $sqlTemplate   .= $supportsLimit ? ' LIMIT 1' : '';
+        $resultSet     = $this->query($sqlTemplate, ...$params);
 
         return $resultSet->first()->asHtml(); // asHtml() ensures SmartNull from empty results becomes SmartArrayHtml
     }
