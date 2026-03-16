@@ -62,6 +62,7 @@ class DB
      *     readTimeout?:           int,         // Read timeout in seconds (default: 60)
      *     queryLogger?:           callable,    // fn(string $query, float $secs, ?Throwable $exception)
      *     sqlMode?:               string,      // MySQL SQL mode
+     *     encryptionKey?:         string,      // AES encryption key, sets MySQL @ek session variable on first use
      * } $config
      * @throws RuntimeException If already connected
      * @see Connection::__construct()
@@ -293,6 +294,49 @@ class DB
     public static function likeEndsWith(string|int|float|null|SmartString $input): RawSql
     {
         return self::db()->likeEndsWith($input);
+    }
+
+    //endregion
+    //region Encryption
+
+    /**
+     * @see Connection::encryptValue()
+     */
+    public static function encryptValue(string|int|float|null|SmartString $value): string|null
+    {
+        return self::db()->encryptValue($value);
+    }
+
+    /**
+     * @see Connection::decryptRows()
+     */
+    public static function decryptRows(array &$rows, array $fetchFields): void
+    {
+        self::db()->decryptRows($rows, $fetchFields);
+    }
+
+    /**
+     * Detect encrypted columns from field metadata. Returns column names for MEDIUMBLOB fields,
+     * which are the standard storage type for AES_ENCRYPT() data.
+     *
+     * Called automatically by query methods when an encryption key is configured.
+     * You don't normally need to call this directly.
+     *
+     *     $encryptedCols = DB::getEncryptedColumns($result->fetch_fields());
+     *
+     * @param array $fetchFields Field objects from fetch_fields()
+     * @return array<string> Column names of detected encrypted columns
+     */
+    public static function getEncryptedColumns(array $fetchFields): array
+    {
+        $encrypted = [];
+        foreach ($fetchFields as $field) {
+            $isMediumBlob = $field->type === MYSQLI_TYPE_BLOB && $field->charsetnr === 63 && $field->length === 16_777_215;
+            if ($isMediumBlob) {
+                $encrypted[] = $field->name;
+            }
+        }
+        return $encrypted;
     }
 
     //endregion

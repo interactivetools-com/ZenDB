@@ -43,27 +43,21 @@ class TransactionTest extends BaseTestCase
 
     public function testRollbackRevertsData(): void
     {
-        self::resetTempTestTables();
-        $before = DB::count('users');
+        // Use a real (non-temporary) table because temporary tables don't support rollback
+        DB::$mysqli->query("CREATE TABLE IF NOT EXISTS test_tx_rollback (num INT PRIMARY KEY AUTO_INCREMENT, name VARCHAR(255)) ENGINE=InnoDB");
+        DB::$mysqli->query("TRUNCATE TABLE test_tx_rollback");
 
         try {
             DB::transaction(function () {
-                DB::insert('users', [
-                    'name'    => 'Should Not Exist',
-                    'isAdmin' => 0,
-                    'status'  => 'Active',
-                    'city'    => 'Nowhere',
-                    'dob'     => '2000-01-01',
-                    'age'     => 1,
-                ]);
+                DB::insert('tx_rollback', ['name' => 'Should Not Exist']);
                 throw new RuntimeException("force rollback");
             });
         } catch (RuntimeException) {
             // expected
         }
 
-        $this->assertSame($before, DB::count('users'), "Row should not exist after rollback");
-        $this->assertCount(0, DB::select('users', ['name' => 'Should Not Exist']));
+        $this->assertSame(0, DB::count('tx_rollback'), "Row should not exist after rollback");
+        DB::$mysqli->query("DROP TABLE IF EXISTS test_tx_rollback");
     }
 
     public function testRethrowsExceptionAfterRollback(): void

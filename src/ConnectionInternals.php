@@ -452,6 +452,9 @@ trait ConnectionInternals
             DB::logDeprecation(":_ syntax is deprecated, use :: instead");
         }
 
+        // {{column}} - expand encrypted column references, see decryptColumnExpr()
+        $template = preg_replace_callback('/\{\{([\w-]+)}}/', fn($m) => $this->decryptColumnExpr($m[1]), $template);
+
         // Placeholder types
         $placeholderRegex = '/' . implode("|", [
                 // Values - quoted and escaped
@@ -546,12 +549,12 @@ trait ConnectionInternals
     //region Result Processing
 
     /**
-     * Process mysqli result into rows with smart column mapping.
+     * Fetch result rows with column mapping, smart joins, and auto-decryption.
      *
-     * Features:
-     * - "First wins" rule: duplicate column names use the first occurrence
-     * - Smart joins: multi-table queries get qualified names (e.g., 'users.name')
+     * - "First wins": duplicate column names use the first occurrence
+     * - SmartJoins: multi-table queries add qualified names (e.g., 'users.name')
      * - Self-joins: adds alias-based names (e.g., 'a.name', 'b.name')
+     * - Auto-decryption: MEDIUMBLOB columns are decrypted when an encryption key is configured
      */
     private function fetchMappedRows(mysqli_result|bool $mysqliResult): array
     {
@@ -559,59 +562,58 @@ trait ConnectionInternals
             return [];  // INSERT/UPDATE/DELETE return true, not mysqli_result
         }
 
-        // First pass: get single column names => indexes, and table aliases
-        $columnMap        = [];                                                     // Column name to index, first wins, e.g., ['name' => 0, 'total' => 1]
-        $tableAliases     = [];                                                     // Table alias to name, e.g., ['u' => 'users']
-        $hasDuplicateCols = false;
-        foreach ($mysqliResult->fetch_fields() as $index => $field) {
-            if (isset($columnMap[$field->name])) {
-                $hasDuplicateCols = true;
-            }
-            $columnMap[$field->name] ??= $index;                                    // First wins for duplicate names
-            if ($field->orgtable) {
-                $tableAliases[$field->table] = $field->orgtable;                    // 'a' => 'users' or 'users' => 'users'
-            }
-        }
+        // Extract field metadata from result
+        $fields       = $mysqliResult->fetch_fields();
+        $names        = array_column($fields, 'name');
+        $tableAliases = array_filter(array_column($fields, 'orgtable', 'table'));      // e.g., ['u' => 'users']
 
         // Fast path: no duplicate columns and no SmartJoins needed - use C-level associative fetch
-        $needsSmartJoins = $this->useSmartJoins && count($tableAliases) > 1;
+        $hasDuplicateCols = count($names) !== count(array_flip($names));
+        $needsSmartJoins  = $this->useSmartJoins && count($tableAliases) > 1;
         if (!$hasDuplicateCols && !$needsSmartJoins) {
             $rows = $mysqliResult->fetch_all(MYSQLI_ASSOC);
             $mysqliResult->free();
+            $this->decryptRows($rows, $fields);                     // auto-detect and decrypt MEDIUMBLOB columns
             return $rows;
         }
 
-        // Second pass: if smart joins enabled AND multi-table query, add qualified names, e.g., 'users.name' => "John"
+        // Build column index map for numeric-to-named remapping (first wins for duplicates)
+        $columnIndexes = array_flip(array_unique($names));      // e.g., ['name' => 0, 'email' => 1]
+
+        // SmartJoins: add qualified names (e.g., 'users.name') and alias names for self-joins (e.g., 'a.name')
         if ($needsSmartJoins) {
+            $prefixLen      = strlen($this->tablePrefix);
             $selfJoinTables = array_filter(array_count_values($tableAliases), fn($c) => $c > 1);
 
-            foreach ($mysqliResult->fetch_fields() as $index => $field) {
+            foreach ($fields as $index => $field) {
                 if ($field->orgtable && $field->orgname) {
-                    // Strip table prefix to get base table name: 'cms_users' => 'users'
-                    $hasPrefix      = $this->tablePrefix && str_starts_with($field->orgtable, $this->tablePrefix);
-                    $fieldBaseTable = $hasPrefix ? substr($field->orgtable, strlen($this->tablePrefix)) : $field->orgtable;
+                    $baseTable = str_starts_with($field->orgtable, $this->tablePrefix)
+                        ? substr($field->orgtable, $prefixLen)
+                        : $field->orgtable;
 
-                    $columnMap["$fieldBaseTable.$field->orgname"] ??= $index;       // e.g., 'users.name', first wins
+                    $columnIndexes["$baseTable.$field->orgname"] ??= $index;       // e.g., 'users.name', first wins
 
                     // Self-joined tables: add table alias names as well (e.g., 'a.name', 'b.name')
                     if (isset($selfJoinTables[$field->orgtable])) {
-                        $columnMap["$field->table.$field->orgname"] ??= $index;     // e.g., 'u.name', first wins
+                        $columnIndexes["$field->table.$field->orgname"] ??= $index;     // e.g., 'u.name', first wins
                     }
                 }
             }
         }
 
-        // Slow path: fetch as numeric arrays and remap to column names (for "first wins" or SmartJoins)
+        // Fetch as numeric arrays and remap to named columns
         $rows = [];
-        foreach ($mysqliResult->fetch_all(MYSQLI_NUM) as $values) {                 // e.g., ['John', 'john@example.com']
+        foreach ($mysqliResult->fetch_all(MYSQLI_NUM) as $values) {
             $row = [];
-            foreach ($columnMap as $name => $index) {
-                $row[$name] = $values[$index];                                      // Remap indices to column names
+            foreach ($columnIndexes as $name => $index) {
+                $row[$name] = $values[$index];
             }
             $rows[] = $row;
         }
-
         $mysqliResult->free();
+
+        // Auto-decrypt MEDIUMBLOB columns (no-op when no encryption key configured)
+        $this->decryptRows($rows, $fields);
 
         return $rows;
     }
@@ -631,6 +633,125 @@ trait ConnectionInternals
                 'insert_id'     => $this->mysqli->insert_id,
             ],
         ]);
+    }
+
+    //endregion
+    //region Encryption
+
+    /**
+     * Derive and cache the AES-128 key matching MySQL's AES_ENCRYPT() key handling.
+     * MySQL XOR-folds the SHA-512 hash into a 16-byte key for AES-128-ECB.
+     */
+    private function aesKey(): string
+    {
+        static $cache = new WeakMap();
+        if (!isset($cache[$this])) {
+            $encryptionKey = $this->secret('encryptionKey') ?: throw new RuntimeException("aesKey() requires 'encryptionKey' in connection config.");
+            $keyBytes      = hash('sha512', $encryptionKey, true);
+            $cache[$this]  = substr($keyBytes, 0, 16);
+            $cache[$this] ^= substr($keyBytes, 16, 16);
+            $cache[$this] ^= substr($keyBytes, 32, 16);
+            $cache[$this] ^= substr($keyBytes, 48, 16);
+        }
+
+        return $cache[$this];
+    }
+
+    /**
+     * Internal decryption function that replaces {{column}} with AES_DECRYPT(`column`, @ek) which
+     * returns the original plaintext value. Used by the {{column}} template syntax in queries.
+     *
+     * @see Connection::encryptValue() for the write side (AES_ENCRYPT)
+     */
+    private function decryptColumnExpr(string $column): string
+    {
+        return "AES_DECRYPT(`$column`, @ek)";
+    }
+
+    /**
+     * Decrypt encrypted columns in fetched rows using the configured encryption key.
+     * Non-encrypted binary data is left untouched (openssl_decrypt returns false on invalid padding).
+     *
+     * Called automatically by query methods. To decrypt in MySQL instead, use AES_DECRYPT with @ek:
+     *
+     *     SELECT AES_DECRYPT(`column`, @ek) FROM prefix_users
+     *     SELECT {{column}} FROM ::users                           // ZenDB shorthand for the above
+     *
+     * To decrypt in PHP (e.g., after a raw $mysqli->query()):
+     *
+     *     DB::decryptRows($rows, $result->fetch_fields());
+     *
+     * @param array   $rows        Fetched rows (modified in place)
+     * @param array   $fetchFields Field objects from fetch_fields()
+     */
+    public function decryptRows(array &$rows, array $fetchFields): void
+    {
+        // Early exit: no encryption key or no rows
+        if (!$this->secret('encryptionKey') || !$rows) {
+            return;
+        }
+
+        // Detect encrypted columns from field metadata
+        $encryptedColumns = DB::getEncryptedColumns($fetchFields);
+        if (!$encryptedColumns) {
+            return;
+        }
+
+        // Decrypt
+        $aesKey = $this->aesKey();
+        foreach ($rows as &$row) {
+            foreach ($encryptedColumns as $col) {
+                if ($row[$col] === null) {
+                    continue;
+                }
+                $decrypted = openssl_decrypt($row[$col], 'aes-128-ecb', $aesKey, OPENSSL_RAW_DATA);
+                if ($decrypted !== false) {
+                    $row[$col] = $decrypted;
+                }
+            }
+        }
+        unset($row);
+    }
+
+    /**
+     * Auto-encrypt values for encrypted columns in an insert/update values array.
+     * Detects MEDIUMBLOB columns via a cached LIMIT 0 query, then encrypts matching values in place.
+     * No-op when no encryption key is configured or no encrypted columns exist.
+     *
+     * @param string $fullTable Full table name (with prefix)
+     * @param array  $values    Column => value pairs (modified in place)
+     */
+    private function autoEncryptValues(string $fullTable, array &$values): void
+    {
+        if (!$this->secret('encryptionKey') || !$values) {
+            return;
+        }
+
+        // Get encrypted column names for this table (cached per table per request)
+        static $tableCache = [];
+        if (!isset($tableCache[$fullTable])) {
+            $result = $this->mysqli->query("SELECT * FROM `$fullTable` LIMIT 0");
+            $tableCache[$fullTable] = $result ? DB::getEncryptedColumns($result->fetch_fields()) : [];
+            $result?->free();
+        }
+
+        $encryptedCols = $tableCache[$fullTable];
+        if (!$encryptedCols) {
+            return;
+        }
+
+        // Encrypt values for encrypted columns
+        $aesKey = $this->aesKey();
+        foreach ($encryptedCols as $encryptedCol) {
+            if (!array_key_exists($encryptedCol, $values) || $values[$encryptedCol] === null) {
+                continue;
+            }
+            $value = $values[$encryptedCol];
+            if ($value instanceof SmartString) {
+                $value = $value->value();
+            }
+            $values[$encryptedCol] = openssl_encrypt((string) $value, 'aes-128-ecb', $aesKey, OPENSSL_RAW_DATA);
+        }
     }
 
     //endregion
@@ -671,8 +792,10 @@ trait ConnectionInternals
         foreach (self::$secrets[$this] ?? [] as $key => $value) {
             $props[$key] = $value;
         }
-        if ($props['password'] !== '' && $props['password'] !== null) {
-            $props['password'] = '********';    // mask password
+        foreach (['hostname', 'username', 'password', 'encryptionKey'] as $sensitive) {
+            if ($props[$sensitive] !== '' && $props[$sensitive] !== null) {
+                $props[$sensitive] = '********';
+            }
         }
 
         return $props;
@@ -681,8 +804,8 @@ trait ConnectionInternals
     //endregion
     //region Credential Vault
 
-    /** @var string[] Keys sealed into the WeakMap vault */
-    private static array $secretKeys = ['hostname', 'username', 'password', 'database'];
+    /** @var string[] Keys sealed into the WeakMap vault (encryptionKey is optional) */
+    private static array $secretKeys = ['hostname', 'username', 'password', 'database', 'encryptionKey'];
 
     /**
      * Credentials stored outside instance properties to prevent leakage
@@ -707,12 +830,17 @@ trait ConnectionInternals
         self::$secrets       ??= new WeakMap();
         self::$secrets[$this] = [];
 
+        $optional = ['encryptionKey'];
+
         foreach (self::$secretKeys as $key) {
             $value = $source
                 ? self::$secrets[$source][$key] ?? null  // clone: copy from source
                 : $config[$key] ?? null;                 // construct: from config
 
-            self::$secrets[$this][$key] = $value ?? throw new RuntimeException("Missing required config: '$key'");
+            if ($value === null && !in_array($key, $optional, true)) {
+                throw new RuntimeException("Missing required config: '$key'");
+            }
+            self::$secrets[$this][$key] = $value;
             $this->$key = null;            // clear property to prevent leakage
             unset($config[$key]);          // consume key so it won't hit the property loop
         }
@@ -730,10 +858,11 @@ trait ConnectionInternals
     //region Connection Settings
 
     // Connection credentials (exist for property_exists validation, values stored in WeakMap)
-    private ?string $hostname = null;
-    private ?string $username = null;
-    private ?string $password = null;
-    private ?string $database = null;
+    private ?string $hostname      = null;
+    private ?string $username      = null;
+    private ?string $password      = null;
+    private ?string $database      = null;
+    private ?string $encryptionKey = null;
 
     // Result handling
     /** @var callable|null Custom handler for loading results */

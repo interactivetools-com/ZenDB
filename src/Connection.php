@@ -7,7 +7,6 @@ use InvalidArgumentException;
 use Itools\SmartArray\SmartArrayBase;
 use Itools\SmartArray\SmartArrayHtml;
 use Itools\SmartString\SmartString;
-use mysqli_result;
 use RuntimeException;
 use Throwable;
 use mysqli;
@@ -78,7 +77,10 @@ class Connection
      *     readTimeout?:          int,       // Read timeout in seconds (default: 60)
      *     queryLogger?:          callable,  // fn(string $query, float $secs, ?Throwable $exception)
      *     sqlMode?:              string,    // MySQL SQL mode
+     *     encryptionKey?:        string,    // AES encryption key, sets MySQL @ek session variable on first use
      * } $config
+     *
+     * @noinspection PhpFullyQualifiedNameUsageInspection - FQN required until PHP 8.2 minimum (can't import)
      */
     public function __construct(#[\SensitiveParameter] array $config = [])
     {
@@ -119,6 +121,11 @@ class Connection
         // Return native PHP types (int/float) instead of strings
         if (defined('MYSQLI_OPT_INT_AND_FLOAT_NATIVE')) {
             $this->mysqli->options(MYSQLI_OPT_INT_AND_FLOAT_NATIVE, true);
+        }
+
+        // Pass encryption key callback to MysqliWrapper for automatic @ek session variable setup
+        if ($this->secret('encryptionKey') !== '' && $this->secret('encryptionKey') !== null) {
+            $this->mysqli->setEncryptionKeyCallback(fn() => $this->secret('encryptionKey'));
         }
 
         $flags = $this->requireSSL ? MYSQLI_CLIENT_SSL : 0;
@@ -248,6 +255,9 @@ class Connection
 
     /**
      * Execute a raw SQL query and return results.
+     * Encrypted columns (MEDIUMBLOB) are automatically decrypted on read. For INSERT/UPDATE
+     * queries, use DB::encryptValue() to encrypt values manually (DB::insert/update do this
+     * automatically).
      *
      * @param string $sqlTemplate
      * @param mixed  ...$params Parameters to bind
@@ -273,6 +283,9 @@ class Connection
 
     /**
      * Execute a raw SQL query and return the first row.
+     * Encrypted columns (MEDIUMBLOB) are automatically decrypted on read. For INSERT/UPDATE
+     * queries, use DB::encryptValue() to encrypt values manually (DB::insert/update do this
+     * automatically).
      *
      *     $row = DB::queryOne("SELECT name, email FROM ::users WHERE num = ?", 5);
      *     echo "$row->name - $row->email";
@@ -296,6 +309,7 @@ class Connection
 
     /**
      * Select rows from a table.
+     * Encrypted columns (MEDIUMBLOB) are automatically decrypted when an encryption key is configured.
      *
      * @param string           $baseTable  Table name (without prefix)
      * @param int|array|string $whereEtc   WHERE and other clauses (ORDER BY, LIMIT, etc.)
@@ -323,6 +337,7 @@ class Connection
 
     /**
      * Select a single row from a table. Always sends LIMIT 1 to MySQL.
+     * Encrypted columns (MEDIUMBLOB) are automatically decrypted when an encryption key is configured.
      *
      *     $user = DB::selectOne('users', ['num' => 5]);
      *     echo "$user->name - $user->email";
@@ -354,6 +369,7 @@ class Connection
 
     /**
      * Insert a row into a table.
+     * Encrypted columns (MEDIUMBLOB) are automatically encrypted when an encryption key is configured.
      *
      * @param string $baseTable Table name (without prefix)
      * @param array $values Column => value pairs
@@ -368,6 +384,7 @@ class Connection
         // Build SQL
         $fullTable                = $this->tablePrefix . $baseTable;
         $this->mysqli->lastQuery  = "INSERT INTO `$fullTable` [SET ...]";
+        $this->autoEncryptValues($fullTable, $values);
         $setClause                = $this->buildSetClause($values);
         $sql                      = "INSERT INTO `$fullTable` $setClause";
 
@@ -379,6 +396,7 @@ class Connection
 
     /**
      * Update rows in a table.
+     * Encrypted columns (MEDIUMBLOB) are automatically encrypted when an encryption key is configured.
      *
      * @param string           $baseTable    Table name (without prefix)
      * @param array            $values Column => value pairs to update
@@ -400,6 +418,7 @@ class Connection
 
         $fullTable                = $this->tablePrefix . $baseTable;
         $this->mysqli->lastQuery  = "UPDATE `$fullTable` [SET ...] [WHERE ...]";
+        $this->autoEncryptValues($fullTable, $values);
         $setClause                = $this->buildSetClause($values);
         $sql                      = "UPDATE `$fullTable` $setClause {$this->whereFromArgs($whereEtc, $params)}";
 
@@ -842,6 +861,35 @@ class Connection
     public function likeEndsWith(string|int|float|null|SmartString $input): RawSql
     {
         return new RawSql("'%" . $this->escape($input, true) . "'");
+    }
+
+    //endregion
+    //region Encryption
+
+    /**
+     * Encrypt a value in PHP. Requires 'encryptionKey' in connection config.
+     * Note: DB::insert() and DB::update() auto-encrypt MEDIUMBLOB columns, so you
+     * don't need this for normal insert/update. This is mainly for:
+     *
+     *     // Exact match search (compare encrypted blobs)
+     *     DB::select('users', ['token' => DB::encryptValue($searchToken)]);
+     *
+     *     // Raw SQL insert/update via DB::query()
+     *     DB::query("UPDATE ::users SET token = ? WHERE id = ?", DB::encryptValue($token), $id);
+     *
+     * @param string|int|float|null|SmartString $value Plaintext value to encrypt
+     * @return string|null Encrypted binary string, or null if value is null
+     */
+    public function encryptValue(string|int|float|null|SmartString $value): string|null
+    {
+        if ($value instanceof SmartString) {
+            $value = $value->value();
+        }
+        if (is_null($value)) {
+            return null;
+        }
+
+        return openssl_encrypt((string) $value, 'aes-128-ecb', $this->aesKey(), OPENSSL_RAW_DATA);
     }
 
     //endregion

@@ -68,9 +68,10 @@ class DebugInfoTest extends BaseTestCase
         $this->assertArrayHasKey('database', $debugInfo);
         $this->assertArrayHasKey('tablePrefix', $debugInfo);
 
-        // Hostname and database should be visible (not masked)
-        $this->assertSame(self::$configDefaults['hostname'], $debugInfo['hostname']);
-        $this->assertSame('********', $debugInfo['username']); // username is masked
+        // Database should be visible, credentials should be masked
+        $this->assertSame(self::$configDefaults['database'], $debugInfo['database']);
+        $this->assertSame('********', $debugInfo['hostname']);
+        $this->assertSame('********', $debugInfo['username']);
     }
 
     public function testDebugInfoWithEmptyPassword(): void

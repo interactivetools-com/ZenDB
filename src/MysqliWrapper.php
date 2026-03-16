@@ -3,7 +3,9 @@ declare(strict_types=1);
 
 namespace Itools\ZenDB;
 
+use Closure;
 use ReturnTypeWillChange;
+use RuntimeException;
 use Throwable;
 use mysqli;
 use mysqli_result;
@@ -13,7 +15,7 @@ use mysqli_stmt;
 /**
  * Class MysqliWrapper
  *
- * Extends mysqli to add query logging.
+ * Extends mysqli to add query logging and automatic @ek encryption key setup.
  */
 class MysqliWrapper extends mysqli
 {
@@ -45,6 +47,17 @@ class MysqliWrapper extends mysqli
      * Query logger callback: fn(string $query, float $duration, ?Throwable $exception): void
      */
     public mixed $queryLogger = null;
+
+    /**
+     * Callback that returns the encryption key. Called once on first query containing @ek.
+     * @var (\Closure(): string)|null
+     */
+    private ?Closure $getEncryptionKey = null;
+
+    /**
+     * Whether @ek has been SET on this MySQL session.
+     */
+    private bool $encryptionKeySet = false;
 
     //endregion
     //region Overridden Methods
@@ -84,7 +97,8 @@ class MysqliWrapper extends mysqli
     public function query(string $query, int $result_mode = MYSQLI_STORE_RESULT): mysqli_result|bool
     {
         $this->lastQuery = $query;
-        $startTime       = microtime(true);
+        $this->ensureEncryptionKey($query);
+        $startTime = microtime(true);
 
         // execute query
         try {
@@ -102,7 +116,8 @@ class MysqliWrapper extends mysqli
     public function real_query(string $query): bool
     {
         $this->lastQuery = $query;
-        $startTime       = microtime(true);
+        $this->ensureEncryptionKey($query);
+        $startTime = microtime(true);
 
         try {
             $result = parent::real_query($query);
@@ -119,7 +134,8 @@ class MysqliWrapper extends mysqli
     public function multi_query(string $query): bool
     {
         $this->lastQuery = $query;
-        $startTime       = microtime(true);
+        $this->ensureEncryptionKey($query);
+        $startTime = microtime(true);
 
         try {
             $result = parent::multi_query($query);
@@ -136,7 +152,8 @@ class MysqliWrapper extends mysqli
     public function prepare(string $query): mysqli_stmt|false
     {
         $this->lastQuery = $query;
-        $startTime       = microtime(true);
+        $this->ensureEncryptionKey($query);
+        $startTime = microtime(true);
 
         try {
             $result = new MysqliStmtWrapper($this, $query, $startTime);
@@ -161,7 +178,8 @@ class MysqliWrapper extends mysqli
         // Use native execute_query() if available (PHP 8.2+) and not forcing polyfill
         if (PHP_VERSION_ID >= 80200 && !self::$forceExecuteQueryPolyfill) {
             $this->lastQuery = $query;
-            $startTime       = microtime(true);
+            $this->ensureEncryptionKey($query);
+            $startTime = microtime(true);
 
             try {
                 $result = parent::execute_query($query, $params);
@@ -210,6 +228,54 @@ class MysqliWrapper extends mysqli
             $duration = microtime(true) - $startTime;
             ($this->queryLogger)($query, $duration, $exception);
         }
+    }
+
+    //endregion
+    //region Encryption
+
+    /**
+     * Register a callback that returns the encryption key.
+     * Called once on first query containing @ek to SET the MySQL session variable.
+     */
+    public function setEncryptionKeyCallback(Closure $callback): void
+    {
+        $this->getEncryptionKey = $callback;
+        $this->encryptionKeySet = false;
+    }
+
+    /**
+     * Lazily SET the MySQL @ek session variable on first query that uses it.
+     * Uses parent::prepare() to bypass the logging wrapper and avoid recursion.
+     */
+    private function ensureEncryptionKey(string $sql): void
+    {
+        if ($this->encryptionKeySet || !str_contains($sql, '@ek')) {
+            return;
+        }
+
+        if ($this->getEncryptionKey === null) {
+            throw new RuntimeException("Query uses @ek but no encryptionKey is configured. Add 'encryptionKey' to your connection config.");
+        }
+
+        $key = ($this->getEncryptionKey)();
+        if ($key === '') {
+            throw new RuntimeException("Query uses @ek but encryptionKey is empty. Add 'encryptionKey' to your connection config.");
+        }
+
+        $stmt = parent::prepare("SET @ek = UNHEX(SHA2(?, 512))");
+        $stmt->execute([$key]);
+        $stmt->close();
+        $this->encryptionKeySet = true;
+    }
+
+    //endregion
+    //region Debug
+
+    public function __debugInfo(): array
+    {
+        $props = get_object_vars($this);
+        $props['getEncryptionKey'] = $this->getEncryptionKey !== null ? '(set)' : null;
+        return $props;
     }
 
     //endregion
