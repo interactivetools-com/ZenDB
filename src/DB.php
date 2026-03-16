@@ -23,6 +23,15 @@ class DB
 {
     use DBInternals;
 
+    //region Constants
+
+    /** Format string for MySQL DATE columns: '2026-03-16' */
+    public const DATE     = 'Y-m-d';
+
+    /** Format string for MySQL DATETIME columns: '2026-03-16 14:30:00' */
+    public const DATETIME = 'Y-m-d H:i:s';
+
+    //endregion
     //region Public Properties
 
     /**
