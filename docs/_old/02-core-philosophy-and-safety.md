@@ -6,29 +6,56 @@ possible and the protections you get automatically.
 
 ## The "Pit of Success" Design
 
-Most libraries offer safe tools alongside unsafe ones and trust you to choose
-correctly. ZenDB takes a different approach: **unsafe patterns are impossible.**
+Most database libraries hand you safe tools and unsafe tools side by side, then
+trust discipline and code review to make sure you pick the right ones. ZenDB
+takes a different approach, one that API designers call the "pit of success":
+**the natural way to use the library is the secure way.** There is no unsafe path to accidentally wander down.
 
-- You cannot embed a quoted string in a SQL template — the library throws an
-  exception before the query ever reaches the database.
-- You cannot run an UPDATE or DELETE without a WHERE clause — the library stops
-  you.
-- You cannot pass a table name containing special characters — it is rejected
-  immediately.
+The API is deliberately constrained so that the straightforward way to write a
+query is also the injection-proof way. The constraints are not guardrails bolted
+onto the side of an open road; they are the road itself. This is a conscious
+trade-off - a narrower API surface means fewer ways to solve unusual problems -
+but the payoff is significant: security stops being something you verify after
+the fact and becomes something the library guarantees before execution.
 
-The result is a library where you couldn't introduce an injection vulnerability
-even if you wanted to.
+The practical effect is that you stop carrying a mental checklist of things to
+sanitize, escape, or double-check. That cognitive overhead disappears. Here is
+what the library handles structurally, not by convention:
+
+- **Parameter binding** - Every value flows through placeholders automatically.
+  You never decide whether a particular input "needs" escaping; the query
+  simply will not execute with unparameterized values in the template.
+- **Output encoding** - Query results come back as SmartString objects that
+  HTML-encode themselves in string context. Writing `echo $row->name` is
+  already safe. You opt _into_ raw output when you need it, not the other way
+  around.
+- **Bulk operation protection** - UPDATE and DELETE require an explicit WHERE
+  condition. A missing or empty clause is an error before the query ever runs,
+  not a production incident.
+- **Identifier safety** - Table and column names are validated against a strict
+  character allowlist before they reach a query. You cannot construct a valid
+  call that smuggles SQL through an identifier.
+
+Each of these protections works the same way: the safe behavior is what happens
+when you do nothing special. The unsafe behavior requires you to explicitly opt
+in. If the code runs without throwing an exception, the parameterization is
+correct. The library has already checked.
+
+The goal is not to prevent advanced usage. It is to make sure that the 95% of
+queries that are straightforward also happen to be bulletproof. Developers
+should naturally fall into successful outcomes by default, not have to climb
+toward them.
 
 ## Why Placeholders are Strict
 
 Every SQL template you pass to ZenDB is scanned before execution. The following
 are rejected outright:
 
-- **Quotes** (single or double) — forces values through placeholders
-- **Standalone numbers** — forces numeric values through placeholders
-- **Backslashes** — prevents escape-sequence manipulation
-- **NULL bytes** — prevents string truncation attacks
-- **CTRL-Z** — prevents Windows EOF injection
+- **Quotes** (single or double): forces values through placeholders
+- **Standalone numbers**: forces numeric values through placeholders
+- **Backslashes**: prevents escape-sequence manipulation
+- **NULL bytes**: prevents string truncation attacks
+- **CTRL-Z**: prevents Windows EOF injection
 
 This means even accidental string interpolation is caught immediately:
 
@@ -55,8 +82,8 @@ safe even if the value originated from user input.
 
 ## Why Identifiers are Validated
 
-Table and column names are validated against the regex `/^[\w-]+$/`. Only word
-characters (a-z, A-Z, 0-9, underscore, hyphen) are permitted.
+Table and column names can only contain letters, numbers, underscores, and
+hyphens. Anything else is rejected immediately.
 
 This prevents injection through table or column names entirely:
 
@@ -72,7 +99,7 @@ Invalid table name 'users; DROP TABLE--', allowed characters: a-z, A-Z, 0-9, _, 
 ## Why Empty WHERE is Blocked
 
 UPDATE and DELETE require a WHERE condition. Without one, every row in the table
-is affected — a common source of catastrophic data loss:
+is affected, a common source of catastrophic data loss:
 
 ```php
 // Throws -- empty WHERE condition
@@ -90,8 +117,17 @@ explicitly with a condition that always evaluates to true:
 // Explicit "update everything" -- makes intent clear
 DB::update('users', ['status' => 'deleted'], "TRUE");
 
-// Or use a self-referencing expression
-DB::update('users', ['status' => DB::rawSql("status")], ['num' => $num]);
+// Or use a self-referencing expression to bump all rows
+DB::update('users', ['views' => DB::rawSql('views + 1')], "TRUE");
+```
+
+Tip: When the argument order isn't obvious at a glance, pulling arguments into
+named variables can make your intent clearer:
+
+```php
+$set   = ['views' => DB::rawSql('views + 1')];
+$where = "TRUE";
+DB::update('users', $set, $where);
 ```
 
 ## What ZenDB Guarantees
@@ -101,7 +137,7 @@ DB::update('users', ['status' => DB::rawSql("status")], ['num' => $num]);
 - **HTML-safe output**: SmartString auto-encodes in string context, so
   `echo "Hello $row->name!"` is safe in HTML without any manual escaping.
 - **Type-safe parameters**: Values are escaped and quoted based on their PHP
-  type — strings are quoted, integers are unquoted, `null` becomes `NULL`,
+  type: strings are quoted, integers are unquoted, `null` becomes `NULL`,
   booleans become `TRUE`/`FALSE`.
 
 ## What ZenDB Refuses to Do
@@ -114,7 +150,7 @@ DB::update('users', ['status' => DB::rawSql("status")], ['num' => $num]);
   an explicit condition to prevent accidental bulk modification.
 - **Accept suspicious SET clauses.** If an UPDATE only sets a column named
   `num`, `id`, or `ID`, ZenDB assumes the arguments were reversed and throws an error.
-  The correct signature is `update($baseTable, $colsToValues, $whereEtc)` —
+  The correct signature is `update($baseTable, $values, $whereEtc)`:
   values first, then WHERE.
 
 ## Automatic HTML-Encoding
@@ -123,19 +159,13 @@ Values returned from queries are SmartString objects. When used in string contex
 (echo, print, string interpolation), they automatically HTML-encode their output:
 
 ```php
-$row = DB::get('users', ['num' => 1]);
+$row = DB::selectOne('users', ['id' => 1]);
 
 // Outputs: O&apos;Reilly &amp; Sons -- safe in HTML
 echo $row->name;
 
 // Returns original value: O'Reilly & Sons
 echo $row->name->value();
-```
-
-Array notation also works as an alternative:
-
-```php
-echo $row['name'];
 ```
 
 For a complete reference of encoding methods and result handling, see

@@ -6,7 +6,7 @@ around what you want to accomplish, not around individual method signatures.
 
 ## Getting Data
 
-### Selecting Multiple Rows — `DB::select()`
+### Selecting Multiple Rows - `DB::select()`
 
 `DB::select()` returns a `SmartArrayHtml` of all matching rows. You can pass
 WHERE conditions in several forms.
@@ -36,18 +36,18 @@ automatically HTML-encode when used in string context:
 
 ```php
 foreach ($users as $user) {
-    echo "$user->name — $user->city\n"; // auto HTML-encoded
+    echo "$user->name - $user->city\n"; // auto HTML-encoded
 }
 ```
 
-### Getting a Single Row — `DB::get()`
+### Getting a Single Row - `DB::selectOne()`
 
-`DB::get()` returns the first matching row as a `SmartArrayHtml`. It
+`DB::selectOne()` returns the first matching row as a `SmartArrayHtml`. It
 automatically adds `LIMIT 1` to the query. If no row matches, it returns an
 empty `SmartArrayHtml`.
 
 ```php
-$user = DB::get('users', ['num' => 123]);
+$user = DB::selectOne('users', ['id' => 123]);
 echo $user->name; // HTML-encoded
 
 if ($user->isEmpty()) {
@@ -55,15 +55,16 @@ if ($user->isEmpty()) {
 }
 ```
 
-**Important:** Do not add `LIMIT` or `OFFSET` to a `get()` call. ZenDB already
-adds `LIMIT 1` internally and will throw an exception if you include your own:
+**Important:** Do not add `LIMIT` or `OFFSET` to a `selectOne()` call. ZenDB
+already adds `LIMIT 1` internally and will throw an exception if you include
+your own:
 
 ```php
-// Throws -- LIMIT/OFFSET not allowed in get()
-$user = DB::get('users', "status = ? LIMIT 1", 'Active');
+// Throws -- LIMIT/OFFSET not allowed
+$user = DB::selectOne('users', "status = ? LIMIT 1", 'Active');
 ```
 
-### Counting Rows — `DB::count()`
+### Counting Rows - `DB::count()`
 
 `DB::count()` returns an integer count of matching rows. It supports the same
 WHERE condition forms as `select()`.
@@ -71,12 +72,12 @@ WHERE condition forms as `select()`.
 ```php
 $total  = DB::count('users');
 $active = DB::count('users', ['status' => 'Active']);
-$recent = DB::count('orders', "order_date > ?", '2024-01-01');
+$recent = DB::count('orders', "order_date > ?", '2025-06-01');
 ```
 
 ## Changing Data
 
-### Inserting Rows — `DB::insert()`
+### Inserting Rows - `DB::insert()`
 
 `DB::insert()` takes a table name and an associative array of column-value
 pairs. It returns the new auto-increment ID.
@@ -91,7 +92,7 @@ $newId = DB::insert('users', [
 echo "Created user #$newId";
 ```
 
-### Updating Rows — `DB::update()`
+### Updating Rows - `DB::update()`
 
 `DB::update()` takes the table name, an array of columns to set, and a WHERE
 condition. It returns the number of affected rows.
@@ -104,20 +105,20 @@ always-true condition like `"TRUE"`.
 $affected = DB::update('users', [
     'city'   => 'Toronto',
     'status' => 'Active',
-], ['num' => 123]);
+], ['id' => 123]);
 
 // With SQL WHERE
 $affected = DB::update('users', [
     'status' => 'Inactive',
-], "lastLogin < ?", '2023-01-01');
+], "lastLogin < ?", '2025-01-01');
 ```
 
-**Argument order matters.** The signature is `update($baseTable, $colsToValues,
-$whereEtc)` — values first, then WHERE. If you accidentally reverse them and pass
-only a column like `num` or `id` as the SET clause, ZenDB detects the likely
+**Argument order matters.** The signature is `update($baseTable, $values,
+$whereEtc)`: values first, then WHERE. If you accidentally reverse them and pass
+only a column like `id`, `num`, or `ID` as the SET clause, ZenDB detects the likely
 mistake and throws an error.
 
-### Deleting Rows — `DB::delete()`
+### Deleting Rows - `DB::delete()`
 
 `DB::delete()` takes the table name and a WHERE condition. It returns the number
 of affected rows.
@@ -126,18 +127,18 @@ of affected rows.
 WHERE condition.
 
 ```php
-$deleted = DB::delete('users', ['num' => 123]);
+$deleted = DB::delete('users', ['id' => 123]);
 $deleted = DB::delete('users', "status = ?", 'Suspended');
 ```
 
-## The `$colsToValues` Array
+## The `$values` Array
 
 Both `insert()` and `update()` accept an associative array mapping column names
 to values. ZenDB handles type conversion automatically:
 
 ```php
-$colsToValues = [
-    'name'       => 'John',               // string  -> quoted and escaped
+$values = [
+    'name'       => 'John',                // string  -> quoted and escaped
     'age'        => 30,                    // int     -> unquoted
     'score'      => 9.5,                   // float   -> unquoted
     'isAdmin'    => true,                  // bool    -> TRUE in SET clause
@@ -147,10 +148,6 @@ $colsToValues = [
 ];
 ```
 
-Every value goes through proper escaping based on its PHP type. Strings are
-quoted and escaped, numbers are used as-is, `null` becomes `NULL`, and `RawSql`
-values are inserted verbatim.
-
 ## `DB::rawSql()` for SQL Expressions
 
 Use `DB::rawSql()` when you need a SQL function or expression in a column value.
@@ -158,11 +155,11 @@ The wrapped string is inserted into the query without escaping or quoting.
 
 ```php
 DB::insert('users', ['created_at' => DB::rawSql('NOW()')]);
-DB::update('users', ['views' => DB::rawSql('views + 1')], ['num' => 1]);
+DB::update('users', ['views' => DB::rawSql('views + 1')], ['id' => 1]);
 ```
 
 **Warning:** Never pass user input to `rawSql()`. It bypasses all escaping.
-For the full reference and `DB::isRawSql()`, see
+For the full reference, see
 [Helpers & Utilities](07-helpers-and-utilities.md#raw-sql).
 
 ## WHERE Conditions Reference
@@ -218,19 +215,6 @@ $users = DB::select('users', "status = :status AND city = :city", [
 ]);
 ```
 
-### 4. Integer (deprecated)
-
-Passing a bare integer looks up a row by the `num` column. This form triggers a
-deprecation notice — use an array instead:
-
-```php
-// Deprecated -- triggers E_USER_DEPRECATED
-$user = DB::get('users', 123);
-
-// Preferred
-$user = DB::get('users', ['num' => 123]);
-```
-
 ## ORDER BY, LIMIT, OFFSET
 
 Append ordering and limiting clauses to the SQL string portion of your WHERE
@@ -249,30 +233,36 @@ $users = DB::select('users', "ORDER BY name :pagingSQL", [
 ]);
 ```
 
-A trailing `LIMIT #` in a template is allowed as a convenience — ZenDB
+A trailing `LIMIT #` in a template is allowed as a convenience, and ZenDB
 internally rewrites it to use a safe placeholder.
 
-## Running Raw SQL — `DB::query()`
+## Running Raw SQL - `DB::query()` and `DB::queryOne()`
 
 For queries that do not fit the table-based methods (complex joins, unions,
-subqueries), use `DB::query()` with a full SQL statement:
+subqueries), use `DB::query()` with a full SQL statement. Use `DB::queryOne()`
+when you only need the first row.
 
 ```php
 $results = DB::query(
     "SELECT u.name, COUNT(o.order_id) AS order_count
        FROM ::users u
-       LEFT JOIN ::orders o ON o.user_id = u.num
+       LEFT JOIN ::orders o ON o.user_id = u.id
       WHERE u.status = ?
-      GROUP BY u.num
+      GROUP BY u.id
       ORDER BY order_count DESC",
     'Active'
 );
+
+// queryOne() returns just the first row
+$row = DB::queryOne("SELECT MAX(price) AS max_price FROM ::products");
+echo $row->max_price;
 ```
 
-`DB::query()` returns a `SmartArrayHtml` just like `select()`. The same
-placeholder rules apply — ZenDB scans the template for unsafe patterns and
-rejects anything suspicious. For table prefix placeholders, Smart Joins, and
-more complex examples, see [Joins & Raw SQL](05-joins-and-raw-sql.md).
+`DB::query()` returns a `SmartArrayHtml` collection, `DB::queryOne()` returns
+the first row. The same placeholder rules apply to both. ZenDB scans the
+template for unsafe patterns and rejects anything suspicious. For table prefix
+placeholders, Smart Joins, and more complex examples, see
+[Joins & Raw SQL](05-joins-and-raw-sql.md).
 
 ---
 

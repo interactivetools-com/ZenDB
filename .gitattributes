@@ -7,5 +7,4 @@
 phpunit.xml.dist export-ignore
 tests            export-ignore
 .editorconfig    export-ignore
-docs             export-ignore
 logo.svg         export-ignore

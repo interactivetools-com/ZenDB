@@ -8,22 +8,49 @@ correct ZenDB code.
 
 # ZenDB: PHP/MySQL Database Library
 
-ZenDB is an opinionated PHP/MySQL database abstraction layer designed around the
-"pit of success" software engineering principle: the easiest way to write code is also the safest way.
-It focuses on beautiful, readable code and optimizes for the common case while
-still supporting advanced and complex queries when you need them.
+A PHP/MySQL database layer that's easy to use and hard to misuse.
 
-> **Why "pit of success"?** [Coined by Rico Mariani in October 2003](https://learn.microsoft.com/en-us/archive/blogs/brada/the-pit-of-success):
-> success should be like falling into a big pit - you can't help but win. The
-> natural way to use a platform should also be the safe and correct way.
+- **SQL injection is impossible:** ZenDB rejects any query with inline
+  values. Every dynamic value goes through placeholders, not because you
+  remembered, but because there's no other way.
+- **XSS is prevented by default:** Every value from the database
+  HTML-encodes itself on output. You don't call `htmlspecialchars()`.
+  Neither does the next developer.
+- **Fast to learn, fast to use:** The methods mirror SQL: `select`,
+  `insert`, `update`, `delete`. If you know MySQL, you already know ZenDB,
+  and if you don't, you will soon!
 
-## What it protects you from
+## Why SQL?
 
-SQL injection is impossible by design - ZenDB rejects any query that contains
-inline quotes or unparameterized values, forcing all user input through bound
-parameters. XSS is prevented by default because every value returned from the
-database is a SmartString object that automatically HTML-encodes output in string
-contexts. You get security without extra effort or ceremony.
+Most database libraries invent their own query language - chained methods,
+builder patterns, DSLs - that ends up just as complex as SQL but less
+powerful. ZenDB takes the opposite approach: **don't teach people a
+complicated thing that replaces SQL. Just use SQL and make it safe.**
+
+If you know `SELECT`, `WHERE`, `JOIN`, and `ORDER BY`, you already know how
+to query with ZenDB. The library handles the security (parameterization,
+escaping, validation) so you can write the SQL you already know without
+worrying about injection.
+
+## What's Inside
+
+- [30-Second Quickstart](#30-second-quickstart)
+- **Get Started**
+  - [Getting Started](docs/01-getting-started.md) - Installation, connection, first queries
+- **Queries and Results**
+  - [Querying Data](docs/02-querying-data.md) - Select, selectOne, count, WHERE conditions, ORDER BY
+  - [Working with Results](docs/03-working-with-results.md) - SmartArrayHtml/SmartString encoding, formatting, collection methods
+  - [Modifying Data](docs/04-modifying-data.md) - Insert, update, delete, type handling, rawSql expressions
+- **Advanced Queries**
+  - [Placeholders & Parameters](docs/05-placeholders-and-parameters.md) - Positional, named, backtick identifiers, type mapping
+  - [Joins & Custom SQL](docs/06-joins-and-custom-sql.md) - DB::query(), Smart Joins, table prefixes
+- **Reference**
+  - [Method Reference](docs/11-method-reference.md) - Every method, parameter type, and return value
+  - [Common Patterns](docs/07-common-patterns.md) - Recipes for listings, dropdowns, tables, formatting
+  - [Safety by Design](docs/08-safety-by-design.md) - Why ZenDB is opinionated, what it prevents
+  - [Helpers & Utilities](docs/09-helpers-and-utilities.md) - Pagination, LIKE search, schema helpers, transactions
+  - [Troubleshooting & Gotchas](docs/10-troubleshooting-and-gotchas.md) - Common errors, debugging tips
+  - [AI Quick Reference](docs/00-ai-reference.md) - Everything in one dense page, for AI assistants and humans alike
 
 ## 30-Second Quickstart
 
@@ -36,20 +63,21 @@ use Itools\ZenDB\DB;
 
 // Connect
 DB::connect([
-    'hostname' => 'localhost',
-    'username' => 'root',
-    'password' => '',
-    'database' => 'my_app',
+    'hostname'    => 'localhost',
+    'username'    => 'dbuser',
+    'password'    => 'secret',
+    'database'    => 'my_app',
+    'tablePrefix' => 'app_',   // optional
 ]);
 
 // Select rows
-$users = DB::select('users', ['status' => 'active']);
+$users = DB::select('users', "status = ?", 'active');
 foreach ($users as $user) {
     echo "Hello, $user->name!"; // auto HTML-encoded
 }
 
 // Get a single row
-$user = DB::selectOne('users', ['id' => 1]);
+$user = DB::selectOne('users', "id = ?", 1);
 
 // Insert a row
 $newId = DB::insert('users', [
@@ -58,27 +86,19 @@ $newId = DB::insert('users', [
 ]);
 
 // Update a row
-DB::update('users', ['city' => 'Toronto'], ['id' => $newId]);
+$newValues = ['city' => 'Toronto'];
+$where     = ['id' => $newId]; // arrays work too
+DB::update('users', $newValues, $where);
 
 // Delete a row
 DB::delete('users', ['id' => $newId]);
+
+// Full SQL when you need it (:: inserts your table prefix)
+$rows = DB::query("SELECT name, city FROM ::users WHERE status = :status AND city = :city", [
+    ':status' => 'active',
+    ':city'   => 'Vancouver',
+]);
 ```
-
-## Documentation
-
-| Guide                                                               | Description                                                      |
-|---------------------------------------------------------------------|------------------------------------------------------------------|
-| [Getting Started](docs/01-quickstart.md)                            | Installation, connection, first queries                          |
-| [Core Philosophy & Safety](docs/02-core-philosophy-and-safety.md)   | Why ZenDB is opinionated, what it prevents                       |
-| [Querying & CRUD](docs/03-querying-and-crud.md)                     | Select, insert, update, delete operations                        |
-| [Placeholders & Parameters](docs/04-placeholders-and-parameters.md) | Positional, named, type handling                                 |
-| [Joins & Raw SQL](docs/05-joins-and-raw-sql.md)                     | Complex queries, Smart Joins, table prefixes                     |
-| [Results & Values](docs/06-results-and-values.md)                   | SmartArrayHtml/SmartString behavior, encoding, methods           |
-| [Helpers & Utilities](docs/07-helpers-and-utilities.md)             | Pagination, escaping, schema helpers                             |
-| [Troubleshooting & Gotchas](docs/08-troubleshooting-and-gotchas.md) | Common errors, debugging tips                                    |
-| [AI Quick Reference](docs/00-ai-reference.md)                       | Everything in one dense page, for AI assistants and humans alike |
-
-You can also [browse the documentation on GitHub](https://github.com/interactivetools-com/ZenDB/tree/main/docs).
 
 ## When you might NOT want ZenDB
 
@@ -86,34 +106,6 @@ You can also [browse the documentation on GitHub](https://github.com/interactive
 - You need to support databases other than MySQL/MariaDB (and compatible alternatives)
 - You need async or non-blocking database queries
 - You prefer writing raw SQL without any abstraction
-
-## Quick Reference
-
-**Queries**
-
-- `DB::select($table, $where, ...$params)` - Fetch matching rows → `SmartArrayHtml`
-- `DB::selectOne($table, $where, ...$params)` - Fetch first matching row → `SmartArrayHtml`
-- `DB::count($table, $where, ...$params)` - Count matching rows → `int`
-- `DB::query($sql, ...$params)` - Execute custom SQL → `SmartArrayHtml`
-- `DB::queryOne($sql, ...$params)` - Execute custom SQL, first row → `SmartArrayHtml`
-
-**Modify**
-
-- `DB::insert($table, $colsToValues)` - Insert a row → `int` (insert ID)
-- `DB::update($table, $colsToValues, $where, ...$params)` - Update rows → `int` (affected)
-- `DB::delete($table, $where, ...$params)` - Delete rows → `int` (affected)
-
-**Helpers**
-
-- `DB::rawSql($value)` - Wrap a SQL expression to bypass escaping (e.g., `NOW()`)
-- `DB::pagingSql($page, $perPage)` - Generate `LIMIT`/`OFFSET` clause
-- `DB::likeContains($input)` - LIKE pattern: `%value%` (see also: `likeStartsWith`, `likeEndsWith`)
-
-Results are [SmartArrayHtml](https://github.com/interactivetools-com/SmartArray)
-collections of [SmartString](https://github.com/interactivetools-com/SmartString)
-values. See [Results & Values](docs/06-results-and-values.md) for encoding
-methods, chaining, and raw access. For connection, escaping, and schema helpers,
-see [Helpers & Utilities](docs/07-helpers-and-utilities.md).
 
 ## Related Libraries
 

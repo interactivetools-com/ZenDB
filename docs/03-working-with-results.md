@@ -30,23 +30,20 @@ echo "Hello $row->name!";  // XSS-safe -- HTML-encoded automatically
 
 ### Encoding Methods
 
-| Expression | Result |
-|---|---|
-| `$row->name` | HTML-encoded (default in string context) |
-| `$row->name->value()` | Original raw value and type |
-| `$row->name->rawHtml()` | Alias for `value()`, for trusted HTML content |
-| `$row->name->htmlEncode()` | Explicit HTML encoding |
-| `$row->name->urlEncode()` | URL-encoded |
-| `$row->name->jsonEncode()` | JSON-encoded |
+| Expression                 | Result                                        |
+|----------------------------|-----------------------------------------------|
+| `$row->name`               | HTML-encoded (default in string context)      |
+| `$row->name->value()`      | Original raw value and type                   |
+| `$row->name->rawHtml()`    | Alias for `value()`, for trusted HTML content |
+| `$row->name->htmlEncode()` | Explicit HTML encoding                        |
+| `$row->name->urlEncode()`  | URL-encoded                                   |
+| `$row->name->jsonEncode()` | JSON-encoded                                  |
 
 ## Accessing Values
 
 ```php
 // Object notation -- returns SmartString, auto-encodes in string context
 echo $row->name;
-
-// Array notation -- alternative access
-echo $row['name'];
 
 // With fallback -- returns default if column is missing or empty
 echo $row->get('nickname', 'Anonymous');
@@ -58,7 +55,7 @@ When you need plain PHP arrays instead of SmartString-wrapped values, use
 `toArray()`:
 
 ```php
-$row       = DB::get('users', ['num' => 1]);
+$row       = DB::selectOne('users', ['id' => 1]);
 $resultSet = DB::select('users');
 
 // Single row -- returns associative array of raw values
@@ -103,20 +100,20 @@ print_r($row);
 print_r($row->name);
 ```
 
-This makes `print_r()` a useful debugging tool — it tells you what data you
+This makes `print_r()` a useful debugging tool; it tells you what data you
 have and what you can do with it.
 
 ## MySQL Metadata
 
 Access MySQL metadata from query results using the `mysqli()` method:
 
-| Method | Description |
-|---|---|
-| `$result->mysqli()` | Returns all MySQL metadata as array |
-| `$result->mysqli('insert_id')` | Auto-increment ID from last INSERT |
+| Method                             | Description                           |
+|------------------------------------|---------------------------------------|
+| `$result->mysqli()`                | Returns all MySQL metadata as array   |
+| `$result->mysqli('insert_id')`     | Auto-increment ID from last INSERT    |
 | `$result->mysqli('affected_rows')` | Rows affected by INSERT/UPDATE/DELETE |
-| `$result->mysqli('query')` | The executed SQL query |
-| `$result->mysqli('baseTable')` | The base table name (without prefix) |
+| `$result->mysqli('query')`         | The executed SQL query                |
+| `$result->mysqli('baseTable')`     | The base table name (without prefix)  |
 
 ```php
 $result = DB::query("INSERT INTO ::users SET `name` = ?", 'Alice');
@@ -131,19 +128,19 @@ $changed = $result->mysqli('affected_rows');
 A ResultSet is the `SmartArrayHtml` returned by `DB::select()` and
 `DB::query()`. It represents a collection of rows.
 
-| Method | Description |
-|---|---|
-| `count($resultSet)` | Number of rows |
-| `$resultSet->count()` | Alternative count |
-| `$resultSet->first()` | First row (or empty SmartArrayHtml) |
-| `$resultSet->toArray()` | Raw rows array (not encoded) |
-| `$resultSet->pluck('col')` | Extract single column as flat array |
-| `$resultSet->sortBy('col')` | Sort by column |
-| `$resultSet->filter(fn)` | Filter with callback |
-| `$resultSet->where([...])` | Filter by values |
-| `$resultSet->map(fn)` | Transform each row |
-| `$resultSet->indexBy('id')` | Convert to lookup keyed by column |
-| `$resultSet->groupBy('col')` | Group rows by column value |
+| Method                       | Description                         |
+|------------------------------|-------------------------------------|
+| `count($resultSet)`          | Number of rows                      |
+| `$resultSet->count()`        | Alternative count                   |
+| `$resultSet->first()`        | First row (or empty SmartArrayHtml) |
+| `$resultSet->toArray()`      | Raw rows array (not encoded)        |
+| `$resultSet->pluck('col')`   | Extract single column as flat array |
+| `$resultSet->sortBy('col')`  | Sort by column                      |
+| `$resultSet->filter(fn)`     | Filter with callback                |
+| `$resultSet->where([...])`   | Filter by values                    |
+| `$resultSet->map(fn)`        | Transform each row                  |
+| `$resultSet->indexBy('id')`  | Convert to lookup keyed by column   |
+| `$resultSet->groupBy('col')` | Group rows by column value          |
 
 ```php
 $users = DB::select('users', ['status' => 'active']);
@@ -158,7 +155,7 @@ $names = $users->pluck('name');
 $admins = $users->filter(fn($row) => $row->isAdmin->value());
 
 // Build a lookup table
-$byId = $users->indexBy('num');
+$byId = $users->indexBy('id');
 echo $byId[42]->name;
 
 // Group by a column
@@ -171,24 +168,23 @@ foreach ($byCity as $city => $cityUsers) {
 ## Row Methods
 
 A Row is the `SmartArrayHtml` returned for each record in a ResultSet, or by
-`DB::get()` for a single record.
+`DB::selectOne()` for a single record.
 
-| Method | Description |
-|---|---|
-| `$row->columnName` | Access as SmartString (auto HTML-encoded) |
-| `$row['columnName']` | Alternative array access |
-| `$row->get('col', 'default')` | Column with fallback value |
-| `$row->values()` | Indexed array of SmartStrings |
-| `$row->keys()` | Array of column names |
-| `$row->toArray()` | Raw values array (not encoded) |
-| `$row->isEmpty()` | Check if row is empty |
-| `$row->contains('value')` | Check if row contains value |
+| Method                        | Description                               |
+|-------------------------------|-------------------------------------------|
+| `$row->columnName`            | Access as SmartString (auto HTML-encoded) |
+| `$row->get('col', 'default')` | Column with fallback value                |
+| `$row->values()`              | Indexed array of SmartStrings             |
+| `$row->keys()`                | Array of column names                     |
+| `$row->toArray()`             | Raw values array (not encoded)            |
+| `$row->isEmpty()`             | Check if row is empty                     |
+| `$row->contains('value')`     | Check if row contains value               |
 
 ```php
-$user = DB::get('users', ['num' => 1]);
+$user = DB::selectOne('users', ['id' => 1]);
 
 // Access values
-echo $user->name;                           // SmartString, HTML-encoded
+echo $user->name;                            // SmartString, HTML-encoded
 echo $user->get('nickname', 'Anonymous');    // with fallback
 
 // Check if record was found
@@ -207,20 +203,20 @@ for encoding, formatting, and conditional output.
 
 ### Value Access and Encoding
 
-| Method | Description |
-|---|---|
-| `$column` | HTML-encoded in string context |
-| `$column->value()` | Original raw value and type |
-| `$column->rawHtml()` | Alias for `value()`, for trusted HTML |
-| `$column->htmlEncode()` | Explicit HTML encoding |
-| `$column->urlEncode()` | URL-encoded |
-| `$column->jsonEncode()` | JSON-encoded |
-| `$column->int()` | Convert to integer |
-| `$column->float()` | Convert to float |
-| `$column->string()` | Convert to string (unencoded) |
+| Method                  | Description                           |
+|-------------------------|---------------------------------------|
+| `$column`               | HTML-encoded in string context        |
+| `$column->value()`      | Original raw value and type           |
+| `$column->rawHtml()`    | Alias for `value()`, for trusted HTML |
+| `$column->htmlEncode()` | Explicit HTML encoding                |
+| `$column->urlEncode()`  | URL-encoded                           |
+| `$column->jsonEncode()` | JSON-encoded                          |
+| `$column->int()`        | Convert to integer                    |
+| `$column->float()`      | Convert to float                      |
+| `$column->string()`     | Convert to string (unencoded)         |
 
 ```php
-$user = DB::get('users', ['num' => 1]);
+$user = DB::selectOne('users', ['id' => 1]);
 
 // HTML context -- auto-encoded
 echo "<p>$user->name</p>";
@@ -239,13 +235,13 @@ if ($user->isAdmin->value()) {
 
 ### Text Manipulation
 
-| Method | Description |
-|---|---|
-| `$column->textOnly()` | Remove HTML, decode entities, trim |
-| `$column->maxChars(100)` | Limit to N chars with ellipsis |
-| `$column->maxWords(20)` | Limit to N words with ellipsis |
-| `$column->nl2br()` | Newlines to `<br>` |
-| `$column->trim()` | Trim whitespace |
+| Method                   | Description                        |
+|--------------------------|------------------------------------|
+| `$column->textOnly()`    | Remove HTML, decode entities, trim |
+| `$column->maxChars(100)` | Limit to N chars with ellipsis     |
+| `$column->maxWords(20)`  | Limit to N words with ellipsis     |
+| `$column->nl2br()`       | Newlines to `<br>`                 |
+| `$column->trim()`        | Trim whitespace                    |
 
 ```php
 // Strip HTML and truncate for a preview
@@ -257,20 +253,20 @@ echo $row->bio->nl2br();
 
 ### Formatting and Conditionals
 
-| Method | Description |
-|---|---|
-| `$column->dateFormat()` | Format date — "Sep 10, 2024" |
-| `$column->numberFormat(2)` | Format number — "123.45" |
-| `$column->or('N/A')` | Alternate if null or "" |
-| `$column->ifZero('None')` | Alternate if zero |
-| `$column->ifNull('N/A')` | Alternate if null |
-| `$column->ifBlank('Empty')` | Alternate if empty string |
-| `$column->and(' more')` | Append if present |
-| `$column->andPrefix('$')` | Prepend if present |
+| Method                      | Description                  |
+|-----------------------------|------------------------------|
+| `$column->dateFormat()`     | Format date: "Sep 10, 2025"  |
+| `$column->numberFormat(2)`  | Format number: "123.45"      |
+| `$column->or('N/A')`        | Alternate if null or ""      |
+| `$column->ifZero('None')`   | Alternate if zero            |
+| `$column->ifNull('N/A')`    | Alternate if null            |
+| `$column->ifBlank('Empty')` | Alternate if empty string    |
+| `$column->and(' more')`     | Append if present            |
+| `$column->andPrefix('$')`   | Prepend if present           |
 
 ```php
 // Date formatting
-echo $row->created_at->dateFormat('M j, Y');   // "Sep 10, 2024"
+echo $row->created_at->dateFormat('M j, Y');   // "Sep 10, 2026"
 
 // Number formatting with prefix
 echo $row->price->numberFormat(2)->andPrefix('$');  // "$1,234.56"
@@ -289,4 +285,4 @@ echo $row->comment_count->and(' comments');    // "5 comments" or "" if zero
 
 ---
 
-[← Back to README](../README.md) | [← Joins & Raw SQL](05-joins-and-raw-sql.md) | [Next: Helpers & Utilities →](07-helpers-and-utilities.md)
+[← Back to README](../README.md) | [← Querying Data](02-querying-data.md) | [Next: Modifying Data →](04-modifying-data.md)

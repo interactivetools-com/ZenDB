@@ -82,73 +82,13 @@ $rows = DB::select('settings', "tags LIKE ?", DB::likeContainsTSV('featured'));
 characters `%` and `_` in the input value. This means user input containing
 those characters is handled safely without matching unintended patterns.
 
-## Escaping Helpers
-
-In most cases you should use placeholders (`?` or `:name`) rather than manual
-escaping. These helpers exist for the rare situations where you need to build
-SQL strings outside of ZenDB's query methods.
-
-### `DB::escape($value, $escapeLikeWildcards = false)`
-
-Escapes a value for safe inclusion in raw SQL. Returns the escaped string
-**without** surrounding quotes.
-
-```php
-$escaped = DB::escape("O'Reilly");       // -> O\'Reilly
-$escaped = DB::escape("100%", true);     // -> 100\%  (also escapes LIKE wildcards)
-$escaped = DB::escape(null);             // -> (empty string)
-```
-
-The optional second parameter escapes LIKE wildcard characters (`%` and `_`) in
-addition to the standard SQL escaping. Accepts `SmartString` objects as input —
-the raw value is extracted automatically.
-
-### `DB::escapef($format, ...$values)`
-
-Builds a SQL-safe string by replacing `?` placeholders in a format string with
-escaped and quoted values. Think of it as `sprintf` for SQL.
-
-```php
-$sql = DB::escapef("name = ? AND age > ?", "O'Reilly", 30);
-// -> name = 'O\'Reilly' AND age > 30
-```
-
-Values are escaped and quoted based on their PHP type:
-
-| PHP Type | SQL Output |
-|----------|------------|
-| string | `'escaped value'` (quoted) |
-| int / float | `30` (unquoted) |
-| null | `NULL` |
-| bool | `TRUE` / `FALSE` |
-| array | comma-separated list (like `escapeCSV`) |
-| SmartString | extracted value, quoted |
-
-### `DB::escapeCSV(array $values)`
-
-Converts a PHP array into a SQL-safe comma-separated list for use in `IN`
-clauses. Returns a `RawSql` object.
-
-```php
-$csv = DB::escapeCSV([1, 2, 3]);      // -> 1,2,3
-$csv = DB::escapeCSV(['a', 'b']);      // -> 'a','b'
-$csv = DB::escapeCSV([]);              // -> NULL  (matches nothing in an IN clause)
-```
-
-Duplicate values are removed automatically. Use it in a query like this:
-
-```php
-$ids  = [10, 20, 30];
-$rows = DB::select('orders', "user_id IN (?)", DB::escapeCSV($ids));
-```
-
 ## Raw SQL
 
 ### `DB::rawSql($value)`
 
 Wraps a value as a `RawSql` object. When ZenDB encounters a `RawSql` value in a
 placeholder or column-value array, it inserts the string into the SQL verbatim
-— no escaping, no quoting.
+- no escaping, no quoting.
 
 ```php
 $raw = DB::rawSql('NOW()');
@@ -165,33 +105,23 @@ designed to prevent.
 DB::rawSql($_GET['sort']); // Bypasses all escaping -- SQL injection risk
 ```
 
-### `DB::isRawSql($value)`
-
-Returns `true` if the value is a `RawSql` instance, `false` otherwise:
-
-```php
-DB::isRawSql(DB::rawSql('NOW()')); // true
-DB::isRawSql('NOW()');              // false
-DB::isRawSql(42);                   // false
-```
-
 ## Schema Helpers
 
 These methods inspect the database structure at runtime. They are useful for
 admin panels, migration tools, or dynamic form builders.
 
-### `DB::tableExists($table, $isFullTable = false)`
+### `DB::hasTable($table, $isPrefixed = false)`
 
-Check whether a table exists in the database. By default, the configured table
-prefix is prepended to the name. Pass `true` as the second argument to treat the
-name as a full table name (prefix already included).
+Check whether a table, view, or temporary table exists in the database. By default,
+the configured table prefix is prepended to the name. Pass `true` as the second
+argument if the name already includes the prefix.
 
 ```php
-if (DB::tableExists('users')) {
+if (DB::hasTable('users')) {
     // Table exists (checks for prefix + 'users', e.g. 'cms_users')
 }
 
-if (DB::tableExists('cms_users', true)) {
+if (DB::hasTable('cms_users', isPrefixed: true)) {
     // Checks for exactly 'cms_users' without adding prefix
 }
 ```
@@ -220,7 +150,7 @@ definitions for the given table. The table prefix is added automatically.
 ```php
 $columns = DB::getColumnDefinitions('users');
 // [
-//     'num'     => 'int NOT NULL AUTO_INCREMENT',
+//     'id'      => 'int NOT NULL AUTO_INCREMENT',
 //     'name'    => 'varchar(255)',
 //     'isAdmin' => 'tinyint DEFAULT NULL',
 //     'status'  => "enum('Active','Inactive','Suspended')",
@@ -234,7 +164,7 @@ Column definitions have table-default charset/collation values removed for
 cleaner output, and integer display widths (e.g., `int(11)`) are normalized to
 just the type name (e.g., `int`).
 
-### `DB::getFullTable($table, $strict = false)`
+### `DB::getFullTable($table, $checkDb = false)`
 
 Returns the full table name with the configured prefix prepended. If the name
 already starts with the prefix, it is returned unchanged.
@@ -245,9 +175,10 @@ DB::getFullTable('users');      // 'cms_users'
 DB::getFullTable('cms_users');  // 'cms_users' (already has prefix)
 ```
 
-Pass `true` for `$strict` to verify the table actually exists in the database.
+Pass `checkDb: true` to query the database when the input starts with the prefix
+string. This resolves ambiguity when a base name happens to start with the prefix.
 
-### `DB::getBaseTable($table, $strict = false)`
+### `DB::getBaseTable($table, $checkDb = false)`
 
 Returns the base table name with the configured prefix removed. If the name does
 not start with the prefix, it is returned unchanged.
@@ -258,8 +189,29 @@ DB::getBaseTable('cms_users');  // 'users'
 DB::getBaseTable('users');      // 'users' (no prefix to remove)
 ```
 
-Pass `true` for `$strict` to verify the table actually exists in the database.
+Pass `checkDb: true` to query the database when the input starts with the prefix
+string. This resolves ambiguity when a base name happens to start with the prefix.
+
+## Transactions
+
+ZenDB doesn't wrap transaction methods. Use MySQL's native syntax via
+`DB::query()`:
+
+```php
+DB::query("START TRANSACTION");
+try {
+    $userId = DB::insert('users', ['name' => 'Alice', 'status' => 'Active']);
+    DB::insert('profiles', ['user_id' => $userId, 'bio' => 'New user']);
+    DB::query("COMMIT");
+} catch (\Throwable $e) {
+    DB::query("ROLLBACK");
+    throw $e;
+}
+```
+
+If anything fails between `START TRANSACTION` and `COMMIT`, the catch block
+rolls back all changes so your data stays consistent.
 
 ---
 
-[← Back to README](../README.md) | [← Results & Values](06-results-and-values.md) | [Next: Troubleshooting →](08-troubleshooting-and-gotchas.md)
+[← Back to README](../README.md) | [← Safety by Design](08-safety-by-design.md) | [Next: Troubleshooting →](10-troubleshooting-and-gotchas.md)

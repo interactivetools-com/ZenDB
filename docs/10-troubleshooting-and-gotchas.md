@@ -71,7 +71,7 @@ DB::update('users', ['status' => 'deleted'], []);
 use a condition that always evaluates to true:
 
 ```php
-DB::update('users', ['status' => 'deleted'], ['num' => $userId]);
+DB::update('users', ['status' => 'deleted'], ['id' => $userId]);
 
 // If you truly need all rows
 DB::update('users', ['status' => 'deleted'], "TRUE");
@@ -80,7 +80,7 @@ DB::update('users', ['status' => 'deleted'], "TRUE");
 ### "Suspicious SET clause"
 
 **What happened:** Your UPDATE only sets a column named `num`, `id`, or `ID`.
-ZenDB assumes this means you reversed the `$colsToValues` and `$whereEtc`
+ZenDB assumes this means you reversed the `$values` and `$whereEtc`
 arguments.
 
 ```php
@@ -89,11 +89,11 @@ DB::update('users', ['num' => 5], ['status' => 'active']);
 ```
 
 **Fix:** Check the argument order. The signature is
-`update($baseTable, $colsToValues, $whereEtc)` — the columns to set come
+`update($baseTable, $values, $whereEtc)` - the columns to set come
 first, then the WHERE condition:
 
 ```php
-DB::update('users', ['status' => 'active'], ['num' => 5]);
+DB::update('users', ['status' => 'active'], ['id' => 5]);
 ```
 
 ### "Missing value for ? parameter at position N"
@@ -139,24 +139,24 @@ treated as a single value?).
 
 ```php
 // Throws -- array with positional placeholder
-DB::select('users', "num IN (?)", [1, 2, 3]);
+DB::select('users', "id IN (?)", [1, 2, 3]);
 ```
 
 **Fix:** Use a named placeholder instead:
 
 ```php
-DB::select('users', "num IN (:ids)", [':ids' => [1, 2, 3]]);
+DB::select('users', "id IN (:ids)", [':ids' => [1, 2, 3]]);
 ```
 
 ### "This method doesn't support LIMIT or OFFSET, use select() instead"
 
-**What happened:** You used LIMIT or OFFSET with `get()` or `count()`. The
-`get()` method automatically adds `LIMIT 1`, and `count()` returns a scalar —
+**What happened:** You used LIMIT or OFFSET with `selectOne()` or `count()`.
+`selectOne()` automatically adds `LIMIT 1`, and `count()` returns a scalar;
 neither supports custom LIMIT or OFFSET.
 
 ```php
-// Throws -- get() auto-adds LIMIT 1
-DB::get('users', "status = ? LIMIT 5", 'active');
+// Throws -- selectOne() auto-adds LIMIT 1
+DB::selectOne('users', "status = ? LIMIT 5", 'active');
 ```
 
 **Fix:** Use `select()` if you need custom LIMIT or OFFSET:
@@ -244,12 +244,12 @@ DB::insert('users', ['isAdmin' => false]);  // SET `isAdmin` = FALSE
 ### 3. Empty Arrays in IN()
 
 An empty array passed to an IN clause becomes `IN (NULL)`, which matches
-nothing. This is not an error — it is the safest behavior for an empty set:
+nothing. This is not an error; it is the safest behavior for an empty set:
 
 ```php
 $ids = [];  // empty
-DB::select('users', "num IN (:ids)", [':ids' => $ids]);
-// Generates: WHERE num IN (NULL) -- returns no rows
+DB::select('users', "id IN (:ids)", [':ids' => $ids]);
+// Generates: WHERE id IN (NULL) -- returns no rows
 ```
 
 ### 4. String Numbers in LIMIT
@@ -261,42 +261,16 @@ LIMIT clauses. Always use integer types for LIMIT values:
 // Potential issue: "10" gets quoted as a string
 $limit = "10";
 
-// Correct: cast to integer
+// Correct: cast to integer and use a placeholder
 $limit = (int) $limit;
-DB::select('users', "status = ? LIMIT $limit", 'active');
+DB::select('users', "status = ? LIMIT ?", 'active', $limit);
 ```
 
-### 5. get() Rejects LIMIT and OFFSET
+### 5. selectOne() Rejects LIMIT and OFFSET
 
-The `get()` method automatically appends `LIMIT 1` to your query. If you add
-your own LIMIT or OFFSET, it throws an exception. Use `select()` instead if you
-need custom LIMIT or OFFSET clauses.
-
-### 6. Numeric WHERE Is Deprecated
-
-Passing an integer directly as the WHERE argument still works but logs a
-deprecation warning:
-
-```php
-// Deprecated -- logs a warning
-$user = DB::get('users', 123);
-
-// Preferred -- explicit and clear
-$user = DB::get('users', ['num' => 123]);
-```
-
-### 7. Reserved Parameter Prefix
-
-The `:zdb_` prefix is reserved for internal use. Named placeholders starting
-with `:zdb_` will throw an exception:
-
-```php
-// Throws -- reserved prefix
-DB::select('users', "name = :zdb_name", [':zdb_name' => 'Alice']);
-
-// Use any other prefix
-DB::select('users', "name = :name", [':name' => 'Alice']);
-```
+`selectOne()` automatically appends `LIMIT 1` to your query. If you add your
+own LIMIT or OFFSET, it throws an exception. Use `select()` instead if you need
+custom LIMIT or OFFSET clauses.
 
 ## Debugging Tips
 
@@ -334,7 +308,12 @@ DB::connect([
 This is useful for finding slow queries, debugging unexpected results, and
 monitoring query volume in development.
 
-### 3. mysqli Metadata
+### 3. Raw mysqli Access
+
+If you need to run a query that ZenDB doesn't support, the raw mysqli connection
+is available via `DB::$mysqli` or `$conn->mysqli`.
+
+### 4. mysqli Metadata
 
 Inspect the actual SQL that was executed and other MySQL metadata from any
 result:
@@ -352,4 +331,4 @@ echo $result->mysqli('affected_rows') . " rows updated";
 
 ---
 
-[← Back to README](../README.md) | [← Helpers & Utilities](07-helpers-and-utilities.md)
+[← Back to README](../README.md) | [← Helpers & Utilities](09-helpers-and-utilities.md)
