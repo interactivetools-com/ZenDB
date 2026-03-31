@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Itools\ZenDB;
 
+use InvalidArgumentException;
 use Itools\SmartArray\SmartArrayHtml;
 use Itools\SmartString\SmartString;
 use RuntimeException;
@@ -333,7 +334,7 @@ class DB
     public static function decryptExpr(string $column): string
     {
         if (!preg_match('/^[\w-]+(?:\.[\w-]+)*$/', $column)) {
-            throw new \InvalidArgumentException("Invalid column name '$column' in decryptExpr(), allowed characters: a-z, A-Z, 0-9, _, -, .");
+            throw new InvalidArgumentException("Invalid column name '$column' in decryptExpr(), allowed characters: a-z, A-Z, 0-9, _, -, .");
         }
         $column = str_replace('.', '`.`', $column); // "blog.title" => "blog`.`title"
         return "AES_DECRYPT(`$column`, @ek)";       // => AES_DECRYPT(`blog`.`title`, @ek)
