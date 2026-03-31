@@ -332,6 +332,9 @@ class DB
      */
     public static function decryptExpr(string $column): string
     {
+        if (!preg_match('/^[\w-]+(?:\.[\w-]+)*$/', $column)) {
+            throw new \InvalidArgumentException("Invalid column name '$column' in decryptExpr(), allowed characters: a-z, A-Z, 0-9, _, -, .");
+        }
         $column = str_replace('.', '`.`', $column); // "blog.title" => "blog`.`title"
         return "AES_DECRYPT(`$column`, @ek)";       // => AES_DECRYPT(`blog`.`title`, @ek)
     }

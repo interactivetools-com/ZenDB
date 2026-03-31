@@ -456,6 +456,16 @@ class Connection
     /**
      * Count rows in a table.
      *
+     *     $total = DB::count('users');
+     *     $total = DB::count('users', ['status' => 'active']);
+     *
+     *     // Existence check (0 is falsy, any count is truthy)
+     *     if (DB::count('users', ['email' => $email])) { ... }
+     *
+     *     // For large unindexed result sets, queryOne() is faster because
+     *     // COUNT(*) scans all matching rows while this stops at the first:
+     *     if (DB::queryOne("SELECT 1 FROM ::users WHERE status = ?", 'active')->isNotEmpty()) { ... }
+     *
      * @param string           $baseTable  Table name (without prefix)
      * @param int|array|string $whereEtc   WHERE and other clauses (but not LIMIT/OFFSET)
      * @param mixed            ...$params  Parameters to bind
@@ -523,6 +533,29 @@ class Connection
      *
      *     // TIP - single queries are already atomic, no transaction needed
      *     DB::query("UPDATE ::counters SET views = views + 1 WHERE id = ?", $pageId);
+     *
+     * ***WARNING:*** Only use DML (SELECT, INSERT, UPDATE, DELETE) inside transactions.
+     * When MySQL encounters a DDL statement (CREATE, ALTER, DROP, TRUNCATE, etc.),
+     * it commits all pending work, executes the DDL, and ends the transaction.
+     * Everything after runs in autocommit mode - each query committed on its own,
+     * with no ROLLBACK possible.
+     *
+     * TRUNCATE is the common trap - it looks like DELETE but it's DDL:
+     *
+     *     // WRONG - TRUNCATE is DDL, ends the transaction
+     *     DB::transaction(function() {
+     *         DB::insert('cache', [...]);                // queued in the transaction
+     *         DB::query("TRUNCATE TABLE ::cache");       // commits the INSERT, truncates, transaction is OVER
+     *         DB::insert('cache', [...]);                // auto-committed immediately, on its own
+     *         DB::insert('cache', [...]);                // if this fails, everything above is permanent
+     *     });
+     *
+     *     // RIGHT - DELETE is DML, fully transactional
+     *     DB::transaction(function() {
+     *         DB::query("DELETE FROM ::cache");           // can be rolled back
+     *         DB::insert('cache', [...]);
+     *         DB::insert('cache', [...]);
+     *     });
      *
      * @param callable $fn A function with the operations to execute within the transaction
      * @return mixed The return value of the callable
