@@ -1,0 +1,84 @@
+name: Tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      php:
+        description: 'PHP version (blank = all)'
+        required: false
+        type: choice
+        options: ['', '8.1', '8.2', '8.3', '8.4', '8.5']
+      database:
+        description: 'Database (blank = all)'
+        required: false
+        type: choice
+        options:
+          - ''
+          - mysql:5.7
+          - mysql:8.0
+          - mysql:8.4
+          - mysql:9.6
+          - mariadb:10.2
+          - mariadb:10.4
+          - mariadb:10.5
+          - mariadb:10.6
+          - mariadb:10.11
+          - mariadb:11.4
+          - mariadb:11.8
+
+jobs:
+  test:
+    name: PHP ${{ matrix.php }} / ${{ matrix.database }}
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ${{ inputs.php && fromJSON(format('["{0}"]', inputs.php)) || fromJSON('["8.1","8.2","8.3","8.4","8.5"]') }}
+        database: ${{ inputs.database && fromJSON(format('["{0}"]', inputs.database)) || fromJSON('["mysql:5.7","mysql:8.0","mysql:8.4","mysql:9.6","mariadb:10.2","mariadb:10.4","mariadb:10.5","mariadb:10.6","mariadb:10.11","mariadb:11.4","mariadb:11.8"]') }}
+
+    services:
+      database:
+        image: ${{ matrix.database }}
+        env:
+          MYSQL_ALLOW_EMPTY_PASSWORD: yes
+          MYSQL_ROOT_HOST: '%'
+          # MariaDB-specific (ignored by MySQL)
+          MARIADB_ALLOW_EMPTY_ROOT_PASSWORD: yes
+          MARIADB_ROOT_HOST: '%'
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 --silent"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup PHP ${{ matrix.php }}
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: mysqli, openssl, mbstring
+          coverage: none
+
+      - name: Install dependencies
+        run: composer install --no-interaction --prefer-dist
+
+      - name: Wait for database
+        run: |
+          for i in $(seq 1 30); do
+            mysqladmin ping -h 127.0.0.1 -u root --silent 2>/dev/null && break
+            sleep 1
+          done
+
+      - name: Run tests
+        run: vendor/bin/phpunit --colors=always
+        env:
+          DB_HOSTNAME: 127.0.0.1
+          DB_USERNAME: root
+          DB_PASSWORD: ''
+          DB_DATABASE: phpunit_test_db
