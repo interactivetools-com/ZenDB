@@ -44,35 +44,20 @@ class DeprecatedMethodsTest extends BaseTestCase
         self::$deprecations = [];
     }
 
-    //region DB::like() / DB::escapeLikeWildcards()
+    //region DB::like() / DB::escapeLikeWildcards() - removed
 
-    public function testLikeMethodWorks(): void
+    public function testLikeMethodThrows(): void
     {
-        $result = @DB::like('100%');
-        $this->assertSame('100\%', $result);
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('has been removed');
+        DB::like('100%');
     }
 
-    public function testLikeMethodTriggersDeprecation(): void
+    public function testEscapeLikeWildcardsMethodThrows(): void
     {
-        DB::like('test');
-
-        $this->assertCount(1, self::$deprecations);
-        $this->assertStringContainsString('DB::like()', self::$deprecations[0]);
-        $this->assertStringContainsString('deprecated', self::$deprecations[0]);
-    }
-
-    public function testEscapeLikeWildcardsMethodWorks(): void
-    {
-        $result = @DB::escapeLikeWildcards('a%b_c');
-        $this->assertSame('a\%b\_c', $result);
-    }
-
-    public function testEscapeLikeWildcardsTriggersDeprecation(): void
-    {
-        DB::escapeLikeWildcards('test');
-
-        $this->assertCount(1, self::$deprecations);
-        $this->assertStringContainsString('deprecated', self::$deprecations[0]);
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('has been removed');
+        DB::escapeLikeWildcards('a%b_c');
     }
 
     //endregion
@@ -208,17 +193,13 @@ class DeprecatedMethodsTest extends BaseTestCase
 
     public function testMethodNamesCaseInsensitive(): void
     {
-        // lowercase
-        $result1 = @DB::like('test');
-        $this->assertSame('test', $result1);
+        // All case variations should resolve to the same method
+        $result1 = @DB::raw('NOW()');
+        $result2 = @DB::RAW('NOW()');
+        $result3 = @DB::RaW('NOW()');
 
-        // uppercase
-        $result2 = @DB::LIKE('test');
-        $this->assertSame('test', $result2);
-
-        // mixed case
-        $result3 = @DB::LiKe('test');
-        $this->assertSame('test', $result3);
+        $this->assertSame((string)$result1, (string)$result2);
+        $this->assertSame((string)$result2, (string)$result3);
     }
 
     //endregion

@@ -158,7 +158,7 @@ class MysqliResultPolyfill extends mysqli_result
      * Emulate properties
      * @throws InvalidArgumentException
      */
-    public function __get(string $name)
+    public function __get(string $name): int
     {
         return match ($name) {
             'field_count' => $this->stmt->field_count,
@@ -171,7 +171,7 @@ class MysqliResultPolyfill extends mysqli_result
      * Throw exception for unimplemented methods
      * @throws BadMethodCallException
      */
-    public function __call($name, $arguments)
+    public function __call(string $name, array $arguments): never
     {
         throw new BadMethodCallException("Mysqlnd isn't installed and $name() is not implemented in polyfill.");
     }

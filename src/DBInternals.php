@@ -124,7 +124,7 @@ trait DBInternals
     public static function __callStatic(string $name, array $args): mixed
     {
         [$replacement, $result] = match (strtolower($name)) {
-            'like', 'escapelikewildcards' => ["DB::escape(\$value, true)", addcslashes((string)($args[0] ?? ''), '%_')],
+            'like', 'escapelikewildcards' => throw new InvalidArgumentException("DB::$name() has been removed. Use DB::escape(\$value, true) or DB::likeContains(\$value) instead"),
             'identifier'                  => throw new InvalidArgumentException("DB::identifier() has been removed for security. Use backtick placeholders instead: `?` or `:name`"),
             'gettableprefix'              => ["DB::\$tablePrefix", self::$tablePrefix],
             'israwsql'                    => ["\$value instanceof RawSql", ($args[0] ?? null) instanceof RawSql],

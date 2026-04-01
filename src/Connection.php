@@ -896,15 +896,16 @@ class Connection
             return;
         }
 
-        // Get encrypted column names for this table (cached per table per request)
-        static $tableCache = [];
-        if (!isset($tableCache[$fullTable])) {
+        // Get encrypted column names for this table (cached per connection per table per request)
+        static $tableCache = new WeakMap();
+        if (!isset($tableCache[$this][$fullTable])) {
+            $tableCache[$this] ??= [];
             $result = $this->mysqli->query("SELECT * FROM `$fullTable` LIMIT 0");
-            $tableCache[$fullTable] = $result ? DB::getEncryptedColumns($result->fetch_fields()) : [];
+            $tableCache[$this][$fullTable] = $result ? DB::getEncryptedColumns($result->fetch_fields()) : [];
             $result?->free();
         }
 
-        $encryptedCols = $tableCache[$fullTable];
+        $encryptedCols = $tableCache[$this][$fullTable];
         if (!$encryptedCols) {
             return;
         }
