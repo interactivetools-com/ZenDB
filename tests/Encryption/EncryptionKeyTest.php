@@ -255,8 +255,8 @@ class EncryptionKeyTest extends BaseTestCase
         self::$conn->mysqli->query("DROP TEMPORARY TABLE IF EXISTS test_raw_blob");
         self::$conn->mysqli->query("CREATE TEMPORARY TABLE test_raw_blob (num INT PRIMARY KEY, data MEDIUMBLOB)");
 
-        // Insert raw binary (not encrypted) directly via mysqli
-        $binaryData = random_bytes(32);
+        // Fixed binary data with 0x00 tail byte (guarantees invalid PKCS#7 padding, so decrypt always returns false)
+        $binaryData = hex2bin('deadbeefcafebabe0123456789abcdeffedcba9876543210deadbeefcafe0001');
         self::$conn->mysqli->query("INSERT INTO test_raw_blob VALUES (1, x'" . bin2hex($binaryData) . "')");
 
         // Fetch with field metadata and try to decrypt
