@@ -25,6 +25,9 @@ on:
           - mariadb:10.11
           - mariadb:11.4
           - mariadb:11.8
+          - percona/percona-server:5.7
+          - percona/percona-server:8.0
+          - percona/percona-server:8.4
 
 jobs:
   test:
@@ -35,7 +38,7 @@ jobs:
       fail-fast: false
       matrix:
         php: ${{ inputs.php && fromJSON(format('["{0}"]', inputs.php)) || fromJSON('["8.1","8.2","8.3","8.4","8.5"]') }}
-        database: ${{ inputs.database && fromJSON(format('["{0}"]', inputs.database)) || fromJSON('["mysql:5.7","mysql:8.0","mysql:8.4","mysql:9.6","mariadb:10.2","mariadb:10.4","mariadb:10.5","mariadb:10.6","mariadb:10.11","mariadb:11.4","mariadb:11.8"]') }}
+        database: ${{ inputs.database && fromJSON(format('["{0}"]', inputs.database)) || fromJSON('["mysql:5.7","mysql:8.0","mysql:8.4","mysql:9.6","mariadb:10.2","mariadb:10.4","mariadb:10.5","mariadb:10.6","mariadb:10.11","mariadb:11.4","mariadb:11.8","percona/percona-server:5.7","percona/percona-server:8.0","percona/percona-server:8.4"]') }}
 
     services:
       database:
@@ -56,7 +59,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup PHP ${{ matrix.php }}
         uses: shivammathur/setup-php@v2

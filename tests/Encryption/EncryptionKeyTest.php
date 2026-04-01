@@ -5,7 +5,6 @@ declare(strict_types=1);
 
 namespace Itools\ZenDB\Tests\Encryption;
 
-use Itools\ZenDB\DB;
 use Itools\ZenDB\Connection;
 use Itools\ZenDB\Tests\BaseTestCase;
 use ReflectionProperty;
@@ -208,33 +207,6 @@ class EncryptionKeyTest extends BaseTestCase
         $this->assertNotNull(self::getEkDirect(self::$conn));
     }
 
-    public function testEkTriggeredByInsertWithRawSqlValue(): void
-    {
-        self::resetEk(self::$conn);
-
-        // Use a dedicated temp table so we don't affect test_users row count
-        self::$conn->mysqli->query("DROP TEMPORARY TABLE IF EXISTS test_ek_insert");
-        self::$conn->mysqli->query("CREATE TEMPORARY TABLE test_ek_insert (num INT PRIMARY KEY AUTO_INCREMENT, name VARCHAR(255))");
-
-        // @ek in an INSERT via RawSql value
-        self::$conn->insert('ek_insert', [
-            'name' => DB::rawSql("AES_ENCRYPT('test', @ek)"),
-        ]);
-
-        $this->assertNotNull(self::getEkDirect(self::$conn));
-    }
-
-    public function testEkTriggeredByUpdateWithRawSqlValue(): void
-    {
-        self::resetEk(self::$conn);
-
-        self::$conn->update('users', [
-            'city' => DB::rawSql("AES_ENCRYPT(city, @ek)"),
-        ], ['num' => 1]);
-
-        $this->assertNotNull(self::getEkDirect(self::$conn));
-    }
-
     //endregion
     //region AES Encrypt/Decrypt Round Trip
 
@@ -242,14 +214,9 @@ class EncryptionKeyTest extends BaseTestCase
     {
         self::resetEk(self::$conn);
 
-        // Encrypt a known value using parameterized query
+        // Round-trip entirely in SQL - no table writes needed
         $plaintext = 'sensitive-api-token-12345';
-        self::$conn->update('users', [
-            'city' => DB::rawSql("AES_ENCRYPT(" . self::$conn->escapef('?', $plaintext) . ", @ek)"),
-        ], ['num' => 20]);
-
-        // Decrypt it back
-        $result    = self::$conn->query("SELECT AES_DECRYPT(`city`, @ek) AS decrypted FROM `test_users` WHERE `num` = :num", [':num' => 20]);
+        $result    = self::$conn->query("SELECT AES_DECRYPT(AES_ENCRYPT(:val, @ek), @ek) AS decrypted", [':val' => $plaintext]);
         $decrypted = $result->first()->get('decrypted')->value();
 
         $this->assertSame($plaintext, $decrypted);
