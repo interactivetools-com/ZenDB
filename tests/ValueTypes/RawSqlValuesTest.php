@@ -49,7 +49,7 @@ class RawSqlValuesTest extends BaseTestCase
     public function testRawSqlWithNull(): void
     {
         $raw = DB::rawSql(null);
-        $this->assertSame('', (string) $raw);
+        $this->assertSame('NULL', (string) $raw);
     }
 
     //endregion

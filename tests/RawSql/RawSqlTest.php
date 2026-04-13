@@ -57,4 +57,10 @@ class RawSqlTest extends BaseTestCase
         $raw = DB::rawSql('column + 1');
         $this->assertSame('column + 1', (string) $raw);
     }
+
+    public function testRawSqlWithNullProducesNull(): void
+    {
+        $raw = DB::rawSql(null);
+        $this->assertSame('NULL', (string) $raw, "rawSql(null) should produce 'NULL', not an empty string");
+    }
 }

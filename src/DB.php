@@ -258,6 +258,9 @@ class DB
      */
     public static function rawSql(string|int|float|null $value): RawSql
     {
+        if (is_null($value)) {
+            return new RawSql('NULL');
+        }
         return new RawSql((string)$value);
     }
 

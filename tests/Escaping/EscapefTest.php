@@ -191,4 +191,21 @@ class EscapefTest extends BaseTestCase
     }
 
     //endregion
+    //region Placeholder Count Mismatch
+
+    public function testEscapefMorePlaceholdersThanValuesThrows(): void
+    {
+        // BUG: missing values silently become NULL instead of throwing
+        $this->expectException(InvalidArgumentException::class);
+        DB::escapef("UPDATE users SET name = ?, age = ?, city = ?", 'Alice', 30);
+    }
+
+    public function testEscapefMoreValuesThanPlaceholdersThrows(): void
+    {
+        // BUG: extra values are silently ignored instead of throwing
+        $this->expectException(InvalidArgumentException::class);
+        DB::escapef("name = ?", 'Alice', 30, 'extra');
+    }
+
+    //endregion
 }
