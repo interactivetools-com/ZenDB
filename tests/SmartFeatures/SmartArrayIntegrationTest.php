@@ -101,11 +101,14 @@ class SmartArrayIntegrationTest extends BaseTestCase
         $this->assertInstanceOf(SmartString::class, $name);
     }
 
-    public function testRowArrayAccess(): void
+    public function testRowArrayAccessIsDeprecated(): void
     {
         $row = DB::selectOne('users', ['num' => 1]);
 
-        // Array-style access
+        // $row['name'] is deprecated in favor of $row->name - row results are objects
+        // and should be accessed with object semantics (no !empty($row) etc.).
+        $this->expectOutputRegex("/Deprecated: Replace \\['name'\\] with ->name/");
+
         $name = $row['name'];
         $this->assertInstanceOf(SmartString::class, $name);
     }
