@@ -5,7 +5,6 @@ namespace Itools\ZenDB;
 
 use Closure;
 use ReturnTypeWillChange;
-use RuntimeException;
 use Throwable;
 use mysqli;
 use mysqli_result;
@@ -38,7 +37,11 @@ class MysqliWrapper extends mysqli
     public static bool $forceExecuteQueryPolyfill = false;
 
     /**
-     * Keeps last statement alive to preserve affected_rows/insert_id (for execute_query polyfill)
+     * Keep-alive reference to the last prepared statement (for execute_query polyfill).
+     * Writing to this property holds the mysqli_stmt open so affected_rows and insert_id stay available
+     * after the method returns; without it, the destructor runs and resets both to zero.
+     *
+     * @disregard P1003 keep-alive reference, write-only on purpose (intelephense)
      */
     private ?mysqli_stmt $stmtKeepAlive = null;
 
@@ -92,6 +95,16 @@ class MysqliWrapper extends mysqli
         return $result;
     }
 
+    /**
+     * mysqli::query() wrapper with logging and automatic &#64;ek encryption-key setup. Throws on failure.
+     *
+     * @see mysqli::query()
+     *
+     * @param string $query       SQL to execute
+     * @param int    $result_mode MYSQLI_STORE_RESULT, MYSQLI_USE_RESULT, or MYSQLI_ASYNC
+     * @return mysqli_result|true mysqli_result for queries that return rows, true otherwise; throws on failure
+     * @throws mysqli_sql_exception On query failure
+     */
     public function query(string $query, int $result_mode = MYSQLI_STORE_RESULT): mysqli_result|bool
     {
         $this->lastQuery = $query;
@@ -111,6 +124,17 @@ class MysqliWrapper extends mysqli
         return $result;
     }
 
+    /**
+     * mysqli::real_query() wrapper with logging and automatic &#64;ek encryption-key setup. Throws on failure.
+     *
+     * Unlike query(), does not fetch the result; call store_result() or use_result() afterward to retrieve rows.
+     *
+     * @see mysqli::real_query()
+     *
+     * @param string $query SQL to execute
+     * @return true Always true on success; throws on failure
+     * @throws mysqli_sql_exception On query failure
+     */
     public function real_query(string $query): bool
     {
         $this->lastQuery = $query;
@@ -129,6 +153,18 @@ class MysqliWrapper extends mysqli
         return $result;
     }
 
+    /**
+     * mysqli::multi_query() wrapper with logging and automatic &#64;ek encryption-key setup. Throws on failure.
+     *
+     * Executes multiple semicolon-separated statements. Advance with next_result() and fetch each via store_result()
+     * or use_result(); errors in statements after the first surface through next_result(), not as throws here.
+     *
+     * @see mysqli::multi_query()
+     *
+     * @param string $query One or more SQL statements separated by semicolons
+     * @return true Always true if the first statement started; throws only on failure of the first statement
+     * @throws mysqli_sql_exception On failure of the first statement
+     */
     public function multi_query(string $query): bool
     {
         $this->lastQuery = $query;
@@ -147,7 +183,18 @@ class MysqliWrapper extends mysqli
         return $result;
     }
 
-    public function prepare(string $query): mysqli_stmt|false
+    /**
+     * mysqli::prepare() wrapper with logging and automatic &#64;ek encryption-key setup. Throws on failure.
+     *
+     * Returns a prepared statement; bind parameters and call execute() to run it.
+     *
+     * @see mysqli::prepare()
+     *
+     * @param string $query SQL with ? placeholders
+     * @return mysqli_stmt Prepared statement; throws on failure
+     * @throws mysqli_sql_exception On prepare failure
+     */
+    public function prepare(string $query): mysqli_stmt
     {
         $this->lastQuery = $query;
         $this->ensureEncryptionKey($query);
@@ -164,12 +211,16 @@ class MysqliWrapper extends mysqli
     }
 
     /**
-     * Wrapper/polyfill for mysqli::execute_query() (native in PHP 8.2+)
-     * Prepares, binds parameters, executes, and returns result in one call.
+     * mysqli::execute_query() wrapper/polyfill with logging and automatic &#64;ek encryption-key setup. Throws on failure.
      *
-     * @param string     $query  SQL query with ? placeholders
-     * @param array|null $params Parameters to bind (null or empty for no parameters)
-     * @return mysqli_result|bool Result set for SELECT, or true/false for other queries
+     * Prepares, binds parameters, and executes in one call. Native in PHP 8.2+; polyfilled via prepare()/execute() on 8.1.
+     *
+     * @see mysqli::execute_query()
+     *
+     * @param string     $query  SQL with ? placeholders
+     * @param array|null $params Parameters to bind (null or empty for none)
+     * @return mysqli_result|true mysqli_result for queries that return rows, true otherwise; throws on failure
+     * @throws mysqli_sql_exception On query failure
      */
     public function execute_query(string $query, ?array $params = null): mysqli_result|bool
     {
