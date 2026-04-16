@@ -584,6 +584,12 @@ trait ConnectionInternals
     {
         $this->mysqli || throw new RuntimeException(__METHOD__ . "() called before DB connection established");
 
+        $placeholderCount = substr_count($format, '?');
+        $valueCount       = count($values);
+        if ($placeholderCount !== $valueCount) {
+            throw new InvalidArgumentException("escapef() placeholder count ($placeholderCount) doesn't match value count ($valueCount)");
+        }
+
         return preg_replace_callback('/\?/', function () use (&$values) {
             $value = array_shift($values);
 
