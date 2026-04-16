@@ -4,6 +4,7 @@
 # Exclude dev files from Packagist, Composer, and git archives for leaner installs.
 .editorconfig    export-ignore
 .gitattributes   export-ignore
+.github          export-ignore
 .gitignore       export-ignore
 logo.svg         export-ignore
 phpunit.xml.dist export-ignore
