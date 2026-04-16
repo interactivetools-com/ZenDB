@@ -78,22 +78,24 @@ class EncryptionKeyTest extends BaseTestCase
         $this->assertNull(self::getEkDirect(self::$conn), '@ek should remain NULL when no query uses it');
     }
 
-    public function testEkThrowsWhenNoKeyConfigured(): void
+    public function testEkIsNullWhenNoKeyConfigured(): void
     {
         $conn = new Connection(self::$configDefaults);
 
-        $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessage('no encryptionKey is configured');
-        $conn->query("SELECT @ek AS ek");
+        // Without an encryptionKey, @ek is never SET. MySQL treats unset user variables as NULL.
+        $row = $conn->query("SELECT @ek AS ek")->first();
+        $this->assertNull($row->ek->value());
+        $conn->disconnect();
     }
 
-    public function testDoubleBraceThrowsWhenNoKeyConfigured(): void
+    public function testDoubleBraceReturnsNullWhenNoKeyConfigured(): void
     {
         $conn = new Connection(self::$configDefaults);
 
-        $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessage('no encryptionKey is configured');
-        $conn->query("SELECT {{city}} AS city FROM `test_users` LIMIT 1");
+        // {{col}} expands to AES_DECRYPT(`col`, @ek). With @ek NULL, AES_DECRYPT returns NULL.
+        $row = $conn->query("SELECT {{col}} AS result FROM (SELECT NULL AS col) AS t")->first();
+        $this->assertNull($row->result->value());
+        $conn->disconnect();
     }
 
     //endregion
@@ -284,21 +286,25 @@ class EncryptionKeyTest extends BaseTestCase
         $this->assertNull($rows[0]['secret'], 'NULL should remain NULL');
     }
 
-    public function testDecryptRowsNoOpWithoutEncryptionKey(): void
+    public function testDecryptRowsThrowsWithoutEncryptionKey(): void
     {
-        // Connection without encryption key
+        // Encrypted columns in result without a configured key = caller may treat ciphertext as plaintext, so we throw
         $conn = new Connection(self::$configDefaults);
         $conn->mysqli->query("DROP TEMPORARY TABLE IF EXISTS test_no_key_blob");
         $conn->mysqli->query("CREATE TEMPORARY TABLE test_no_key_blob (num INT PRIMARY KEY, secret MEDIUMBLOB)");
 
-        $rows = [['secret' => 'plaintext']];
+        $rows   = [['secret' => 'plaintext']];
         $result = $conn->mysqli->query("SELECT * FROM test_no_key_blob LIMIT 0");
         $fields = $result->fetch_fields();
         $result->free();
 
-        $conn->decryptRows($rows, $fields);
-        $this->assertSame('plaintext', $rows[0]['secret'], 'Should be untouched without encryption key');
-        $conn->disconnect();
+        try {
+            $this->expectException(\RuntimeException::class);
+            $this->expectExceptionMessage("contains encrypted columns (secret) but no 'encryptionKey' is configured");
+            $conn->decryptRows($rows, $fields);
+        } finally {
+            $conn->disconnect();
+        }
     }
 
     //endregion

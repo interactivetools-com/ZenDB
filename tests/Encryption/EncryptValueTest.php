@@ -473,22 +473,20 @@ class EncryptValueTest extends BaseTestCase
         $conn->encryptValue('test');
     }
 
-    public function testAutoEncryptNoOpWithoutKey(): void
+    public function testAutoEncryptThrowsWithoutKey(): void
     {
-        // Connection without encryption key - MEDIUMBLOB columns should store plaintext
+        // Encrypted columns present without a configured key = silent plaintext corruption, so we throw instead
         $conn = new Connection(array_merge(self::$configDefaults, ['databaseAutoCreate' => true]));
         $conn->mysqli->query("DROP TEMPORARY TABLE IF EXISTS test_nokey_enc");
         $conn->mysqli->query("CREATE TEMPORARY TABLE test_nokey_enc (num INT PRIMARY KEY, secret MEDIUMBLOB)");
 
-        $conn->insert('nokey_enc', ['num' => 1, 'secret' => 'plaintext-value']);
-
-        // Read raw - should be plaintext (not encrypted)
-        $result = $conn->mysqli->query("SELECT secret FROM test_nokey_enc WHERE num = 1");
-        $row    = $result->fetch_assoc();
-        $result->free();
-
-        $this->assertSame('plaintext-value', $row['secret'], 'Without encryption key, MEDIUMBLOB should store plaintext');
-        $conn->disconnect();
+        try {
+            $this->expectException(\RuntimeException::class);
+            $this->expectExceptionMessage("has encrypted columns (secret) but no 'encryptionKey' is configured");
+            $conn->insert('nokey_enc', ['num' => 1, 'secret' => 'plaintext-value']);
+        } finally {
+            $conn->disconnect();
+        }
     }
 
     public function testPhpEncryptMatchesMysqlEncrypt(): void

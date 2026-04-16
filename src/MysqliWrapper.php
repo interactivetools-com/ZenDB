@@ -298,22 +298,13 @@ class MysqliWrapper extends mysqli
      */
     private function ensureEncryptionKey(string $sql): void
     {
-        if ($this->encryptionKeySet || !str_contains($sql, '@ek')) {
+        if ($this->encryptionKeySet || !$this->getEncryptionKey || !str_contains($sql, '@ek')) {
             return;
-        }
-
-        if ($this->getEncryptionKey === null) {
-            throw new RuntimeException("Query uses @ek but no encryptionKey is configured. Add 'encryptionKey' to your connection config.");
-        }
-
-        $key = ($this->getEncryptionKey)();
-        if ($key === '') {
-            throw new RuntimeException("Query uses @ek but encryptionKey is empty. Add 'encryptionKey' to your connection config.");
         }
 
         $startTime = microtime(true);
         $stmt      = parent::prepare("SET @ek = UNHEX(SHA2(?, 512))");
-        $stmt->execute([$key]);
+        $stmt->execute([($this->getEncryptionKey)()]);
         $stmt->close();
         $this->encryptionKeySet = true;
         $this->logQuery("SET @ek = UNHEX(SHA2(?, 512)) /* params: [\"********\"] */", $startTime);

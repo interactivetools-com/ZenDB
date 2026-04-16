@@ -145,8 +145,12 @@ class Connection
                     }
                     $dbCreateQuery = "CREATE DATABASE `$database` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci";
                     $this->mysqli->real_connect($this->secret('hostname'), $this->secret('username'), $this->secret('password'), null, null, null, $flags);
-                    $this->mysqli->query($dbCreateQuery) ?: throw new RuntimeException("Couldn't create DB: " . $this->mysqli->error);
-                    $this->mysqli->select_db($database) ?: throw new RuntimeException("MySQL Error selecting database: " . $this->mysqli->error);
+                    try {
+                        $this->mysqli->query($dbCreateQuery);
+                        $this->mysqli->select_db($database);
+                    } catch (mysqli_sql_exception $createErr) {
+                        throw new RuntimeException("Couldn't create/select database '$database': {$createErr->getMessage()}", $createErr->getCode(), $createErr);
+                    }
                 } else {
                     throw $e;
                 }
@@ -170,7 +174,7 @@ class Connection
 
         // Set charset - DO THIS FIRST
         if ($this->mysqli->character_set_name() !== 'utf8mb4') {
-            $this->mysqli->set_charset('utf8mb4') || throw new RuntimeException("Error setting charset utf8mb4." . $this->mysqli->error);
+            $this->mysqli->set_charset('utf8mb4');
         }
 
         // Check mysql version
@@ -187,7 +191,7 @@ class Connection
         $sets = $this->usePhpTimezone ? "time_zone = '" . date('P') . "', " : '';
         $sets .= $this->sqlMode ? "sql_mode = '$this->sqlMode', " : '';
         if ($sets = rtrim($sets, ', ')) {
-            $this->mysqli->real_query("SET $sets") || throw new RuntimeException("Set command failed:\nSET $sets");
+            $this->mysqli->real_query("SET $sets");
         }
     }
 
@@ -199,11 +203,18 @@ class Connection
      */
     public function isConnected(bool $ping = false): bool
     {
-        return match (true) {
-            is_null($this->mysqli) => false,
-            $ping                => $this->mysqli->stat() !== false,
-            default                => true,
-        };
+        if (!$this->mysqli) {
+            return false;
+        }
+        if (!$ping) {
+            return true;
+        }
+
+        try {
+            return $this->mysqli->stat() !== false;
+        } catch (mysqli_sql_exception) {
+            return false;
+        }
     }
 
     /**
@@ -855,8 +866,7 @@ class Connection
      */
     public function decryptRows(array &$rows, array $fetchFields): void
     {
-        // Early exit: no encryption key or no rows
-        if (!$this->secret('encryptionKey') || !$rows) {
+        if (!$rows) {
             return;
         }
 
@@ -864,6 +874,11 @@ class Connection
         $encryptedColumns = DB::getEncryptedColumns($fetchFields);
         if (!$encryptedColumns) {
             return;
+        }
+
+        // Encrypted columns present - fail loud if no key, else callers get raw ciphertext and may treat it as plaintext
+        if (!$this->secret('encryptionKey')) {
+            throw new RuntimeException("Result contains encrypted columns (" . implode(', ', $encryptedColumns) . ") but no 'encryptionKey' is configured.");
         }
 
         // Decrypt
@@ -885,14 +900,14 @@ class Connection
     /**
      * Auto-encrypt values for encrypted columns in an insert/update values array.
      * Detects MEDIUMBLOB columns via a cached LIMIT 0 query, then encrypts matching values in place.
-     * No-op when no encryption key is configured or no encrypted columns exist.
+     * No-op when the table has no encrypted columns. Throws if encrypted columns exist but no key is configured.
      *
      * @param string $fullTable Full table name (with prefix)
      * @param array  $values    Column => value pairs (modified in place)
      */
     private function autoEncryptValues(string $fullTable, array &$values): void
     {
-        if (!$this->secret('encryptionKey') || !$values) {
+        if (!$values) {
             return;
         }
 
@@ -901,13 +916,19 @@ class Connection
         if (!isset($tableCache[$this][$fullTable])) {
             $tableCache[$this] ??= [];
             $result = $this->mysqli->query("SELECT * FROM `$fullTable` LIMIT 0");
-            $tableCache[$this][$fullTable] = $result ? DB::getEncryptedColumns($result->fetch_fields()) : [];
-            $result?->free();
+            $tableCache[$this][$fullTable] = DB::getEncryptedColumns($result->fetch_fields());
+            $result->free();
         }
 
+        /** @noinspection PhpIllegalArrayKeyTypeInspection */
         $encryptedCols = $tableCache[$this][$fullTable];
         if (!$encryptedCols) {
             return;
+        }
+
+        // Encrypted columns exist - fail loud if no key, else silent plaintext writes corrupt the column
+        if (!$this->secret('encryptionKey')) {
+            throw new RuntimeException("Table '$fullTable' has encrypted columns (" . implode(', ', $encryptedCols) . ") but no 'encryptionKey' is configured. Add 'encryptionKey' to your connection config.");
         }
 
         // Encrypt values for encrypted columns
