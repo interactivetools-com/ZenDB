@@ -32,7 +32,7 @@
     "php": "^8.1",
     "ext-mysqli": "*",
     "ext-openssl": "*",
-    "itools/smartarray": "^2.6.4",
+    "itools/smartarray": "^2.6.6",
     "itools/smartstring": "^2.6.2"
   },
   "require-dev": {
