@@ -159,6 +159,33 @@ class BacktickIdentifiersTest extends BaseTestCase
         DB::query("SELECT * FROM `?`", null);
     }
 
+    public function testBacktickPrefixPositionalRejectsNonString(): void
+    {
+        // `::?` with an int would otherwise coerce to "cms_123" via string concat and silently pass validation
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage("requires a string value");
+
+        DB::query("SELECT * FROM `::?`", 123);
+    }
+
+    public function testBacktickPrefixPositionalRejectsBool(): void
+    {
+        // `::?` with true would otherwise coerce to "cms_1" via string concat
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage("requires a string value");
+
+        DB::query("SELECT * FROM `::?`", true);
+    }
+
+    public function testBacktickPrefixNamedRejectsNull(): void
+    {
+        // `:::name` with null would otherwise coerce to "cms_" via string concat
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage("requires a string value");
+
+        DB::query("SELECT * FROM `:::table`", [':table' => null]);
+    }
+
     //endregion
     //region Valid Identifier Names
 

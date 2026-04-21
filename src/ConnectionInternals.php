@@ -532,6 +532,12 @@ trait ConnectionInternals
             throw new InvalidArgumentException("Arrays not allowed with positional ? placeholders (ambiguous). Use named placeholder instead: ':paramName' => [...]");
         }
 
+        // Prefix backtick placeholders (`::?`, `:::name`) require a string; otherwise PHP silently coerces
+        // bool/null/array via string concat and the result sneaks past the \w- identifier check below
+        if ($addTablePrefix && !is_string($value)) {
+            throw new InvalidArgumentException("Backtick prefix placeholder $match requires a string value, got " . get_debug_type($value));
+        }
+
         return $addTablePrefix ? $this->tablePrefix . $value : $value;
     }
 
