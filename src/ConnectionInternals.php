@@ -294,7 +294,9 @@ trait ConnectionInternals
      *   - null, int, float, bool, string (escaped and quoted)
      *   - RawSql (inserted as-is, for NOW(), UUID(), etc.)
      *   - SmartString (unwrapped via ->value(), then escaped)
-     *   - array, SmartArrayBase (converted via escapeCSV for multi-value columns)
+     *
+     * Arrays are not supported: column assignment is single-valued, so
+     * callers must serialize (json_encode, implode, etc.) before passing.
      *
      * @param array $values Column => value pairs
      * @return string SQL SET clause
@@ -321,8 +323,6 @@ trait ConnectionInternals
                 is_bool($value)                  => $value ? 'TRUE' : 'FALSE',
                 $value instanceof RawSql         => (string)$value,
                 $value instanceof SmartString    => "'" . $this->mysqli->real_escape_string((string)$value->value()) . "'",
-                $value instanceof SmartArrayBase => (string)$this->escapeCSV($value->toArray()),
-                is_array($value)                 => (string)$this->escapeCSV($value),
                 is_string($value)                => "'" . $this->mysqli->real_escape_string($value) . "'",
                 default                          => throw new InvalidArgumentException("Unsupported value type for column '$column': " . get_debug_type($value)),
             };
