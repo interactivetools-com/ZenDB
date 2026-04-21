@@ -595,8 +595,8 @@ class Connection
             throw new RuntimeException("transaction() cannot be nested - already in a transaction");
         }
 
-        $this->mysqli->inTransaction = true;
         $this->mysqli->query("START TRANSACTION");
+        $this->mysqli->inTransaction = true;
         try {
             $result = $fn();
             $this->mysqli->query("COMMIT");
