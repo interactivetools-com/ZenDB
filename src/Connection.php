@@ -282,8 +282,9 @@ class Connection
         // Validate
         $this->assertSafeTemplate($sqlTemplate);
 
-        // Build SQL
-        $sql = $this->replacePlaceholders($sqlTemplate, $params);
+        // Bind params and build SQL
+        $this->paramValues = $this->parseParams($params);
+        $sql               = $this->replacePlaceholders($sqlTemplate);
 
         // Execute
         $result = $this->mysqli->query($sql);
@@ -311,9 +312,11 @@ class Connection
      */
     public function queryOne(string $sqlTemplate, ...$params): SmartArrayHtml
     {
+        $this->mysqli->lastQuery = $sqlTemplate;  // set for rejectLimitAndOffset errors; query() overwrites with the LIMIT-appended template
+
         $this->rejectLimitAndOffset($sqlTemplate);
 
-        $supportsLimit  = preg_match('/^\s*(SELECT|WITH)\b/i', $sqlTemplate);
+        $supportsLimit = preg_match('/^\s*(SELECT|WITH)\b/i', $sqlTemplate);
         $sqlTemplate   .= $supportsLimit ? ' LIMIT 1' : '';
         $resultSet     = $this->query($sqlTemplate, ...$params);
 
@@ -324,22 +327,24 @@ class Connection
      * Select rows from a table.
      * Encrypted columns (MEDIUMBLOB) are automatically decrypted when an encryption key is configured.
      *
-     * @param string           $baseTable  Table name (without prefix)
-     * @param int|array|string $whereEtc   WHERE and other clauses (ORDER BY, LIMIT, etc.)
-     * @param mixed            ...$params  Parameters to bind
+     * @param string           $baseTable Table name (without prefix)
+     * @param int|array|string $whereEtc  WHERE and other clauses (ORDER BY, LIMIT, etc.)
+     * @param mixed            ...$params Parameters to bind
      * @return SmartArrayHtml Result set
      * @throws InvalidArgumentException
      */
     public function select(string $baseTable, int|array|string $whereEtc = [], ...$params): SmartArrayHtml
     {
+        $fullTable               = $this->tablePrefix . $baseTable;
+        $this->mysqli->lastQuery = "SELECT * FROM `$fullTable` [WHERE ...]";
+
         // Validate
         $this->assertValidTable($baseTable);
         $this->logDeprecatedNumericWhere($whereEtc);
 
-        // Build SQL
-        $fullTable                = $this->tablePrefix . $baseTable;
-        $this->mysqli->lastQuery  = "SELECT * FROM `$fullTable` [WHERE ...]";
-        $sql                      = "SELECT * FROM `$fullTable` {$this->whereFromArgs($whereEtc, $params)}";
+        // Bind params and build SQL
+        $this->paramValues = $this->parseParams($params);
+        $sql               = "SELECT * FROM `$fullTable` {$this->whereFromArgs($whereEtc)}";
 
         // Execute
         $result = $this->mysqli->query($sql);
@@ -357,21 +362,23 @@ class Connection
      *
      *     $user = DB::selectOne('users', "status = ?", 'Active');
      *
-     * @param string           $baseTable  Table name (without prefix)
-     * @param int|array|string $whereEtc   WHERE and other clauses
-     * @param mixed            ...$params  Parameters to bind
+     * @param string           $baseTable Table name (without prefix)
+     * @param int|array|string $whereEtc  WHERE and other clauses
+     * @param mixed            ...$params Parameters to bind
      * @return SmartArrayHtml Single row or empty SmartArrayHtml
      * @throws InvalidArgumentException
      */
     public function selectOne(string $baseTable, int|array|string $whereEtc = [], ...$params): SmartArrayHtml
     {
+        $fullTable               = $this->tablePrefix . $baseTable;
+        $this->mysqli->lastQuery = "SELECT * FROM `$fullTable` [WHERE ...] LIMIT 1";
+
         $this->assertValidTable($baseTable);
         $this->logDeprecatedNumericWhere($whereEtc);
         $this->rejectLimitAndOffset($whereEtc);
 
-        $fullTable                = $this->tablePrefix . $baseTable;
-        $this->mysqli->lastQuery  = "SELECT * FROM `$fullTable` [WHERE ...] LIMIT 1";
-        $sql                      = "SELECT * FROM `$fullTable` {$this->whereFromArgs($whereEtc, $params)} LIMIT 1";
+        $this->paramValues = $this->parseParams($params);
+        $sql               = "SELECT * FROM `$fullTable` {$this->whereFromArgs($whereEtc)} LIMIT 1";
 
         $result    = $this->mysqli->query($sql);
         $rows      = $this->fetchMappedRows($result);
@@ -385,21 +392,22 @@ class Connection
      * Encrypted columns (MEDIUMBLOB) are automatically encrypted when an encryption key is configured.
      *
      * @param string $baseTable Table name (without prefix)
-     * @param array $values Column => value pairs
+     * @param array  $values    Column => value pairs
      * @return int Insert ID
      * @throws InvalidArgumentException
      */
     public function insert(string $baseTable, array $values): int
     {
+        $fullTable               = $this->tablePrefix . $baseTable;
+        $this->mysqli->lastQuery = "INSERT INTO `$fullTable` [SET ...]";
+
         // Validate
         $this->assertValidTable($baseTable);
 
         // Build SQL
-        $fullTable                = $this->tablePrefix . $baseTable;
-        $this->mysqli->lastQuery  = "INSERT INTO `$fullTable` [SET ...]";
         $this->autoEncryptValues($fullTable, $values);
-        $setClause                = $this->buildSetClause($values);
-        $sql                      = "INSERT INTO `$fullTable` $setClause";
+        $setClause = $this->buildSetClause($values);
+        $sql       = "INSERT INTO `$fullTable` $setClause";
 
         // Execute
         $this->mysqli->query($sql);
@@ -411,15 +419,18 @@ class Connection
      * Update rows in a table.
      * Encrypted columns (MEDIUMBLOB) are automatically encrypted when an encryption key is configured.
      *
-     * @param string           $baseTable    Table name (without prefix)
-     * @param array            $values Column => value pairs to update
-     * @param int|array|string $whereEtc     WHERE condition (required), may include ORDER BY, LIMIT
-     * @param mixed            ...$params    Parameters to bind
+     * @param string           $baseTable Table name (without prefix)
+     * @param array            $values    Column => value pairs to update
+     * @param int|array|string $whereEtc  WHERE condition (required), may include ORDER BY, LIMIT
+     * @param mixed            ...$params Parameters to bind
      * @return int Number of affected rows
      * @throws InvalidArgumentException
      */
     public function update(string $baseTable, array $values, int|array|string $whereEtc, ...$params): int
     {
+        $fullTable               = $this->tablePrefix . $baseTable;
+        $this->mysqli->lastQuery = "UPDATE `$fullTable` [SET ...] [WHERE ...]";
+
         $this->assertValidTable($baseTable);
         $this->logDeprecatedNumericWhere($whereEtc);
         $this->rejectEmptyWhere($whereEtc, 'UPDATE');
@@ -429,11 +440,12 @@ class Connection
             throw new InvalidArgumentException("Suspicious SET clause: only updating '" . array_key_first($values) . "'. Did you reverse the arguments? Signature is: update(\$table, \$values, \$whereEtc)");
         }
 
-        $fullTable                = $this->tablePrefix . $baseTable;
-        $this->mysqli->lastQuery  = "UPDATE `$fullTable` [SET ...] [WHERE ...]";
         $this->autoEncryptValues($fullTable, $values);
-        $setClause                = $this->buildSetClause($values);
-        $sql                      = "UPDATE `$fullTable` $setClause {$this->whereFromArgs($whereEtc, $params)}";
+
+        $setClause               = $this->buildSetClause($values);
+        $this->mysqli->lastQuery = str_replace('[SET ...]', $setClause, $this->mysqli->lastQuery);  // Replace [SET ...] in lastQuery with the resolved SET so parseParams / whereFromArgs errors below report real context
+        $this->paramValues       = $this->parseParams($params);
+        $sql                     = "UPDATE `$fullTable` $setClause {$this->whereFromArgs($whereEtc)}";
 
         $this->mysqli->query($sql);
 
@@ -443,21 +455,23 @@ class Connection
     /**
      * Delete rows from a table.
      *
-     * @param string           $baseTable  Table name (without prefix)
-     * @param int|array|string $whereEtc   WHERE condition (required), may include ORDER BY, LIMIT
-     * @param mixed            ...$params  Parameters to bind
+     * @param string           $baseTable Table name (without prefix)
+     * @param int|array|string $whereEtc  WHERE condition (required), may include ORDER BY, LIMIT
+     * @param mixed            ...$params Parameters to bind
      * @return int Number of affected rows
      * @throws InvalidArgumentException
      */
     public function delete(string $baseTable, int|array|string $whereEtc, ...$params): int
     {
+        $fullTable               = $this->tablePrefix . $baseTable;
+        $this->mysqli->lastQuery = "DELETE FROM `$fullTable` [WHERE ...]";
+
         $this->assertValidTable($baseTable);
         $this->logDeprecatedNumericWhere($whereEtc);
         $this->rejectEmptyWhere($whereEtc, 'DELETE');
 
-        $fullTable                = $this->tablePrefix . $baseTable;
-        $this->mysqli->lastQuery  = "DELETE FROM `$fullTable` [WHERE ...]";
-        $sql                      = "DELETE FROM `$fullTable` {$this->whereFromArgs($whereEtc, $params)}";
+        $this->paramValues = $this->parseParams($params);
+        $sql               = "DELETE FROM `$fullTable` {$this->whereFromArgs($whereEtc)}";
 
         $this->mysqli->query($sql);
 
@@ -477,27 +491,29 @@ class Connection
      *     // COUNT(*) scans all matching rows while this stops at the first:
      *     if (DB::queryOne("SELECT 1 FROM ::users WHERE status = ?", 'active')->isNotEmpty()) { ... }
      *
-     * @param string           $baseTable  Table name (without prefix)
-     * @param int|array|string $whereEtc   WHERE and other clauses (but not LIMIT/OFFSET)
-     * @param mixed            ...$params  Parameters to bind
+     * @param string           $baseTable Table name (without prefix)
+     * @param int|array|string $whereEtc  WHERE and other clauses (but not LIMIT/OFFSET)
+     * @param mixed            ...$params Parameters to bind
      * @return int Row count
      * @throws InvalidArgumentException
      */
     public function count(string $baseTable, int|array|string $whereEtc = [], ...$params): int
     {
+        $fullTable               = $this->tablePrefix . $baseTable;
+        $this->mysqli->lastQuery = "SELECT COUNT(*) FROM `$fullTable` [WHERE ...]";
+
         $this->assertValidTable($baseTable);
         $this->logDeprecatedNumericWhere($whereEtc);
         $this->rejectLimitAndOffset($whereEtc);
 
-        $fullTable                = $this->tablePrefix . $baseTable;
-        $this->mysqli->lastQuery  = "SELECT COUNT(*) FROM `$fullTable` [WHERE ...]";
-        $sql                      = "SELECT COUNT(*) FROM `$fullTable` {$this->whereFromArgs($whereEtc, $params)}";
+        $this->paramValues = $this->parseParams($params);
+        $sql               = "SELECT COUNT(*) FROM `$fullTable` {$this->whereFromArgs($whereEtc)}";
 
-        $result    = $this->mysqli->query($sql);
-        $row       = $result->fetch_row();
+        $result = $this->mysqli->query($sql);
+        $row    = $result->fetch_row();
         $result->free();
 
-        return (int) $row[0];
+        return (int)$row[0];
     }
 
     /**

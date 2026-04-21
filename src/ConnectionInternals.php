@@ -160,11 +160,6 @@ trait ConnectionInternals
             return;
         }
 
-        /* Update lastQuery with where clause context (so it's available if we throw below) */
-        if (str_starts_with($sql, 'WHERE ') && str_contains($this->mysqli->lastQuery, '[WHERE ...]')) {
-            $this->mysqli->lastQuery = str_replace('[WHERE ...]', $sql, $this->mysqli->lastQuery);
-        }
-
         /*
          * Allow '' and "" empty string literals - these are safe and commonly used.
          *
@@ -339,14 +334,11 @@ trait ConnectionInternals
 
     /**
      * Build WHERE clause from any input type (string, array, or int).
-     * If $params passed, parses them for placeholder replacement.
+     * Reads placeholder values from $this->paramValues (set by the caller).
      * @throws InvalidArgumentException
      */
-    private function whereFromArgs(int|array|string $where, array $params = []): string
+    private function whereFromArgs(int|array|string $where): string
     {
-        if ($params) {
-            $this->paramValues = $this->parseParams($params);
-        }
         return match (true) {
             is_string($where) => $this->whereFromString($where),
             is_array($where)  => $this->whereFromArray($where),
@@ -377,6 +369,9 @@ trait ConnectionInternals
         if (!$hasLeadingKeyword) {
             $where = "WHERE $where";
         }
+
+        // Replace [WHERE ...] in lastQuery with the resolved WHERE so errors below report real context
+        $this->mysqli->lastQuery = str_replace('[WHERE ...]', $where, $this->mysqli->lastQuery);
 
         // Validate - no quotes or numbers (must use placeholders)
         $this->assertSafeTemplate($where);
@@ -429,7 +424,7 @@ trait ConnectionInternals
 
     /**
      * Replace placeholders with their escaped/formatted values and return final SQL.
-     * If $params passed, parses them for placeholder replacement.
+     * Reads placeholder values from $this->paramValues (set by the caller).
      *
      * Replacements:
      *   ?, :name           - quoted and escaped
@@ -439,12 +434,8 @@ trait ConnectionInternals
      *
      * @throws InvalidArgumentException
      */
-    private function replacePlaceholders(string $template, array $params = []): string
+    private function replacePlaceholders(string $template): string
     {
-        if ($params) {
-            $this->paramValues = $this->parseParams($params);
-        }
-
         // Normalize :_ to :: (deprecated syntax) - but not ::_ (prefix + underscore table)
         $template = preg_replace('/(?<!:):_/', '::', $template, -1, $count);
         if ($count > 0) {

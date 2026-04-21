@@ -129,6 +129,37 @@ class PositionalParamsTest extends BaseTestCase
         DB::query("SELECT * FROM ::users WHERE num = ?", [1], 2);
     }
 
+    public function testStaleParamsDoNotLeakAcrossPublicMethods(): void
+    {
+        // Every public entry point must re-bind paramValues from its own args.
+        // If any fails to, a placeholder in a later call silently picks up a value from the prior call.
+        $scenarios = [
+            'query'     => fn() => DB::query("SELECT * FROM ::users WHERE num = ?"),
+            'queryOne'  => fn() => DB::queryOne("SELECT * FROM ::users WHERE num = ?"),
+            'select'    => fn() => DB::select('users', 'num = ?'),
+            'selectOne' => fn() => DB::selectOne('users', 'num = ?'),
+            'update'    => fn() => DB::update('users', ['name' => 'x'], 'num = ?'),
+            'delete'    => fn() => DB::delete('users', 'num = ?'),
+            'count'     => fn() => DB::count('users', 'num = ?'),
+        ];
+
+        foreach ($scenarios as $name => $call) {
+            // Prime paramValues with a prior query binding ? = 1
+            DB::query("SELECT * FROM ::users WHERE num = ?", 1);
+
+            try {
+                $call();
+                $this->fail("$name(): expected InvalidArgumentException for missing ?, got no exception (likely reused stale '1' from prior call)");
+            } catch (InvalidArgumentException $e) {
+                $this->assertStringContainsString(
+                    "Missing value for ? parameter at position 1",
+                    $e->getMessage(),
+                    "$name() threw the wrong exception message",
+                );
+            }
+        }
+    }
+
     //endregion
     //region Data Provider Tests
 
