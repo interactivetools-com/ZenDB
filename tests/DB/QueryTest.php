@@ -5,6 +5,7 @@ declare(strict_types=1);
 
 namespace Itools\ZenDB\Tests\DB;
 
+use InvalidArgumentException;
 use Itools\ZenDB\DB;
 use Itools\ZenDB\Tests\BaseTestCase;
 use mysqli_sql_exception;
@@ -49,6 +50,39 @@ class QueryTest extends BaseTestCase
         $this->expectException(mysqli_sql_exception::class);
         $this->expectExceptionMessage("You have an error in your SQL syntax");
         DB::query("INVALID SQL STATEMENT");
+    }
+
+    public function testQueryOneRejectsLimit(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage("doesn't support LIMIT or OFFSET");
+        DB::queryOne("SELECT * FROM ::users LIMIT 5");
+    }
+
+    /**
+     * queryOne() appends LIMIT 1, so any locking clause MySQL requires *after* LIMIT
+     * (FOR UPDATE, FOR SHARE, LOCK IN SHARE MODE) must be rejected up front,
+     * otherwise the final SQL is a parse error.
+     *
+     * @dataProvider queryOneTrailingClauseProvider
+     */
+    public function testQueryOneRejectsTrailingClauses(string $sql, string $expectedClause): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage("doesn't support $expectedClause");
+        DB::queryOne($sql);
+    }
+
+    public static function queryOneTrailingClauseProvider(): array
+    {
+        return [
+            'FOR UPDATE'             => ["SELECT qty FROM ::products WHERE id = ? FOR UPDATE",                  'FOR UPDATE'],
+            'FOR UPDATE NOWAIT'      => ["SELECT qty FROM ::products WHERE id = ? FOR UPDATE NOWAIT",           'FOR UPDATE'],
+            'FOR UPDATE SKIP LOCKED' => ["SELECT qty FROM ::products WHERE id = ? FOR UPDATE SKIP LOCKED",      'FOR UPDATE'],
+            'FOR UPDATE OF t'        => ["SELECT qty FROM ::products WHERE id = ? FOR UPDATE OF ::products",    'FOR UPDATE'],
+            'FOR SHARE'              => ["SELECT qty FROM ::products WHERE id = ? FOR SHARE",                   'FOR SHARE'],
+            'LOCK IN SHARE MODE'     => ["SELECT qty FROM ::products WHERE id = ? LOCK IN SHARE MODE",          'LOCK IN SHARE MODE'],
+        ];
     }
 
 }

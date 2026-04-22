@@ -255,6 +255,32 @@ trait ConnectionInternals
     }
 
     /**
+     * Reject row-locking clauses that MySQL's SELECT grammar requires *after* LIMIT.
+     *
+     * queryOne() and selectOne() append `LIMIT 1` to the end of the SQL, so any
+     * user-supplied FOR UPDATE / FOR SHARE / LOCK IN SHARE MODE would end up
+     * before our appended LIMIT and produce a parse error. Callers that need
+     * these clauses should use query()->first() instead.
+     *
+     * INTO OUTFILE / INTO DUMPFILE are also post-LIMIT, but calling queryOne on
+     * them is nonsensical (they don't return rows), so we let MySQL's parse error
+     * surface instead of guarding here.
+     *
+     * @throws InvalidArgumentException
+     */
+    private function rejectPostLimitClauses(int|array|string $where): void
+    {
+        if (!is_string($where)) {
+            return;
+        }
+
+        if (preg_match('/\bFOR\s+(?:UPDATE|SHARE)\b|\bLOCK\s+IN\s+SHARE\s+MODE\b/i', $where, $m)) {
+            $clause = preg_replace('/\s+/', ' ', strtoupper($m[0]));
+            throw new InvalidArgumentException("This method doesn't support $clause. Use query(...)->first() instead.");
+        }
+    }
+
+    /**
      * Reject empty WHERE clause - prevents accidental bulk updates/deletes.
      *
      * Conditions like "num = ?" or "id = :id" are valid (WHERE gets prepended).

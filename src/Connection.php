@@ -312,9 +312,10 @@ class Connection
      */
     public function queryOne(string $sqlTemplate, ...$params): SmartArrayHtml
     {
-        $this->mysqli->lastQuery = $sqlTemplate;  // set for rejectLimitAndOffset errors; query() overwrites with the LIMIT-appended template
+        $this->mysqli->lastQuery = $sqlTemplate;  // set for reject-* errors; query() overwrites with the LIMIT-appended template
 
         $this->rejectLimitAndOffset($sqlTemplate);
+        $this->rejectPostLimitClauses($sqlTemplate);
 
         $supportsLimit = preg_match('/^\s*(SELECT|WITH)\b/i', $sqlTemplate);
         $sqlTemplate   .= $supportsLimit ? ' LIMIT 1' : '';
@@ -376,6 +377,7 @@ class Connection
         $this->assertValidTable($baseTable);
         $this->logDeprecatedNumericWhere($whereEtc);
         $this->rejectLimitAndOffset($whereEtc);
+        $this->rejectPostLimitClauses($whereEtc);
 
         $this->paramValues = $this->parseParams($params);
         $sql               = "SELECT * FROM `$fullTable` {$this->whereFromArgs($whereEtc)} LIMIT 1";
@@ -552,7 +554,7 @@ class Connection
      *
      *     // RIGHT - FOR UPDATE locks the row, second request waits and reads updated qty
      *     DB::transaction(function() use ($productId, $customerId) {
-     *         $qty = DB::queryOne("SELECT qty FROM ::products WHERE id = ? FOR UPDATE", $productId)->qty->value();
+     *         $qty = DB::query("SELECT qty FROM ::products WHERE id = ? FOR UPDATE", $productId)->first()->qty->value();
      *         if ($qty < 1) { throw new RuntimeException("Out of stock"); }
      *         DB::update('products', ['qty' => $qty - 1], ['id' => $productId]);
      *         DB::insert('orders', ['customer_id' => $customerId, 'product_id' => $productId]);

@@ -183,6 +183,15 @@ class SelectTest extends BaseTestCase
         DB::selectOne('users', 'LIMIT 5');
     }
 
+    public function testSelectOneRejectsForUpdate(): void
+    {
+        // selectOne() appends LIMIT 1, so a trailing FOR UPDATE in the WHERE fragment
+        // would produce "... FOR UPDATE LIMIT 1" - MySQL requires LIMIT before FOR UPDATE.
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage("doesn't support FOR UPDATE");
+        DB::selectOne('users', 'num = ? FOR UPDATE', 1);
+    }
+
     public function testSelectOneAutoAddsLimit(): void
     {
         // selectOne() adds LIMIT 1, so result should be a single row
