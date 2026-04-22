@@ -959,7 +959,9 @@ class Connection
         static $tableCache = new WeakMap();
         if (!isset($tableCache[$this][$fullTable])) {
             $tableCache[$this] ??= [];
-            $result = $this->mysqli->query("SELECT * FROM `$fullTable` LIMIT 0");
+            $savedLastQuery = $this->mysqli->lastQuery;     // preserve caller's template (e.g. "INSERT INTO `t` [SET ...]") so downstream throws report it, not the probe
+            $result         = $this->mysqli->query("SELECT * FROM `$fullTable` LIMIT 0");
+            $this->mysqli->lastQuery = $savedLastQuery;
             $tableCache[$this][$fullTable] = DB::getEncryptedColumns($result->fetch_fields());
             $result->free();
         }
