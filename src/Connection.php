@@ -877,38 +877,45 @@ class Connection
      *
      * To decrypt in PHP (e.g., after a raw $mysqli->query()):
      *
-     *     DB::decryptRows($rows, $result->fetch_fields());
+     *     $rows          = $result->fetch_all(MYSQLI_ASSOC);
+     *     $mysqliNumRows = $result->fetch_all(MYSQLI_NUM);
+     *     DB::decryptRows($rows, $result->fetch_fields());         // detect encrypted cols from field metadata
+     *     DB::decryptRows($rows, ['token', 'secret']);             // assoc rows: pass column names
+     *     DB::decryptRows($mysqliNumRows, [0, 3]);                 // numeric rows: pass field indexes
      *
-     * @param array   $rows        Fetched rows (modified in place)
-     * @param array   $fetchFields Field objects from fetch_fields()
+     * @param array $rows             Fetched rows (modified in place)
+     * @param array $keysOrFetchFields Either a list of row keys (column names for assoc rows, indexes for numeric rows),
+     *                                 or field objects from fetch_fields() (auto-detects encrypted cols)
      */
-    public function decryptRows(array &$rows, array $fetchFields): void
+    public function decryptRows(array &$rows, array $keysOrFetchFields): void
     {
-        if (!$rows) {
+        if (!$rows || !$keysOrFetchFields) {
             return;
         }
 
-        // Detect encrypted columns from field metadata
-        $encryptedColumns = DB::getEncryptedColumns($fetchFields);
-        if (!$encryptedColumns) {
+        // Detect input shape: fetch_fields() returns stdClass objects; otherwise treat as a list of row keys.
+        // The fetch_fields() path is actively used by external callers decrypting raw mysqli results - do not remove.
+        $isFetchFields = is_object(reset($keysOrFetchFields));
+        $keysToDecrypt = $isFetchFields ? DB::getEncryptedColumns($keysOrFetchFields) : $keysOrFetchFields;
+        if (!$keysToDecrypt) {
             return;
         }
 
         // Encrypted columns present - fail loud if no key, else callers get raw ciphertext and may treat it as plaintext
         if (!$this->secret('encryptionKey')) {
-            throw new RuntimeException("Result contains encrypted columns (" . implode(', ', $encryptedColumns) . ") but no 'encryptionKey' is configured.");
+            throw new RuntimeException("Result contains encrypted columns (" . implode(', ', $keysToDecrypt) . ") but no 'encryptionKey' is configured.");
         }
 
-        // Decrypt
+        // Decrypt at each requested key (column name for assoc rows, field index for numeric rows)
         $aesKey = $this->aesKey();
         foreach ($rows as &$row) {
-            foreach ($encryptedColumns as $col) {
-                if ($row[$col] === null) {
+            foreach ($keysToDecrypt as $key) {
+                if ($row[$key] === null) {
                     continue;
                 }
-                $decrypted = openssl_decrypt($row[$col], 'aes-128-ecb', $aesKey, OPENSSL_RAW_DATA);
+                $decrypted = openssl_decrypt($row[$key], 'aes-128-ecb', $aesKey, OPENSSL_RAW_DATA);
                 if ($decrypted !== false) {
-                    $row[$col] = $decrypted;
+                    $row[$key] = $decrypted;
                 }
             }
         }

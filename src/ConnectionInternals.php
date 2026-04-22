@@ -672,6 +672,7 @@ trait ConnectionInternals
     /**
      * Fetch result rows with column mapping, smart joins, and auto-decryption.
      *
+     * - Fast path: direct C-level MYSQLI_ASSOC fetch when no remapping is needed
      * - "First wins": duplicate column names use the first occurrence
      * - SmartJoins: multi-table queries add qualified names (e.g., 'users.name')
      * - Self-joins: adds alias-based names (e.g., 'a.name', 'b.name')
@@ -684,59 +685,84 @@ trait ConnectionInternals
         }
 
         // Extract field metadata from result
-        $fields       = $mysqliResult->fetch_fields();
-        $names        = array_column($fields, 'name');
-        $tableAliases = array_filter(array_column($fields, 'orgtable', 'table'));      // e.g., ['u' => 'users']
+        $fetchFields  = $mysqliResult->fetch_fields();
+        $names        = array_column($fetchFields, 'name');
+        $aliasToTable = array_filter(array_column($fetchFields, 'orgtable', 'table'));      // e.g., ['u' => 'users']
+        $encryptedMap = DB::getEncryptedColumns($fetchFields);                              // [fieldIndex => colName] for MEDIUMBLOB cols
 
         // Fast path: no duplicate columns and no SmartJoins needed - use C-level associative fetch
         $hasDuplicateCols = count($names) !== count(array_flip($names));
-        $needsSmartJoins  = $this->useSmartJoins && count($tableAliases) > 1;
+        $needsSmartJoins  = $this->useSmartJoins && count($aliasToTable) > 1;
         if (!$hasDuplicateCols && !$needsSmartJoins) {
             $rows = $mysqliResult->fetch_all(MYSQLI_ASSOC);
             $mysqliResult->free();
-            $this->decryptRows($rows, $fields);                     // auto-detect and decrypt MEDIUMBLOB columns
+            $this->decryptRows($rows, array_values($encryptedMap));         // decrypt by column name
             return $rows;
         }
 
-        // Build column index map for numeric-to-named remapping (first wins for duplicates)
-        $columnIndexes = array_flip(array_unique($names));                             // e.g., ['name' => 0, 'email' => 1]
+        // Decrypt indexed values before the remap so bare, qualified, and alias keys all share one plaintext copy.
+        // e.g., $values[0] → row['token'], row['users.token'], row['u.token']
+        $mysqliNumRows = $mysqliResult->fetch_all(MYSQLI_NUM);
+        $mysqliResult->free();
+        $this->decryptRows($mysqliNumRows, array_keys($encryptedMap));      // decrypt by field index
 
-        // SmartJoins: add qualified names (e.g., 'users.name') and alias names for self-joins (e.g., 'a.name')
-        if ($needsSmartJoins) {
-            $prefixLen      = strlen($this->tablePrefix);
-            $selfJoinTables = array_filter(array_count_values($tableAliases), fn($c) => $c > 1);
-
-            foreach ($fields as $index => $field) {
-                if ($field->orgtable && $field->orgname) {
-                    $baseTable = str_starts_with($field->orgtable, $this->tablePrefix)
-                        ? substr($field->orgtable, $prefixLen)
-                        : $field->orgtable;
-
-                    $columnIndexes["$baseTable.$field->orgname"] ??= $index;       // e.g., 'users.name', first wins
-
-                    // Self-joined tables: add table alias names as well (e.g., 'a.name', 'b.name')
-                    if (isset($selfJoinTables[$field->orgtable])) {
-                        $columnIndexes["$field->table.$field->orgname"] ??= $index;     // e.g., 'u.name', first wins
-                    }
-                }
-            }
-        }
-
-        // Fetch as numeric arrays and remap to named columns
-        $rows = [];
-        foreach ($mysqliResult->fetch_all(MYSQLI_NUM) as $values) {
+        // Build the name → field-index map, then remap each numeric row into an associative row
+        $columnIndexes = $this->buildColumnIndexes($fetchFields, $aliasToTable, $needsSmartJoins);
+        $rows          = [];
+        foreach ($mysqliNumRows as $numRow) {
             $row = [];
             foreach ($columnIndexes as $name => $index) {
-                $row[$name] = $values[$index];
+                $row[$name] = $numRow[$index];
             }
             $rows[] = $row;
         }
-        $mysqliResult->free();
-
-        // Auto-decrypt MEDIUMBLOB columns (no-op when no encryption key configured)
-        $this->decryptRows($rows, $fields);
 
         return $rows;
+    }
+
+    /**
+     * Build the name → field-index map used to remap numeric rows into associative rows.
+     *
+     * Starts with bare column names (first wins on duplicates). When SmartJoins is active, also adds
+     * qualified names (e.g., 'users.name') and, for self-joins, alias names (e.g., 'a.name').
+     *
+     * @param array $fetchFields     Field objects from mysqli_result::fetch_fields()
+     * @param array $aliasToTable    Map of table alias → orgtable, e.g. ['u' => 'users']
+     * @param bool  $needsSmartJoins Whether to add qualified and self-join alias keys
+     * @return array Name → field index map, e.g. ['name' => 0, 'users.name' => 0, 'u.name' => 0]
+     */
+    private function buildColumnIndexes(array $fetchFields, array $aliasToTable, bool $needsSmartJoins): array
+    {
+        // Bare column names, first wins for duplicates
+        $names         = array_column($fetchFields, 'name');
+        $columnIndexes = array_flip(array_unique($names));    // e.g., ['name' => 0, 'email' => 1]
+
+        if (!$needsSmartJoins) {
+            return $columnIndexes;
+        }
+
+        // SmartJoins: add qualified names (e.g., 'users.name') and alias names for self-joins (e.g., 'a.name')
+        $prefixLen      = strlen($this->tablePrefix);
+        $selfJoinTables = array_filter(array_count_values($aliasToTable), fn($c) => $c > 1);
+
+        foreach ($fetchFields as $index => $field) {
+            if (!$field->orgtable || !$field->orgname) {
+                continue;    // skip expression columns (COUNT(*), computed values)
+            }
+
+            $baseTable = str_starts_with($field->orgtable, $this->tablePrefix)
+                ? substr($field->orgtable, $prefixLen)
+                : $field->orgtable;
+
+            $columnIndexes["$baseTable.$field->orgname"] ??= $index;            // e.g., 'users.name', first wins
+
+            // Self-joined tables: add table alias names as well (e.g., 'a.name', 'b.name')
+            if (isset($selfJoinTables[$field->orgtable])) {
+                $columnIndexes["$field->table.$field->orgname"] ??= $index;     // e.g., 'u.name', first wins
+            }
+        }
+
+        return $columnIndexes;
     }
 
     /**

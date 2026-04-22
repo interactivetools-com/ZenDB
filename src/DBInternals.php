@@ -78,15 +78,15 @@ trait DBInternals
      *     $encryptedCols = DB::getEncryptedColumns($result->fetch_fields());
      *
      * @param array $fetchFields Field objects from fetch_fields()
-     * @return array<string> Column names of detected encrypted columns
+     * @return array<int, string> Detected encrypted columns, keyed by field index (e.g. [0 => 'token', 3 => 'ssn'])
      */
     public static function getEncryptedColumns(array $fetchFields): array
     {
         $encrypted = [];
-        foreach ($fetchFields as $field) {
+        foreach ($fetchFields as $index => $field) {
             $isMediumBlob = $field->type === MYSQLI_TYPE_BLOB && $field->charsetnr === 63 && $field->length === 16_777_215;
             if ($isMediumBlob) {
-                $encrypted[] = $field->name;
+                $encrypted[$index] = $field->name;
             }
         }
         return $encrypted;
