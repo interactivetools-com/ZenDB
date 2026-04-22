@@ -1,6 +1,6 @@
 # ZenDB Changelog
 
-## [Unreleased]
+## [0.9.1] - 2026-04-22
 
 ### Fixed
 - SmartJoin - Prefixed keys (jointable.name, j.name) are now decrypted by default, matching the behavior of unprefixed keys
