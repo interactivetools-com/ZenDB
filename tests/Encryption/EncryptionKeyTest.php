@@ -286,22 +286,22 @@ class EncryptionKeyTest extends BaseTestCase
         $this->assertNull($rows[0]['secret'], 'NULL should remain NULL');
     }
 
-    public function testDecryptRowsThrowsWithoutEncryptionKey(): void
+    public function testDecryptRowsIsNoOpWithoutEncryptionKey(): void
     {
-        // Encrypted columns in result without a configured key = caller may treat ciphertext as plaintext, so we throw
+        // Encryption is opt-in. With no encryptionKey configured, decryptRows leaves rows alone -
+        // callers get the raw stored bytes, same as any other column.
         $conn = new Connection(self::$configDefaults);
         $conn->mysqli->query("DROP TEMPORARY TABLE IF EXISTS test_no_key_blob");
         $conn->mysqli->query("CREATE TEMPORARY TABLE test_no_key_blob (num INT PRIMARY KEY, secret MEDIUMBLOB)");
 
-        $rows   = [['secret' => 'plaintext']];
+        $rows   = [['secret' => 'raw-bytes-as-stored']];
         $result = $conn->mysqli->query("SELECT * FROM test_no_key_blob LIMIT 0");
         $fields = $result->fetch_fields();
         $result->free();
 
         try {
-            $this->expectException(\RuntimeException::class);
-            $this->expectExceptionMessage("contains encrypted columns (secret) but no 'encryptionKey' is configured");
             $conn->decryptRows($rows, $fields);
+            $this->assertSame('raw-bytes-as-stored', $rows[0]['secret'], 'Without a key, decryptRows passes values through unchanged');
         } finally {
             $conn->disconnect();
         }

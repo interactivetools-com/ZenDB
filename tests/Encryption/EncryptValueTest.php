@@ -473,17 +473,19 @@ class EncryptValueTest extends BaseTestCase
         $conn->encryptValue('test');
     }
 
-    public function testAutoEncryptThrowsWithoutKey(): void
+    public function testAutoEncryptIsNoOpWithoutKey(): void
     {
-        // Encrypted columns present without a configured key = silent plaintext corruption, so we throw instead
+        // Encryption is opt-in. With no encryptionKey configured, MEDIUMBLOB writes pass
+        // through as raw bytes - ZenDB doesn't transform or reject them.
         $conn = new Connection(array_merge(self::$configDefaults, ['databaseAutoCreate' => true]));
         $conn->mysqli->query("DROP TEMPORARY TABLE IF EXISTS test_nokey_enc");
         $conn->mysqli->query("CREATE TEMPORARY TABLE test_nokey_enc (num INT PRIMARY KEY, secret MEDIUMBLOB)");
 
         try {
-            $this->expectException(\RuntimeException::class);
-            $this->expectExceptionMessage("has encrypted columns (secret) but no 'encryptionKey' is configured");
             $conn->insert('nokey_enc', ['num' => 1, 'secret' => 'plaintext-value']);
+
+            $row = $conn->mysqli->query("SELECT secret FROM test_nokey_enc WHERE num = 1")->fetch_assoc();
+            $this->assertSame('plaintext-value', $row['secret'], 'Without a key, MEDIUMBLOB writes store the value verbatim');
         } finally {
             $conn->disconnect();
         }

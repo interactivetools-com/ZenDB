@@ -326,7 +326,7 @@ class Connection
 
     /**
      * Select rows from a table.
-     * Encrypted columns (MEDIUMBLOB) are automatically decrypted when an encryption key is configured.
+     * Encrypted columns (MEDIUMBLOB) are automatically decrypted when `encryptionKey` is set.
      *
      * @param string           $baseTable Table name (without prefix)
      * @param int|array|string $whereEtc  WHERE and other clauses (ORDER BY, LIMIT, etc.)
@@ -356,7 +356,7 @@ class Connection
 
     /**
      * Select a single row from a table. Always sends LIMIT 1 to MySQL.
-     * Encrypted columns (MEDIUMBLOB) are automatically decrypted when an encryption key is configured.
+     * Encrypted columns (MEDIUMBLOB) are automatically decrypted when `encryptionKey` is set.
      *
      *     $user = DB::selectOne('users', ['num' => 5]);
      *     echo "$user->name - $user->email";
@@ -391,7 +391,7 @@ class Connection
 
     /**
      * Insert a row into a table.
-     * Encrypted columns (MEDIUMBLOB) are automatically encrypted when an encryption key is configured.
+     * Encrypted columns (MEDIUMBLOB) are automatically encrypted when `encryptionKey` is set.
      *
      * @param string $baseTable Table name (without prefix)
      * @param array  $values    Column => value pairs
@@ -407,7 +407,7 @@ class Connection
         $this->assertValidTable($baseTable);
 
         // Build SQL
-        $this->autoEncryptValues($fullTable, $values);
+        $this->encryptRow($fullTable, $values);
         $setClause = $this->buildSetClause($values);
         $sql       = "INSERT INTO `$fullTable` $setClause";
 
@@ -419,7 +419,7 @@ class Connection
 
     /**
      * Update rows in a table.
-     * Encrypted columns (MEDIUMBLOB) are automatically encrypted when an encryption key is configured.
+     * Encrypted columns (MEDIUMBLOB) are automatically encrypted when `encryptionKey` is set.
      *
      * @param string           $baseTable Table name (without prefix)
      * @param array            $values    Column => value pairs to update
@@ -442,7 +442,7 @@ class Connection
             throw new InvalidArgumentException("Suspicious SET clause: only updating '" . array_key_first($values) . "'. Did you reverse the arguments? Signature is: update(\$table, \$values, \$whereEtc)");
         }
 
-        $this->autoEncryptValues($fullTable, $values);
+        $this->encryptRow($fullTable, $values);
 
         $setClause               = $this->buildSetClause($values);
         $this->mysqli->lastQuery = str_replace('[SET ...]', $setClause, $this->mysqli->lastQuery);  // Replace [SET ...] in lastQuery with the resolved SET so parseParams / whereFromArgs errors below report real context
@@ -841,15 +841,19 @@ class Connection
     //region Encryption
 
     /**
-     * Encrypt a value in PHP. Requires 'encryptionKey' in connection config.
-     * Note: DB::insert() and DB::update() auto-encrypt MEDIUMBLOB columns, so you
-     * don't need this for normal insert/update. This is mainly for:
+     * Encrypt a value in PHP, producing the same ciphertext that DB::insert() and
+     * DB::update() auto-generate for MEDIUMBLOB columns.
      *
-     *     // Exact match search (compare encrypted blobs)
+     * You normally don't need this - insert/update handle encryption for you. Reach
+     * for it when the value isn't going through those methods:
+     *
+     *     // Exact match on an encrypted column (AES-128-ECB is deterministic)
      *     DB::select('users', ['token' => DB::encryptValue($searchToken)]);
      *
      *     // Raw SQL insert/update via DB::query()
      *     DB::query("UPDATE ::users SET token = ? WHERE id = ?", DB::encryptValue($token), $id);
+     *
+     * Requires `encryptionKey` on the connection; aesKey() throws RuntimeException without one.
      *
      * @param string|int|float|null|SmartString $value Plaintext value to encrypt
      * @return string|null Encrypted binary string, or null if value is null
@@ -867,15 +871,22 @@ class Connection
     }
 
     /**
-     * Decrypt encrypted columns in fetched rows using the configured encryption key.
-     * Non-encrypted binary data is left untouched (openssl_decrypt returns false on invalid padding).
+     * Decrypt MEDIUMBLOB-column values in fetched rows, in place. Called automatically
+     * by DB::select(), DB::query(), and other read methods.
      *
-     * Called automatically by query methods. To decrypt in MySQL instead, use AES_DECRYPT with @ek:
+     * A MEDIUMBLOB column stores either encrypted values or raw binary. Not both. We
+     * can't support mixing because on read there's no reliable way to tell them apart:
+     * openssl_decrypt returns false when decryption fails, but random binary data whose
+     * length is a multiple of 16 bytes passes the padding check about 1 in 255 times and
+     * silently decrypts to garbage. If you're enabling encryption on existing MEDIUMBLOB
+     * data, re-encrypt those rows first.
      *
-     *     SELECT AES_DECRYPT(`column`, @ek) FROM prefix_users
-     *     SELECT {{column}} FROM ::users                           // ZenDB shorthand for the above
+     * Which mode applies is decided by `encryptionKey`. With it set, every MEDIUMBLOB is
+     * decrypted on read. Without it, this is a no-op and MEDIUMBLOB rows pass through as
+     * raw bytes.
      *
-     * To decrypt in PHP (e.g., after a raw $mysqli->query()):
+     * You rarely need to call this directly. Reach for it when you've bypassed the query
+     * methods and want PHP-side decryption on raw mysqli rows:
      *
      *     $rows          = $result->fetch_all(MYSQLI_ASSOC);
      *     $mysqliNumRows = $result->fetch_all(MYSQLI_NUM);
@@ -883,13 +894,18 @@ class Connection
      *     DB::decryptRows($rows, ['token', 'secret']);             // assoc rows: pass column names
      *     DB::decryptRows($mysqliNumRows, [0, 3]);                 // numeric rows: pass field indexes
      *
+     * To decrypt in MySQL instead of PHP, use AES_DECRYPT with @ek:
+     *
+     *     SELECT AES_DECRYPT(`column`, @ek) FROM prefix_users
+     *     SELECT {{column}} FROM ::users                           // ZenDB shorthand for the above
+     *
      * @param array $rows             Fetched rows (modified in place)
      * @param array $keysOrFetchFields Either a list of row keys (column names for assoc rows, indexes for numeric rows),
      *                                 or field objects from fetch_fields() (auto-detects encrypted cols)
      */
     public function decryptRows(array &$rows, array $keysOrFetchFields): void
     {
-        if (!$rows || !$keysOrFetchFields) {
+        if (!$rows || !$keysOrFetchFields || !$this->secret('encryptionKey')) {
             return;
         }
 
@@ -899,11 +915,6 @@ class Connection
         $keysToDecrypt = $isFetchFields ? DB::getEncryptedColumns($keysOrFetchFields) : $keysOrFetchFields;
         if (!$keysToDecrypt) {
             return;
-        }
-
-        // Encrypted columns present - fail loud if no key, else callers get raw ciphertext and may treat it as plaintext
-        if (!$this->secret('encryptionKey')) {
-            throw new RuntimeException("Result contains encrypted columns (" . implode(', ', $keysToDecrypt) . ") but no 'encryptionKey' is configured.");
         }
 
         // Decrypt at each requested key (column name for assoc rows, field index for numeric rows)
@@ -923,20 +934,28 @@ class Connection
     }
 
     /**
-     * Auto-encrypt values for encrypted columns in an insert/update values array.
-     * Detects MEDIUMBLOB columns via a cached LIMIT 0 query, then encrypts matching values in place.
-     * No-op when the table has no encrypted columns. Throws if encrypted columns exist but no key is configured.
+     * Encrypt MEDIUMBLOB-column values in an insert/update values array, in place. Called
+     * automatically by DB::insert() and DB::update() before values go to the database.
+     *
+     * A MEDIUMBLOB column stores either encrypted values or raw binary. Not both. We
+     * can't support mixing because on read there's no reliable way to tell them apart:
+     * openssl_decrypt returns false when decryption fails, but random binary data whose
+     * length is a multiple of 16 bytes passes the padding check about 1 in 255 times and
+     * silently decrypts to garbage.
+     *
+     * Which mode applies is decided by `encryptionKey`. With it set, every MEDIUMBLOB is
+     * encrypted on write and decrypted on read. Without it, every MEDIUMBLOB is raw bytes.
      *
      * @param string $fullTable Full table name (with prefix)
      * @param array  $values    Column => value pairs (modified in place)
      */
-    private function autoEncryptValues(string $fullTable, array &$values): void
+    private function encryptRow(string $fullTable, array &$values): void
     {
-        if (!$values) {
+        if (!$values || !$this->secret('encryptionKey')) {
             return;
         }
 
-        // Get encrypted column names for this table (cached per connection per table per request)
+        // Cache the encrypted column list per connection per table (one LIMIT 0 query per table, per request)
         static $tableCache = new WeakMap();
         if (!isset($tableCache[$this][$fullTable])) {
             $tableCache[$this] ??= [];
@@ -951,25 +970,20 @@ class Connection
             return;
         }
 
-        // Encrypted columns exist - fail loud if no key, else silent plaintext writes corrupt the column
-        if (!$this->secret('encryptionKey')) {
-            throw new RuntimeException("Table '$fullTable' has encrypted columns (" . implode(', ', $encryptedCols) . ") but no 'encryptionKey' is configured. Add 'encryptionKey' to your connection config.");
-        }
-
-        // Encrypt values for encrypted columns
-        $aesKey = $this->aesKey();
-        foreach ($encryptedCols as $encryptedCol) {
-            if (!array_key_exists($encryptedCol, $values) || $values[$encryptedCol] === null) {
+        // Encrypt each targeted value (intersect $values with encrypted columns, skip null / non-scalar)
+        $toEncrypt = array_intersect_key($values, array_flip($encryptedCols));
+        $aesKey    = $this->aesKey();
+        foreach ($toEncrypt as $col => $value) {
+            if ($value === null) {
                 continue;
             }
-            $value = $values[$encryptedCol];
             if ($value instanceof SmartString) {
                 $value = $value->value();
             }
             if (!is_string($value) && !is_int($value) && !is_float($value)) {
                 continue; // skip RawSql, arrays, and other non-scalar types
             }
-            $values[$encryptedCol] = openssl_encrypt((string) $value, 'aes-128-ecb', $aesKey, OPENSSL_RAW_DATA);
+            $values[$col] = openssl_encrypt((string) $value, 'aes-128-ecb', $aesKey, OPENSSL_RAW_DATA);
         }
     }
 
