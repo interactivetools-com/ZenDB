@@ -85,4 +85,33 @@ class QueryTest extends BaseTestCase
         ];
     }
 
+    /**
+     * queryOne() appends ` LIMIT 1`, so a trailing line comment would swallow it on the same line,
+     * causing MySQL to silently run the full query without the LIMIT (silent full-table scan).
+     *
+     * @dataProvider queryOneTrailingLineCommentProvider
+     */
+    public function testQueryOneRejectsTrailingLineComment(string $sql): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage("trailing '--' or '#' comment would swallow it");
+        DB::queryOne($sql);
+    }
+
+    public static function queryOneTrailingLineCommentProvider(): array
+    {
+        return [
+            'trailing -- comment'        => ["SELECT * FROM ::users -- debug"],
+            'trailing # comment'         => ["SELECT * FROM ::users # debug"],
+            'trailing -- after a clause' => ["SELECT * FROM ::users WHERE num = 1 -- TODO"],
+        ];
+    }
+
+    public function testQueryOneRejectsTrailingSemicolon(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage("trailing ';' would produce '; LIMIT 1'");
+        DB::queryOne("SELECT * FROM ::users WHERE num = 1;");
+    }
+
 }

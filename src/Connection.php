@@ -315,7 +315,7 @@ class Connection
         $this->mysqli->lastQuery = $sqlTemplate;  // set for reject-* errors; query() overwrites with the LIMIT-appended template
 
         $this->rejectLimitAndOffset($sqlTemplate);
-        $this->rejectPostLimitClauses($sqlTemplate);
+        $this->rejectPreLimitConflicts($sqlTemplate);
 
         $supportsLimit = preg_match('/^\s*(SELECT|WITH)\b/i', $sqlTemplate);
         $sqlTemplate   .= $supportsLimit ? ' LIMIT 1' : '';
@@ -377,7 +377,7 @@ class Connection
         $this->assertValidTable($baseTable);
         $this->logDeprecatedNumericWhere($whereEtc);
         $this->rejectLimitAndOffset($whereEtc);
-        $this->rejectPostLimitClauses($whereEtc);
+        $this->rejectPreLimitConflicts($whereEtc);
 
         $this->paramValues = $this->parseParams($params);
         $sql               = "SELECT * FROM `$fullTable` {$this->whereFromArgs($whereEtc)} LIMIT 1";

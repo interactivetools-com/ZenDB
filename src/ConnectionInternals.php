@@ -255,28 +255,50 @@ trait ConnectionInternals
     }
 
     /**
-     * Reject row-locking clauses that MySQL's SELECT grammar requires *after* LIMIT.
+     * Reject template patterns that conflict with the auto-appended `LIMIT 1`.
      *
-     * queryOne() and selectOne() append `LIMIT 1` to the end of the SQL, so any
-     * user-supplied FOR UPDATE / FOR SHARE / LOCK IN SHARE MODE would end up
-     * before our appended LIMIT and produce a parse error. Callers that need
-     * these clauses should use query()->first() instead.
+     * queryOne() and selectOne() unconditionally append ` LIMIT 1` to the caller's
+     * template. Three end-of-template shapes break that splice:
      *
-     * INTO OUTFILE / INTO DUMPFILE are also post-LIMIT, but calling queryOne on
-     * them is nonsensical (they don't return rows), so we let MySQL's parse error
-     * surface instead of guarding here.
+     * 1. Row-locking clauses (FOR UPDATE / FOR SHARE / LOCK IN SHARE MODE).
+     *    MySQL grammar requires LIMIT to come before these, so the appended
+     *    LIMIT lands in the wrong spot and produces a parse error.
+     *
+     * 2. Trailing line comments (`--` or `#`). The appended ` LIMIT 1` lands
+     *    on the same line as the comment marker, so MySQL silently ignores
+     *    it and runs the full query (silent full-table scan).
+     *
+     * 3. Trailing semicolons (`;`). The appended ` LIMIT 1` produces `...; LIMIT 1`,
+     *    which MySQL rejects with a confusing "near 'LIMIT 1'" parse error.
+     *
+     * INTO OUTFILE / INTO DUMPFILE are also post-LIMIT, but calling queryOne
+     * on them is nonsensical (they don't return rows), so we let MySQL's parse
+     * error surface instead of guarding here.
+     *
+     * Callers needing any of these should use query()->first() instead.
      *
      * @throws InvalidArgumentException
      */
-    private function rejectPostLimitClauses(int|array|string $where): void
+    private function rejectPreLimitConflicts(int|array|string $where): void
     {
         if (!is_string($where)) {
             return;
         }
 
+        // Row-locking clauses - grammar requires LIMIT before these
         if (preg_match('/\bFOR\s+(?:UPDATE|SHARE)\b|\bLOCK\s+IN\s+SHARE\s+MODE\b/i', $where, $m)) {
             $clause = preg_replace('/\s+/', ' ', strtoupper($m[0]));
             throw new InvalidArgumentException("This method doesn't support $clause. Use query(...)->first() instead.");
+        }
+
+        // Trailing line comment - would swallow the appended LIMIT 1 and cause a silent full-table scan
+        if (preg_match('/(?:--|#)[^\r\n]*\z/', $where)) {
+            throw new InvalidArgumentException("This method appends LIMIT 1 automatically; a trailing '--' or '#' comment would swallow it and cause a full-table scan. Remove the comment or use query(...)->first() instead.");
+        }
+
+        // Trailing semicolon - appended LIMIT 1 would become '; LIMIT 1' and fail parsing
+        if (preg_match('/;\s*\z/', $where)) {
+            throw new InvalidArgumentException("This method appends LIMIT 1 automatically; a trailing ';' would produce '; LIMIT 1' and fail parsing. Remove the semicolon or use query(...)->first() instead.");
         }
     }
 
