@@ -732,15 +732,44 @@ class Connection
     }
 
     /**
-     * Get column definitions from a table.
+     * Return column definitions for a table, parsed from `SHOW CREATE TABLE` and
+     * normalized for stable comparison across MySQL/MariaDB versions.
      *
-     * @param string $baseTable The base table name without prefix
-     * @return array<string,string> Array of column name => column definition pairs
+     *     $defs = $db->getColumnDefinitions('news');
+     *     // [
+     *     //   "num"         => "int unsigned NOT NULL AUTO_INCREMENT",
+     *     //   "title"       => "varchar(255) NOT NULL DEFAULT ''",
+     *     //   "createdDate" => "datetime NOT NULL DEFAULT CURRENT_TIMESTAMP",
+     *     // ]
+     *
+     * Each value is the part of the column declaration after the column name -
+     * the type, modifiers, any column-level charset overrides, default, and
+     * comment - with three normalizations applied:
+     *
+     *   - Column-level `CHARACTER SET` / `COLLATE` is stripped when it matches
+     *     the table's default. Inherited charsets show up explicitly in
+     *     `SHOW CREATE TABLE` output but aren't part of the column declaration,
+     *     so dropping them keeps comparisons stable.
+     *   - Display widths are stripped (`int(11)` → `int`, `year(4)` → `year`).
+     *     MySQL 8.0.19+ stopped emitting widths while MariaDB still includes
+     *     them, so stripping here keeps the output consistent across both
+     *     engines. Two keep their width, matching MySQL 8's own output: plain
+     *     signed `tinyint(1)` (the conventional boolean marker) and ZEROFILL
+     *     columns (the width sets the padding).
+     *   - `DEFAULT` / `ON UPDATE current_timestamp()` (MariaDB's spelling) is
+     *     normalized to MySQL's `CURRENT_TIMESTAMP`.
+     *
+     * COMMENT text is never modified: it is split off before normalizing and
+     * reattached after.
+     *
+     * Returns an empty array if the table doesn't exist or `SHOW CREATE TABLE`
+     * throws. Indexes, constraints, and other non-column lines are skipped.
+     *
+     * @param string $baseTable Base table name (without table prefix)
+     * @return array<string,string> column name => normalized definition
      */
     public function getColumnDefinitions(string $baseTable): array
     {
-        $columnDefinitions = [];
-
         try {
             $createTableSQL = $this->query('SHOW CREATE TABLE `::?`', $baseTable)->first()->nth(1)->value();
             $lines          = explode("\n", $createTableSQL);
@@ -748,20 +777,50 @@ class Connection
             $lines = [];
         }
 
-        // Extract charset/collation from last line (table defaults)
-        $defaults = [];
-        if (preg_match('/\bDEFAULT CHARSET=(\S+) COLLATE=(\S+)\b/', (string) array_pop($lines), $m)) {
-            $defaults = [" CHARACTER SET $m[1]", " COLLATE $m[2]"];
+        // Extract charset/collation from the table-options line: the one starting with ')'.
+        // Partitioned tables append PARTITION clauses after it, so it isn't always last.
+        // COLLATE is omitted when the table uses the charset's default collation, so handle each separately.
+        // e.g. `DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci` or `DEFAULT CHARSET=utf8mb4`
+        $tableLine  = implode('', preg_grep('/^\)/', $lines));
+        $defaultRxs = []; // trailing \b so a utf8 table default doesn't match the leading part of a column's utf8mb4
+        if (preg_match('/\bCHARSET=(\S+)/', $tableLine, $m)) {
+            $defaultRxs[] = '/ CHARACTER SET ' . preg_quote($m[1], '/') . '\b/';
+        }
+        if (preg_match('/\bCOLLATE=(\S+)/', $tableLine, $m)) {
+            $defaultRxs[] = '/ COLLATE ' . preg_quote($m[1], '/') . '\b/';
         }
 
         // Get column definitions
-        $intTypesRx = 'tinyint|smallint|mediumint|int|bigint';
+        // e.g. "  `title` varchar(255) NOT NULL DEFAULT ''"                                           → "varchar(255) NOT NULL DEFAULT ''"
+        // e.g. "  `createdDate` datetime NOT NULL DEFAULT current_timestamp() COMMENT 'when created'" → "datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'when created'"
+        $columnDefinitions = [];
         foreach ($lines as $line) {
             if (preg_match('/^ {2}`([^`]+)` (.*?),?$/', $line, $matches)) {
                 [, $columnName, $definition] = $matches;
-                $definition                     = str_replace($defaults, '', $definition);
-                $definition                     = preg_replace("/\b($intTypesRx)\(\d+\)/i", '$1', $definition);
-                $columnDefinitions[$columnName] = $definition;
+
+                // Split off the trailing COMMENT so its text can't affect the normalizations below.
+                // Quotes inside are doubled: COMMENT 'it''s here'
+                $comment = '';
+                if (preg_match("/ COMMENT '(?:[^']|'')*'$/", $definition, $m)) {
+                    $comment    = $m[0];
+                    $definition = substr($definition, 0, -strlen($m[0]));
+                }
+
+                $definition = preg_replace($defaultRxs, '', $definition);
+
+                // Crop deprecated display widths: MySQL 8.0.19+ stopped emitting them, MariaDB still does.
+                // \w*int matches the five int types (point/multipoint never take parens); year(4) diverges
+                // the same way. Two keep their width, matching MySQL 8's own output: plain signed tinyint(1),
+                // which connectors treat as boolean (unsigned loses the width, MySQL bugs #100309/#105667),
+                // and ZEROFILL columns, where the width sets the zero-padding amount.
+                if (stripos($definition, 'zerofill') === false) {
+                    $definition = preg_replace('/^(?!tinyint\(1\)(?! unsigned))(\w*int|year)\(\d+\)/i', '$1', $definition);
+                }
+
+                // MariaDB 10.2+ spells defaults current_timestamp(); MySQL spells them CURRENT_TIMESTAMP
+                $definition = preg_replace('/\b(DEFAULT|ON UPDATE) current_timestamp(?:\(\))?(\(\d+\))?/i', '$1 CURRENT_TIMESTAMP$2', $definition);
+
+                $columnDefinitions[$columnName] = $definition . $comment;
             }
         }
 

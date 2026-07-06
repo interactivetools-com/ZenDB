@@ -4,6 +4,10 @@
 
 ### Fixed
 - Template validation - Now also rejects hex (`0x1AF`), binary (`0b1010`), and scientific (`1e10`) numeric literals in query templates; use placeholders instead
+- `DB::getColumnDefinitions()` - Identical schemas now return identical definition strings on MySQL and MariaDB:
+  - Display widths cropped to match MySQL 8 (`int(11)` → `int`, `year(4)` → `year`; plain `tinyint(1)` and ZEROFILL keep theirs)
+  - MariaDB's `DEFAULT current_timestamp()` normalized to `DEFAULT CURRENT_TIMESTAMP`
+  - Column-level charset/collation removed when it just restates the table default
 
 ## [0.9.1] - 2026-04-22
 
