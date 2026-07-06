@@ -2,6 +2,13 @@
 
 ## [0.9.2] - 2026-07-05
 
+### Added
+- Prefixed value placeholders - `::?` and `:::name` (no backticks) prepend the table prefix inside the quoted value, for matching table names as strings:
+  - `SHOW TABLES LIKE ::?` with `user%` → `SHOW TABLES LIKE 'cms_user%'`
+  - `WHERE TABLE_NAME = :::table` with `users` → `WHERE TABLE_NAME = 'cms_users'`
+  - `IN (:::tables)` with `['users', 'orders']` → `IN ('cms_users', 'cms_orders')`
+  - Strings only (or arrays of strings); anything else throws `InvalidArgumentException`
+
 ### Fixed
 - Template validation - Now also rejects hex (`0x1AF`), binary (`0b1010`), and scientific (`1e10`) numeric literals in query templates; use placeholders instead
 - `DB::getColumnDefinitions()` - Identical schemas now return identical definition strings on MySQL and MariaDB:

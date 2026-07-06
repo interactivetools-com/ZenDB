@@ -488,9 +488,14 @@ trait ConnectionInternals
      *
      * Replacements:
      *   ?, :name           - quoted and escaped
+     *   ::?, :::name       - same as above with table prefix prepended (prefix lands inside the quotes)
      *   `?`, `:name`       - backtick-wrapped and unescaped, throws if unsafe chars
      *   `::?`, `:::name`   - same as above with table prefix prepended
      *   ::                 - table prefix alone
+     *
+     * In LIKE patterns, a `_` in the table prefix matches any single character
+     * (::? with 'user%' and prefix 'cms_' also matches cms2users); escape the
+     * prefix yourself if that matters.
      *
      * @throws InvalidArgumentException
      */
@@ -519,7 +524,11 @@ trait ConnectionInternals
                 "`::\?`",               // `::?`     users → `cms_users`
                 "`:::[a-zA-Z]\w*\b`",   // `:::name` users → `cms_users`
 
-                // Table prefix alone
+                // ::Values - with table prefix (quoted and escaped)
+                "::\?",                 // ::?       user% → 'cms_user%'
+                ":::[a-zA-Z]\w*\b",     // :::name   user% → 'cms_user%'
+
+                // Table prefix alone (must come after the ::placeholder patterns above)
                 "::",                   // e.g., SELECT * FROM ::users → SELECT * FROM cms_users
             ]) . '/';
 
@@ -558,7 +567,7 @@ trait ConnectionInternals
      * Handles these placeholder styles:
      *   - Positional:  ?                  → returns param value by position (:1, :2, ...)
      *   - Named:       :name              → returns param value for :name
-     *   - Prefixed:    `::?` or `:::name` → returns table prefix + value
+     *   - Prefixed:    ::?, :::name       → returns table prefix + value (backticked or not)
      *   - Bare prefix: ::                 → returns table prefix as RawSql
      *
      * @throws InvalidArgumentException If placeholder has no corresponding param
@@ -571,8 +580,9 @@ trait ConnectionInternals
         }
 
         // Parse placeholder: strip backticks and :: prefix
-        $addTablePrefix = str_starts_with($match, "`::");                           // e.g., `::?` or `:::name`
-        $placeholder    = preg_replace("/^::/", "", trim($match, '`'));             // e.g., `:::name` → :name, `::?` → ?
+        $unbackticked   = trim($match, '`');
+        $addTablePrefix = str_starts_with($unbackticked, '::');                     // e.g., `::?`, `:::name`, ::?, :::name
+        $placeholder    = $addTablePrefix ? substr($unbackticked, 2) : $unbackticked; // e.g., :::name → :name, ::? → ?
 
         // Look up value in param map
         $isPositional = ($placeholder === '?');
@@ -592,13 +602,40 @@ trait ConnectionInternals
             throw new InvalidArgumentException("Arrays not allowed with positional ? placeholders (ambiguous). Use named placeholder instead: ':paramName' => [...]");
         }
 
-        // Prefix backtick placeholders (`::?`, `:::name`) require a string; otherwise PHP silently coerces
-        // bool/null/array via string concat and the result sneaks past the \w- identifier check below
-        if ($addTablePrefix && !is_string($value)) {
-            throw new InvalidArgumentException("Backtick prefix placeholder $match requires a string value, got " . get_debug_type($value));
+        if (!$addTablePrefix) {
+            return $value;
         }
 
-        return $addTablePrefix ? $this->tablePrefix . $value : $value;
+        // Backtick prefix placeholders (`::?`, `:::name`) require a string; otherwise PHP silently coerces
+        // bool/null/array via string concat and the result sneaks past the \w- identifier check below
+        if ($match[0] === '`') {
+            if (!is_string($value)) {
+                throw new InvalidArgumentException("Backtick prefix placeholder $match requires a string value, got " . get_debug_type($value));
+            }
+            return $this->tablePrefix . $value;
+        }
+
+        // Bare prefix placeholders (::?, :::name) work like ? and :name with the prefix prepended first:
+        // the string gets quoted, arrays prefix each element then expand to CSV. String values only:
+        // the prefix is a table prefix, so anything else is a mistake worth surfacing
+        $allowedTypes = $isPositional ? "string" : "string or array";
+        return match (true) {
+            is_string($value)        => $this->tablePrefix . $value,
+            $value instanceof RawSql => throw new InvalidArgumentException("Prefix placeholder $match doesn't support RawSql; prepend the prefix yourself with DB::rawSql(DB::\$tablePrefix . ...)"),
+            is_array($value)         => array_map(
+                function ($v) use ($match) {
+                    if ($v instanceof SmartString) {
+                        $v = $v->value(); // unwrap before the type check; SmartString can wrap null/bool
+                    }
+                    if (!is_string($v)) {
+                        throw new InvalidArgumentException("Prefix placeholder $match array elements must be strings, got " . get_debug_type($v));
+                    }
+                    return $this->tablePrefix . $v;
+                },
+                $value,
+            ),
+            default                  => throw new InvalidArgumentException("Prefix placeholder $match requires a $allowedTypes value, got " . get_debug_type($value)),
+        };
     }
 
     //endregion
