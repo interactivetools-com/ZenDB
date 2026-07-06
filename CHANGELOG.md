@@ -1,5 +1,10 @@
 # ZenDB Changelog
 
+## [0.9.2] - 2026-07-05
+
+### Fixed
+- Template validation - Now also rejects hex (`0x1AF`), binary (`0b1010`), and scientific (`1e10`) numeric literals in query templates; use placeholders instead
+
 ## [0.9.1] - 2026-04-22
 
 ### Fixed

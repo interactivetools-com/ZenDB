@@ -142,6 +142,8 @@ trait ConnectionInternals
      *
      * Security checks:
      * - Standalone numbers: could be injection point if user input concatenated
+     * - Numeric literals (hex 0x, binary 0b, scientific 1e10): evade the standalone-number
+     *   check because their digits touch a letter, so they get a separate check
      * - Quotes: force placeholder usage to prevent SQL injection
      * - Backslash: escape character that could manipulate LIKE patterns or escape quotes
      * - NULL byte: can cause string truncation in some contexts
@@ -152,11 +154,13 @@ trait ConnectionInternals
     private function assertSafeTemplate(string $sql): void
     {
         /*
-         * Fast path: skip checks if template has no standalone numbers, quotes, backslashes,
-         * NULL bytes, or CTRL-Z. Word boundaries (\b) match standalone numbers like WHERE num = 5
-         * but not numbers embedded in identifiers like col2, user_id3, address1, etc.
+         * Fast path: skip checks if template has no digits, quotes, backslashes,
+         * NULL bytes, or CTRL-Z. \b\d covers every number-based check below (standalone
+         * numbers, hex, binary, scientific) because each starts with a digit at a word
+         * boundary - so new literal forms can't slip past this gate. Digits embedded in
+         * identifiers like col2, user_id3, address1 don't match (no boundary before them).
          */
-        if (!preg_match('/\b\d+\b|[\'\"\\\\\\x00\\x1a]/', $sql)) {
+        if (!preg_match('/\b\d|[\'\"\\\\\\x00\\x1a]/', $sql)) {
             return;
         }
 
@@ -210,7 +214,7 @@ trait ConnectionInternals
          *   "10; DROP TABLE users"           -> doesn't end in LIMIT #, no match
          *   "10 INTO OUTFILE '/tmp/hack.txt" -> doesn't end in LIMIT #, "10" + quotes caught
          *   "10 UNION ... LIMIT 5"           -> LIMIT 5 stripped, but "10" caught by number check
-         *   "1e1 UNION ... LIMIT 1"          -> LIMIT 1 stripped, but MySQL rejects LIMIT 1e1 (LIMIT only accepts integer constants)
+         *   "1e1 UNION ... LIMIT 1"          -> LIMIT 1 stripped, but "1e1" caught by the numeric-literal check
          */
         $sql = preg_replace('/\bLIMIT\s+\d+\s*$/i', '', $sql);
 
@@ -218,6 +222,14 @@ trait ConnectionInternals
         if (preg_match('/\b(\d+)\b/', $sql, $matches)) {
             $n = $matches[1];
             throw new InvalidArgumentException("Standalone number in template. Replace $n with :n$n and add: [ ':n$n' => $n ]");
+        }
+
+        // Numeric literals that slip past the \b\d+\b check because their digits touch a
+        // letter: hex (0x1AF), binary (0b1010), scientific (1e10). MySQL evaluates each to
+        // a value, so they belong in placeholders like any other literal. Requiring at
+        // least one digit after 0x/0b keeps identifiers like `0boxes` from matching.
+        if (preg_match('/\b0[xb][0-9a-f]+|\b\d+e[+-]?\d+/i', $sql, $matches)) {
+            throw new InvalidArgumentException("Numeric literal '$matches[0]' in template. Replace it with a :paramName placeholder.");
         }
 
         // Potentially dangerous characters - backslashes, NULL bytes, CTRL-Z

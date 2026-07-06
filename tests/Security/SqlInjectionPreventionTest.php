@@ -176,6 +176,14 @@ class SqlInjectionPreventionTest extends BaseTestCase
         $this->assertSame(20, (int) $result->first()->get('cnt')->value());
     }
 
+    public function testIdentifiersStartingWith0xOr0bAllowed(): void
+    {
+        // Identifiers like `0boxes` or `0x_rate` start with 0x/0b but are not numeric literals
+        $result = DB::query("SELECT num AS `0boxes`, num AS `0x_rate` FROM ::users ORDER BY num LIMIT 1");
+        $this->assertSame(1, (int) $result->first()->get('0boxes')->value());
+        $this->assertSame(1, (int) $result->first()->get('0x_rate')->value());
+    }
+
     //endregion
     //region Identifier Injection Prevention
 
@@ -256,6 +264,9 @@ class SqlInjectionPreventionTest extends BaseTestCase
             'hardcoded string'         => ['Hardcoded value', "SELECT * FROM ::users WHERE name = 'admin'"],
             'hardcoded number'         => ['Hardcoded number', "SELECT * FROM ::users WHERE num = 1"],
             'concatenated'             => ['Concatenated value', 'SELECT * FROM ::users WHERE num = ' . '5'],
+            'hex literal'              => ['Hex literal', 'SELECT * FROM ::users WHERE num = 0xDEAD'],
+            'binary literal'           => ['Binary literal', 'SELECT * FROM ::users WHERE num = 0b1010'],
+            'scientific literal'       => ['Scientific literal', 'SELECT * FROM ::users WHERE num = 1e10'],
         ];
     }
 
