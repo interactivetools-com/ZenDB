@@ -79,6 +79,29 @@ class SmartTypeValuesTest extends BaseTestCase
         $this->assertSame('Vancouver', $result->first()->get('city')->value());
     }
 
+    public function testSmartStringNullInSetClause(): void
+    {
+        // SmartString unwraps to its original type, so a wrapped null writes SQL NULL
+        $insertId = DB::insert('users', [
+            'name' => 'SmartString Null Test',
+            'status' => 'Active',
+            'city' => new SmartString(null)
+        ]);
+
+        $row = DB::selectOne('users', ['num' => $insertId]);
+        $this->assertNull($row->get('city')->value());
+
+        // Clean up
+        DB::delete('users', ['num' => $insertId]);
+    }
+
+    public function testSmartStringNullInWhereArray(): void
+    {
+        // A wrapped null matches like a raw null: `column` IS NULL
+        $result = DB::select('users', ['isAdmin' => new SmartString(null)]);
+        $this->assertCount(4, $result);
+    }
+
     public function testSmartStringEscapesSpecialChars(): void
     {
         $smart = new SmartString("O'Brien");

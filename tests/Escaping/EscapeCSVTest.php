@@ -9,7 +9,6 @@ use Itools\SmartString\SmartString;
 use Itools\ZenDB\DB;
 use Itools\ZenDB\RawSql;
 use Itools\ZenDB\Tests\BaseTestCase;
-use RuntimeException;
 
 /**
  * Tests for DB::escapeCSV() method
@@ -72,13 +71,28 @@ class EscapeCSVTest extends BaseTestCase
         $this->assertSame('1,2,3', (string) $result);
     }
 
+    public function testEscapeCSVKeepsTypeDistinctValues(): void
+    {
+        // Dedupe compares the escaped literals; comparing raw values would collapse '' and false (both stringify to '')
+        $result = DB::escapeCSV([false, '', 'x']);
+        $this->assertSame("FALSE,'','x'", (string) $result);
+    }
+
     //endregion
     //region Null and Boolean
 
-    public function testEscapeCSVWithNulls(): void
+    public function testEscapeCSVSkipsNulls(): void
     {
+        // NULL never matches in an IN list and makes NOT IN return zero rows, so nulls are skipped
         $result = DB::escapeCSV([1, null, 3]);
-        $this->assertSame('1,NULL,3', (string) $result);
+        $this->assertSame('1,3', (string) $result);
+    }
+
+    public function testEscapeCSVAllNullsReturnsNull(): void
+    {
+        // Same fallback as an empty array: IN (NULL) matches nothing
+        $result = DB::escapeCSV([null, null]);
+        $this->assertSame('NULL', (string) $result);
     }
 
     public function testEscapeCSVWithBooleans(): void
@@ -87,11 +101,10 @@ class EscapeCSVTest extends BaseTestCase
         $this->assertSame('TRUE,FALSE', (string) $result);
     }
 
-    public function testEscapeCSVWithMixedNullsAndBooleans(): void
+    public function testEscapeCSVSkipsNullMixedWithBooleans(): void
     {
-        // Note: array_unique with booleans/nulls may behave unexpectedly
         $result = DB::escapeCSV([true, null, false, 2]);
-        $this->assertSame('TRUE,NULL,2', (string) $result);
+        $this->assertSame('TRUE,FALSE,2', (string) $result);
     }
 
     //endregion
@@ -124,6 +137,19 @@ class EscapeCSVTest extends BaseTestCase
         $this->assertSame("1,'two',3", (string) $result);
     }
 
+    public function testEscapeCSVWithTypedSmartStrings(): void
+    {
+        // SmartString unwraps to its original type: ints stay unquoted, bools become TRUE/FALSE
+        $result = DB::escapeCSV([new SmartString(5), new SmartString(false)]);
+        $this->assertSame('5,FALSE', (string) $result);
+    }
+
+    public function testEscapeCSVSkipsSmartStringNull(): void
+    {
+        $result = DB::escapeCSV([1, new SmartString(null), 3]);
+        $this->assertSame('1,3', (string) $result);
+    }
+
     //endregion
     //region Return Type
 
@@ -141,26 +167,30 @@ class EscapeCSVTest extends BaseTestCase
         $this->assertCount(3, $result);
     }
 
+    public function testEscapeCSVSkipsNullInQueryParams(): void
+    {
+        // Array params expand through escapeCSV, so a null element is skipped, not emitted as NULL
+        $result = DB::query("SELECT * FROM ::users WHERE num IN (:vals)", [':vals' => [1, null, 3]]);
+        $this->assertCount(2, $result);
+    }
+
     //endregion
     //region Error Conditions
 
     public function testEscapeCSVWithUnsupportedTypeThrows(): void
     {
-        $this->expectException(\Error::class);
-        $this->expectExceptionMessage("could not be converted to string");
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage("Unsupported value type: stdClass");
 
         DB::escapeCSV([1, new \stdClass(), 3]);
     }
 
     public function testEscapeCSVWithNestedArrayFails(): void
     {
-        // array_unique with nested arrays triggers "Array to string conversion" warning
-        // Then later throws InvalidArgumentException for unsupported type 'array'
-        // We need to suppress the warning to see the actual exception
         $this->expectException(InvalidArgumentException::class);
         $this->expectExceptionMessage("Unsupported value type: array");
 
-        @DB::escapeCSV([[1, 2], [3, 4]]);
+        DB::escapeCSV([[1, 2], [3, 4]]);
     }
 
     //endregion
@@ -184,7 +214,8 @@ class EscapeCSVTest extends BaseTestCase
             'empty'          => [[], 'NULL'],
             'single int'     => [[42], '42'],
             'single string'  => [['test'], "'test'"],
-            'with null'      => [[1, null, 2], '1,NULL,2'],
+            'with null'      => [[1, null, 2], '1,2'],
+            'all nulls'      => [[null], 'NULL'],
             'with bool'      => [[true, false], 'TRUE,FALSE'],
             'duplicates'     => [[1, 1, 2], '1,2'],
             'floats'         => [[1.1, 2.2], '1.1,2.2'],

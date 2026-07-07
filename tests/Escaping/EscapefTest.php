@@ -9,7 +9,6 @@ use Itools\SmartArray\SmartArray;
 use Itools\SmartString\SmartString;
 use Itools\ZenDB\DB;
 use Itools\ZenDB\Tests\BaseTestCase;
-use RuntimeException;
 
 /**
  * Tests for DB::escapef() method
@@ -110,6 +109,13 @@ class EscapefTest extends BaseTestCase
         $smart = new SmartString("O'Brien");
         $result = DB::escapef("name = ?", $smart);
         $this->assertSame("name = 'O\\'Brien'", $result);
+    }
+
+    public function testEscapefSmartStringNull(): void
+    {
+        // SmartString unwraps to its original type, so a wrapped null means SQL NULL
+        $result = DB::escapef("dob = ?", new SmartString(null));
+        $this->assertSame("dob = NULL", $result);
     }
 
     //endregion

@@ -377,12 +377,14 @@ trait ConnectionInternals
 
             $this->assertValidColumn($column);
 
+            if ($value instanceof SmartString) {
+                $value = $value->value(); // unwrap before the type check; SmartString can wrap null/bool
+            }
             $escaped       = match (true) {
                 is_null($value)                  => "NULL",
                 is_int($value), is_float($value) => $value,
                 is_bool($value)                  => $value ? 'TRUE' : 'FALSE',
                 $value instanceof RawSql         => (string)$value,
-                $value instanceof SmartString    => "'" . $this->mysqli->real_escape_string((string)$value->value()) . "'",
                 is_string($value)                => "'" . $this->mysqli->real_escape_string($value) . "'",
                 default                          => throw new InvalidArgumentException("Unsupported value type for column '$column': " . get_debug_type($value)),
             };
@@ -466,12 +468,14 @@ trait ConnectionInternals
 
             $this->assertValidColumn($column);
 
+            if ($value instanceof SmartString) {
+                $value = $value->value(); // unwrap before the type check; SmartString can wrap null/bool
+            }
             $conditions[] = match (true) {
                 is_null($value)                  => "`$column` IS NULL",
                 is_int($value), is_float($value) => "`$column` = $value",
                 is_bool($value)                  => "`$column` = " . ($value ? 'TRUE' : 'FALSE'),
                 $value instanceof RawSql         => "`$column` = " . $value,
-                $value instanceof SmartString    => "`$column` = '" . $this->mysqli->real_escape_string((string)$value->value()) . "'",
                 $value instanceof SmartArrayBase => "`$column` IN (" . $this->escapeCSV($value->toArray()) . ")",
                 is_array($value)                 => "`$column` IN (" . $this->escapeCSV($value) . ")",
                 is_string($value)                => "`$column` = '" . $this->mysqli->real_escape_string($value) . "'",
@@ -686,6 +690,9 @@ trait ConnectionInternals
 
         return preg_replace_callback('/\?/', function () use (&$values) {
             $value = array_shift($values);
+            if ($value instanceof SmartString) {
+                $value = $value->value(); // unwrap before the type check; SmartString can wrap null/bool
+            }
 
             return match (true) {
                 is_string($value)                => "'" . $this->mysqli->real_escape_string($value) . "'",
@@ -693,7 +700,6 @@ trait ConnectionInternals
                 is_null($value)                  => 'NULL',
                 is_array($value)                 => (string)$this->escapeCSV($value),
                 $value instanceof SmartArrayBase => (string)$this->escapeCSV($value->toArray()),
-                $value instanceof SmartString    => "'" . $this->mysqli->real_escape_string((string)$value->value()) . "'",
                 is_bool($value)                  => $value ? 'TRUE' : 'FALSE',
                 default                          => throw new InvalidArgumentException("Unsupported type: " . get_debug_type($value)),
             };
@@ -702,6 +708,11 @@ trait ConnectionInternals
 
     /**
      * Converts array values to a safe CSV string for use in MySQL IN clauses.
+     *
+     * NULL values are skipped: NULL never matches inside IN (...), and one NULL in a
+     * NOT IN (...) list makes the whole clause return zero rows. Use IS NULL to match
+     * NULL rows. Duplicates are removed. An empty list (or one that was all NULLs)
+     * returns the SQL literal NULL, so IN (NULL) matches nothing.
      *
      * Tip: You probably don't need this! Named placeholders handle arrays
      * automatically, which is simpler and keeps your values parameterized:
@@ -715,25 +726,32 @@ trait ConnectionInternals
      *     ]);
      *
      * @param array $values Array of values to convert
-     * @return RawSql SQL-safe comma-separated list
-     * @throws InvalidArgumentException
+     * @return RawSql SQL-safe comma-separated list, deduplicated, NULLs skipped
+     * @throws InvalidArgumentException on unsupported value types
      */
     public function escapeCSV(array $values): RawSql
     {
         $this->mysqli || throw new RuntimeException(__METHOD__ . "() called before DB connection established");
 
         $safeValues = [];
-        foreach (array_unique($values) as $value) {
-            $value        = $value instanceof SmartString ? (string)$value->value() : $value;
+        foreach ($values as $value) {
+            if ($value instanceof SmartString) {
+                $value = $value->value(); // unwrap before the type check; SmartString can wrap null/bool
+            }
+            if ($value === null) {
+                continue; // NULL never matches in IN and makes NOT IN return zero rows; use IS NULL to match NULLs
+            }
             $safeValues[] = match (true) {
                 is_int($value) || is_float($value) => $value,
-                is_null($value)                    => 'NULL',
                 is_bool($value)                    => $value ? 'TRUE' : 'FALSE',
                 is_string($value)                  => "'" . $this->mysqli->real_escape_string($value) . "'",
                 default                            => throw new InvalidArgumentException("Unsupported value type: " . get_debug_type($value)),
             };
         }
 
+        // Dedupe the finished SQL literals, not the raw values: array_unique on raw input
+        // uses SORT_STRING, which would collapse type-distinct values like '' and false.
+        $safeValues = array_unique($safeValues);
         return new RawSql($safeValues ? implode(',', $safeValues) : 'NULL');
     }
 
