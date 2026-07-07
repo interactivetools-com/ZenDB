@@ -90,6 +90,40 @@ echo "### Server identity and defaults\n\n";
 echo mdTable($identityProbes);
 
 //
+// TLS / SSL - what each server reports about encryption. Two separate questions:
+// "can this server do TLS?" (@@have_ssl, @@tls_version) and "is THIS connection
+// encrypted?" (session Ssl_cipher/Ssl_version, empty when plaintext - CI connects
+// without TLS, so real servers with TLS in use will show values here).
+// Each variable probed separately: they come and go by version (MySQL 8.4 removed
+// have_ssl/have_openssl; require_secure_transport arrived in 5.7.8/MariaDB 10.5).
+//
+$sslProbes  = [];
+$sslQueries = [
+    '@@have_ssl'                 => "SELECT @@have_ssl",                  // YES = TLS available, DISABLED = built without/off
+    '@@have_openssl'             => "SELECT @@have_openssl",              // alias of have_ssl
+    '@@tls_version'              => "SELECT @@tls_version",               // TLS protocol versions the server accepts
+    '@@require_secure_transport' => "SELECT @@require_secure_transport",  // 1 = server rejects unencrypted connections
+];
+foreach ($sslQueries as $name => $query) {
+    try {
+        $sslProbes[$name] = (string)$mysqli->query($query)->fetch_row()[0];
+    } catch (mysqli_sql_exception $e) {
+        $sslProbes[$name] = 'error: ' . $e->getMessage();
+    }
+}
+try {
+    foreach ($mysqli->query("SHOW SESSION STATUS WHERE Variable_name IN ('Ssl_version', 'Ssl_cipher')")->fetch_all() as [$name, $value]) {
+        $sslProbes["session status $name"] = $value === '' ? '(empty = this connection is not encrypted)' : $value;
+    }
+} catch (mysqli_sql_exception $e) {
+    $sslProbes['session status Ssl_*'] = 'error: ' . $e->getMessage();
+}
+$probes += $sslProbes;
+
+echo "### TLS / SSL\n\n";
+echo mdTable($sslProbes);
+
+//
 // SHOW CREATE TABLE - raw output for a fixture that hits every getColumnDefinitions()
 // normalization: display widths, tinyint(1) variants, year, column-level charset,
 // timestamp default spelling, and a column comment

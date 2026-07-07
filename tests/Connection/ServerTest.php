@@ -3,9 +3,12 @@ declare(strict_types=1);
 
 namespace Itools\ZenDB\Tests\Connection;
 
+use Itools\ZenDB\DB;
 use Itools\ZenDB\Server;
 use Itools\ZenDB\Tests\BaseTestCase;
 use PHPUnit\Framework\Attributes\DataProvider;
+use RuntimeException;
+use stdClass;
 
 class ServerTest extends BaseTestCase
 {
@@ -44,5 +47,120 @@ class ServerTest extends BaseTestCase
         $server = new Server((object)['server_info' => $serverInfo]);
 
         $this->assertSame($expected, $server->version());
+    }
+
+    public static function vendorProvider(): array
+    {
+        return [
+            // server_info, @@version_comment (null = must answer from the handshake alone), expected vendor
+            ['10.6.27-MariaDB-ubu2204',                    null,                                                  'mariadb'],
+            ['5.5.5-10.6.5-MariaDB-1:10.6.5+maria~focal',  null,                                                  'mariadb'],
+            ['5.7.44',                                     'MySQL Community Server (GPL)',                        'mysql'],
+            ['8.0.46',                                     'MySQL Community Server - GPL',                        'mysql'],
+            ['5.7.44-48',                                  'Percona Server (GPL), Release 48, Revision 497f936a373', 'percona'],
+            ['8.0.46-37',                                  'Percona Server (GPL), Release 37, Revision 39e2b60e', 'percona'],
+            ['8.4.10-10',                                  'Percona Server (GPL), Release 10, Revision d76e81f4', 'percona'],
+            ['8.0.mysql_aurora.3.05.2',                    null,                                                  'aurora'],
+            ['9.9.9-SomeFutureFork',                       'SomeFutureFork Server (GPL)',                         'mysql'],   // unrecognized servers fall back to mysql
+        ];
+    }
+
+    #[DataProvider('vendorProvider')]
+    public function testVendorParsing(string $serverInfo, ?string $versionComment, string $expected): void
+    {
+        $server = new Server(new FakeMysqli($serverInfo, $versionComment));
+
+        $this->assertSame($expected, $server->vendor());
+    }
+
+    public static function vendorNameProvider(): array
+    {
+        return [
+            // server_info, @@version_comment, @@basedir, @@datadir, expected name
+            // Docker values from docs/db-behavior-report.md; hosted values are representative, not CI-probed
+            ['8.0.46',                  'MySQL Community Server - GPL',                        '/usr/',                                             '/var/lib/mysql/', 'MySQL'],
+            ['10.6.27-MariaDB-ubu2204', 'mariadb.org binary distribution',                     '/usr',                                              '/var/lib/mysql/', 'MariaDB'],
+            ['8.0.46-37',               'Percona Server (GPL), Release 37, Revision 39e2b60e', '/usr/',                                             '/var/lib/mysql/', 'Percona'],
+            ['8.0.28',                  'Source distribution',                                 '/rdsdbbin/oscar-8.0.mysql_aurora.3.04.0.0.32961.0/', '/rdsdbdata/db/', 'Amazon RDS (Aurora)'],
+            ['8.0.42',                  'Source distribution',                                 '/rdsdbbin/mysql-8.0.42.R1/',                        '/rdsdbdata/db/',  'Amazon RDS (MySQL)'],
+            ['10.11.9-MariaDB-log',     'managed by https://aws.amazon.com/rds/',              '/rdsdbbin/mariadb-10.11.9.R1/',                     '/rdsdbdata/db/',  'Amazon RDS (MariaDB)'],
+            ['8.0.30-txsql',            'TencentDB for MySQL(TXSQL)',                          '/usr/local/mysql/',                                 '/data/mysql/',    'Tencent'],
+        ];
+    }
+
+    #[DataProvider('vendorNameProvider')]
+    public function testVendorNameParsing(string $serverInfo, string $versionComment, string $basedir, string $datadir, string $expected): void
+    {
+        $server = new Server(new FakeMysqli($serverInfo, $versionComment, $basedir, $datadir));
+
+        $this->assertSame($expected, $server->vendorName());
+    }
+
+    public function testVendorDetectsAuroraFromBasedir(): void
+    {
+        // Some Aurora versions send a plain MySQL handshake; the install path is what names them
+        $fakeMysqli = new FakeMysqli('8.0.28', 'Source distribution', '/rdsdbbin/oscar-8.0.mysql_aurora.3.04.0.0.32961.0/');
+        $server     = new Server($fakeMysqli);
+
+        $this->assertSame('aurora', $server->vendor());
+    }
+
+    public function testVendorIsCachedAfterFirstQuery(): void
+    {
+        $fakeMysqli = new FakeMysqli('8.0.46-37', 'Percona Server (GPL), Release 37, Revision 39e2b60e');
+        $server     = new Server($fakeMysqli);
+
+        $server->vendor();
+        $server->vendor();
+        $this->assertSame(1, $fakeMysqli->queries);
+    }
+
+    public function testServerIsWiredToConnectionLifecycle(): void
+    {
+        $db = self::createDefaultConnection();
+
+        $this->assertInstanceOf(Server::class, DB::$server);
+        $this->assertSame(DB::$server, $db->server, 'clones share the connection Server instance');
+        $this->assertMatchesRegularExpression('/^\d+\.\d+/', DB::$server->version());
+        $this->assertContains(DB::$server->vendor(), ['mysql', 'mariadb', 'percona', 'aurora']);
+
+        DB::disconnect();
+        $this->assertNull(DB::$server);
+    }
+}
+
+/**
+ * Fakes the two mysqli members Server reads: the server_info property and the
+ * fingerprint query. Extends stdClass to satisfy Server's mysqli|stdClass type.
+ */
+class FakeMysqli extends stdClass
+{
+    public int $queries = 0;
+
+    public function __construct(
+        public string $server_info,
+        private ?string $versionComment = null,
+        private string $basedir = '/usr/',
+        private string $datadir = '/var/lib/mysql/',
+    ) {
+    }
+
+    public function query(string $sql): object
+    {
+        if ($this->versionComment === null) {
+            throw new RuntimeException("Unexpected query \"$sql\" for '$this->server_info': vendor() should answer from the handshake alone");
+        }
+        $this->queries++;
+        $row = [$this->versionComment, $this->basedir, $this->datadir];
+        return new class ($row) {
+            public function __construct(private readonly array $row)
+            {
+            }
+
+            public function fetch_row(): array
+            {
+                return $this->row;
+            }
+        };
     }
 }
