@@ -7,7 +7,9 @@ namespace Itools\ZenDB\Tests\DB;
 
 use Itools\ZenDB\DB;
 use Itools\ZenDB\Tests\BaseTestCase;
+use mysqli;
 use RuntimeException;
+use Throwable;
 
 /**
  * Tests for DB::transaction()
@@ -108,6 +110,35 @@ class TransactionTest extends BaseTestCase
         // Should not throw - flag was reset after rollback
         $result = DB::transaction(fn() => 99);
         $this->assertSame(99, $result);
+    }
+
+    public function testRollbackFailureDoesNotMaskClosureException(): void
+    {
+        try {
+            DB::transaction(function () {
+                // Kill our own connection from a second connection so the ROLLBACK
+                // in transaction() throws "server has gone away"
+                $threadId = DB::$mysqli->thread_id;
+                $config   = self::$configDefaults;
+                $killer   = new mysqli($config['hostname'], $config['username'], $config['password'], $config['database']);
+                $killer->query("KILL $threadId");
+                $killer->close();
+
+                throw new RuntimeException("original failure");
+            });
+            $this->fail("transaction() should have thrown");
+        } catch (Throwable $e) {
+            $this->assertSame(
+                [RuntimeException::class, "original failure"],
+                [get_class($e), $e->getMessage()],
+                "The closure's exception should survive a failing ROLLBACK",
+            );
+        } finally {
+            // The killed connection is unusable; reconnect for the remaining tests
+            DB::disconnect();
+            DB::connect(self::$configDefaults);
+            self::resetTempTestTables();
+        }
     }
 
     public function testFlagResetsAfterNestedAttempt(): void

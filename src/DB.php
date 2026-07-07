@@ -276,8 +276,8 @@ class DB
     /**
      * Generates a LIMIT/OFFSET SQL clause for pagination.
      *
-     * @param mixed $pageNum The current page number
-     * @param mixed $perPage The number of records per page
+     * @param mixed $pageNum The current page number; zero, empty, or invalid input becomes 1
+     * @param mixed $perPage Records per page; zero, empty, or invalid input becomes 10
      * @return RawSql LIMIT/OFFSET clause
      */
     public static function pagingSql(mixed $pageNum, mixed $perPage = 10): RawSql

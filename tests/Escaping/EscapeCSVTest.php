@@ -167,6 +167,12 @@ class EscapeCSVTest extends BaseTestCase
         $this->assertCount(3, $result);
     }
 
+    public function testEscapeCSVPassesRawSqlThrough(): void
+    {
+        $result = DB::escapeCSV([1, DB::rawSql('NOW()'), 'two']);
+        $this->assertSame("1,NOW(),'two'", (string)$result);
+    }
+
     public function testEscapeCSVSkipsNullInQueryParams(): void
     {
         // Array params expand through escapeCSV, so a null element is skipped, not emitted as NULL
@@ -180,7 +186,7 @@ class EscapeCSVTest extends BaseTestCase
     public function testEscapeCSVWithUnsupportedTypeThrows(): void
     {
         $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage("Unsupported value type: stdClass");
+        $this->expectExceptionMessage("Unsupported type for IN-list value: stdClass");
 
         DB::escapeCSV([1, new \stdClass(), 3]);
     }
@@ -188,7 +194,7 @@ class EscapeCSVTest extends BaseTestCase
     public function testEscapeCSVWithNestedArrayFails(): void
     {
         $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage("Unsupported value type: array");
+        $this->expectExceptionMessage("Unsupported type for IN-list value: array");
 
         DB::escapeCSV([[1, 2], [3, 4]]);
     }

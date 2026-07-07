@@ -78,7 +78,7 @@ class UpdateTest extends BaseTestCase
     public function testUpdateRejectsArrayValue(): void
     {
         $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage("Unsupported value type for column 'city'");
+        $this->expectExceptionMessage("Unsupported type for column 'city'");
         DB::update('users', ['city' => ['NYC', 'LA']], ['num' => 1]);
     }
 }

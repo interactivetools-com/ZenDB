@@ -124,6 +124,24 @@ class EncryptValueTest extends BaseTestCase
         $this->assertNotEmpty($row['token']);
     }
 
+    public function testAutoEncryptMatchesEncryptValue(): void
+    {
+        // Exact-match lookups like ['token' => DB::encryptValue($token)] only work because
+        // insert() stores byte-identical ciphertext to what encryptValue() returns
+        self::$conn->insert('enc_users', [
+            'num'   => 990,
+            'name'  => 'Equality User',
+            'token' => 'equality-check-token',
+        ]);
+
+        // Read raw stored bytes (bypass auto-decrypt)
+        $result = self::$conn->mysqli->query("SELECT token FROM test_enc_users WHERE num = 990");
+        $row    = $result->fetch_assoc();
+        $result->free();
+
+        $this->assertSame(self::$conn->encryptValue('equality-check-token'), $row['token']);
+    }
+
     public function testAutoEncryptOnUpdate(): void
     {
         self::$conn->update('enc_users', ['token' => 'updated-token'], ['num' => 1]);

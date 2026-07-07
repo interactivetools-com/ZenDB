@@ -614,7 +614,12 @@ class Connection
             $this->mysqli->query("COMMIT");
             return $result;
         } catch (Throwable $e) {
-            $this->mysqli->query("ROLLBACK");
+            try {
+                $this->mysqli->query("ROLLBACK");
+            } catch (Throwable) {
+                // ROLLBACK only fails when the connection is gone, and MySQL rolls back
+                // an open transaction on disconnect; the closure's exception is the real cause
+            }
             throw $e;
         } finally {
             $this->mysqli->inTransaction = false;
@@ -953,7 +958,8 @@ class Connection
      *
      * Which mode applies is decided by `encryptionKey`. With it set, every MEDIUMBLOB is
      * decrypted on read. Without it, this is a no-op and MEDIUMBLOB rows pass through as
-     * raw bytes.
+     * raw bytes. A value that fails to decrypt (wrong key, or unencrypted data) also passes
+     * through as raw bytes; the first failure triggers one E_USER_WARNING per connection.
      *
      * You rarely need to call this directly. Reach for it when you've bypassed the query
      * methods and want PHP-side decryption on raw mysqli rows:
@@ -997,11 +1003,17 @@ class Connection
                 $decrypted = openssl_decrypt($row[$key], 'aes-128-ecb', $aesKey, OPENSSL_RAW_DATA);
                 if ($decrypted !== false) {
                     $row[$key] = $decrypted;
+                } elseif (!$this->decryptWarned) {
+                    $this->decryptWarned = true;
+                    trigger_error("ZenDB: can't decrypt MEDIUMBLOB column '$key', returning raw bytes. Wrong encryptionKey, or the column holds unencrypted data.", E_USER_WARNING);
                 }
             }
         }
         unset($row);
     }
+
+    /** @var bool One "can't decrypt" warning per connection, not one per row */
+    private bool $decryptWarned = false;
 
     /**
      * Encrypt MEDIUMBLOB-column values in an insert/update values array, in place. Called
@@ -1044,18 +1056,14 @@ class Connection
 
         // Encrypt each targeted value (intersect $values with encrypted columns, skip null / non-scalar)
         $toEncrypt = array_intersect_key($values, array_flip($encryptedCols));
-        $aesKey    = $this->aesKey();
         foreach ($toEncrypt as $col => $value) {
-            if ($value === null) {
-                continue;
-            }
             if ($value instanceof SmartString) {
-                $value = $value->value();
+                $value = $value->value(); // unwrap before the type check; SmartString can wrap null/bool
             }
             if (!is_string($value) && !is_int($value) && !is_float($value)) {
-                continue; // skip RawSql, arrays, and other non-scalar types
+                continue; // skip null (nothing to encrypt), RawSql, arrays, and other non-scalar types
             }
-            $values[$col] = openssl_encrypt((string)$value, 'aes-128-ecb', $aesKey, OPENSSL_RAW_DATA);
+            $values[$col] = $this->encryptValue($value);
         }
     }
 

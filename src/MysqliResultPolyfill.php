@@ -173,5 +173,6 @@ class MysqliResultPolyfill extends mysqli_result
         if ($this->meta) {
             $this->meta->free();
         }
+        $this->stmt->free_result(); // release the rows buffered by store_result() in the constructor
     }
 }

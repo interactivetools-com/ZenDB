@@ -6,6 +6,7 @@ declare(strict_types=1);
 
 namespace Itools\ZenDB\Tests\ValueTypes;
 
+use InvalidArgumentException;
 use Itools\ZenDB\DB;
 use Itools\ZenDB\Tests\BaseTestCase;
 
@@ -92,7 +93,7 @@ class NumericValuesTest extends BaseTestCase
     public function testZeroFloat(): void
     {
         $sql = DB::escapef("value = ?", 0.0);
-        $this->assertSame("value = 0", $sql);
+        $this->assertSame("value = 0.0", $sql);
     }
 
     public function testSmallFloat(): void
@@ -100,6 +101,36 @@ class NumericValuesTest extends BaseTestCase
         $small = 0.00001;
         $sql = DB::escapef("value = ?", $small);
         $this->assertSame("value = 1.0E-5", $sql);
+    }
+
+    public function testLargeFloatKeepsExactValue(): void
+    {
+        // A plain string cast rounds to 14 significant digits ("1.2345678901235E+16"),
+        // a different number that would match the wrong rows
+        $sql = DB::escapef("value = ?", 12345678901234568.0);
+        $this->assertSame("value = 12345678901234568.0", $sql);
+    }
+
+    public function testFloatSqlRoundTripsExactly(): void
+    {
+        foreach ([0.1, 1 / 3, PHP_FLOAT_EPSILON, 1.0e20, -4.9e-324] as $float) {
+            $sql = DB::escapef("?", $float);
+            $this->assertSame($float, (float)$sql, "SQL literal '$sql' should parse back to the exact same float");
+        }
+    }
+
+    public function testNanThrows(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage("no SQL literal");
+        DB::escapef("value = ?", NAN);
+    }
+
+    public function testInfinityThrows(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage("no SQL literal");
+        DB::escapef("value = ?", INF);
     }
 
     //endregion
@@ -207,7 +238,7 @@ class NumericValuesTest extends BaseTestCase
             'zero int'       => [0, "value = 0"],
             'positive float' => [3.14, "value = 3.14"],
             'negative float' => [-3.14, "value = -3.14"],
-            'zero float'     => [0.0, "value = 0"],
+            'zero float'     => [0.0, "value = 0.0"],
             'one'            => [1, "value = 1"],
         ];
     }

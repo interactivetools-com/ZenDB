@@ -193,7 +193,7 @@ class EscapefTest extends BaseTestCase
     public function testEscapefZeroFloat(): void
     {
         $result = DB::escapef("amount = ?", 0.0);
-        $this->assertSame("amount = 0", $result);
+        $this->assertSame("amount = 0.0", $result);
     }
 
     //endregion

@@ -139,7 +139,15 @@ trait ConnectionInternals
      * Assert SQL template is safe - rejects quotes, standalone numbers, and dangerous characters.
      *
      * Forces developers to use placeholders instead of embedding values directly.
-     * This catches accidental inclusion of user input in templates.
+     * This catches accidental inclusion of user-supplied values: a real value
+     * carries digits or quotes, so interpolating one throws the first time the
+     * code runs with real data.
+     *
+     * It can't catch user-supplied identifiers: a column name has no digits and
+     * no quotes, so "ORDER BY $sort" passes this check and is SQL injection when
+     * $sort comes from user input. For dynamic column names use a backtick
+     * placeholder - ORDER BY `:sortCol` throws unless the value is a plain
+     * identifier (a-z, A-Z, 0-9, _, -).
      *
      * Security checks:
      * - Standalone numbers: could be injection point if user input concatenated
@@ -381,15 +389,7 @@ trait ConnectionInternals
             if ($value instanceof SmartString) {
                 $value = $value->value(); // unwrap before the type check; SmartString can wrap null/bool
             }
-            $escaped       = match (true) {
-                is_null($value)                  => "NULL",
-                is_int($value), is_float($value) => $value,
-                is_bool($value)                  => $value ? 'TRUE' : 'FALSE',
-                $value instanceof RawSql         => (string)$value,
-                is_string($value)                => "'" . $this->mysqli->real_escape_string($value) . "'",
-                default                          => throw new InvalidArgumentException("Unsupported value type for column '$column': " . get_debug_type($value)),
-            };
-            $setElements[] = "`$column` = $escaped";
+            $setElements[] = "`$column` = " . $this->escapeValue($value, "column '$column'");
         }
 
         return "SET " . implode(", ", $setElements);
@@ -474,13 +474,9 @@ trait ConnectionInternals
             }
             $conditions[] = match (true) {
                 is_null($value)                  => "`$column` IS NULL",
-                is_int($value), is_float($value) => "`$column` = $value",
-                is_bool($value)                  => "`$column` = " . ($value ? 'TRUE' : 'FALSE'),
-                $value instanceof RawSql         => "`$column` = " . $value,
                 $value instanceof SmartArrayBase => "`$column` IN (" . $this->escapeCSV($value->toArray()) . ")",
                 is_array($value)                 => "`$column` IN (" . $this->escapeCSV($value) . ")",
-                is_string($value)                => "`$column` = '" . $this->mysqli->real_escape_string($value) . "'",
-                default                          => throw new InvalidArgumentException("Unsupported value type for column '$column': " . get_debug_type($value)),
+                default                          => "`$column` = " . $this->escapeValue($value, "column '$column'"),
             };
         }
 
@@ -552,15 +548,9 @@ trait ConnectionInternals
                 }
 
                 // Regular placeholders: escape and quote values based on type
-                return match (true) {
-                    is_null($value)                  => 'NULL',
-                    is_int($value), is_float($value) => $value,
-                    is_bool($value)                  => $value ? 'TRUE' : 'FALSE',
-                    $value instanceof RawSql         => (string)$value,
-                    is_array($value)                 => (string)$this->escapeCSV($value),
-                    is_string($value)                => "'" . $this->mysqli->real_escape_string($value) . "'",
-                    default                          => throw new InvalidArgumentException("Unsupported type for placeholder $match: " . get_debug_type($value)),
-                };
+                return is_array($value)
+                    ? (string)$this->escapeCSV($value)
+                    : $this->escapeValue($value, "placeholder $match");
             },
             subject : $template,
         );
@@ -696,13 +686,9 @@ trait ConnectionInternals
             }
 
             return match (true) {
-                is_string($value)                => "'" . $this->mysqli->real_escape_string($value) . "'",
-                is_int($value), is_float($value) => $value,
-                is_null($value)                  => 'NULL',
                 is_array($value)                 => (string)$this->escapeCSV($value),
                 $value instanceof SmartArrayBase => (string)$this->escapeCSV($value->toArray()),
-                is_bool($value)                  => $value ? 'TRUE' : 'FALSE',
-                default                          => throw new InvalidArgumentException("Unsupported type: " . get_debug_type($value)),
+                default                          => $this->escapeValue($value, 'escapef() value'),
             };
         }, $format);
     }
@@ -742,18 +728,51 @@ trait ConnectionInternals
             if ($value === null) {
                 continue; // NULL never matches in IN and makes NOT IN return zero rows; use IS NULL to match NULLs
             }
-            $safeValues[] = match (true) {
-                is_int($value) || is_float($value) => $value,
-                is_bool($value)                    => $value ? 'TRUE' : 'FALSE',
-                is_string($value)                  => "'" . $this->mysqli->real_escape_string($value) . "'",
-                default                            => throw new InvalidArgumentException("Unsupported value type: " . get_debug_type($value)),
-            };
+            $safeValues[] = $this->escapeValue($value, 'IN-list value');
         }
 
         // Dedupe the finished SQL literals, not the raw values: array_unique on raw input
         // uses SORT_STRING, which would collapse type-distinct values like '' and false.
         $safeValues = array_unique($safeValues);
         return new RawSql($safeValues ? implode(',', $safeValues) : 'NULL');
+    }
+
+    /**
+     * Convert one PHP value to a SQL literal. Every value ZenDB writes into SQL goes
+     * through here: SET clauses, WHERE arrays, placeholders, escapef(), escapeCSV().
+     *
+     *   "O'Brien"        →  'O\'Brien'    escaped and quoted
+     *   42               →  42
+     *   3.14             →  3.14          exact, never rounded (see below)
+     *   true             →  TRUE
+     *   null             →  NULL
+     *   DB::rawSql(...)  →  as-is         trusted SQL, not escaped
+     *   NAN, INF         →  throws        no SQL literal exists
+     *   array, object    →  throws        callers expand arrays to IN lists before calling
+     *
+     * Floats print as the shortest string that parses back to the same number
+     * (var_export). A plain string cast rounds to 14 significant digits, which
+     * silently changes large values: (string)12345678901234567.0 gives
+     * "1.2345678901235E+16", a different number that matches the wrong rows.
+     *
+     * @param mixed  $value   Value to convert
+     * @param string $context Named in error messages, e.g. "column 'age'" or "placeholder ?"
+     * @return string SQL literal, safe to concatenate into a query
+     * @throws InvalidArgumentException on NAN/INF and unsupported types
+     */
+    private function escapeValue(mixed $value, string $context = 'value'): string
+    {
+        return match (true) {
+            is_null($value)          => 'NULL',
+            is_int($value)           => (string)$value,
+            is_float($value)         => is_finite($value)
+                                        ? var_export($value, true) // shortest exact representation, independent of the precision ini setting
+                                        : throw new InvalidArgumentException("NAN and INF have no SQL literal, can't escape $context"),
+            is_bool($value)          => $value ? 'TRUE' : 'FALSE',
+            $value instanceof RawSql => (string)$value,
+            is_string($value)        => "'" . $this->mysqli->real_escape_string($value) . "'",
+            default                  => throw new InvalidArgumentException("Unsupported type for $context: " . get_debug_type($value)),
+        };
     }
 
     //endregion

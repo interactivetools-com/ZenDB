@@ -267,8 +267,20 @@ class EncryptionKeyTest extends BaseTestCase
         $rows   = $result->fetch_all(MYSQLI_ASSOC);
         $result->free();
 
-        self::$conn->decryptRows($rows, $fields);
+        // The failed decrypt triggers the once-per-connection warning; capture it
+        $warnings = [];
+        set_error_handler(function (int $errno, string $errstr) use (&$warnings): bool {
+            $warnings[] = $errstr;
+            return $errno === E_USER_WARNING;
+        }, E_USER_WARNING);
+        try {
+            self::$conn->decryptRows($rows, $fields);
+        } finally {
+            restore_error_handler();
+        }
+
         $this->assertSame($binaryData, $rows[0]['data'], 'Non-encrypted binary data should be left untouched');
+        $this->assertStringContainsString("can't decrypt", $warnings[0] ?? '', 'Failed decrypt should trigger the warning');
     }
 
     public function testDecryptRowsSkipsNullValues(): void

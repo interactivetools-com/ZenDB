@@ -80,7 +80,7 @@ class InsertTest extends BaseTestCase
     public function testInsertRejectsArrayValue(): void
     {
         $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage("Unsupported value type for column 'city'");
+        $this->expectExceptionMessage("Unsupported type for column 'city'");
         DB::insert('users', [
             'name'    => 'Array Test',
             'isAdmin' => 0,

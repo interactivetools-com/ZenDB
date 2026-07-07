@@ -11,6 +11,10 @@
 - Security footguns guide (`docs/09-security-footguns.md`) - The narrow ways to defeat the safety guarantees on purpose, each with its safe form: raw queries through `DB::$mysqli`, interpolating user input into a quoted template, dynamic identifiers like `ORDER BY`, `rawHtml()` output, NULL and empty arrays in `IN` lists, and the encryption threat model
 
 ### Fixed
+- `DB::transaction()` - When the connection dies mid-transaction, the closure's exception now reaches the caller; previously the failing `ROLLBACK` threw a second "server has gone away" that replaced the real cause
+- Float values - Now written to SQL with exact round-trip precision; PHP's string cast rounds to 14 significant digits, so very large floats could silently match the wrong rows. `NAN` and `INF` now throw `InvalidArgumentException` instead of producing a MySQL syntax error
+- Encrypted reads - A MEDIUMBLOB value that fails to decrypt (wrong `encryptionKey`, or the column holds unencrypted data) still passes through as raw bytes, but now triggers one `E_USER_WARNING` per connection naming the column (was silent)
+- `DB::escapeCSV()` - Now accepts `RawSql` values in the list (e.g. `DB::rawSql('NOW()')`), matching every other value path
 - Template validation - Now also rejects hex (`0x1AF`), binary (`0b1010`), and scientific (`1e10`) numeric literals in query templates; use placeholders instead
 - `DB::escapeCSV()` - Skips `null` values in the list instead of emitting `NULL`. A `null` never matches inside `IN (...)`, and one in a `NOT IN (...)` silently makes the whole clause return zero rows; use `IS NULL` to match NULL rows. Dedupe now runs on the escaped values, so type-distinct entries like `''` and `false` no longer collapse into one
 - SmartString values now escape by their original type everywhere: a wrapped `int`/`float`/`bool` becomes a typed SQL literal (`5`, `TRUE`) instead of a quoted string (`'5'`, `'1'`), and a wrapped `null` now means SQL `NULL` - it writes `NULL` in SET clauses (was `''`), matches with `IS NULL` in WHERE arrays (was `= ''`), and is skipped in IN lists
