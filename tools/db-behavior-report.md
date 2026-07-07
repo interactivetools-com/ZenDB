@@ -4,7 +4,7 @@ How every supported database server answers the same behavior probes, showing on
 
     gh workflow run db-behavior-report.yml   # wait for the run to finish, then:
     gh run download --dir reports            # pick the latest DB Behavior Report run
-    php tools/db-behavior-merge.php reports/*/report-*.json > docs/db-behavior-report.md
+    php tools/db-behavior-merge.php reports/*/report-*.json > tools/db-behavior-report.md
 
 Last generated: 2026-07-07 from 17 servers: mysql:5.7, mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, mariadb:10.2, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8, mariadb:12.3, percona/percona-server:5.7, percona/percona-server:8.0, percona/percona-server:8.4
 
