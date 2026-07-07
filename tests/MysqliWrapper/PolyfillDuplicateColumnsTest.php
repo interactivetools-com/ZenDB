@@ -84,15 +84,20 @@ class PolyfillDuplicateColumnsTest extends BaseTestCase
         $this->assertSame(['id' => 2], $result->fetch_assoc());
     }
 
-    public function testSelfJoinDuplicateColumnsSurvive(): void
+    public function testJoinDuplicateColumnsSurvive(): void
     {
-        $this->conn->mysqli->query("DROP TEMPORARY TABLE IF EXISTS dupcol_test");
-        $this->conn->mysqli->query("CREATE TEMPORARY TABLE dupcol_test (num INT, name VARCHAR(50))");
-        $this->conn->mysqli->query("INSERT INTO dupcol_test VALUES (1, 'Alice'), (2, 'Bob')");
+        // Two tables with the same column name, not a self-join: MySQL can't reference
+        // a TEMPORARY table twice in one query (MariaDB can)
+        $this->conn->mysqli->query("DROP TEMPORARY TABLE IF EXISTS dupcol_a");
+        $this->conn->mysqli->query("DROP TEMPORARY TABLE IF EXISTS dupcol_b");
+        $this->conn->mysqli->query("CREATE TEMPORARY TABLE dupcol_a (num INT)");
+        $this->conn->mysqli->query("CREATE TEMPORARY TABLE dupcol_b (num INT)");
+        $this->conn->mysqli->query("INSERT INTO dupcol_a VALUES (1)");
+        $this->conn->mysqli->query("INSERT INTO dupcol_b VALUES (2)");
 
-        // a.num and b.num both come back named "num"; a.num=1 pairs with b.num=2.
+        // a.num and b.num both come back named "num"
         $result = $this->conn->mysqli->execute_query(
-            "SELECT a.num, b.num FROM dupcol_test a JOIN dupcol_test b ON b.num = a.num + 1"
+            "SELECT a.num, b.num FROM dupcol_a a JOIN dupcol_b b"
         );
         $this->assertSame([1, 2], $result->fetch_row());
     }

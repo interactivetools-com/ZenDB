@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Itools\ZenDB\Tests\MysqliWrapper;
 
+use Error;
 use Itools\ZenDB\Connection;
 use Itools\ZenDB\MysqliResultPolyfill;
 use Itools\ZenDB\MysqliStmtWrapper;
@@ -68,8 +69,10 @@ class MysqliResultPolyfillTest extends BaseTestCase
     {
         $result = $this->conn->mysqli->execute_query("SELECT * FROM polyfill_test LIMIT 1");
 
-        // Should be MysqliResultPolyfill when forceResultPolyfill is true
+        // Should be MysqliResultPolyfill when forceResultPolyfill is true, and pass
+        // mysqli_result type checks (execute_query() declares mysqli_result|bool)
         $this->assertInstanceOf(MysqliResultPolyfill::class, $result);
+        $this->assertInstanceOf(\mysqli_result::class, $result);
     }
 
     public function testFetchAssoc(): void
@@ -202,7 +205,7 @@ class MysqliResultPolyfillTest extends BaseTestCase
     {
         $result = $this->conn->mysqli->execute_query("SELECT * FROM polyfill_test");
 
-        // Count rows by iterating (num_rows on stmt may not work after fetch_all)
+        // Count rows by iterating; the num_rows property throws on the polyfill (see below)
         $count = 0;
         while ($result->fetch_assoc()) {
             $count++;
@@ -215,9 +218,34 @@ class MysqliResultPolyfillTest extends BaseTestCase
     {
         $result = $this->conn->mysqli->execute_query("SELECT num, name, status FROM polyfill_test LIMIT 1");
 
-        // Access field_count via fetch_fields instead (more reliable)
+        // Count columns via fetch_fields; the field_count property throws on the polyfill (see below)
         $fields = $result->fetch_fields();
         $this->assertCount(3, $fields);
+    }
+
+    public function testNumRowsPropertyThrowsError(): void
+    {
+        $result = $this->conn->mysqli->execute_query("SELECT * FROM polyfill_test");
+
+        // Documented limitation: num_rows/field_count are read-only at the C level and a
+        // subclass with no live result can't populate them. Count rows by fetching instead.
+        $this->expectException(Error::class);
+        $this->expectExceptionMessage("object is already closed");
+
+        /** @noinspection PhpExpressionResultUnusedInspection */
+        $result->num_rows;
+    }
+
+    public function testNonOverriddenMethodThrowsError(): void
+    {
+        $result = $this->conn->mysqli->execute_query("SELECT num FROM polyfill_test LIMIT 1");
+
+        // Documented limitation: methods the polyfill doesn't override run against the
+        // parent's missing native result and throw
+        $this->expectException(Error::class);
+        $this->expectExceptionMessage("object is already closed");
+
+        $result->fetch_column();
     }
 
     public function testIteratingThroughResults(): void

@@ -3,7 +3,6 @@ declare(strict_types=1);
 
 namespace Itools\ZenDB;
 
-use BadMethodCallException;
 use mysqli_result;
 use mysqli_stmt;
 use ValueError;
@@ -13,28 +12,29 @@ use ValueError;
  *
  * Emulates the mysqli_result returned by mysqli_stmt::get_result() for PHP 8.1 systems
  * without mysqlnd, where get_result() doesn't exist. Rows come from the classic
- * bind_result()/fetch() pattern; num_rows and field_count are real properties populated
- * from the buffered statement.
+ * bind_result()/fetch() pattern.
  *
- * Standalone class, not a mysqli_result subclass: mysqli_result's num_rows/field_count
- * properties are read-only at the C level and throw on an object with no underlying
- * result, so a subclass can't emulate them. On PHP 8.1 without mysqlnd, code receiving
- * results from prepare()->get_result() or execute_query() must not type-hint or
- * instanceof-check mysqli_result.
+ * Extends mysqli_result so type-hints and instanceof checks pass, but there is no live
+ * result behind it, so only the methods overridden below work. Known limitations:
+ * - Reading num_rows or field_count throws Error "object is already closed": PHP declares
+ *   them read-only at the C level and a subclass can't populate them. Count rows by
+ *   fetching, or count columns with count($result->fetch_fields()).
+ * - Anything not overridden below (fetch_column(), fetch_field(), foreach iteration, ...)
+ *   throws the same Error.
  *
  * TODO-PHP82: Delete this class. From PHP 8.2 mysqli always builds with mysqlnd, so get_result() is always native.
  */
-class MysqliResultPolyfill
+class MysqliResultPolyfill extends mysqli_result
 {
-    public int $num_rows;
-    public int $field_count;
-
     private mysqli_stmt         $stmt;
     private mysqli_result|false $meta;
     private array               $fieldObjects;
 
     /**
      * Returns object that emulates mysqli_result.
+     *
+     * No parent::__construct() call: it needs a live result, which a build without
+     * mysqlnd can't produce. See the class docblock for what that breaks.
      *
      * @param mysqli_stmt $stmt The mysqli statement from which results are to be fetched.
      */
@@ -44,10 +44,8 @@ class MysqliResultPolyfill
         $this->meta         = $stmt->result_metadata();
         $this->fieldObjects = $this->meta ? $this->meta->fetch_fields() : [];
 
-        // Buffer rows client-side, matching native get_result(); makes num_rows and data_seek() valid
+        // Buffer rows client-side, matching native get_result(); makes data_seek() valid
         $stmt->store_result();
-        $this->num_rows    = (int)$stmt->num_rows;
-        $this->field_count = $stmt->field_count;
     }
 
     /**
@@ -158,7 +156,7 @@ class MysqliResultPolyfill
         if ($offset < 0) {
             throw new ValueError('mysqli_result::data_seek(): Argument #1 ($offset) must be greater than or equal to 0');
         }
-        if ($offset >= $this->num_rows) {
+        if ($offset >= $this->stmt->num_rows) {
             return false;
         }
         $this->stmt->data_seek($offset);
@@ -166,21 +164,14 @@ class MysqliResultPolyfill
     }
 
     /**
-     * Frees the memory associated with a result
+     * Frees the memory associated with a result.
+     *
+     * No parent::free() call: with no live result behind it, the parent method throws.
      */
     public function free(): void
     {
         if ($this->meta) {
             $this->meta->free();
         }
-    }
-
-    /**
-     * Throw exception for unimplemented methods
-     * @throws BadMethodCallException
-     */
-    public function __call(string $name, array $arguments): never
-    {
-        throw new BadMethodCallException("Mysqlnd isn't installed and $name() is not implemented in polyfill.");
     }
 }

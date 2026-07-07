@@ -28,6 +28,12 @@ class MysqliStmtWrapperTest extends BaseTestCase
         MysqliStmtWrapper::enableTestResultPolyfill(false);
     }
 
+    protected function tearDown(): void
+    {
+        MysqliWrapper::$forceExecuteQueryPolyfill = self::$originalForceExecuteQueryPolyfill;
+        MysqliStmtWrapper::enableTestResultPolyfill(false);
+    }
+
     public function testExecuteWithErrorLogsAndThrows(): void
     {
         MysqliWrapper::$forceExecuteQueryPolyfill = true;
@@ -64,8 +70,9 @@ class MysqliStmtWrapperTest extends BaseTestCase
         $this->assertInstanceOf(\mysqli_result::class, $result);
     }
 
-    public function testPolyfillFieldCountViaDirectCall(): void
+    public function testPolyfillViaDirectPrepare(): void
     {
+        // prepare()->get_result() is the other raw-handle path that returns the polyfill
         MysqliWrapper::$forceExecuteQueryPolyfill = true;
         MysqliStmtWrapper::enableTestResultPolyfill(true);
 
@@ -79,28 +86,10 @@ class MysqliStmtWrapperTest extends BaseTestCase
         $result = $stmt->get_result();
 
         $this->assertInstanceOf(MysqliResultPolyfill::class, $result);
-        $this->assertSame(2, $result->field_count);
+        $this->assertSame(['id' => 1, 'name' => 'test'], $result->fetch_assoc());
     }
 
-    public function testPolyfillNumRowsViaDirectCall(): void
-    {
-        MysqliWrapper::$forceExecuteQueryPolyfill = true;
-        MysqliStmtWrapper::enableTestResultPolyfill(true);
-
-        $conn = new Connection(self::$configDefaults);
-        $conn->mysqli->query("DROP TEMPORARY TABLE IF EXISTS stmt_test4");
-        $conn->mysqli->query("CREATE TEMPORARY TABLE stmt_test4 (id INT)");
-        $conn->mysqli->query("INSERT INTO stmt_test4 VALUES (1), (2), (3)");
-
-        $stmt = $conn->mysqli->prepare("SELECT * FROM stmt_test4");
-        $stmt->execute();
-        $result = $stmt->get_result();
-
-        $this->assertInstanceOf(MysqliResultPolyfill::class, $result);
-        $this->assertSame(3, $result->num_rows);
-    }
-
-    public function testPolyfillNumRowsIsZeroForEmptyResult(): void
+    public function testPolyfillEmptyResultFetchReturnsNull(): void
     {
         MysqliWrapper::$forceExecuteQueryPolyfill = true;
         MysqliStmtWrapper::enableTestResultPolyfill(true);
@@ -113,7 +102,6 @@ class MysqliStmtWrapperTest extends BaseTestCase
         $stmt->execute();
         $result = $stmt->get_result();
 
-        $this->assertSame(0, $result->num_rows);
         $this->assertNull($result->fetch_assoc());
     }
 
@@ -140,34 +128,12 @@ class MysqliStmtWrapperTest extends BaseTestCase
 
     public function testDbQuerySelectWorksWithForcedPolyfill(): void
     {
-        // Guards the fetchMappedRows() result-type check: if the polyfill stopped being
-        // accepted there, every SELECT on PHP 8.1 without mysqlnd would return zero rows
         MysqliWrapper::$forceExecuteQueryPolyfill = true;
         MysqliStmtWrapper::enableTestResultPolyfill(true);
 
         $conn = new Connection(self::$configDefaults);
         $rows = $conn->query("SELECT ? AS a UNION SELECT ?", 1, 2);
         $this->assertCount(2, $rows);
-    }
-
-    public function testPolyfillUnimplementedMethodThrows(): void
-    {
-        MysqliWrapper::$forceExecuteQueryPolyfill = true;
-        MysqliStmtWrapper::enableTestResultPolyfill(true);
-
-        $conn = new Connection(self::$configDefaults);
-        $conn->mysqli->query("DROP TEMPORARY TABLE IF EXISTS stmt_test6");
-        $conn->mysqli->query("CREATE TEMPORARY TABLE stmt_test6 (id INT)");
-        $conn->mysqli->query("INSERT INTO stmt_test6 VALUES (1)");
-
-        $stmt = $conn->mysqli->prepare("SELECT * FROM stmt_test6");
-        $stmt->execute();
-        $result = $stmt->get_result();
-
-        $this->expectException(\BadMethodCallException::class);
-        $this->expectExceptionMessage("not implemented in polyfill");
-
-        $result->fetch_column();
     }
 
     public function testPolyfillFetchArrayWithNoFields(): void

@@ -214,16 +214,16 @@ class MysqliWrapper extends mysqli
      * mysqli::execute_query() wrapper/polyfill with logging and automatic &#64;ek encryption-key setup. Throws on failure.
      *
      * Prepares, binds parameters, and executes in one call. Native in PHP 8.2+; polyfilled via prepare()/execute() on 8.1.
+     * Without mysqlnd, SELECTs return a MysqliResultPolyfill emulation (a mysqli_result subclass; see that class for its limitations).
      *
      * @see mysqli::execute_query()
      *
      * @param string     $query  SQL with ? placeholders
      * @param array|null $params Parameters to bind (null or empty for none)
-     * @return mysqli_result|MysqliResultPolyfill|true result for queries that return rows (the polyfill on PHP 8.1 without mysqlnd), true otherwise; throws on failure
+     * @return mysqli_result|true result for queries that return rows, true otherwise; throws on failure
      * @throws mysqli_sql_exception On query failure
      */
-    #[ReturnTypeWillChange]
-    public function execute_query(string $query, ?array $params = null): mysqli_result|MysqliResultPolyfill|bool
+    public function execute_query(string $query, ?array $params = null): mysqli_result|bool
     {
         // Use native execute_query() if available (PHP 8.2+) and not forcing polyfill
         if (PHP_VERSION_ID >= 80200 && !self::$forceExecuteQueryPolyfill) {
