@@ -79,7 +79,8 @@ trait ConnectionInternals
             } else {
                 $hasNamed = true;
                 $name     = match (true) {
-                    !preg_match("/^:\w+$/", $key)  => throw new InvalidArgumentException("Invalid param name '$key'. Must start with ':' followed by (a-z, A-Z, 0-9, _)"),
+                    !preg_match("/^:\w+\z/", $key) => throw new InvalidArgumentException("Invalid param name '$key'. Must start with ':' followed by (a-z, A-Z, 0-9, _)"),
+                    str_starts_with($key, ':_')    => throw new InvalidArgumentException("Invalid param name '$key'. Names can't start with :_ (the deprecated table-prefix syntax); start the name with a letter or digit"),
                     str_starts_with($key, ':zdb_') => throw new InvalidArgumentException("Invalid param name '$key'. Names can't start with :zdb_ (reserved prefix)"),
                     default                        => $key,
                 };
@@ -118,7 +119,7 @@ trait ConnectionInternals
      */
     private function assertValidTable(string $identifier): void
     {
-        if (!preg_match('/^[\w-]+$/', $identifier)) {
+        if (!preg_match('/^[\w-]+\z/', $identifier)) { // \z: $ would also match before a trailing newline
             throw new InvalidArgumentException("Invalid table name '$identifier', allowed characters: a-z, A-Z, 0-9, _, -");
         }
     }
@@ -129,7 +130,7 @@ trait ConnectionInternals
      */
     private function assertValidColumn(string $identifier): void
     {
-        if (!preg_match('/^[\w-]+$/', $identifier)) {
+        if (!preg_match('/^[\w-]+\z/', $identifier)) { // \z: $ would also match before a trailing newline
             throw new InvalidArgumentException("Invalid column name '$identifier', allowed characters: a-z, A-Z, 0-9, _, -");
         }
     }
@@ -546,7 +547,7 @@ trait ConnectionInternals
 
                 // Backtick placeholders: insert safe identifiers (table/column names) unquoted (or throw if unsafe)
                 if ($match[0] === '`') {
-                    $isSafeIdentifier = is_string($value) && !preg_match('/[^\w-]/', $value);
+                    $isSafeIdentifier = is_string($value) && preg_match('/^[\w-]+\z/', $value); // + rejects '', \z rejects trailing newline
                     return $isSafeIdentifier ? "`$value`" : throw new InvalidArgumentException("Invalid backtick identifier: " . var_export($value, true) . ". Only word characters (a-z, 0-9, _, -) allowed.");
                 }
 

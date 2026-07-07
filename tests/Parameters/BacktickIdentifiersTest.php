@@ -159,6 +159,31 @@ class BacktickIdentifiersTest extends BaseTestCase
         DB::query("SELECT * FROM `?`", null);
     }
 
+    public function testEmptyPositionalIdentifierThrows(): void
+    {
+        // '' has no illegal characters, but empty backticks (``) are a MySQL syntax error
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage("Invalid backtick identifier");
+
+        DB::query("SELECT `?` FROM ::users LIMIT 1", '');
+    }
+
+    public function testEmptyNamedIdentifierThrows(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage("Invalid backtick identifier");
+
+        DB::query("SELECT `:col` FROM ::users LIMIT 1", [':col' => '']);
+    }
+
+    public function testIdentifierWithTrailingNewlineThrows(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage("Invalid backtick identifier");
+
+        DB::query("SELECT * FROM `?`", "users\n");
+    }
+
     public function testBacktickPrefixPositionalRejectsNonString(): void
     {
         // `::?` with an int would otherwise coerce to "cms_123" via string concat and silently pass validation

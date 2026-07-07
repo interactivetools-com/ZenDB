@@ -13,6 +13,9 @@
 - Template validation - Now also rejects hex (`0x1AF`), binary (`0b1010`), and scientific (`1e10`) numeric literals in query templates; use placeholders instead
 - `DB::escapeCSV()` - Skips `null` values in the list instead of emitting `NULL`. A `null` never matches inside `IN (...)`, and one in a `NOT IN (...)` silently makes the whole clause return zero rows; use `IS NULL` to match NULL rows. Dedupe now runs on the escaped values, so type-distinct entries like `''` and `false` no longer collapse into one
 - SmartString values now escape by their original type everywhere: a wrapped `int`/`float`/`bool` becomes a typed SQL literal (`5`, `TRUE`) instead of a quoted string (`'5'`, `'1'`), and a wrapped `null` now means SQL `NULL` - it writes `NULL` in SET clauses (was `''`), matches with `IS NULL` in WHERE arrays (was `= ''`), and is skipped in IN lists
+- Backtick identifier placeholders - `` `?` `` / `` `:name` `` now reject an empty-string value instead of emitting empty backticks and a MySQL syntax error
+- Named params - Names can't start with `:_` (e.g. `:_id`). `:_` is the deprecated table-prefix token that rewrites to `::`, so a `:_name` param used to silently lose its value; now it throws
+- Table and column name validation - Now also rejects names with a trailing newline (`"users\n"` passed the `^...$` regex check and failed later in MySQL)
 - Result polyfill (PHP 8.1 without mysqlnd) - Fixed emulation gaps in the result object returned by raw-handle `execute_query()` / `prepare()->get_result()` (ZenDB's own API doesn't use these paths):
   - JOINs that select two same-named columns (`SELECT a.id, b.id`) now return both
   - Writes now return `true` instead of an empty result object

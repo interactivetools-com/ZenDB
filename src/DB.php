@@ -336,7 +336,7 @@ class DB
      */
     public static function decryptExpr(string $column): string
     {
-        if (!preg_match('/^[\w-]+(?:\.[\w-]+)*$/', $column)) {
+        if (!preg_match('/^[\w-]+(?:\.[\w-]+)*\z/', $column)) {
             throw new InvalidArgumentException("Invalid column name '$column' in decryptExpr(), allowed characters: a-z, A-Z, 0-9, _, -, .");
         }
         $column = str_replace('.', '`.`', $column); // "blog.title" => "blog`.`title"

@@ -140,7 +140,7 @@ class Connection
                 // if database doesn't exist and auto-create enabled, try again and create database
                 $database = $this->secret('database');
                 if ($this->databaseAutoCreate && $e->getCode() === 1049) {
-                    if (!preg_match('/^[\w-]+$/', $database)) {
+                    if (!preg_match('/^[\w-]+\z/', $database)) {
                         throw new InvalidArgumentException("Invalid database name '$database', allowed characters: a-z, A-Z, 0-9, _, -");
                     }
                     $dbCreateQuery = "CREATE DATABASE `$database` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci";
@@ -161,7 +161,7 @@ class Connection
             $errorDetail  = $e->getMessage() ?: $this->mysqli->connect_error;
 
             // Detect WSL + Unix socket failure
-            $isWslSocketError = isset($_SERVER['WSL_DISTRO_NAME']) && $errorCode === 2002 && preg_match('/No such file/i', $errorDetail) && preg_match('/^localhost$/i', (string) $this->secret('hostname'));
+            $isWslSocketError = isset($_SERVER['WSL_DISTRO_NAME']) && $errorCode === 2002 && preg_match('/No such file/i', $errorDetail) && preg_match('/^localhost\z/i', (string)$this->secret('hostname'));
 
             $errorMsg = match (true) {
                 $isWslSocketError                        => "'localhost' uses Unix sockets. To connect to Windows MySQL from WSL, use '127.0.0.1' or 'localhost:3306' with WSL mirrored networking.\n$baseErrorMsg: $errorDetail",
@@ -181,7 +181,7 @@ class Connection
         if ($this->versionRequired) {
             $currentVersion = preg_replace("/[^0-9.]/", '', $this->mysqli->server_info);
             if (version_compare($this->versionRequired, $currentVersion, '>')) {
-                $error  = "This program requires MySQL v$this->versionRequired or newer. This server has v$currentVersion installed.\n";
+                $error = "This program requires MySQL v$this->versionRequired or newer. This server has v$currentVersion installed.\n";
                 $error .= "Please ask your server administrator to install MySQL v$this->versionRequired or newer.\n";
                 throw new RuntimeException($error);
             }
@@ -703,21 +703,21 @@ class Connection
      * @param bool $withPrefix If true, return names with prefix
      * @return string[] Array of table names
      * @throws InvalidArgumentException
-     * @see https://jira.mariadb.org/browse/MDEV-32973
+     * @see          https://jira.mariadb.org/browse/MDEV-32973
      * @noinspection SpellCheckingInspection for MDEV
      */
     public function getTableNames(bool $withPrefix = false): array
     {
-        $prefixLength     = strlen($this->tablePrefix);
-        $escapedPrefix    = $this->mysqli->real_escape_string($this->tablePrefix);
-        $query            = <<<__SQL__
+        $prefixLength  = strlen($this->tablePrefix);
+        $escapedPrefix = $this->mysqli->real_escape_string($this->tablePrefix);
+        $query         = <<<__SQL__
             SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES
             WHERE TABLE_SCHEMA = DATABASE()
               AND LEFT(TABLE_NAME, $prefixLength) = '$escapedPrefix'
               AND TABLE_TYPE = 'BASE TABLE'
             __SQL__;
-        $result           = $this->mysqli->query($query);
-        $tableNames       = array_column($result->fetch_all(), 0);
+        $result        = $this->mysqli->query($query);
+        $tableNames    = array_column($result->fetch_all(), 0);
         $result->free();
 
         // Sort _tables to the bottom
@@ -762,8 +762,9 @@ class Connection
      * COMMENT text is never modified: it is split off before normalizing and
      * reattached after.
      *
-     * Returns an empty array if the table doesn't exist or `SHOW CREATE TABLE`
-     * throws. Indexes, constraints, and other non-column lines are skipped.
+     * Returns an empty array if the table doesn't exist, the name isn't a valid
+     * identifier, or `SHOW CREATE TABLE` throws. Indexes, constraints, and other
+     * non-column lines are skipped.
      *
      * @param string $baseTable Base table name (without table prefix)
      * @return array<string,string> column name => normalized definition
@@ -773,7 +774,7 @@ class Connection
         try {
             $createTableSQL = $this->query('SHOW CREATE TABLE `::?`', $baseTable)->first()->nth(1)->value();
             $lines          = explode("\n", $createTableSQL);
-        } catch (mysqli_sql_exception) {
+        } catch (mysqli_sql_exception|InvalidArgumentException) {
             $lines = [];
         }
 
@@ -926,7 +927,7 @@ class Connection
             return null;
         }
 
-        return openssl_encrypt((string) $value, 'aes-128-ecb', $this->aesKey(), OPENSSL_RAW_DATA);
+        return openssl_encrypt((string)$value, 'aes-128-ecb', $this->aesKey(), OPENSSL_RAW_DATA);
     }
 
     /**
@@ -958,7 +959,7 @@ class Connection
      *     SELECT AES_DECRYPT(`column`, @ek) FROM prefix_users
      *     SELECT {{column}} FROM ::users                           // ZenDB shorthand for the above
      *
-     * @param array $rows             Fetched rows (modified in place)
+     * @param array $rows              Fetched rows (modified in place)
      * @param array $keysOrFetchFields Either a list of row keys (column names for assoc rows, indexes for numeric rows),
      *                                 or field objects from fetch_fields() (auto-detects encrypted cols)
      */
@@ -1017,10 +1018,10 @@ class Connection
         // Cache the encrypted column list per connection per table (one LIMIT 0 query per table, per request)
         static $tableCache = new WeakMap();
         if (!isset($tableCache[$this][$fullTable])) {
-            $tableCache[$this] ??= [];
-            $savedLastQuery = $this->mysqli->lastQuery;     // preserve caller's template (e.g. "INSERT INTO `t` [SET ...]") so downstream throws report it, not the probe
-            $result         = $this->mysqli->query("SELECT * FROM `$fullTable` LIMIT 0");
-            $this->mysqli->lastQuery = $savedLastQuery;
+            $tableCache[$this]             ??= [];
+            $savedLastQuery                = $this->mysqli->lastQuery;     // preserve caller's template (e.g. "INSERT INTO `t` [SET ...]") so downstream throws report it, not the probe
+            $result                        = $this->mysqli->query("SELECT * FROM `$fullTable` LIMIT 0");
+            $this->mysqli->lastQuery       = $savedLastQuery;
             $tableCache[$this][$fullTable] = DB::getEncryptedColumns($result->fetch_fields());
             $result->free();
         }
@@ -1044,7 +1045,7 @@ class Connection
             if (!is_string($value) && !is_int($value) && !is_float($value)) {
                 continue; // skip RawSql, arrays, and other non-scalar types
             }
-            $values[$col] = openssl_encrypt((string) $value, 'aes-128-ecb', $aesKey, OPENSSL_RAW_DATA);
+            $values[$col] = openssl_encrypt((string)$value, 'aes-128-ecb', $aesKey, OPENSSL_RAW_DATA);
         }
     }
 
@@ -1059,9 +1060,9 @@ class Connection
             $encryptionKey = $this->secret('encryptionKey') ?: throw new RuntimeException("aesKey() requires 'encryptionKey' in connection config.");
             $keyBytes      = hash('sha512', $encryptionKey, true);
             $cache[$this]  = substr($keyBytes, 0, 16);
-            $cache[$this] ^= substr($keyBytes, 16, 16);
-            $cache[$this] ^= substr($keyBytes, 32, 16);
-            $cache[$this] ^= substr($keyBytes, 48, 16);
+            $cache[$this]  ^= substr($keyBytes, 16, 16);
+            $cache[$this]  ^= substr($keyBytes, 32, 16);
+            $cache[$this]  ^= substr($keyBytes, 48, 16);
         }
 
         return $cache[$this];

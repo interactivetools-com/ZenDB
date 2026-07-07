@@ -110,6 +110,15 @@ class IdentifierValidationTest extends BaseTestCase
         DB::select("users=1");
     }
 
+    public function testTableNameWithTrailingNewlineThrows(): void
+    {
+        // With a $ anchor instead of \z, "users\n" would pass validation ($ also matches before a trailing newline)
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage("Invalid table name");
+
+        DB::select("users\n");
+    }
+
     //endregion
     //region Valid Column Names (via WHERE array)
 
@@ -173,6 +182,15 @@ class IdentifierValidationTest extends BaseTestCase
         DB::select('users', ['name;' => 'John']);
     }
 
+    public function testColumnNameWithTrailingNewlineThrows(): void
+    {
+        // With a $ anchor instead of \z, "name\n" would pass validation ($ also matches before a trailing newline)
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage("Invalid column name");
+
+        DB::select('users', ["name\n" => 'John']);
+    }
+
     public function testNonStringColumnNameThrows(): void
     {
         $this->expectException(InvalidArgumentException::class);
@@ -213,7 +231,7 @@ class IdentifierValidationTest extends BaseTestCase
     /**
      * @dataProvider provideInvalidIdentifiers
      */
-    public function testInvalidIdentifiers(string $identifier, string $description): void
+    public function testInvalidIdentifiers(string $identifier): void
     {
         $this->expectException(InvalidArgumentException::class);
         $this->expectExceptionMessage("Invalid backtick identifier");
@@ -224,16 +242,17 @@ class IdentifierValidationTest extends BaseTestCase
     public static function provideInvalidIdentifiers(): array
     {
         return [
-            ['user table', 'space'],
-            ["user's", 'single quote'],
-            ['user"s', 'double quote'],
-            ['user;drop', 'semicolon'],
-            ['user`s', 'backtick'],
-            ['user()', 'parentheses'],
-            ['user=1', 'equals'],
+            'space'            => ['user table'],
+            'single quote'     => ["user's"],
+            'double quote'     => ['user"s'],
+            'semicolon'        => ['user;drop'],
+            'backtick'         => ['user`s'],
+            'parentheses'      => ['user()'],
+            'equals'           => ['user=1'],
             // Note: 'user--' actually passes validation as hyphen is allowed ([\w-]+)
-            ['user/*', 'comment start'],
-            ['user*/', 'comment end'],
+            'comment start'    => ['user/*'],
+            'comment end'      => ['user*/'],
+            'trailing newline' => ["users\n"],
         ];
     }
 

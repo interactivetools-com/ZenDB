@@ -118,6 +118,15 @@ class NamedParamsTest extends BaseTestCase
         DB::query("SELECT * FROM ::users WHERE num = :zdb_internal", [':zdb_internal' => 1]);
     }
 
+    public function testUnderscoreLeadingParamNameThrows(): void
+    {
+        // :_ is the deprecated table-prefix token, so a :_name param would rewrite to ::name and never bind
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage("Names can't start with :_");
+
+        DB::query("SELECT * FROM ::users WHERE name = :_name", [':_name' => 'John Doe']);
+    }
+
     public function testDuplicateParamNameIsLastValue(): void
     {
         // In PHP, duplicate array keys just use the last value - no exception thrown
