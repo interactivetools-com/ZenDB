@@ -1,0 +1,755 @@
+#!/usr/bin/env php
+<?php
+declare(strict_types=1);
+
+/**
+ * Print a markdown report of raw database server behaviors that ZenDB normalizes or
+ * works around. Probes use plain mysqli, not ZenDB, so the library's own fixes can't
+ * mask what the server actually returns.
+ *
+ *     php tools/db-behavior-report.php                     # markdown to stdout
+ *     php tools/db-behavior-report.php --json=report.json  # markdown to stdout, probe values to JSON
+ *
+ * The CI workflow (.github/workflows/db-report.yml) runs this against every database
+ * image in the matrix and merges the JSON files with db-behavior-merge.php to show
+ * which servers differ.
+ *
+ * Connects with the same DB_* env vars as the test suite (see phpunit.xml.dist).
+ * DB_LABEL names the server in the JSON output, e.g. "mariadb:10.6" from the CI matrix.
+ */
+
+require __DIR__ . '/ci-lib.php';
+
+mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
+
+$hostname = getenv('DB_HOSTNAME') ?: '127.0.0.1';
+$username = getenv('DB_USERNAME') ?: 'root';
+$password = getenv('DB_PASSWORD') ?: '';
+$database = getenv('DB_DATABASE') ?: 'phpunit_test_db';
+$label    = getenv('DB_LABEL') ?: 'unlabeled';
+$jsonPath = getopt('', ['json:'])['json'] ?? null;
+
+$probes = []; // probe name => single-line value; db-behavior-merge.php compares these across servers
+
+// The JSON is written on every exit path, so a failure partway through still reports
+// the probes collected up to that point instead of dropping the server from the merge
+register_shutdown_function(function () use ($jsonPath, $label, &$probes) {
+    if ($jsonPath === null) {
+        return;
+    }
+    $json = json_encode(['server' => $label, 'probes' => $probes], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    file_put_contents($jsonPath, $json . "\n");
+    fwrite(STDERR, "Wrote " . count($probes) . " probe values to $jsonPath\n"); // stderr keeps stdout pure markdown
+});
+
+try {
+    $mysqli = new mysqli($hostname, $username, $password);
+    $mysqli->set_charset('utf8mb4');
+    $mysqli->query("CREATE DATABASE IF NOT EXISTS `$database`");
+    $mysqli->select_db($database);
+} catch (mysqli_sql_exception $e) {
+    $probes['connection'] = 'failed: ' . $e->getMessage();
+    echo "## $label\n\nConnection failed: " . $e->getMessage() . "\n";
+    exit(1);
+}
+
+//
+// Server identity and defaults
+//
+try {
+    [$version, $versionComment, $sqlMode, $basedir, $datadir] = $mysqli->query("SELECT VERSION(), @@version_comment, @@GLOBAL.sql_mode, @@basedir, @@datadir")->fetch_row();
+
+    $identityProbes = [
+        'VERSION()'          => $version,
+        '@@version_comment'  => $versionComment,
+        'mysqli server_info' => $mysqli->server_info,
+        // The versionRequired guard strips server_info with this regex; MariaDB's legacy
+        // "5.5.5-10.x.y-MariaDB" handshake format would mangle into a bogus version here
+        'server_info after versionRequired regex' => preg_replace("/[^0-9.]/", '', $mysqli->server_info),
+        // CMS Builder fingerprints Amazon RDS by basedir/datadir path prefixes
+        '@@basedir'          => $basedir,
+        '@@datadir'          => $datadir,
+        '@@GLOBAL.sql_mode'  => $sqlMode,
+        // databaseAutoCreate hardcodes this collation in CREATE DATABASE
+        'utf8mb4_unicode_ci collation' => $mysqli->query("SHOW COLLATION LIKE 'utf8mb4_unicode_ci'")->num_rows ? 'available' : 'missing',
+    ];
+} catch (mysqli_sql_exception $e) {
+    $identityProbes = ['Server identity' => 'probe failed: ' . $e->getMessage()];
+}
+$probes += $identityProbes;
+
+echo "## $label\n\n";
+echo "### Server identity and defaults\n\n";
+echo mdTable($identityProbes);
+
+//
+// SHOW CREATE TABLE - raw output for a fixture that hits every getColumnDefinitions()
+// normalization: display widths, tinyint(1) variants, year, column-level charset,
+// timestamp default spelling, and a column comment
+//
+$fixtureSql = <<<__SQL__
+    CREATE TABLE zdb_probe (
+        num         INT NOT NULL AUTO_INCREMENT,
+        isAdmin     TINYINT(1) NOT NULL DEFAULT 0,
+        flags       TINYINT(1) UNSIGNED NOT NULL DEFAULT 0,
+        counter     INT NOT NULL DEFAULT 0,
+        price       DECIMAL(10,2) NOT NULL DEFAULT 1.50,
+        birthYear   YEAR NOT NULL,
+        title       VARCHAR(255) NOT NULL DEFAULT '',
+        legacyText  VARCHAR(100) CHARACTER SET latin1 NOT NULL DEFAULT '',
+        createdDate TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        createdMs   DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+        updatedDate DATETIME NULL DEFAULT NULL COMMENT 'it''s optional',
+        PRIMARY KEY (num)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    __SQL__;
+
+try {
+    $mysqli->query("DROP TABLE IF EXISTS zdb_probe");
+    $mysqli->query($fixtureSql);
+    $createTable = $mysqli->query("SHOW CREATE TABLE zdb_probe")->fetch_row()[1];
+    $mysqli->query("DROP TABLE zdb_probe");
+} catch (mysqli_sql_exception $e) {
+    // The parse below matches no columns in this string, so the failure lands in the
+    // 'column parse failed' probe and the raw message still reaches the report
+    $createTable = 'CREATE TABLE rejected: ' . $e->getMessage();
+}
+
+// One probe per column so the merge report pinpoints which definitions differ; a
+// failed parse becomes a probe value itself, so it reads as a loud difference in the
+// comparison instead of a silent gap
+$fixtureColumns = parseColumnDefinitions($createTable);
+$createProbes   = [];
+foreach ($fixtureColumns as $column => $definition) {
+    $createProbes["SHOW CREATE: $column"] = $definition;
+}
+if (!$fixtureColumns) {
+    $createProbes['SHOW CREATE: column parse failed'] = trim($createTable);
+}
+if (preg_match('/^\).*/m', $createTable, $m)) {
+    $createProbes['SHOW CREATE: table options'] = $m[0];
+}
+
+// Syntax some servers reject is probed one table each, so a rejection (itself a probe
+// result) doesn't cost us the main fixture
+$createProbes += [
+    'SHOW CREATE: oldText VARCHAR(50) CHARSET utf8'  => probeColumnDefinition($mysqli, 'oldText', "CREATE TABLE zdb_probe_special (oldText VARCHAR(50) CHARACTER SET utf8 NOT NULL DEFAULT '')"),
+    'SHOW CREATE: code VARCHAR(36) DEFAULT (uuid())' => probeColumnDefinition($mysqli, 'code', "CREATE TABLE zdb_probe_special (code VARCHAR(36) NOT NULL DEFAULT (uuid()))"),
+];
+$probes += $createProbes;
+
+echo "### SHOW CREATE TABLE\n\n";
+echo "Sent:\n\n```sql\n$fixtureSql\n```\n\n";
+echo "Server returned:\n\n```sql\n$createTable\n```\n\n";
+echo "Parsed per column (the values compared across servers):\n\n";
+echo mdTable($createProbes);
+
+//
+// ZEROFILL - definition round-trip, and how values come back over the text vs prepared
+// (binary) protocols. ZenDB runs everything as prepared statements, so a protocol
+// difference in padding is what real result sets would show
+//
+try {
+    $mysqli->query("DROP TABLE IF EXISTS zdb_probe_special");
+    $mysqli->query("CREATE TABLE zdb_probe_special (padded INT(6) ZEROFILL NOT NULL DEFAULT 0)");
+    $mysqli->query("INSERT INTO zdb_probe_special VALUES (42)");
+
+    $createSpecial = $mysqli->query("SHOW CREATE TABLE zdb_probe_special")->fetch_row()[1];
+
+    $textResult = $mysqli->query("SELECT padded FROM zdb_probe_special");
+    $textValue  = $textResult->fetch_row()[0];
+    $flags      = $textResult->fetch_fields()[0]->flags;
+
+    $stmt = $mysqli->prepare("SELECT padded FROM zdb_probe_special");
+    $stmt->execute();
+    $preparedValue = (string)$stmt->get_result()->fetch_row()[0];
+    $stmt->close();
+    $mysqli->query("DROP TABLE zdb_probe_special");
+
+    $zerofillProbes = [
+        'SHOW CREATE: padded INT(6) ZEROFILL'         => parseColumnDefinitions($createSpecial)['padded'] ?? trim($createSpecial),
+        'ZEROFILL: SELECT 42 via text protocol'       => $textValue,
+        'ZEROFILL: SELECT 42 via prepared statement'  => $preparedValue,
+        'ZEROFILL: field ZEROFILL flag'               => ($flags & MYSQLI_ZEROFILL_FLAG) ? 'set' : 'not set',
+    ];
+} catch (mysqli_sql_exception $e) {
+    $zerofillProbes = ['SHOW CREATE: padded INT(6) ZEROFILL' => 'CREATE TABLE rejected: ' . $e->getMessage()];
+}
+$probes += $zerofillProbes;
+
+echo "### ZEROFILL\n\n";
+echo mdTable($zerofillProbes);
+
+//
+// Generated columns - MySQL wraps the expression in an extra layer of parens, and
+// older MariaDB respells STORED as PERSISTENT
+//
+try {
+    $mysqli->query("DROP TABLE IF EXISTS zdb_probe_special");
+    $mysqli->query("CREATE TABLE zdb_probe_special (num INT NOT NULL, doubled INT GENERATED ALWAYS AS (num * 2) VIRTUAL, tripled INT GENERATED ALWAYS AS (num * 3) STORED)");
+    $mysqli->query("INSERT INTO zdb_probe_special (num) VALUES (21)");
+
+    $createSpecial    = $mysqli->query("SHOW CREATE TABLE zdb_probe_special")->fetch_row()[1];
+    $generatedColumns = parseColumnDefinitions($createSpecial);
+    $row = $mysqli->query("SELECT doubled, tripled FROM zdb_probe_special")->fetch_row();
+    $mysqli->query("DROP TABLE zdb_probe_special");
+
+    $generatedProbes = [
+        'GENERATED: doubled INT AS (num * 2) VIRTUAL' => $generatedColumns['doubled'] ?? trim($createSpecial),
+        'GENERATED: tripled INT AS (num * 3) STORED'  => $generatedColumns['tripled'] ?? trim($createSpecial),
+        'GENERATED: SELECT with num = 21'             => "doubled=$row[0], tripled=$row[1]",
+    ];
+} catch (mysqli_sql_exception $e) {
+    $generatedProbes = ['GENERATED: doubled INT AS (num * 2) VIRTUAL' => 'CREATE TABLE rejected: ' . $e->getMessage()];
+}
+$probes += $generatedProbes;
+
+echo "### Generated columns\n\n";
+echo mdTable($generatedProbes);
+
+//
+// CHECK constraints - MySQL 5.7 parses CHECK and silently drops it, MySQL 8.0.16+ and
+// MariaDB 10.2+ store and enforce it, each with its own SHOW CREATE spelling. The
+// INSERT probes show enforcement, the SHOW CREATE probe shows what survived
+//
+try {
+    $mysqli->query("DROP TABLE IF EXISTS zdb_probe_special");
+    $mysqli->query("CREATE TABLE zdb_probe_special (age INT NOT NULL CHECK (age >= 0), CONSTRAINT zdb_age_max CHECK (age <= 150))");
+
+    $createSpecial = $mysqli->query("SHOW CREATE TABLE zdb_probe_special")->fetch_row()[1];
+    $checkLines    = array_map(fn($line) => rtrim(trim($line), ','), preg_grep('/CHECK/i', explode("\n", $createSpecial)));
+
+    $checkProbes = [
+        'CHECK: SHOW CREATE clauses' => $checkLines ? implode('; ', $checkLines) : 'none (CHECK dropped)',
+    ];
+    foreach (['INSERT -5 (violates column CHECK)' => -5, 'INSERT 200 (violates named constraint)' => 200] as $name => $badValue) {
+        try {
+            $mysqli->query("INSERT INTO zdb_probe_special VALUES ($badValue)");
+            $checkProbes["CHECK: $name"] = 'accepted (not enforced)';
+        } catch (mysqli_sql_exception $e) {
+            $checkProbes["CHECK: $name"] = 'rejected (enforced, error ' . $e->getCode() . ')';
+        }
+    }
+    $mysqli->query("DROP TABLE zdb_probe_special");
+} catch (mysqli_sql_exception $e) {
+    $checkProbes = ['CHECK: SHOW CREATE clauses' => 'CREATE TABLE rejected: ' . $e->getMessage()];
+}
+$probes += $checkProbes;
+
+echo "### CHECK constraints\n\n";
+echo mdTable($checkProbes);
+
+//
+// Encryption interop - ZenDB encrypts in PHP with aes-128-ecb and MySQL's XOR-folded
+// SHA-512 key, then decrypts server-side with AES_DECRYPT(col, @ek). That only works
+// if AES_ENCRYPT runs in aes-128-ecb mode and folds over-length keys the same way on
+// every server, so the ciphertexts must match byte for byte
+//
+try {
+    $blockMode = $mysqli->query("SELECT @@block_encryption_mode")->fetch_row()[0];
+} catch (mysqli_sql_exception) {
+    $blockMode = 'variable not supported';
+}
+
+try {
+    $mysqli->query("SET @ek = UNHEX(SHA2('zendb probe key', 512))");
+    $serverHex = $mysqli->query("SELECT HEX(AES_ENCRYPT('zendb probe', @ek))")->fetch_row()[0];
+
+    $keyBytes = hash('sha512', 'zendb probe key', true);
+    $aesKey   = substr($keyBytes, 0, 16) ^ substr($keyBytes, 16, 16) ^ substr($keyBytes, 32, 16) ^ substr($keyBytes, 48, 16);
+    $phpHex   = strtoupper(bin2hex(openssl_encrypt('zendb probe', 'aes-128-ecb', $aesKey, OPENSSL_RAW_DATA)));
+
+    $encryptionProbes = [
+        '@@block_encryption_mode'                     => $blockMode,
+        'HEX(AES_ENCRYPT) with SHA2-512 key'          => $serverHex,
+        'AES_ENCRYPT matches PHP openssl aes-128-ecb' => $serverHex === $phpHex ? 'match' : "differs: PHP produced $phpHex",
+    ];
+} catch (mysqli_sql_exception $e) {
+    $encryptionProbes = ['HEX(AES_ENCRYPT) with SHA2-512 key' => 'probe failed: ' . $e->getMessage()];
+}
+$probes += $encryptionProbes;
+
+echo "### Encryption interop\n\n";
+echo mdTable($encryptionProbes);
+
+//
+// Field metadata - what fetch_fields() reports. ZenDB detects encryptable MEDIUMBLOB
+// columns by type=BLOB / charsetnr=63 / length=16777215, and SmartJoin key building
+// reads orgtable/orgname for aliased, view, and expression columns
+//
+try {
+    $mysqli->query("DROP VIEW IF EXISTS zdb_probe_view");
+    $mysqli->query("DROP TABLE IF EXISTS zdb_probe_special");
+    $mysqli->query("CREATE TABLE zdb_probe_special (num INT NOT NULL, mb MEDIUMBLOB, b BLOB, mt MEDIUMTEXT, vb VARBINARY(16))");
+    $mysqli->query("CREATE VIEW zdb_probe_view AS SELECT num FROM zdb_probe_special");
+
+    $fieldProbes    = [];
+    $result         = $mysqli->query("SELECT mb, b, mt, vb FROM zdb_probe_special WHERE 1 = 0");
+    $columnTypeNames = ['mb' => 'MEDIUMBLOB', 'b' => 'BLOB', 'mt' => 'MEDIUMTEXT', 'vb' => 'VARBINARY(16)'];
+    foreach ($result->fetch_fields() as $field) {
+        $fieldProbes["Field metadata: {$columnTypeNames[$field->name]}"] = mysqliTypeName($field->type) . ", charsetnr=$field->charsetnr, length=$field->length";
+    }
+
+    // getEncryptedColumns() matches type=BLOB / charsetnr=63 / length=16777215; if
+    // AES_DECRYPT output ever comes back with that exact signature, {{column}} results
+    // would get a second PHP-side decrypt
+    $mysqli->query("SET @ek = UNHEX(SHA2('zendb probe key', 512))");
+    $decryptField = $mysqli->query("SELECT AES_DECRYPT(mb, @ek) AS decrypted FROM zdb_probe_special WHERE 1 = 0")->fetch_fields()[0];
+    $fieldProbes['Field metadata: AES_DECRYPT(mb, @ek) expression'] = mysqliTypeName($decryptField->type) . ", charsetnr=$decryptField->charsetnr, length=$decryptField->length";
+    $isEncryptableSignature = $decryptField->type === MYSQLI_TYPE_BLOB && $decryptField->charsetnr === 63 && $decryptField->length === 16777215;
+    $fieldProbes['AES_DECRYPT matches encryptable MEDIUMBLOB signature'] = $isEncryptableSignature ? 'yes (would double-decrypt)' : 'no';
+
+    $result = $mysqli->query("SELECT a.num AS aliased, v.num AS viewCol, a.num + 1 AS expr FROM zdb_probe_special a JOIN zdb_probe_view v ON 1 = 0");
+    foreach ($result->fetch_fields() as $field) {
+        $fieldProbes["Field metadata: $field->name column"] = "table=" . ($field->table ?: "''") . ", orgtable=" . ($field->orgtable ?: "''") . ", orgname=" . ($field->orgname ?: "''");
+    }
+
+    $mysqli->query("DROP VIEW zdb_probe_view");
+    $mysqli->query("DROP TABLE zdb_probe_special");
+} catch (mysqli_sql_exception $e) {
+    $fieldProbes = ['Field metadata' => 'probe failed: ' . $e->getMessage()];
+}
+$probes += $fieldProbes;
+
+echo "### Field metadata\n\n";
+echo mdTable($fieldProbes);
+
+//
+// Temporary table visibility - which listing commands include temp tables, and what
+// INFORMATION_SCHEMA reports for them. getTableNames() filters INFORMATION_SCHEMA on
+// TABLE_TYPE = 'BASE TABLE' because SHOW TABLES LIKE is unreliable (MDEV-32973), so
+// the INFORMATION_SCHEMA rows are the ones that keep that workaround honest
+//
+try {
+    $mysqli->query("DROP VIEW IF EXISTS zdb_probe_view");
+    $mysqli->query("DROP TABLE IF EXISTS zdb_probe_real");
+    $mysqli->query("CREATE TABLE zdb_probe_real (num INT)");
+    $mysqli->query("CREATE VIEW zdb_probe_view AS SELECT num FROM zdb_probe_real");
+    $mysqli->query("CREATE TEMPORARY TABLE zdb_probe_temp (num INT)");
+
+    $noMatchRows = array_column($mysqli->query("SHOW TABLES LIKE 'zdb_no_match%'")->fetch_all(), 0);
+    $showTables  = array_column($mysqli->query("SHOW TABLES")->fetch_all(), 0);
+    $fullTypes   = array_column($mysqli->query("SHOW FULL TABLES")->fetch_all(), 1, 0);
+    $infoTypes   = array_column($mysqli->query("SELECT TABLE_NAME, TABLE_TYPE FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN ('zdb_probe_temp', 'zdb_probe_real', 'zdb_probe_view')")->fetch_all(), 1, 0);
+
+    $mysqli->query("DROP TEMPORARY TABLE zdb_probe_temp");
+    $mysqli->query("DROP VIEW zdb_probe_view");
+    $mysqli->query("DROP TABLE zdb_probe_real");
+
+    $tempProbes = [
+        "SHOW TABLES LIKE 'zdb_no_match%' with temp table present (MDEV-32973)" =>
+            $noMatchRows ? 'pattern ignored, returned: ' . implode(', ', $noMatchRows) : 'pattern honored, returned 0 rows',
+        'SHOW TABLES: temp table'                        => in_array('zdb_probe_temp', $showTables, true) ? 'listed' : 'not listed',
+        'SHOW FULL TABLES: temp table Table_type'        => $fullTypes['zdb_probe_temp'] ?? 'not listed',
+        'SHOW FULL TABLES: view Table_type'              => $fullTypes['zdb_probe_view'] ?? 'not listed',
+        'INFORMATION_SCHEMA.TABLES: temp table TABLE_TYPE' => $infoTypes['zdb_probe_temp'] ?? 'not listed',
+        'INFORMATION_SCHEMA.TABLES: real table TABLE_TYPE' => $infoTypes['zdb_probe_real'] ?? 'not listed',
+        'INFORMATION_SCHEMA.TABLES: view TABLE_TYPE'       => $infoTypes['zdb_probe_view'] ?? 'not listed',
+    ];
+} catch (mysqli_sql_exception $e) {
+    $tempProbes = ['Temporary table visibility' => 'probe failed: ' . $e->getMessage()];
+}
+$probes += $tempProbes;
+
+echo "### Temporary table visibility\n\n";
+echo mdTable($tempProbes);
+
+//
+// Numeric literals - what hex/binary/scientific literals evaluate to (context for
+// assertSafeTemplate() rejecting them in query templates)
+//
+try {
+    $result = $mysqli->query("SELECT 0x1AF, 0b1010, 1e10");
+    $fields = $result->fetch_fields();
+    $row    = $result->fetch_row();
+
+    $literalProbes = [];
+    foreach ($fields as $i => $field) {
+        $literalProbes["SELECT $field->name"] = displayValue($row[$i]) . ' (' . mysqliTypeName($field->type) . ')';
+    }
+} catch (mysqli_sql_exception $e) {
+    $literalProbes = ['Numeric literals' => 'probe failed: ' . $e->getMessage()];
+}
+$probes += $literalProbes;
+
+echo "### Numeric literals\n\n";
+echo mdTable($literalProbes);
+
+//
+// NULL in IN lists - why escapeCSV() rejects null values
+//
+try {
+    $row = $mysqli->query("SELECT 1 IN (1, NULL), 2 IN (1, NULL), 2 NOT IN (1, NULL)")->fetch_row();
+
+    $nullInProbes = [
+        '1 IN (1, NULL)'        => displayValue($row[0]),
+        '2 IN (1, NULL)'        => displayValue($row[1]),
+        '2 NOT IN (1, NULL)'    => displayValue($row[2]),
+        'SELECT NULL field type' => mysqliTypeName($mysqli->query("SELECT NULL")->fetch_fields()[0]->type),
+    ];
+} catch (mysqli_sql_exception $e) {
+    $nullInProbes = ['NULL behavior' => 'probe failed: ' . $e->getMessage()];
+}
+$probes += $nullInProbes;
+
+echo "### NULL behavior\n\n";
+echo mdTable($nullInProbes);
+
+//
+// SSL / TLS detection - CMS Builder checks have_ssl, which MySQL 8.4 removed, so a
+// missing row gets assumed as "YES". tls_version and require_secure_transport are the
+// newer signals; this shows which servers offer which
+//
+try {
+    $haveSsl       = $mysqli->query("SHOW VARIABLES WHERE Variable_name = 'have_ssl'")->fetch_row();
+    $requireSecure = $mysqli->query("SHOW VARIABLES WHERE Variable_name = 'require_secure_transport'")->fetch_row();
+    try {
+        $tlsVersion = $mysqli->query("SELECT @@tls_version")->fetch_row()[0] ?? 'NULL';
+    } catch (mysqli_sql_exception) {
+        $tlsVersion = 'variable not supported';
+    }
+
+    $sslPairs = [];
+    foreach ($mysqli->query("SHOW STATUS WHERE Variable_name IN ('Ssl_cipher', 'Ssl_version')")->fetch_all() as [$name, $value]) {
+        $sslPairs[] = "$name=" . ($value === '' ? "''" : $value);
+    }
+
+    $sslProbes = [
+        "SHOW VARIABLES 'have_ssl'"                             => $haveSsl ? $haveSsl[1] : 'no rows (variable removed)',
+        '@@tls_version'                                         => $tlsVersion,
+        "SHOW VARIABLES 'require_secure_transport'"             => $requireSecure ? $requireSecure[1] : 'no rows (variable not present)',
+        'SHOW STATUS Ssl_cipher/Ssl_version (plain connection)' => $sslPairs ? implode(', ', $sslPairs) : 'no rows',
+    ];
+} catch (mysqli_sql_exception $e) {
+    $sslProbes = ["SHOW VARIABLES 'have_ssl'" => 'probe failed: ' . $e->getMessage()];
+}
+$probes += $sslProbes;
+
+echo "### SSL / TLS detection\n\n";
+echo mdTable($sslProbes);
+
+//
+// Server logging - CMS Builder refuses to enable data encryption while the general
+// query log is on, and its slow-log page queries variable names that each engine
+// removed at a different point
+//
+try {
+    [$generalLog, $logOutput] = $mysqli->query("SELECT @@GLOBAL.general_log, @@GLOBAL.log_output")->fetch_row();
+    $loggingProbes = ['@@GLOBAL.general_log, @@GLOBAL.log_output' => "general_log=$generalLog, log_output=$logOutput"];
+} catch (mysqli_sql_exception $e) {
+    $loggingProbes = ['@@GLOBAL.general_log, @@GLOBAL.log_output' => 'query failed: ' . $e->getMessage()];
+}
+try {
+    $slowNames = array_column($mysqli->query("SHOW VARIABLES WHERE Variable_name IN ('log_slow_queries', 'slow_query_log')")->fetch_all(), 0);
+    $loggingProbes['slow-log variable names present'] = $slowNames ? implode(', ', $slowNames) : 'none';
+} catch (mysqli_sql_exception $e) {
+    $loggingProbes['slow-log variable names present'] = 'probe failed: ' . $e->getMessage();
+}
+$probes += $loggingProbes;
+
+echo "### Server logging\n\n";
+echo mdTable($loggingProbes);
+
+//
+// Bare TIMESTAMP defaults - with explicit_defaults_for_timestamp OFF (MySQL 5.7
+// default, MariaDB before 10.10) the server silently adds DEFAULT CURRENT_TIMESTAMP
+// ON UPDATE CURRENT_TIMESTAMP to the first bare TIMESTAMP column, so the same DDL
+// produces different getColumnDefinitions() results per server
+//
+try {
+    $explicitDefaults = $mysqli->query("SHOW VARIABLES WHERE Variable_name = 'explicit_defaults_for_timestamp'")->fetch_row();
+    $mysqli->query("DROP TABLE IF EXISTS zdb_probe_special");
+    $mysqli->query("CREATE TABLE zdb_probe_special (ts TIMESTAMP)");
+    $tsDefinition = parseColumnDefinitions($mysqli->query("SHOW CREATE TABLE zdb_probe_special")->fetch_row()[1])['ts'] ?? 'parse failed';
+    $mysqli->query("DROP TABLE zdb_probe_special");
+
+    $timestampProbes = [
+        'explicit_defaults_for_timestamp'  => $explicitDefaults ? $explicitDefaults[1] : 'no rows (variable not present)',
+        'SHOW CREATE: ts TIMESTAMP (bare)' => $tsDefinition,
+    ];
+} catch (mysqli_sql_exception $e) {
+    $timestampProbes = ['SHOW CREATE: ts TIMESTAMP (bare)' => 'probe failed: ' . $e->getMessage()];
+}
+$probes += $timestampProbes;
+
+echo "### Bare TIMESTAMP defaults\n\n";
+echo mdTable($timestampProbes);
+
+//
+// Connection collation - set_charset('utf8mb4') leaves the collation at each server's
+// utf8mb4 default (general_ci, 0900_ai_ci, or uca1400 depending on engine/version),
+// while databaseAutoCreate hardcodes utf8mb4_unicode_ci, so mixed comparisons and
+// dump portability depend on what these actually resolve to
+//
+try {
+    [$collConnection, $charsetResults] = $mysqli->query("SELECT @@collation_connection, @@character_set_results")->fetch_row();
+
+    $mysqli->query("DROP TABLE IF EXISTS zdb_probe_special");
+    $mysqli->query("CREATE TABLE zdb_probe_special (implicit VARCHAR(10), unicodeCi VARCHAR(10) COLLATE utf8mb4_unicode_ci) DEFAULT CHARSET=utf8mb4");
+    $implicitCollation = $mysqli->query("SELECT COLLATION_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'zdb_probe_special' AND COLUMN_NAME = 'implicit'")->fetch_row()[0];
+    try {
+        $mysqli->query("SELECT 1 FROM zdb_probe_special WHERE implicit = unicodeCi");
+        $mixResult = 'allowed';
+    } catch (mysqli_sql_exception $e) {
+        $mixResult = 'error ' . $e->getCode();
+    }
+    $mysqli->query("DROP TABLE zdb_probe_special");
+
+    $collationProbes = [
+        '@@collation_connection after set_charset(utf8mb4)' => $collConnection,
+        '@@character_set_results'                           => $charsetResults,
+        'utf8mb4 table: implicit column collation'          => $implicitCollation,
+        'compare implicit vs utf8mb4_unicode_ci column'     => $mixResult,
+        'utf8mb4_0900_ai_ci collation'                      => $mysqli->query("SHOW COLLATION LIKE 'utf8mb4_0900_ai_ci'")->num_rows ? 'available' : 'missing',
+    ];
+} catch (mysqli_sql_exception $e) {
+    $collationProbes = ['@@collation_connection after set_charset(utf8mb4)' => 'probe failed: ' . $e->getMessage()];
+}
+$probes += $collationProbes;
+
+echo "### Connection collation\n\n";
+echo mdTable($collationProbes);
+
+//
+// Error codes - databaseAutoCreate branches on code 1049, and the same failure can
+// return different codes per engine (CHECK violations: MySQL 3819, MariaDB 4025);
+// this records what each server returns for canonical failures
+//
+$errorProbes = [];
+try {
+    $mysqli->select_db('zdb_no_such_db');
+    $errorProbes['error code: USE unknown database'] = 'no error';
+} catch (mysqli_sql_exception $e) {
+    $errorProbes['error code: USE unknown database'] = $e->getCode() . ' / SQLSTATE ' . $e->getSqlState();
+}
+try {
+    $mysqli->query("DROP TABLE IF EXISTS zdb_probe_special");
+    $mysqli->query("CREATE TABLE zdb_probe_special (num INT NOT NULL PRIMARY KEY)");
+    $mysqli->query("INSERT INTO zdb_probe_special VALUES (1)");
+    foreach (['duplicate key' => "INSERT INTO zdb_probe_special VALUES (1)", 'unknown column' => "SELECT zdb_no_such_column FROM zdb_probe_special"] as $name => $sql) {
+        try {
+            $mysqli->query($sql);
+            $errorProbes["error code: $name"] = 'no error';
+        } catch (mysqli_sql_exception $e) {
+            $errorProbes["error code: $name"] = $e->getCode() . ' / SQLSTATE ' . $e->getSqlState();
+        }
+    }
+    $mysqli->query("DROP TABLE zdb_probe_special");
+} catch (mysqli_sql_exception $e) {
+    $errorProbes['error code probes'] = 'probe failed: ' . $e->getMessage();
+}
+$probes += $errorProbes;
+
+echo "### Error codes\n\n";
+echo mdTable($errorProbes);
+
+//
+// Partitioned tables - ZenDB extracts the table-options line with a /^\)/ match
+// because partition clauses follow it; MySQL 5.7 wraps them in a /*!50100 version
+// comment while MySQL 8 and MariaDB emit them bare
+//
+try {
+    $mysqli->query("DROP TABLE IF EXISTS zdb_probe_special");
+    $mysqli->query("CREATE TABLE zdb_probe_special (num INT NOT NULL) PARTITION BY RANGE (num) (PARTITION p0 VALUES LESS THAN (10), PARTITION p1 VALUES LESS THAN MAXVALUE)");
+    $createSpecial = $mysqli->query("SHOW CREATE TABLE zdb_probe_special")->fetch_row()[1];
+    $mysqli->query("DROP TABLE zdb_probe_special");
+
+    $partitionProbes = ['PARTITIONED: SHOW CREATE from table options on' => substr($createSpecial, (int)strpos($createSpecial, "\n)") + 1)];
+} catch (mysqli_sql_exception $e) {
+    $partitionProbes = ['PARTITIONED: SHOW CREATE from table options on' => 'CREATE TABLE rejected: ' . $e->getMessage()];
+}
+$probes += $partitionProbes;
+
+echo "### Partitioned tables\n\n";
+echo mdTable($partitionProbes);
+
+//
+// Result typing with MYSQLI_OPT_INT_AND_FLOAT_NATIVE - connect() enables the option,
+// and fetchMappedRows() reads over the text protocol, so it decides whether apps get
+// PHP ints/floats or strings; engines declare different types for some expressions.
+// Runs on its own connection because the option must be set before connecting
+//
+try {
+    $native = mysqli_init();
+    $native->options(MYSQLI_OPT_INT_AND_FLOAT_NATIVE, 1);
+    $native->real_connect($hostname, $username, $password, $database);
+    $native->set_charset('utf8mb4');
+
+    $native->query("DROP TABLE IF EXISTS zdb_probe_native");
+    $native->query("CREATE TABLE zdb_probe_native (num INT NOT NULL, price DECIMAL(10,2) NOT NULL, birthYear YEAR NOT NULL, bits BIT(8) NOT NULL)");
+    $native->query("INSERT INTO zdb_probe_native VALUES (42, 1.50, 1999, b'101010')");
+
+    $nativeProbes = [];
+    foreach (["SELECT num, price, birthYear, bits FROM zdb_probe_native", "SELECT SUM(num), AVG(num), 1/2 FROM zdb_probe_native"] as $sql) {
+        $result = $native->query($sql);
+        $fields = $result->fetch_fields();
+        $row    = $result->fetch_row();
+        foreach ($fields as $i => $field) {
+            $value = is_string($row[$i]) ? displayValue($row[$i]) : var_export($row[$i], true);
+            $nativeProbes["INT_AND_FLOAT_NATIVE: $field->name"] = get_debug_type($row[$i]) . " $value (" . mysqliTypeName($field->type) . ')';
+        }
+    }
+    $native->query("DROP TABLE zdb_probe_native");
+    $native->close();
+} catch (mysqli_sql_exception $e) {
+    $nativeProbes = ['INT_AND_FLOAT_NATIVE probes' => 'probe failed: ' . $e->getMessage()];
+}
+$probes += $nativeProbes;
+
+echo "### Result typing with INT_AND_FLOAT_NATIVE\n\n";
+echo mdTable($nativeProbes);
+
+//
+// Time zone offsets - connect() runs SET time_zone = date('P') when usePhpTimezone
+// is on, and servers differ in the offset range they accept (MySQL widened
+// -12:59..+13:00 to -13:59..+14:00 in 8.0.19), so a PHP zone like +14:00 can make
+// connect() throw on older servers
+//
+try {
+    $originalTimeZone = $mysqli->query("SELECT @@SESSION.time_zone")->fetch_row()[0];
+    $timeZoneProbes   = [];
+    foreach (['+05:45', '+13:00', '-13:00', '+14:00'] as $offset) {
+        try {
+            $mysqli->query("SET time_zone = '$offset'");
+            $timeZoneProbes["SET time_zone = '$offset'"] = 'accepted';
+        } catch (mysqli_sql_exception $e) {
+            $timeZoneProbes["SET time_zone = '$offset'"] = 'rejected: error ' . $e->getCode();
+        }
+    }
+    $mysqli->query("SET time_zone = '$originalTimeZone'");
+} catch (mysqli_sql_exception $e) {
+    $timeZoneProbes = ['SET time_zone probes' => 'probe failed: ' . $e->getMessage()];
+}
+$probes += $timeZoneProbes;
+
+echo "### Time zone offsets\n\n";
+echo mdTable($timeZoneProbes);
+
+//
+// Session sql_mode - connect() applies ZenDB's default modes in one SET, and one
+// unrecognized name aborts the whole statement. Runs after the neutral probes since
+// it changes this session's mode; the date probes below depend on it
+//
+try {
+    $mysqli->query("SET sql_mode = 'STRICT_ALL_TABLES,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION'");
+    $warningCount  = $mysqli->warning_count;
+    $sqlModeProbes = [
+        'SET ZenDB default sql_mode'   => $warningCount ? "accepted with $warningCount warning(s)" : 'accepted',
+        '@@SESSION.sql_mode after SET' => $mysqli->query("SELECT @@SESSION.sql_mode")->fetch_row()[0],
+    ];
+} catch (mysqli_sql_exception $e) {
+    $sqlModeProbes = ['SET ZenDB default sql_mode' => 'rejected: ' . $e->getMessage()];
+}
+$probes += $sqlModeProbes;
+
+echo "### Session sql_mode\n\n";
+echo mdTable($sqlModeProbes);
+
+//
+// Zero and invalid dates under ZenDB's sql_mode - the default mode includes
+// NO_ZERO_IN_DATE but not NO_ZERO_DATE, and how that pair interacts with
+// STRICT_ALL_TABLES has shifted across versions. Depends on the SET above, so it
+// only runs when that succeeded
+//
+if (isset($sqlModeProbes['@@SESSION.sql_mode after SET'])) {
+    try {
+        $mysqli->query("DROP TABLE IF EXISTS zdb_probe_special");
+        $mysqli->query("CREATE TABLE zdb_probe_special (d DATE NOT NULL)");
+        $zeroDateProbes = [];
+        foreach (["'0000-00-00'", "'2024-00-15'", "'2024-01-00'"] as $literal) {
+            try {
+                $mysqli->query("INSERT INTO zdb_probe_special VALUES ($literal)");
+                $warnings = $mysqli->warning_count;
+                $zeroDateProbes["INSERT DATE $literal under ZenDB sql_mode"] = $warnings ? "accepted with $warnings warning(s)" : 'accepted';
+                $mysqli->query("DELETE FROM zdb_probe_special");
+            } catch (mysqli_sql_exception $e) {
+                $zeroDateProbes["INSERT DATE $literal under ZenDB sql_mode"] = 'rejected: error ' . $e->getCode();
+            }
+        }
+        $mysqli->query("DROP TABLE zdb_probe_special");
+    } catch (mysqli_sql_exception $e) {
+        $zeroDateProbes = ['INSERT DATE probes' => 'probe failed: ' . $e->getMessage()];
+    }
+} else {
+    $zeroDateProbes = ['INSERT DATE probes' => 'skipped (ZenDB sql_mode SET was rejected)'];
+}
+$probes += $zeroDateProbes;
+
+echo "### Zero and invalid dates\n\n";
+echo mdTable($zeroDateProbes);
+
+$mysqli->close();
+
+/**
+ * Render probe name => value pairs as a two-column markdown table.
+ */
+function mdTable(array $rows): string
+{
+    $out = "| Probe | Result |\n|---|---|\n";
+    foreach ($rows as $name => $value) {
+        $out .= "| $name | " . mdValue($value) . " |\n";
+    }
+    return $out . "\n";
+}
+
+/**
+ * Parse SHOW CREATE TABLE output into column name => definition pairs. Index, key,
+ * and constraint lines are skipped, and any leading indentation is accepted. Returns
+ * an empty array when no column lines match, so callers can show the raw DDL instead.
+ *
+ *     parseColumnDefinitions($createTable); // ['num' => 'int NOT NULL AUTO_INCREMENT', ...]
+ */
+function parseColumnDefinitions(string $createTable): array
+{
+    preg_match_all('/^\s+`([^`]+)` (.*?),?$/m', $createTable, $matches, PREG_SET_ORDER);
+    return array_column($matches, 2, 1);
+}
+
+/**
+ * Create a throwaway table, return the SHOW CREATE line for one column, and drop the
+ * table. Returns the server's error message when it rejects the CREATE, since which
+ * servers reject which syntax is itself a probe result.
+ */
+function probeColumnDefinition(mysqli $mysqli, string $column, string $createSql): string
+{
+    try {
+        $mysqli->query("DROP TABLE IF EXISTS zdb_probe_special");
+        $mysqli->query($createSql);
+        $createTable = $mysqli->query("SHOW CREATE TABLE zdb_probe_special")->fetch_row()[1];
+        $mysqli->query("DROP TABLE zdb_probe_special");
+        return parseColumnDefinitions($createTable)[$column] ?? trim($createTable);
+    } catch (mysqli_sql_exception $e) {
+        return 'CREATE TABLE rejected: ' . $e->getMessage();
+    }
+}
+
+
+/**
+ * Format a raw result value for display: SQL NULL as the word NULL, strings with
+ * unprintable bytes as 0x hex.
+ */
+function displayValue(?string $value): string
+{
+    return match (true) {
+        $value === null                            => 'NULL',
+        preg_match('/[^\x20-\x7E]/', $value) === 1 => '0x' . bin2hex($value),
+        default                                    => $value,
+    };
+}
+
+/**
+ * Return the MYSQLI_TYPE_* constant name for a field type number, e.g. 253 => VAR_STRING.
+ */
+function mysqliTypeName(int $type): string
+{
+    static $names = null;
+    if ($names === null) {
+        $names = [];
+        foreach (get_defined_constants(true)['mysqli'] as $name => $value) {
+            if (str_starts_with($name, 'MYSQLI_TYPE_')) {
+                $names[$value] ??= substr($name, strlen('MYSQLI_TYPE_'));
+            }
+        }
+    }
+    return $names[$type] ?? "unknown ($type)";
+}
