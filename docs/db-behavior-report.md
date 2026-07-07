@@ -6,7 +6,7 @@ How every supported database server answers the same behavior probes, showing on
     gh run download --dir reports            # pick the latest DB Behavior Report run
     php tools/db-behavior-merge.php reports/*/report-*.json > docs/db-behavior-report.md
 
-Last generated: 2026-07-06 from 16 servers: mysql:5.7, mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, mariadb:10.2, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8, mariadb:12.3, percona/percona-server:5.7, percona/percona-server:8.0, percona/percona-server:8.4
+Last generated: 2026-07-06 from 17 servers: mysql:5.7, mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, mariadb:10.2, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8, mariadb:12.3, percona/percona-server:5.7, percona/percona-server:8.0, percona/percona-server:8.4
 
 Stock Docker images with default configs answered these probes. Install-dependent rows (directory paths, sql_mode, TLS and log settings, version strings) will differ on real servers, where distro packages, hosting panels, and my.cnf all change them. SHOW CREATE formatting, error codes, collations, and result typing are fixed per server version.
 
@@ -33,6 +33,7 @@ Stock Docker images with default configs answered these probes. Install-dependen
 - `9.6.0` → mysql:9.6
 - `9.7.1` → mysql:9.7
 - `10.2.44-MariaDB-1:10.2.44+maria~bionic` → mariadb:10.2
+- `10.3.39-MariaDB-1:10.3.39+maria~ubu2004` → mariadb:10.3
 - `10.4.34-MariaDB-1:10.4.34+maria~ubu2004` → mariadb:10.4
 - `10.5.29-MariaDB-ubu2004` → mariadb:10.5
 - `10.6.27-MariaDB-ubu2204` → mariadb:10.6
@@ -61,6 +62,7 @@ Stock Docker images with default configs answered these probes. Install-dependen
 - `9.6.0` → mysql:9.6
 - `9.7.1` → mysql:9.7
 - `10.2.44-MariaDB-1:10.2.44+maria~bionic` → mariadb:10.2
+- `10.3.39-MariaDB-1:10.3.39+maria~ubu2004` → mariadb:10.3
 - `10.4.34-MariaDB-1:10.4.34+maria~ubu2004` → mariadb:10.4
 - `10.5.29-MariaDB-ubu2004` → mariadb:10.5
 - `10.6.27-MariaDB-ubu2204` → mariadb:10.6
@@ -80,6 +82,7 @@ Stock Docker images with default configs answered these probes. Install-dependen
 - `9.6.0` → mysql:9.6
 - `9.7.1` → mysql:9.7
 - `10.2.44110.2.44` → mariadb:10.2
+- `10.3.39110.3.392004` → mariadb:10.3
 - `10.4.34110.4.342004` → mariadb:10.4
 - `10.5.292004` → mariadb:10.5
 - `10.6.272204` → mariadb:10.6
@@ -149,7 +152,7 @@ Stock Docker images with default configs answered these probes. Install-dependen
 ### SHOW CREATE: legacyText
 
 - `varchar(100) CHARACTER SET latin1 NOT NULL DEFAULT ''` → mysql:5.7, mariadb:10.2, percona/percona-server:5.7
-- `varchar(100) CHARACTER SET latin1 COLLATE latin1_swedish_ci NOT NULL DEFAULT ''` → MySQL/Percona 8.0+ and MariaDB 10.4+
+- `varchar(100) CHARACTER SET latin1 COLLATE latin1_swedish_ci NOT NULL DEFAULT ''` → MySQL/Percona 8.0+ and MariaDB 10.3+
 
 ### SHOW CREATE: createdDate
 
@@ -169,14 +172,14 @@ Stock Docker images with default configs answered these probes. Install-dependen
 
 - `) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4` → mysql:5.7, mariadb:10.2, percona/percona-server:5.7
 - `) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci` → MySQL/Percona 8.0+
-- `) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci` → mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11
+- `) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci` → mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11
 - `) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci` → MariaDB 11.4+
 
 ### SHOW CREATE: oldText VARCHAR(50) CHARSET utf8
 
 - `varchar(50) CHARACTER SET utf8 NOT NULL DEFAULT ''` → mysql:5.7, mariadb:10.2, percona/percona-server:5.7
 - `varchar(50) CHARACTER SET utf8mb3 COLLATE utf8mb3_general_ci NOT NULL DEFAULT ''` → mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, mariadb:10.6, mariadb:10.11, mariadb:11.4, percona/percona-server:8.0, percona/percona-server:8.4
-- `varchar(50) CHARACTER SET utf8 COLLATE utf8_general_ci NOT NULL DEFAULT ''` → mariadb:10.4, mariadb:10.5
+- `varchar(50) CHARACTER SET utf8 COLLATE utf8_general_ci NOT NULL DEFAULT ''` → mariadb:10.3, mariadb:10.4, mariadb:10.5
 - `varchar(50) CHARACTER SET utf8mb3 COLLATE utf8mb3_uca1400_ai_ci NOT NULL DEFAULT ''` → MariaDB 11.8+
 
 ### SHOW CREATE: code VARCHAR(36) DEFAULT (uuid())
@@ -357,7 +360,7 @@ Stock Docker images with default configs answered these probes. Install-dependen
 
 - `TLSv1,TLSv1.1,TLSv1.2` → MySQL/Percona 5.7
 - `TLSv1.2,TLSv1.3` → MySQL/Percona 8.0+ and MariaDB 10.4+
-- `variable not supported` → mariadb:10.2
+- `variable not supported` → MariaDB thru 10.3
 
 ### SHOW VARIABLES 'require_secure_transport'
 
@@ -429,7 +432,7 @@ Stock Docker images with default configs answered these probes. Install-dependen
 - `) ENGINE=InnoDB DEFAULT CHARSET=latin1\n/*!50100 PARTITION BY RANGE (num)\n(PARTITION p0 VALUES LESS THAN (10) ENGINE = InnoDB,\n PARTITION p1 VALUES LESS THAN MAXVALUE ENGINE = InnoDB) */` → MySQL/Percona 5.7
 - `` ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci\n/*!50100 PARTITION BY RANGE (`num`)\n(PARTITION p0 VALUES LESS THAN (10) ENGINE = InnoDB,\n PARTITION p1 VALUES LESS THAN MAXVALUE ENGINE = InnoDB) */ `` → MySQL/Percona 8.0+
 - `` ) ENGINE=InnoDB DEFAULT CHARSET=latin1\n PARTITION BY RANGE (`num`)\n(PARTITION `p0` VALUES LESS THAN (10) ENGINE = InnoDB,\n PARTITION `p1` VALUES LESS THAN MAXVALUE ENGINE = InnoDB) `` → mariadb:10.2
-- `` ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci\n PARTITION BY RANGE (`num`)\n(PARTITION `p0` VALUES LESS THAN (10) ENGINE = InnoDB,\n PARTITION `p1` VALUES LESS THAN MAXVALUE ENGINE = InnoDB) `` → mariadb:10.4
+- `` ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci\n PARTITION BY RANGE (`num`)\n(PARTITION `p0` VALUES LESS THAN (10) ENGINE = InnoDB,\n PARTITION `p1` VALUES LESS THAN MAXVALUE ENGINE = InnoDB) `` → mariadb:10.3, mariadb:10.4
 - `` ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci\n PARTITION BY RANGE (`num`)\n(PARTITION `p0` VALUES LESS THAN (10) ENGINE = InnoDB,\n PARTITION `p1` VALUES LESS THAN MAXVALUE ENGINE = InnoDB) `` → mariadb:10.5, mariadb:10.6, mariadb:10.11
 - `` ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci\n PARTITION BY RANGE (`num`)\n(PARTITION `p0` VALUES LESS THAN (10) ENGINE = InnoDB,\n PARTITION `p1` VALUES LESS THAN MAXVALUE ENGINE = InnoDB) `` → MariaDB 11.4+
 
