@@ -21,7 +21,7 @@ class Server
      *     DB::$server->version();  // "10.6.27"
      *
      * Every server reports its version in four places. Example values from mariadb:10.6;
-     * docs/db-behavior-report.md compares all four across all 17 supported servers:
+     * tools/db-behavior-report.md compares all four across all 17 supported servers:
      *
      *   $mysqli->server_info     "10.6.27-MariaDB-ubu2204"          free with the handshake, no query
      *   SELECT VERSION()         "10.6.27-MariaDB-ubu2204"          same string, costs a query (@@version too)
@@ -42,7 +42,7 @@ class Server
      * server_info ourselves returns the same answer on every PHP version.
      *
      * @see \Itools\ZenDB\Tests\Connection\ServerTest every server's string and its parsed version
-     * @see docs/db-behavior-report.md CI probes every supported server and reports where they disagree
+     * @see tools/db-behavior-report.md CI probes every supported server and reports where they disagree
      */
     public function version(): string
     {
@@ -86,7 +86,7 @@ class Server
      * anyway. Hosting is not a vendor - RDS-hosted stock MySQL reports "mysql".
      *
      * @see \Itools\ZenDB\Tests\Connection\ServerTest every vendor's strings and the token each returns
-     * @see docs/db-behavior-report.md @@version_comment values for all 17 supported servers
+     * @see tools/db-behavior-report.md @@version_comment values for all 17 supported servers
      */
     public function vendor(): string
     {
@@ -142,14 +142,66 @@ class Server
         $isAmazonRds   = str_contains($vendorStrings, '/rdsdbbin/') || str_contains($vendorStrings, '/rdsdbdata/');
 
         return match (true) {
-            $this->vendor() === 'aurora'                   => 'Amazon RDS (Aurora)',
-            $this->vendor() === 'mariadb' && $isAmazonRds  => 'Amazon RDS (MariaDB)',
-            $isAmazonRds                                   => 'Amazon RDS (MySQL)',
-            $this->vendor() === 'percona'                  => 'Percona',
-            str_contains($vendorStrings, 'tencent')        => 'Tencent',
-            $this->vendor() === 'mariadb'                  => 'MariaDB',
-            default                                        => 'MySQL',
+            $this->vendor() === 'aurora'                  => 'Amazon RDS (Aurora)',
+            $this->vendor() === 'mariadb' && $isAmazonRds => 'Amazon RDS (MariaDB)',
+            $isAmazonRds                                  => 'Amazon RDS (MySQL)',
+            $this->vendor() === 'percona'                 => 'Percona',
+            str_contains($vendorStrings, 'tencent')       => 'Tencent',
+            $this->vendor() === 'mariadb'                 => 'MariaDB',
+            default                                       => 'MySQL',
         };
+    }
+
+    /**
+     * True unless the server is certain to refuse encrypted connections.
+     *
+     *     DB::$server->isSSLAvailable();  // false → enabling `requireSSL` would fail for sure
+     *
+     * Reads @@have_ssl:
+     *
+     *   YES            server accepts TLS right now (certificates loaded)  → true
+     *   DISABLED / NO  TLS off or not compiled in, handshakes are refused  → false
+     *   (missing)      MySQL/Percona 8.4+ removed the variable because
+     *                  TLS is always on with auto-generated certificates   → true
+     *
+     * Built to gate "encrypt the connection" UI: false only when enabling `requireSSL`
+     * is guaranteed to fail. True means the server side will accept TLS - the client
+     * can still reject an untrusted certificate, so success isn't guaranteed.
+     *
+     * @see tools/db-behavior-report.md how every supported server answers the TLS probes
+     */
+    public function isSSLAvailable(): bool
+    {
+        if ($this->isSSLAvailable === null) {
+            // SHOW VARIABLES returns zero rows when the variable doesn't exist (MySQL/Percona 8.4+)
+            $row     = $this->mysqli->query("SHOW VARIABLES LIKE 'have_ssl'")->fetch_row();
+            $haveSSL = $row[1] ?? 'YES';
+
+            $this->isSSLAvailable = !in_array($haveSSL, ['DISABLED', 'NO'], true);
+        }
+        return $this->isSSLAvailable;
+    }
+
+    /**
+     * True when traffic between PHP and the database server is encrypted.
+     *
+     *     DB::$server->isSSLConnection();  // true when connected with requireSSL or the server forced TLS
+     *
+     * Reads session status Ssl_cipher, which is non-empty (e.g. "TLS_AES_256_GCM_SHA384")
+     * exactly when this connection negotiated TLS. Every supported server reports it,
+     * making it the one encryption signal that works everywhere - the config variables
+     * all have version holes (see tools/db-behavior-report.md).
+     *
+     * Local connections (Unix socket, named pipe) report false: no TLS was negotiated
+     * because nothing leaves the machine.
+     */
+    public function isSSLConnection(): bool
+    {
+        if ($this->isSSLConnection === null) {
+            $row                   = $this->mysqli->query("SHOW SESSION STATUS LIKE 'Ssl_cipher'")->fetch_row();
+            $this->isSSLConnection = ($row[1] ?? '') !== '';
+        }
+        return $this->isSSLConnection;
     }
 
     //endregion
@@ -161,6 +213,12 @@ class Server
     /** Cached vendor() answer, so the fingerprint query runs at most once per connection */
     private ?string $vendor = null;
 
+    /** Cached isSSLConnection() answer */
+    private ?bool $isSSLConnection = null;
+
+    /** Cached isSSLAvailable() answer */
+    private ?bool $isSSLAvailable = null;
+
     /** Cached vendorStrings() answer, e.g. "mysql community server - gpl | /usr/ | /var/lib/mysql/" */
     private ?string $vendorStrings = null;
 
@@ -171,7 +229,7 @@ class Server
     private function vendorStrings(): string
     {
         if ($this->vendorStrings === null) {
-            $row = $this->mysqli->query("SELECT @@version_comment, @@basedir, @@datadir")->fetch_row();
+            $row                 = $this->mysqli->query("SELECT @@version_comment, @@basedir, @@datadir")->fetch_row();
             $this->vendorStrings = strtolower(implode(' | ', $row));
         }
         return $this->vendorStrings;

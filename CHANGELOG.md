@@ -8,6 +8,7 @@
   - `WHERE TABLE_NAME = :::table` with `users` → `WHERE TABLE_NAME = 'cms_users'`
   - `IN (:::tables)` with `['users', 'orders']` → `IN ('cms_users', 'cms_orders')`
   - Strings only (or arrays of strings); anything else throws `InvalidArgumentException`
+- Security footguns guide (`docs/09-security-footguns.md`) - The narrow ways to defeat the safety guarantees on purpose, each with its safe form: raw queries through `DB::$mysqli`, interpolating user input into a quoted template, dynamic identifiers like `ORDER BY`, `rawHtml()` output, NULL and empty arrays in `IN` lists, and the encryption threat model
 
 ### Fixed
 - Template validation - Now also rejects hex (`0x1AF`), binary (`0b1010`), and scientific (`1e10`) numeric literals in query templates; use placeholders instead
@@ -21,11 +22,12 @@
   - Writes now return `true` instead of an empty result object
   - Invalid `fetch_array()` mode now throws `ValueError` like native mysqli
   - Added `data_seek()`
-  - Known limitation (unchanged): reading `num_rows` / `field_count` throws `Error`; PHP can't expose these read-only properties on an emulated result, so count rows by fetching
+  - `num_rows` / `field_count` reads now return real counts (previously threw `Error: object is already closed`)
 - `DB::getColumnDefinitions()` - Identical schemas now return identical definition strings on MySQL and MariaDB:
   - Display widths cropped to match MySQL 8 (`int(11)` → `int`, `year(4)` → `year`; plain `tinyint(1)` and ZEROFILL keep theirs)
   - MariaDB's `DEFAULT current_timestamp()` normalized to `DEFAULT CURRENT_TIMESTAMP`
   - Column-level charset/collation removed when it just restates the table default
+- Misc code and other minor improvements
 
 ## [0.9.1] - 2026-04-22
 

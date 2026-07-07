@@ -13,6 +13,7 @@ Stock Docker images with default configs answered these probes. Install-dependen
 ## Key differences
 
 - Percona Server answers every probe byte-identically to the same MySQL version; it never needs separate handling
+- TLS: session status Ssl_cipher/Ssl_version exist on every server and are empty exactly when the connection is unencrypted - the only signal that works everywhere. The variables all have holes: @@have_ssl was removed in MySQL/Percona 8.4 and reads DISABLED on stock MariaDB thru 10.11 but YES on MariaDB 11.4+ (auto-generated certs); @@tls_version is missing on MariaDB thru 10.3; @@require_secure_transport is missing on MariaDB thru 10.4
 - Every version source agrees: server_info matches VERSION() byte-for-byte, and mysqlnd's server_version int matches to the patch level (Percona's build suffix dropped correctly) - though that int is a client-side parse, and PHP before 8.0.16/8.1.3 misread MariaDB's `5.5.5-` handshake prefix as 50505 (php-src GH-7972)
 - SHOW CREATE splits by vendor: MySQL quotes defaults (`'0'`) and prints `CURRENT_TIMESTAMP`; MariaDB prints typed literals (`0`) and `current_timestamp()`, and keeps int display widths (`int(11)`) that MySQL 8.0+ dropped
 - CHECK constraints are parsed but silently ignored on MySQL/Percona 5.7; enforced everywhere else, with different error codes (MySQL 3819, MariaDB 4025) and different SHOW CREATE placement (MySQL hoists column CHECKs into named constraints, MariaDB keeps them inline)
@@ -127,6 +128,36 @@ Stock Docker images with default configs answered these probes. Install-dependen
 ### utf8mb4_unicode_ci collation
 
 - all servers: `available`
+
+### @@have_ssl
+
+- `YES` → MySQL/Percona thru 8.0 and MariaDB 11.4+
+- `error: Unknown system variable 'have_ssl'` → MySQL/Percona 8.4+
+- `DISABLED` → MariaDB thru 10.11
+
+### @@have_openssl
+
+- `YES` → MySQL/Percona thru 8.0 and all MariaDB
+- `error: Unknown system variable 'have_openssl'` → MySQL/Percona 8.4+
+
+### @@tls_version
+
+- `TLSv1,TLSv1.1,TLSv1.2` → MySQL/Percona 5.7
+- `TLSv1.2,TLSv1.3` → MySQL/Percona 8.0+ and MariaDB 10.4+
+- `error: Unknown system variable 'tls_version'` → MariaDB thru 10.3
+
+### @@require_secure_transport
+
+- `0` → all MySQL/Percona and MariaDB 10.5+
+- `error: Unknown system variable 'require_secure_transport'` → MariaDB thru 10.4
+
+### session status Ssl_cipher
+
+- all servers: `(empty = this connection is not encrypted)`
+
+### session status Ssl_version
+
+- all servers: `(empty = this connection is not encrypted)`
 
 ### SHOW CREATE: num
 
@@ -370,12 +401,6 @@ Stock Docker images with default configs answered these probes. Install-dependen
 - `YES` → MySQL/Percona thru 8.0 and MariaDB 11.4+
 - `no rows (variable removed)` → MySQL/Percona 8.4+
 - `DISABLED` → MariaDB thru 10.11
-
-### @@tls_version
-
-- `TLSv1,TLSv1.1,TLSv1.2` → MySQL/Percona 5.7
-- `TLSv1.2,TLSv1.3` → MySQL/Percona 8.0+ and MariaDB 10.4+
-- `variable not supported` → MariaDB thru 10.3
 
 ### SHOW VARIABLES 'require_secure_transport'
 

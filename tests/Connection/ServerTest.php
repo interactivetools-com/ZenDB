@@ -15,7 +15,7 @@ class ServerTest extends BaseTestCase
     public static function versionStringProvider(): array
     {
         return [
-            // server_info from every server in docs/db-behavior-report.md (2026-07-07 run)
+            // server_info from every server in tools/db-behavior-report.md (2026-07-07 run)
             ['5.7.44',                                     '5.7.44'],   // mysql:5.7
             ['8.0.46',                                     '8.0.46'],   // mysql:8.0
             ['8.4.10',                                     '8.4.10'],   // mysql:8.4
@@ -77,7 +77,7 @@ class ServerTest extends BaseTestCase
     {
         return [
             // server_info, @@version_comment, @@basedir, @@datadir, expected name
-            // Docker values from docs/db-behavior-report.md; hosted values are representative, not CI-probed
+            // Docker values from tools/db-behavior-report.md; hosted values are representative, not CI-probed
             ['8.0.46',                  'MySQL Community Server - GPL',                        '/usr/',                                             '/var/lib/mysql/', 'MySQL'],
             ['10.6.27-MariaDB-ubu2204', 'mariadb.org binary distribution',                     '/usr',                                              '/var/lib/mysql/', 'MariaDB'],
             ['8.0.46-37',               'Percona Server (GPL), Release 37, Revision 39e2b60e', '/usr/',                                             '/var/lib/mysql/', 'Percona'],
@@ -115,6 +115,41 @@ class ServerTest extends BaseTestCase
         $this->assertSame(1, $fakeMysqli->queries);
     }
 
+    public static function sslConnectionProvider(): array
+    {
+        return [
+            ['',                       false],  // empty Ssl_cipher = plaintext connection
+            ['TLS_AES_256_GCM_SHA384', true],   // TLS 1.3 cipher name as reported by MySQL 8
+        ];
+    }
+
+    #[DataProvider('sslConnectionProvider')]
+    public function testIsSSLConnection(string $sslCipher, bool $expected): void
+    {
+        $server = new Server(new FakeMysqli('8.0.46', sslCipher: $sslCipher));
+
+        $this->assertSame($expected, $server->isSSLConnection());
+    }
+
+    public static function sslAvailableProvider(): array
+    {
+        return [
+            // @@have_ssl value (null = variable doesn't exist), expected
+            ['YES',      true],   // MySQL/Percona thru 8.0, MariaDB 11.4+, configured production servers
+            ['DISABLED', false],  // stock MariaDB thru 10.11: compiled in but no certificates
+            ['NO',       false],  // compiled without TLS support
+            [null,       true],   // MySQL/Percona 8.4+: variable removed, TLS always on
+        ];
+    }
+
+    #[DataProvider('sslAvailableProvider')]
+    public function testIsSSLAvailable(?string $haveSSL, bool $expected): void
+    {
+        $server = new Server(new FakeMysqli('8.0.46', haveSSL: $haveSSL));
+
+        $this->assertSame($expected, $server->isSSLAvailable());
+    }
+
     public function testServerIsWiredToConnectionLifecycle(): void
     {
         $db = self::createDefaultConnection();
@@ -123,6 +158,8 @@ class ServerTest extends BaseTestCase
         $this->assertSame(DB::$server, $db->server, 'clones share the connection Server instance');
         $this->assertMatchesRegularExpression('/^\d+\.\d+/', DB::$server->version());
         $this->assertContains(DB::$server->vendor(), ['mysql', 'mariadb', 'percona', 'aurora']);
+        $this->assertFalse(DB::$server->isSSLConnection(), 'test suite connects without TLS');
+        $this->assertIsBool(DB::$server->isSSLAvailable());
 
         DB::disconnect();
         $this->assertNull(DB::$server);
@@ -130,8 +167,9 @@ class ServerTest extends BaseTestCase
 }
 
 /**
- * Fakes the two mysqli members Server reads: the server_info property and the
- * fingerprint query. Extends stdClass to satisfy Server's mysqli|stdClass type.
+ * Fakes the mysqli members Server reads: the server_info property and the queries
+ * behind vendor detection and the SSL checks. Extends stdClass to satisfy Server's
+ * mysqli|stdClass type. $haveSSL null = variable doesn't exist (MySQL/Percona 8.4+).
  */
 class FakeMysqli extends stdClass
 {
@@ -142,25 +180,36 @@ class FakeMysqli extends stdClass
         private ?string $versionComment = null,
         private string $basedir = '/usr/',
         private string $datadir = '/var/lib/mysql/',
+        private string $sslCipher = '',
+        private ?string $haveSSL = null,
     ) {
     }
 
     public function query(string $sql): object
     {
-        if ($this->versionComment === null) {
-            throw new RuntimeException("Unexpected query \"$sql\" for '$this->server_info': vendor() should answer from the handshake alone");
-        }
         $this->queries++;
-        $row = [$this->versionComment, $this->basedir, $this->datadir];
+        $row = match (true) {
+            str_contains($sql, 'Ssl_cipher') => ['Ssl_cipher', $this->sslCipher],
+            str_contains($sql, 'have_ssl')   => $this->haveSSL === null ? null : ['have_ssl', $this->haveSSL],
+            default                          => $this->vendorRow($sql),
+        };
         return new class ($row) {
-            public function __construct(private readonly array $row)
+            public function __construct(private readonly ?array $row)
             {
             }
 
-            public function fetch_row(): array
+            public function fetch_row(): ?array
             {
                 return $this->row;
             }
         };
+    }
+
+    private function vendorRow(string $sql): array
+    {
+        if ($this->versionComment === null) {
+            throw new RuntimeException("Unexpected query \"$sql\" for '$this->server_info': vendor() should answer from the handshake alone");
+        }
+        return [$this->versionComment, $this->basedir, $this->datadir];
     }
 }
