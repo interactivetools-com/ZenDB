@@ -749,10 +749,10 @@ trait ConnectionInternals
      * - Self-joins: adds alias-based names (e.g., 'a.name', 'b.name')
      * - Auto-decryption: MEDIUMBLOB columns are decrypted when an encryption key is configured
      */
-    private function fetchMappedRows(mysqli_result|bool $mysqliResult): array
+    private function fetchMappedRows(mysqli_result|MysqliResultPolyfill|bool $mysqliResult): array
     {
-        if (!$mysqliResult instanceof mysqli_result) {
-            return [];  // INSERT/UPDATE/DELETE return true, not mysqli_result
+        if (is_bool($mysqliResult)) {
+            return [];  // INSERT/UPDATE/DELETE return true, not a result set
         }
 
         // Extract field metadata from result

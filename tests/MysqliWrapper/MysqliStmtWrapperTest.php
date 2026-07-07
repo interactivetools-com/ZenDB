@@ -79,10 +79,7 @@ class MysqliStmtWrapperTest extends BaseTestCase
         $result = $stmt->get_result();
 
         $this->assertInstanceOf(MysqliResultPolyfill::class, $result);
-
-        // Call __get directly to bypass PHP's internal checks on the parent object
-        $fieldCount = $result->__get('field_count');
-        $this->assertSame(2, $fieldCount);
+        $this->assertSame(2, $result->field_count);
     }
 
     public function testPolyfillNumRowsViaDirectCall(): void
@@ -100,13 +97,10 @@ class MysqliStmtWrapperTest extends BaseTestCase
         $result = $stmt->get_result();
 
         $this->assertInstanceOf(MysqliResultPolyfill::class, $result);
-
-        // Call __get directly
-        $numRows = $result->__get('num_rows');
-        $this->assertSame(3, $numRows);
+        $this->assertSame(3, $result->num_rows);
     }
 
-    public function testPolyfillInvalidPropertyThrows(): void
+    public function testPolyfillNumRowsIsZeroForEmptyResult(): void
     {
         MysqliWrapper::$forceExecuteQueryPolyfill = true;
         MysqliStmtWrapper::enableTestResultPolyfill(true);
@@ -114,17 +108,46 @@ class MysqliStmtWrapperTest extends BaseTestCase
         $conn = new Connection(self::$configDefaults);
         $conn->mysqli->query("DROP TEMPORARY TABLE IF EXISTS stmt_test5");
         $conn->mysqli->query("CREATE TEMPORARY TABLE stmt_test5 (id INT)");
-        $conn->mysqli->query("INSERT INTO stmt_test5 VALUES (1)");
 
         $stmt = $conn->mysqli->prepare("SELECT * FROM stmt_test5");
         $stmt->execute();
         $result = $stmt->get_result();
 
-        $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessage("Property invalid_property is not accessible");
+        $this->assertSame(0, $result->num_rows);
+        $this->assertNull($result->fetch_assoc());
+    }
 
-        // Call __get directly for invalid property
-        $result->__get('invalid_property');
+    public function testPolyfillDataSeek(): void
+    {
+        MysqliWrapper::$forceExecuteQueryPolyfill = true;
+        MysqliStmtWrapper::enableTestResultPolyfill(true);
+
+        $conn = new Connection(self::$configDefaults);
+        $conn->mysqli->query("DROP TEMPORARY TABLE IF EXISTS stmt_test8");
+        $conn->mysqli->query("CREATE TEMPORARY TABLE stmt_test8 (id INT)");
+        $conn->mysqli->query("INSERT INTO stmt_test8 VALUES (1), (2), (3)");
+
+        $stmt = $conn->mysqli->prepare("SELECT id FROM stmt_test8 ORDER BY id");
+        $stmt->execute();
+        $result = $stmt->get_result();
+
+        $this->assertTrue($result->data_seek(2));
+        $this->assertSame([3], $result->fetch_row());
+        $this->assertTrue($result->data_seek(0));
+        $this->assertSame([1], $result->fetch_row());
+        $this->assertFalse($result->data_seek(99));  // out of range, like native
+    }
+
+    public function testDbQuerySelectWorksWithForcedPolyfill(): void
+    {
+        // Guards the fetchMappedRows() result-type check: if the polyfill stopped being
+        // accepted there, every SELECT on PHP 8.1 without mysqlnd would return zero rows
+        MysqliWrapper::$forceExecuteQueryPolyfill = true;
+        MysqliStmtWrapper::enableTestResultPolyfill(true);
+
+        $conn = new Connection(self::$configDefaults);
+        $rows = $conn->query("SELECT ? AS a UNION SELECT ?", 1, 2);
+        $this->assertCount(2, $rows);
     }
 
     public function testPolyfillUnimplementedMethodThrows(): void
@@ -144,8 +167,7 @@ class MysqliStmtWrapperTest extends BaseTestCase
         $this->expectException(\BadMethodCallException::class);
         $this->expectExceptionMessage("not implemented in polyfill");
 
-        // Call __call directly to test unimplemented method handling
-        $result->__call('data_seek', [0]);
+        $result->fetch_column();
     }
 
     public function testPolyfillFetchArrayWithNoFields(): void

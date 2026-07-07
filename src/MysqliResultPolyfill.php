@@ -4,24 +4,31 @@ declare(strict_types=1);
 namespace Itools\ZenDB;
 
 use BadMethodCallException;
-use InvalidArgumentException;
 use mysqli_result;
 use mysqli_stmt;
+use ValueError;
 
 /**
  * Class MysqliResultPolyfill
  *
- * Polyfills mysqli_stmt::get_result() for PHP 8.1 systems without mysqlnd.
- * The get_result() method doesn't exist at all without mysqlnd, so this class
- * emulates it using the older bind_result()/fetch() pattern.
+ * Emulates the mysqli_result returned by mysqli_stmt::get_result() for PHP 8.1 systems
+ * without mysqlnd, where get_result() doesn't exist. Rows come from the classic
+ * bind_result()/fetch() pattern; num_rows and field_count are real properties populated
+ * from the buffered statement.
  *
- * NOTE: This is only used on PHP 8.1 without mysqlnd (a rare edge case).
- * On PHP 8.2+, mysqlnd is mandatory, so this polyfill is never triggered.
+ * Standalone class, not a mysqli_result subclass: mysqli_result's num_rows/field_count
+ * properties are read-only at the C level and throw on an object with no underlying
+ * result, so a subclass can't emulate them. On PHP 8.1 without mysqlnd, code receiving
+ * results from prepare()->get_result() or execute_query() must not type-hint or
+ * instanceof-check mysqli_result.
  *
- * Extends mysqli_result for type compatibility (instanceof checks).
+ * TODO-PHP82: Delete this class. From PHP 8.2 mysqli always builds with mysqlnd, so get_result() is always native.
  */
-class MysqliResultPolyfill extends mysqli_result
+class MysqliResultPolyfill
 {
+    public int $num_rows;
+    public int $field_count;
+
     private mysqli_stmt         $stmt;
     private mysqli_result|false $meta;
     private array               $fieldObjects;
@@ -30,7 +37,6 @@ class MysqliResultPolyfill extends mysqli_result
      * Returns object that emulates mysqli_result.
      *
      * @param mysqli_stmt $stmt The mysqli statement from which results are to be fetched.
-     * @noinspection PhpMissingParentConstructorInspection - Intentionally not calling parent; this polyfill emulates mysqli_result without a real connection
      */
     public function __construct(mysqli_stmt $stmt)
     {
@@ -38,8 +44,10 @@ class MysqliResultPolyfill extends mysqli_result
         $this->meta         = $stmt->result_metadata();
         $this->fieldObjects = $this->meta ? $this->meta->fetch_fields() : [];
 
-        // store results so row count can be determined
+        // Buffer rows client-side, matching native get_result(); makes num_rows and data_seek() valid
         $stmt->store_result();
+        $this->num_rows    = (int)$stmt->num_rows;
+        $this->field_count = $stmt->field_count;
     }
 
     /**
@@ -55,43 +63,41 @@ class MysqliResultPolyfill extends mysqli_result
      */
     public function fetch_array(int $mode = MYSQLI_BOTH): array|null|false
     {
+        // Match native mysqli, which validates the mode before touching the result
+        if (!in_array($mode, [MYSQLI_NUM, MYSQLI_ASSOC, MYSQLI_BOTH], true)) {
+            throw new ValueError('mysqli_result::fetch_array(): Argument #1 ($mode) must be one of MYSQLI_NUM, MYSQLI_ASSOC, or MYSQLI_BOTH');
+        }
+
         // If there are no fields, return null
         if (!$this->fieldObjects) {
             return null;
         }
 
-        // Prepare an array to hold the row values
-        $row = [];
-        // Prepare an array to hold references to the row values
-        $params = [];
-        foreach ($this->fieldObjects as $column) {
-            // Each element in $params is a reference to the corresponding element in $row
-            $params[] = &$row[$column->name];
+        // Bind by position, one slot per column. A JOIN can select two columns with the
+        // same name (SELECT a.id, b.id), so name-keyed slots would collapse them and drop
+        // a column. Positional slots keep every column; we build the keyed row afterward.
+        // Unpacking into bind_result()'s by-reference variadic binds the slots directly.
+        $values = array_fill(0, count($this->fieldObjects), null);
+        $this->stmt->bind_result(...$values);
+
+        if (!$this->stmt->fetch()) {
+            return null; // No more rows
         }
 
-        // Dynamically bind the columns to the $row array elements
-        $this->stmt->bind_result(...$params);
-
-        if ($this->stmt->fetch()) {
-            $result       = [];
-            $addNumeric   = $mode & MYSQLI_NUM;
-            $addNamed     = $mode & MYSQLI_ASSOC;
-            $numericIndex = 0;
-
-            // Build result with interleaved keys to match native mysqli_result behavior
-            foreach ($row as $key => $val) {
-                if ($addNumeric) {
-                    $result[$numericIndex++] = $val;
-                }
-                if ($addNamed) {
-                    $result[$key] = $val;
-                }
+        $result     = [];
+        $addNumeric = $mode & MYSQLI_NUM;
+        $addNamed   = $mode & MYSQLI_ASSOC;
+        foreach ($this->fieldObjects as $i => $column) {
+            if ($addNumeric) {
+                $result[$i] = $values[$i];
             }
-
-            return $result;
+            if ($addNamed) {
+                // Duplicate names are last-wins, matching native mysqli_result
+                $result[$column->name] = $values[$i];
+            }
         }
 
-        return null; // No more rows
+        return $result;
     }
 
     /**
@@ -145,6 +151,21 @@ class MysqliResultPolyfill extends mysqli_result
     }
 
     /**
+     * Adjust the result pointer to an arbitrary row, like native mysqli_result::data_seek()
+     */
+    public function data_seek(int $offset): bool
+    {
+        if ($offset < 0) {
+            throw new ValueError('mysqli_result::data_seek(): Argument #1 ($offset) must be greater than or equal to 0');
+        }
+        if ($offset >= $this->num_rows) {
+            return false;
+        }
+        $this->stmt->data_seek($offset);
+        return true;
+    }
+
+    /**
      * Frees the memory associated with a result
      */
     public function free(): void
@@ -152,19 +173,6 @@ class MysqliResultPolyfill extends mysqli_result
         if ($this->meta) {
             $this->meta->free();
         }
-    }
-
-    /**
-     * Emulate properties
-     * @throws InvalidArgumentException
-     */
-    public function __get(string $name): int
-    {
-        return match ($name) {
-            'field_count' => $this->stmt->field_count,
-            'num_rows'    => $this->stmt->num_rows,
-            default       => throw new InvalidArgumentException("Property $name is not accessible or does not exist."),
-        };
     }
 
     /**

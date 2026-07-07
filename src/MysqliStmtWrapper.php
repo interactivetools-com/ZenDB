@@ -7,6 +7,7 @@ use mysqli_result;
 use mysqli_sql_exception;
 use mysqli_stmt;
 use PHPUnit\Framework\TestCase;
+use ReturnTypeWillChange;
 use RuntimeException;
 
 /**
@@ -61,12 +62,24 @@ class MysqliStmtWrapper extends mysqli_stmt
     /**
      * Get result set from prepared statement.
      * Falls back to MysqliResultPolyfill if mysqlnd is not available.
+     *
+     * ReturnTypeWillChange suppresses the deprecation for widening the parent's tentative
+     * mysqli_result|false type; without mysqlnd the parent method doesn't exist at all.
+     * TODO-PHP82: The widened type goes away with the polyfill.
      */
-    public function get_result(): mysqli_result|false
+    #[ReturnTypeWillChange]
+    public function get_result(): mysqli_result|MysqliResultPolyfill|false
     {
         // get_result() requires mysqlnd (mandatory in PHP 8.2+, optional in 8.1)
+        // TODO-PHP82: Remove the polyfill fallback below (and the force flag); mysqlnd is always present from 8.2
         if (!self::$forceResultPolyfill && method_exists(parent::class, 'get_result')) {
             return parent::get_result();
+        }
+
+        // A write (INSERT/UPDATE/DELETE) has no result columns. Native get_result()
+        // returns false here, so callers get false and can fall through to true.
+        if ($this->field_count === 0) {
+            return false;
         }
         return new MysqliResultPolyfill($this);
     }

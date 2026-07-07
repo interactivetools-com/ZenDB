@@ -8,6 +8,7 @@ use Itools\ZenDB\MysqliResultPolyfill;
 use Itools\ZenDB\MysqliStmtWrapper;
 use Itools\ZenDB\MysqliWrapper;
 use Itools\ZenDB\Tests\BaseTestCase;
+use ValueError;
 
 /**
  * Tests for MysqliResultPolyfill - exercises the polyfill used when mysqlnd is unavailable
@@ -117,6 +118,20 @@ class MysqliResultPolyfillTest extends BaseTestCase
         $this->assertArrayHasKey(0, $row);
         $this->assertArrayHasKey(1, $row);
         $this->assertArrayNotHasKey('num', $row);
+    }
+
+    public function testFetchArrayInvalidModeThrowsValueError(): void
+    {
+        $result = $this->conn->mysqli->execute_query("SELECT num, name FROM polyfill_test WHERE num = ?", [1]);
+
+        // Native mysqli throws ValueError without consuming the row; the polyfill must match
+        try {
+            $result->fetch_array(0);
+            $this->fail("Expected ValueError was not thrown");
+        } catch (ValueError) {
+            // expected
+        }
+        $this->assertSame(1, $result->fetch_assoc()['num']); // row not consumed
     }
 
     public function testFetchArrayAssoc(): void
@@ -274,13 +289,18 @@ class MysqliResultPolyfillTest extends BaseTestCase
 
     public function testFreeWithFalseMetaDoesNotCrash(): void
     {
+        $this->expectNotToPerformAssertions();
+
         // Non-SELECT statements have result_metadata() === false
         $this->conn->mysqli->query("DROP TEMPORARY TABLE IF EXISTS polyfill_free_test");
         $this->conn->mysqli->query("CREATE TEMPORARY TABLE polyfill_free_test (id INT)");
 
-        // INSERT via polyfill returns MysqliResultPolyfill with meta=false
-        $result = $this->conn->mysqli->execute_query("INSERT INTO polyfill_free_test VALUES (?)", [1]);
-        $this->assertInstanceOf(MysqliResultPolyfill::class, $result);
+        // A write through the wrapper returns true, not a result object (get_result() returns
+        // false for zero-column statements). Build the polyfill directly to exercise free()
+        // on a meta=false instance.
+        $stmt = $this->conn->mysqli->prepare("INSERT INTO polyfill_free_test VALUES (?)");
+        $stmt->execute([1]);
+        $result = new MysqliResultPolyfill($stmt);
 
         // free() should not crash even when meta is false
         $result->free();

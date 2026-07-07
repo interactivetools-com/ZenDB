@@ -11,6 +11,12 @@
 
 ### Fixed
 - Template validation - Now also rejects hex (`0x1AF`), binary (`0b1010`), and scientific (`1e10`) numeric literals in query templates; use placeholders instead
+- Result polyfill (PHP 8.1 without mysqlnd) - Now a standalone class rather than a `mysqli_result` subclass, fixing several emulation gaps:
+  - JOINs that select two same-named columns (`SELECT a.id, b.id`) now return both
+  - Writes now return `true` instead of an empty result object
+  - `num_rows` / `field_count` reads now return real counts (previously threw `Error: object is already closed`)
+  - Invalid `fetch_array()` mode now throws `ValueError` like native mysqli
+  - Added `data_seek()`
 - `DB::getColumnDefinitions()` - Identical schemas now return identical definition strings on MySQL and MariaDB:
   - Display widths cropped to match MySQL 8 (`int(11)` → `int`, `year(4)` → `year`; plain `tinyint(1)` and ZEROFILL keep theirs)
   - MariaDB's `DEFAULT current_timestamp()` normalized to `DEFAULT CURRENT_TIMESTAMP`

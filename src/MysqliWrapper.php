@@ -219,10 +219,11 @@ class MysqliWrapper extends mysqli
      *
      * @param string     $query  SQL with ? placeholders
      * @param array|null $params Parameters to bind (null or empty for none)
-     * @return mysqli_result|true mysqli_result for queries that return rows, true otherwise; throws on failure
+     * @return mysqli_result|MysqliResultPolyfill|true result for queries that return rows (the polyfill on PHP 8.1 without mysqlnd), true otherwise; throws on failure
      * @throws mysqli_sql_exception On query failure
      */
-    public function execute_query(string $query, ?array $params = null): mysqli_result|bool
+    #[ReturnTypeWillChange]
+    public function execute_query(string $query, ?array $params = null): mysqli_result|MysqliResultPolyfill|bool
     {
         // Use native execute_query() if available (PHP 8.2+) and not forcing polyfill
         if (PHP_VERSION_ID >= 80200 && !self::$forceExecuteQueryPolyfill) {
@@ -243,6 +244,7 @@ class MysqliWrapper extends mysqli
         }
 
         // Polyfill for PHP 8.1 - always use prepare/execute for consistent type handling
+        // TODO-PHP82: Remove this polyfill branch (and the force flag); execute_query() is native from 8.2
         // Destroy previous statement first (its destructor resets affected_rows)
         $this->stmtKeepAlive = null;
 
