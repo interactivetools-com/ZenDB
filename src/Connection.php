@@ -37,6 +37,13 @@ class Connection
     public ?MysqliWrapper $mysqli = null;
 
     /**
+     * Identity facts about the connected database server. Set at connect, null when disconnected.
+     *
+     *     $db->server->version();  // "10.6.27"
+     */
+    public ?Server $server = null;
+
+    /**
      * Table prefix prepended to table names (e.g., 'cms_')
      */
     public string $tablePrefix = '';
@@ -177,9 +184,11 @@ class Connection
             $this->mysqli->set_charset('utf8mb4');
         }
 
+        $this->server = new Server($this->mysqli);
+
         // Check mysql version
         if ($this->versionRequired) {
-            $currentVersion = preg_replace("/[^0-9.]/", '', $this->mysqli->server_info);
+            $currentVersion = $this->server->version();
             if (version_compare($this->versionRequired, $currentVersion, '>')) {
                 $error = "This program requires MySQL v$this->versionRequired or newer. This server has v$currentVersion installed.\n";
                 $error .= "Please ask your server administrator to install MySQL v$this->versionRequired or newer.\n";
@@ -226,6 +235,7 @@ class Connection
             $this->mysqli->close();
             $this->mysqli = null;
         }
+        $this->server = null;
     }
 
     /**

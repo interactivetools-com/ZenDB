@@ -28,11 +28,13 @@ class DbBehaviorReportDriftTest extends BaseTestCase
         $this->assertSame($srcMode[1], $toolMode[1] ?? null, 'db-behavior-report.php probes a different sql_mode than ZenDB sets');
     }
 
-    public function testVersionRegexProbeMatchesConnection(): void
+    public function testVersionParseProbeMatchesServer(): void
     {
-        $regexCall = 'preg_replace("/[^0-9.]/"';
-        $this->assertStringContainsString($regexCall, file_get_contents(__DIR__ . '/../../src/Connection.php'), 'versionRequired regex changed in Connection.php - update the probe in db-behavior-report.php');
-        $this->assertStringContainsString($regexCall, self::toolSource());
+        $serverSource = file_get_contents(__DIR__ . '/../../src/Server.php');
+        foreach (["preg_replace('/^5\\.5\\.5-(?=\\d)/'", "preg_match('/^[\\d.]+/'"] as $regexCall) {
+            $this->assertStringContainsString($regexCall, $serverSource, 'version parse changed in Server.php - update the probe in db-behavior-report.php');
+            $this->assertStringContainsString($regexCall, self::toolSource());
+        }
     }
 
     public function testKeyFoldingProbeMatchesAesKey(): void

@@ -59,17 +59,20 @@ try {
 try {
     [$version, $versionComment, $sqlMode, $basedir, $datadir] = $mysqli->query("SELECT VERSION(), @@version_comment, @@GLOBAL.sql_mode, @@basedir, @@datadir")->fetch_row();
 
+    // Server::version() reduces server_info to a version number in two steps; duplicated
+    // here as literals so the report shows what ZenDB parses on each raw server
+    $strippedServerInfo = preg_replace('/^5\.5\.5-(?=\d)/', '', $mysqli->server_info);
+    preg_match('/^[\d.]+/', $strippedServerInfo, $versionMatch);
+
     $identityProbes = [
         'VERSION()'          => $version,
         '@@version_comment'  => $versionComment,
         'mysqli server_info' => $mysqli->server_info,
         // mysqlnd computes this int client-side from the handshake string (major*10000 + minor*100 + patch),
         // so it reports this runner's mysqlnd parse, not a server fact. PHP before 8.0.16/8.1.3 parsed
-        // MariaDB's "5.5.5-" prefix as 50505 (php bug #81657)
+        // MariaDB's "5.5.5-" prefix as 50505 (php-src GH-7972)
         'mysqli server_version' => (string)$mysqli->server_version,
-        // The versionRequired guard strips server_info with this regex; MariaDB's legacy
-        // "5.5.5-10.x.y-MariaDB" handshake format would mangle into a bogus version here
-        'server_info after versionRequired regex preg_replace("/[^0-9.]/", "", ...)' => preg_replace("/[^0-9.]/", '', $mysqli->server_info),
+        'server_info after Server::version() parse' => rtrim($versionMatch[0] ?? '', '.'),
         // CMS Builder fingerprints Amazon RDS by basedir/datadir path prefixes
         '@@basedir'          => $basedir,
         '@@datadir'          => $datadir,

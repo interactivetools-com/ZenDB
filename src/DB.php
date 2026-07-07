@@ -44,6 +44,13 @@ class DB
     public static ?MysqliWrapper $mysqli = null;
 
     /**
+     * Identity facts about the connected database server. Set at connect, null when disconnected.
+     *
+     *     DB::$server->version();  // "10.6.27"
+     */
+    public static ?Server $server = null;
+
+    /**
      * Table prefix prepended to table names (e.g., 'cms_')
      */
     public static string $tablePrefix = '';
@@ -90,6 +97,7 @@ class DB
 
         self::$db          = $conn;
         self::$mysqli      = $conn->mysqli;
+        self::$server      = $conn->server;
         self::$tablePrefix = $conn->tablePrefix;
     }
 
@@ -112,6 +120,7 @@ class DB
             self::$db->disconnect();
             self::$db          = null;
             self::$mysqli      = null;
+            self::$server      = null;
             self::$tablePrefix = '';
         }
     }

@@ -6,13 +6,14 @@ How every supported database server answers the same behavior probes, showing on
     gh run download --dir reports            # pick the latest DB Behavior Report run
     php tools/db-behavior-merge.php reports/*/report-*.json > docs/db-behavior-report.md
 
-Last generated: 2026-07-06 from 17 servers: mysql:5.7, mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, mariadb:10.2, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8, mariadb:12.3, percona/percona-server:5.7, percona/percona-server:8.0, percona/percona-server:8.4
+Last generated: 2026-07-07 from 17 servers: mysql:5.7, mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, mariadb:10.2, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8, mariadb:12.3, percona/percona-server:5.7, percona/percona-server:8.0, percona/percona-server:8.4
 
 Stock Docker images with default configs answered these probes. Install-dependent rows (directory paths, sql_mode, TLS and log settings, version strings) will differ on real servers, where distro packages, hosting panels, and my.cnf all change them. SHOW CREATE formatting, error codes, collations, and result typing are fixed per server version.
 
 ## Key differences
 
 - Percona Server answers every probe byte-identically to the same MySQL version; it never needs separate handling
+- Every version source agrees: server_info matches VERSION() byte-for-byte, and mysqlnd's server_version int matches to the patch level (Percona's build suffix dropped correctly) - though that int is a client-side parse, and PHP before 8.0.16/8.1.3 misread MariaDB's `5.5.5-` handshake prefix as 50505 (php-src GH-7972)
 - SHOW CREATE splits by vendor: MySQL quotes defaults (`'0'`) and prints `CURRENT_TIMESTAMP`; MariaDB prints typed literals (`0`) and `current_timestamp()`, and keeps int display widths (`int(11)`) that MySQL 8.0+ dropped
 - CHECK constraints are parsed but silently ignored on MySQL/Percona 5.7; enforced everywhere else, with different error codes (MySQL 3819, MariaDB 4025) and different SHOW CREATE placement (MySQL hoists column CHECKs into named constraints, MariaDB keeps them inline)
 - Default utf8mb4 collation splits four ways: none stated (5.7 era), 0900_ai_ci (MySQL/Percona 8.0+), general_ci (MariaDB 10.4-10.11), uca1400_ai_ci (MariaDB 11.4+)
@@ -74,25 +75,39 @@ Stock Docker images with default configs answered these probes. Install-dependen
 - `8.0.46-37` → percona/percona-server:8.0
 - `8.4.10-10` → percona/percona-server:8.4
 
-### server_info after versionRequired regex preg_replace("/[^0-9.]/", "", ...)
+### mysqli server_version
 
-- `5.7.44` → mysql:5.7
-- `8.0.46` → mysql:8.0
-- `8.4.10` → mysql:8.4
+- `50744` → MySQL/Percona 5.7
+- `80046` → mysql:8.0, percona/percona-server:8.0
+- `80410` → mysql:8.4, percona/percona-server:8.4
+- `90600` → mysql:9.6
+- `90701` → mysql:9.7
+- `100244` → mariadb:10.2
+- `100339` → mariadb:10.3
+- `100434` → mariadb:10.4
+- `100529` → mariadb:10.5
+- `100627` → mariadb:10.6
+- `101118` → mariadb:10.11
+- `110412` → mariadb:11.4
+- `110808` → mariadb:11.8
+- `120302` → mariadb:12.3
+
+### server_info after Server::version() parse
+
+- `5.7.44` → MySQL/Percona 5.7
+- `8.0.46` → mysql:8.0, percona/percona-server:8.0
+- `8.4.10` → mysql:8.4, percona/percona-server:8.4
 - `9.6.0` → mysql:9.6
 - `9.7.1` → mysql:9.7
-- `10.2.44110.2.44` → mariadb:10.2
-- `10.3.39110.3.392004` → mariadb:10.3
-- `10.4.34110.4.342004` → mariadb:10.4
-- `10.5.292004` → mariadb:10.5
-- `10.6.272204` → mariadb:10.6
-- `10.11.182204` → mariadb:10.11
-- `11.4.122404` → mariadb:11.4
-- `11.8.82404` → mariadb:11.8
-- `12.3.22404` → mariadb:12.3
-- `5.7.4448` → percona/percona-server:5.7
-- `8.0.4637` → percona/percona-server:8.0
-- `8.4.1010` → percona/percona-server:8.4
+- `10.2.44` → mariadb:10.2
+- `10.3.39` → mariadb:10.3
+- `10.4.34` → mariadb:10.4
+- `10.5.29` → mariadb:10.5
+- `10.6.27` → mariadb:10.6
+- `10.11.18` → mariadb:10.11
+- `11.4.12` → mariadb:11.4
+- `11.8.8` → mariadb:11.8
+- `12.3.2` → mariadb:12.3
 
 ### @@basedir
 

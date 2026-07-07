@@ -55,6 +55,7 @@ echo <<<__SUMMARY__
     ## Key differences
 
     - Percona Server answers every probe byte-identically to the same MySQL version; it never needs separate handling
+    - Every version source agrees: server_info matches VERSION() byte-for-byte, and mysqlnd's server_version int matches to the patch level (Percona's build suffix dropped correctly) - though that int is a client-side parse, and PHP before 8.0.16/8.1.3 misread MariaDB's `5.5.5-` handshake prefix as 50505 (php-src GH-7972)
     - SHOW CREATE splits by vendor: MySQL quotes defaults (`'0'`) and prints `CURRENT_TIMESTAMP`; MariaDB prints typed literals (`0`) and `current_timestamp()`, and keeps int display widths (`int(11)`) that MySQL 8.0+ dropped
     - CHECK constraints are parsed but silently ignored on MySQL/Percona 5.7; enforced everywhere else, with different error codes (MySQL 3819, MariaDB 4025) and different SHOW CREATE placement (MySQL hoists column CHECKs into named constraints, MariaDB keeps them inline)
     - Default utf8mb4 collation splits four ways: none stated (5.7 era), 0900_ai_ci (MySQL/Percona 8.0+), general_ci (MariaDB 10.4-10.11), uca1400_ai_ci (MariaDB 11.4+)
