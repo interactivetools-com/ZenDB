@@ -23,6 +23,7 @@ on:
           - mysql:8.0
           - mysql:8.4
           - mysql:9.6
+          - mysql:9.7
           - mariadb:10.2
           - mariadb:10.4
           - mariadb:10.5
@@ -30,6 +31,7 @@ on:
           - mariadb:10.11
           - mariadb:11.4
           - mariadb:11.8
+          - mariadb:12.3
           - percona/percona-server:5.7
           - percona/percona-server:8.0
           - percona/percona-server:8.4
