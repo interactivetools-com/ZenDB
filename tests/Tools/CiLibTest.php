@@ -32,6 +32,30 @@ class CiLibTest extends TestCase
         $this->assertCount(4, databaseSortKey('mysql:8.0.42.1'));
     }
 
+    public function testServerFamiliesBuildsVendorAndThresholdSets(): void
+    {
+        $servers  = ['mysql:5.7', 'mysql:8.0', 'mariadb:10.2', 'mariadb:10.11', 'mariadb:11.4', 'percona/percona-server:5.7'];
+        $families = serverFamilies($servers);
+
+        $this->assertSame(['mysql:5.7', 'mysql:8.0', 'percona/percona-server:5.7'], $families['all MySQL/Percona']);
+        $this->assertSame(['mysql:5.7', 'percona/percona-server:5.7'],              $families['MySQL/Percona 5.7']);
+        $this->assertSame(['mariadb:10.11', 'mariadb:11.4'],                        $families['MariaDB 10.11+']);
+        $this->assertSame(['mariadb:10.2', 'mariadb:10.11'],                        $families['MariaDB thru 10.11']);
+    }
+
+    public function testServerGroupLabelMatchesFamiliesAndPairs(): void
+    {
+        $servers  = ['mysql:5.7', 'mysql:8.0', 'mysql:8.4', 'mariadb:10.2', 'mariadb:10.11', 'mariadb:11.4', 'percona/percona-server:5.7', 'percona/percona-server:8.0'];
+        $families = serverFamilies($servers);
+
+        $this->assertSame('all MariaDB', serverGroupLabel(['mariadb:11.4', 'mariadb:10.2', 'mariadb:10.11'], $families));
+        $this->assertSame(
+            'MySQL/Percona 8.0+ and MariaDB 10.11+',
+            serverGroupLabel(['mysql:8.0', 'mysql:8.4', 'percona/percona-server:8.0', 'mariadb:10.11', 'mariadb:11.4'], $families),
+        );
+        $this->assertNull(serverGroupLabel(['mysql:5.7', 'mariadb:10.2'], $families), 'odd groupings fall back to explicit lists');
+    }
+
     public function testMdValueEscapesTableBreakers(): void
     {
         $this->assertSame('(empty string)', mdValue(''));

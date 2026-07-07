@@ -10,7 +10,7 @@ declare(strict_types=1);
  *     php tools/db-behavior-report.php                     # markdown to stdout
  *     php tools/db-behavior-report.php --json=report.json  # markdown to stdout, probe values to JSON
  *
- * The CI workflow (.github/workflows/db-report.yml) runs this against every database
+ * The CI workflow (.github/workflows/db-behavior-report.yml) runs this against every database
  * image in the matrix and merges the JSON files with db-behavior-merge.php to show
  * which servers differ.
  *
@@ -65,7 +65,7 @@ try {
         'mysqli server_info' => $mysqli->server_info,
         // The versionRequired guard strips server_info with this regex; MariaDB's legacy
         // "5.5.5-10.x.y-MariaDB" handshake format would mangle into a bogus version here
-        'server_info after versionRequired regex' => preg_replace("/[^0-9.]/", '', $mysqli->server_info),
+        'server_info after versionRequired regex preg_replace("/[^0-9.]/", "", ...)' => preg_replace("/[^0-9.]/", '', $mysqli->server_info),
         // CMS Builder fingerprints Amazon RDS by basedir/datadir path prefixes
         '@@basedir'          => $basedir,
         '@@datadir'          => $datadir,

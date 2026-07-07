@@ -25,6 +25,7 @@ on:
           - mysql:9.6
           - mysql:9.7
           - mariadb:10.2
+          - mariadb:10.3
           - mariadb:10.4
           - mariadb:10.5
           - mariadb:10.6
@@ -117,7 +118,7 @@ jobs:
 
       - name: Upload timing
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: timing-${{ env.SLUG }}
           path: timing-*.json
@@ -136,7 +137,7 @@ jobs:
         uses: actions/checkout@v5
 
       - name: Download timing artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           pattern: timing-*
           merge-multiple: true
