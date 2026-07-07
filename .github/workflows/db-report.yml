@@ -1,17 +1,10 @@
-name: Tests
+name: DB Behavior Report
 
+# Manual-only: never runs on push. Dispatch from the Actions tab ("Run workflow") or
+# with: gh workflow run db-report.yml
 on:
-  push:
-    branches: [main, dev]
-  pull_request:
-    branches: [main]
   workflow_dispatch:
     inputs:
-      php:
-        description: 'PHP version (blank = all)'
-        required: false
-        type: choice
-        options: ['', '8.1', '8.2', '8.3', '8.4', '8.5']
       database:
         description: 'Database (blank = all)'
         required: false
@@ -48,15 +41,14 @@ jobs:
         id: load
         run: echo "databases=$(jq -c . .github/db-matrix.json)" >> "$GITHUB_OUTPUT"
 
-  test:
-    name: PHP ${{ matrix.php }} / ${{ matrix.database }}
+  probe:
+    name: ${{ matrix.database }}
     runs-on: ubuntu-latest
     needs: db-matrix
 
     strategy:
       fail-fast: false
       matrix:
-        php: ${{ inputs.php && fromJSON(format('["{0}"]', inputs.php)) || fromJSON('["8.1","8.2","8.3","8.4","8.5"]') }}
         database: ${{ inputs.database && fromJSON(format('["{0}"]', inputs.database)) || fromJSON(needs.db-matrix.outputs.databases) }}
 
     services:
@@ -81,15 +73,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
-      - name: Setup PHP ${{ matrix.php }}
+      # The probe script uses plain mysqli with no dependencies, so no composer install
+      - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
-          php-version: ${{ matrix.php }}
-          extensions: mysqli, openssl, mbstring
+          php-version: '8.3'
+          extensions: mysqli, openssl
           coverage: none
-
-      - name: Install dependencies
-        run: composer install --no-interaction --prefer-dist
 
       - name: Wait for database
         run: |
@@ -98,47 +88,44 @@ jobs:
             sleep 1
           done
 
-      - name: Run tests
-        run: vendor/bin/phpunit --colors=always --log-junit junit.xml
+      - name: Run probes
         env:
           DB_HOSTNAME: 127.0.0.1
           DB_USERNAME: root
           DB_PASSWORD: ''
           DB_DATABASE: phpunit_test_db
-
-      - name: Record timing
-        if: always()
+          DB_LABEL: ${{ matrix.database }}
         run: |
-          SLUG=$(echo "${{ matrix.php }}-${{ matrix.database }}" | tr ':/' '--')
+          SLUG=$(echo "${{ matrix.database }}" | tr ':/' '--')
           echo "SLUG=$SLUG" >> "$GITHUB_ENV"
-          php tools/ci-timing.php junit.xml "${{ matrix.php }}" "${{ matrix.database }}" "timing-$SLUG.json"
+          php tools/db-behavior-report.php --json="report-$SLUG.json" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Upload timing
+      - name: Upload probe results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: timing-${{ env.SLUG }}
-          path: timing-*.json
+          name: report-${{ env.SLUG }}
+          path: report-*.json
           if-no-files-found: ignore
 
   summary:
-    name: Timing summary
+    name: Compare servers
     runs-on: ubuntu-latest
-    needs: test
+    needs: probe
     # Aggregates every matrix job and succeeds even when they fail, so it can't serve
-    # as a required check; !cancelled() still builds the grid for failed runs
+    # as a required check; !cancelled() still builds the comparison for failed runs
     if: ${{ !cancelled() }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v5
 
-      - name: Download timing artifacts
+      - name: Download probe results
         uses: actions/download-artifact@v4
         with:
-          pattern: timing-*
+          pattern: report-*
           merge-multiple: true
-          path: timings
+          path: reports
 
-      - name: Build timing grid
-        run: php tools/ci-timing-summary.php timings/*.json >> "$GITHUB_STEP_SUMMARY"
+      - name: Build comparison
+        run: php tools/db-behavior-merge.php reports/*.json >> "$GITHUB_STEP_SUMMARY"
