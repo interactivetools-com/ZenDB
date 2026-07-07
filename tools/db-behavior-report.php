@@ -66,7 +66,7 @@ try {
         // mysqlnd computes this int client-side from the handshake string (major*10000 + minor*100 + patch),
         // so it reports this runner's mysqlnd parse, not a server fact. PHP before 8.0.16/8.1.3 parsed
         // MariaDB's "5.5.5-" prefix as 50505 (php bug #81657)
-        'mysqli server_version' => $mysqli->server_version,
+        'mysqli server_version' => (string)$mysqli->server_version,
         // The versionRequired guard strips server_info with this regex; MariaDB's legacy
         // "5.5.5-10.x.y-MariaDB" handshake format would mangle into a bogus version here
         'server_info after versionRequired regex preg_replace("/[^0-9.]/", "", ...)' => preg_replace("/[^0-9.]/", '', $mysqli->server_info),
