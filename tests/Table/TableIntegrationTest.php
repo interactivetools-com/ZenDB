@@ -514,9 +514,11 @@ class TableIntegrationTest extends BaseTestCase
     #[Test]
     public function groupsCompositeConstraintColumnsInOrder(): void
     {
-        // a composite FK needs an index starting with the referenced columns (num, sort_date); the child
-        // side (parent_num, sort_date) is already covered by the fixture's idx_fkcomposite
-        DB::query("ALTER TABLE `?` ADD INDEX idx_ref (num, sort_date)", $this->fullTable);
+        // a composite FK needs an index on the referenced columns (num, sort_date), and MySQL 8.4+
+        // requires it to be UNIQUE (restrict_fk_on_non_standard_key; MariaDB and older MySQL also
+        // accept a plain index). The child side (parent_num, sort_date) is already covered by the
+        // fixture's idx_fkcomposite
+        DB::query("ALTER TABLE `?` ADD UNIQUE INDEX idx_ref (num, sort_date)", $this->fullTable);
         DB::query("ALTER TABLE `?` ADD CONSTRAINT fk_composite FOREIGN KEY (parent_num, sort_date) REFERENCES `?` (num, sort_date)", $this->fullTable, $this->fullTable);
 
         $fk = Table::foreignKeys($this->baseTable)['fk_composite'];
