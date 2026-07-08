@@ -721,7 +721,11 @@ echo mdTable($nativeProbes);
 // Time zone offsets - connect() runs SET time_zone = date('P') when usePhpTimezone
 // is on, and servers differ in the offset range they accept (MySQL widened
 // -12:59..+13:00 to -13:59..+14:00 in 8.0.19), so a PHP zone like +14:00 can make
-// connect() throw on older servers
+// connect() throw on older servers. The only real PHP offsets past +13:00 are +14:00
+// (Pacific/Kiritimati, Etc/GMT-14) and +13:45 (Pacific/Chatham in DST); a named zone
+// is the only way to send those to a server that rejects the offset, but named zones
+// need the mysql.time_zone tables loaded, so we probe both the names and whether the
+// tables are populated
 //
 try {
     $originalTimeZone = $mysqli->query("SELECT @@SESSION.time_zone")->fetch_row()[0];
@@ -734,9 +738,22 @@ try {
             $timeZoneProbes["SET time_zone = '$offset'"] = 'rejected: error ' . $e->getCode();
         }
     }
+    foreach (['Etc/GMT-14', 'Pacific/Kiritimati', 'Pacific/Chatham'] as $namedZone) {
+        try {
+            $mysqli->query("SET time_zone = '$namedZone'");
+            $timeZoneProbes["SET time_zone = '$namedZone'"] = 'accepted';
+        } catch (mysqli_sql_exception $e) {
+            $timeZoneProbes["SET time_zone = '$namedZone'"] = 'rejected: error ' . $e->getCode();
+        }
+    }
     $mysqli->query("SET time_zone = '$originalTimeZone'");
 } catch (mysqli_sql_exception $e) {
     $timeZoneProbes = ['SET time_zone probes' => 'probe failed: ' . $e->getMessage()];
+}
+try {
+    $timeZoneProbes['mysql.time_zone_name row count'] = (int) $mysqli->query("SELECT COUNT(*) FROM mysql.time_zone_name")->fetch_row()[0];
+} catch (mysqli_sql_exception $e) {
+    $timeZoneProbes['mysql.time_zone_name row count'] = 'query failed: error ' . $e->getCode();
 }
 $probes += $timeZoneProbes;
 
