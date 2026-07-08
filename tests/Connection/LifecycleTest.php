@@ -203,6 +203,33 @@ class LifecycleTest extends BaseTestCase
         $this->assertSame($phpOffset, $mysqlTz);
     }
 
+    public function testConnectRemapsOutOfRangeTimezoneOffset(): void
+    {
+        // The remap sends an IANA name, which only resolves where the mysql.time_zone tables
+        // are loaded. Probe that first with an in-range connection.
+        DB::disconnect();
+        DB::connect(self::$configDefaults);
+        $tzTablesLoaded = ((int) DB::$mysqli->query("SELECT COUNT(*) FROM mysql.time_zone_name")->fetch_row()[0]) > 0;
+        if (!$tzTablesLoaded) {
+            $this->markTestSkipped('Server has no mysql.time_zone tables loaded; named-zone remap cannot be exercised.');
+        }
+
+        // PHP offsets past +13:00 (here Kiritimati, +14:00) are rejected as a raw offset with error
+        // 1298 on MariaDB and MySQL < 8.0.19; connect() remaps them to the IANA name (bug #63685).
+        $originalTz = date_default_timezone_get();
+        date_default_timezone_set('Pacific/Kiritimati');
+        try {
+            DB::disconnect();
+            DB::connect(self::$configDefaults); // raw '+14:00' would throw 1298; 'Etc/GMT-14' connects
+            $this->assertTrue(DB::isConnected());
+            $sessionTz = DB::$mysqli->query("SELECT @@session.time_zone as tz")->fetch_assoc()['tz'];
+            $this->assertSame('Etc/GMT-14', $sessionTz, 'connect() should send the IANA name, not the +14:00 offset');
+        } finally {
+            date_default_timezone_set($originalTz);
+            DB::disconnect();
+        }
+    }
+
     public function testConnectWithoutPhpTimezone(): void
     {
         $config = array_merge(self::$configDefaults, ['usePhpTimezone' => false]);
