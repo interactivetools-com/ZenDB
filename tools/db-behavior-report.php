@@ -523,6 +523,77 @@ echo "### Bare TIMESTAMP defaults\n\n";
 echo mdTable($timestampProbes);
 
 //
+// Column defaults - every way a client can read a column default, against the cases
+// that historically confused tools: nullable with no DEFAULT clause, explicit
+// DEFAULT NULL, and a real string 'NULL'. MySQL/Percona report I_S COLUMN_DEFAULT as
+// raw values with SQL NULL meaning "no default"; MariaDB 10.2.7+ reports DDL text
+// instead (MDEV-13132): string literals come back quoted, and no-default comes back
+// as the text NULL (MDEV-13341, closed as intended), with views disagreeing with
+// base tables in some versions (MDEV-14053). Old tools misreading these wrote string
+// 'NULL' defaults into live tables, which Backup::makeUniversalCreateTable() repairs
+//
+try {
+    $mysqli->query("DROP VIEW IF EXISTS zdb_probe_view");
+    $mysqli->query("DROP TABLE IF EXISTS zdb_probe_special");
+    $mysqli->query("CREATE TABLE zdb_probe_special (
+        noDefault    VARCHAR(10),
+        explicitNull VARCHAR(10) DEFAULT NULL,
+        nullString   VARCHAR(10) DEFAULT 'NULL',
+        strDefault   VARCHAR(10) DEFAULT 'abc',
+        numDefault   INT DEFAULT 5,
+        exprDefault  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )");
+    $mysqli->query("CREATE VIEW zdb_probe_view AS SELECT * FROM zdb_probe_special");
+    $mysqli->query("INSERT INTO zdb_probe_special (noDefault) VALUES ('x')"); // one row so SELECT DEFAULT(col) has something to run against
+
+    // SQL NULL and the text NULL print identically, so tag them apart explicitly;
+    // 'text: NULL' vs "text: 'NULL'" then shows quoting differences byte for byte
+    $fmtDefault  = fn(?string $value): string => $value === null ? 'SQL NULL' : "text: $value";
+    $columnNames = ['noDefault', 'explicitNull', 'nullString', 'strDefault', 'numDefault', 'exprDefault'];
+
+    // INFORMATION_SCHEMA, base table and through a view (MDEV-14053 had them disagreeing)
+    $defaultProbes = [];
+    foreach (['zdb_probe_special' => 'I_S COLUMN_DEFAULT', 'zdb_probe_view' => 'I_S via view'] as $tableName => $probeName) {
+        $defaults = array_column($mysqli->query("SELECT COLUMN_NAME, COLUMN_DEFAULT FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '$tableName'")->fetch_all(), 1, 0);
+        foreach ($columnNames as $column) {
+            $defaultProbes["DEFAULTS $probeName: $column"] = $fmtDefault($defaults[$column] ?? null);
+        }
+    }
+
+    // SHOW COLUMNS, with SHOW FULL COLUMNS collapsed to a match check (expected identical)
+    $showDefaults = array_column($mysqli->query("SHOW COLUMNS FROM zdb_probe_special")->fetch_all(MYSQLI_ASSOC), 'Default', 'Field');
+    $fullDefaults = array_column($mysqli->query("SHOW FULL COLUMNS FROM zdb_probe_special")->fetch_all(MYSQLI_ASSOC), 'Default', 'Field');
+    foreach ($columnNames as $column) {
+        $defaultProbes["DEFAULTS SHOW COLUMNS: $column"] = $fmtDefault($showDefaults[$column] ?? null);
+    }
+    $defaultProbes['DEFAULTS SHOW FULL COLUMNS matches SHOW COLUMNS'] = $fullDefaults === $showDefaults ? 'identical' : 'differs: ' . json_encode($fullDefaults);
+
+    // SHOW CREATE TABLE, the executable form ZenDB reads
+    $createDefaults = parseColumnDefinitions($mysqli->query("SHOW CREATE TABLE zdb_probe_special")->fetch_row()[1]);
+    foreach ($columnNames as $column) {
+        $defaultProbes["DEFAULTS SHOW CREATE: $column"] = $createDefaults[$column] ?? 'parse failed';
+    }
+
+    // SELECT DEFAULT(col), the value form (errors are results: some servers reject it for some defaults)
+    foreach ($columnNames as $column) {
+        try {
+            $defaultProbes["DEFAULTS SELECT DEFAULT($column)"] = $fmtDefault($mysqli->query("SELECT DEFAULT($column) FROM zdb_probe_special")->fetch_row()[0]);
+        } catch (mysqli_sql_exception $e) {
+            $defaultProbes["DEFAULTS SELECT DEFAULT($column)"] = 'error ' . $e->getCode();
+        }
+    }
+
+    $mysqli->query("DROP VIEW zdb_probe_view");
+    $mysqli->query("DROP TABLE zdb_probe_special");
+} catch (mysqli_sql_exception $e) {
+    $defaultProbes = ['DEFAULTS probes' => 'probe failed: ' . $e->getMessage()];
+}
+$probes += $defaultProbes;
+
+echo "### Column defaults\n\n";
+echo mdTable($defaultProbes);
+
+//
 // Connection collation - set_charset('utf8mb4') leaves the collation at each server's
 // utf8mb4 default (general_ci, 0900_ai_ci, or uca1400 depending on engine/version),
 // while databaseAutoCreate hardcodes utf8mb4_unicode_ci, so mixed comparisons and

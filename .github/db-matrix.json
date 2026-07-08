@@ -4,6 +4,8 @@
   "mysql:8.4",
   "mysql:9.6",
   "mysql:9.7",
+  "mariadb:10.2.6",
+  "mariadb:10.2.7",
   "mariadb:10.2",
   "mariadb:10.3",
   "mariadb:10.4",
