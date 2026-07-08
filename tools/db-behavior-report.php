@@ -751,7 +751,7 @@ try {
     $timeZoneProbes = ['SET time_zone probes' => 'probe failed: ' . $e->getMessage()];
 }
 try {
-    $timeZoneProbes['mysql.time_zone_name row count'] = (int) $mysqli->query("SELECT COUNT(*) FROM mysql.time_zone_name")->fetch_row()[0];
+    $timeZoneProbes['mysql.time_zone_name row count'] = (string) (int) $mysqli->query("SELECT COUNT(*) FROM mysql.time_zone_name")->fetch_row()[0];
 } catch (mysqli_sql_exception $e) {
     $timeZoneProbes['mysql.time_zone_name row count'] = 'query failed: error ' . $e->getCode();
 }
