@@ -13,6 +13,7 @@ use Itools\ZenDB\Tests\BaseTestCase;
 /**
  * Tests for table and column identifier validation
  *
+ * @covers \Itools\ZenDB\DB::assertIdentifier
  * @covers \Itools\ZenDB\ConnectionInternals::assertValidTable
  * @covers \Itools\ZenDB\ConnectionInternals::assertValidColumn
  */
@@ -254,6 +255,45 @@ class IdentifierValidationTest extends BaseTestCase
             'comment end'      => ['user*/'],
             'trailing newline' => ["users\n"],
         ];
+    }
+
+    //endregion
+    //region assertIdentifier()
+
+    /**
+     * @dataProvider provideValidIdentifiers
+     */
+    public function testAssertIdentifierAcceptsValidNames(string $identifier): void
+    {
+        $this->expectNotToPerformAssertions();
+        DB::assertIdentifier($identifier);
+    }
+
+    /**
+     * @dataProvider provideInvalidIdentifiers
+     */
+    public function testAssertIdentifierRejectsInvalidNames(string $identifier): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage("Invalid identifier");
+
+        DB::assertIdentifier($identifier);
+    }
+
+    public function testAssertIdentifierRejectsEmptyString(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage("Invalid identifier");
+
+        DB::assertIdentifier('');
+    }
+
+    public function testAssertIdentifierNamesTheValueInTheMessage(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage("Invalid sort column 'title; DROP TABLE users'");
+
+        DB::assertIdentifier('title; DROP TABLE users', 'sort column');
     }
 
     //endregion

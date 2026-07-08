@@ -4,8 +4,9 @@ declare(strict_types=1);
 namespace Itools\ZenDB;
 
 use InvalidArgumentException;
-use Itools\SmartArray\SmartArrayHtml;
+use Itools\SmartArray\SmartArrayBase;
 use Itools\SmartString\SmartString;
+use JetBrains\PhpStorm\Deprecated;
 use RuntimeException;
 use Throwable;
 use mysqli;
@@ -42,6 +43,15 @@ class Connection
      *     $db->server->version();  // "10.6.27"
      */
     public ?Server $server = null;
+
+    /**
+     * MySQL-level facts about this connection's tables, bound to its tablePrefix.
+     * Set at connect, null when disconnected. On the default connection the Table
+     * class wraps this: Table::exists() and $db->table->exists() are the same call.
+     *
+     *     $db->table->exists('users');  // true/false
+     */
+    public ?TableInfo $table = null;
 
     /**
      * Table prefix prepended to table names (e.g., 'cms_')
@@ -147,9 +157,7 @@ class Connection
                 // if database doesn't exist and auto-create enabled, try again and create database
                 $database = $this->secret('database');
                 if ($this->databaseAutoCreate && $e->getCode() === 1049) {
-                    if (!preg_match('/^[\w-]+\z/', $database)) {
-                        throw new InvalidArgumentException("Invalid database name '$database', allowed characters: a-z, A-Z, 0-9, _, -");
-                    }
+                    DB::assertIdentifier($database, 'database name');
                     $dbCreateQuery = "CREATE DATABASE `$database` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci";
                     $this->mysqli->real_connect($this->secret('hostname'), $this->secret('username'), $this->secret('password'), null, null, null, $flags);
                     try {
@@ -185,6 +193,7 @@ class Connection
         }
 
         $this->server = new Server($this->mysqli);
+        $this->table  = new TableInfo($this);
 
         // Check mysql version
         if ($this->versionRequired) {
@@ -236,6 +245,7 @@ class Connection
             $this->mysqli = null;
         }
         $this->server = null;
+        $this->table  = null;
     }
 
     /**
@@ -282,10 +292,10 @@ class Connection
      *
      * @param string $sqlTemplate
      * @param mixed  ...$params Parameters to bind
-     * @return SmartArrayHtml Result set
+     * @return SmartArrayBase Result set
      * @throws InvalidArgumentException
      */
-    public function query(string $sqlTemplate, ...$params): SmartArrayHtml
+    public function query(string $sqlTemplate, ...$params): SmartArrayBase
     {
         $this->mysqli->lastQuery = $sqlTemplate;
 
@@ -317,10 +327,10 @@ class Connection
      *
      * @param string $sqlTemplate SQL statement with placeholders
      * @param mixed  ...$params   Parameters to bind
-     * @return SmartArrayHtml First row, or empty SmartArrayHtml if no rows
+     * @return SmartArrayBase First row, or an empty result object when no row matches
      * @throws InvalidArgumentException
      */
-    public function queryOne(string $sqlTemplate, ...$params): SmartArrayHtml
+    public function queryOne(string $sqlTemplate, ...$params): SmartArrayBase
     {
         $this->mysqli->lastQuery = $sqlTemplate;  // set for reject-* errors; query() overwrites with the LIMIT-appended template
 
@@ -331,7 +341,9 @@ class Connection
         $sqlTemplate   .= $supportsLimit ? ' LIMIT 1' : '';
         $resultSet     = $this->query($sqlTemplate, ...$params);
 
-        return $resultSet->first()->asHtml(); // asHtml() ensures SmartNull from empty results becomes SmartArrayHtml
+        // asHtml()/asRaw() ensure SmartNull from empty results becomes a SmartArray matching the connection
+        $firstRow = $resultSet->first();
+        return $this->useSmartStrings ? $firstRow->asHtml() : $firstRow->asRaw();
     }
 
     /**
@@ -341,10 +353,10 @@ class Connection
      * @param string           $baseTable Table name (without prefix)
      * @param int|array|string $whereEtc  WHERE and other clauses (ORDER BY, LIMIT, etc.)
      * @param mixed            ...$params Parameters to bind
-     * @return SmartArrayHtml Result set
+     * @return SmartArrayBase Result set
      * @throws InvalidArgumentException
      */
-    public function select(string $baseTable, int|array|string $whereEtc = [], ...$params): SmartArrayHtml
+    public function select(string $baseTable, int|array|string $whereEtc = [], ...$params): SmartArrayBase
     {
         $fullTable               = $this->tablePrefix . $baseTable;
         $this->mysqli->lastQuery = "SELECT * FROM `$fullTable` [WHERE ...]";
@@ -376,10 +388,10 @@ class Connection
      * @param string           $baseTable Table name (without prefix)
      * @param int|array|string $whereEtc  WHERE and other clauses
      * @param mixed            ...$params Parameters to bind
-     * @return SmartArrayHtml Single row or empty SmartArrayHtml
+     * @return SmartArrayBase Single row, or an empty result object when no row matches
      * @throws InvalidArgumentException
      */
-    public function selectOne(string $baseTable, int|array|string $whereEtc = [], ...$params): SmartArrayHtml
+    public function selectOne(string $baseTable, int|array|string $whereEtc = [], ...$params): SmartArrayBase
     {
         $fullTable               = $this->tablePrefix . $baseTable;
         $this->mysqli->lastQuery = "SELECT * FROM `$fullTable` [WHERE ...] LIMIT 1";
@@ -396,7 +408,9 @@ class Connection
         $rows      = $this->fetchMappedRows($result);
         $resultSet = $this->toSmartArray($rows, $sql, $baseTable);
 
-        return $resultSet->first()->asHtml(); // asHtml() ensures SmartNull from empty results becomes SmartArrayHtml
+        // asHtml()/asRaw() ensure SmartNull from empty results becomes a SmartArray matching the connection
+        $firstRow = $resultSet->first();
+        return $this->useSmartStrings ? $firstRow->asHtml() : $firstRow->asRaw();
     }
 
     /**
@@ -657,9 +671,9 @@ class Connection
     public function getBaseTable(string $table, bool $checkDb = false): string
     {
         if (str_starts_with($table, $this->tablePrefix)) {
-            /* If hasTable($table) finds a match, the input is actually a base name
-               (hasTable prepends the prefix, so it's checking for "test_test_cities") */
-            if ($checkDb && $this->hasTable($table)) {
+            /* If prefixing the input again matches a real table (e.g. "test_test_cities"),
+               the input is actually a base name */
+            if ($checkDb && $this->table->exists($table)) {
                 return $table;
             }
             return substr($table, strlen($this->tablePrefix));
@@ -699,170 +713,13 @@ class Connection
             return $this->tablePrefix . $table;
         }
 
-        /* If hasTable($table, isPrefixed: true) finds no match, the input is a base name
-           that happens to start with the prefix string - prefix it */
-        if ($checkDb && !$this->hasTable($table, isPrefixed: true)) {
+        /* If the input doesn't match a real table as-is, it's a base name that happens
+           to start with the prefix string - prefix it */
+        if ($checkDb && !$this->table->existsFull($table)) {
             return $this->tablePrefix . $table;
         }
 
         return $table;
-    }
-
-    /**
-     * Retrieve table names matching the configured prefix.
-     *
-     * Returns base tables only, not views or temporary tables.
-     * Uses INFORMATION_SCHEMA instead of SHOW TABLES LIKE to avoid
-     * MariaDB MDEV-32973 (LIKE pattern ignored when temp tables exist).
-     *
-     * @param bool $withPrefix If true, return names with prefix
-     * @return string[] Array of table names
-     * @throws InvalidArgumentException
-     * @see          https://jira.mariadb.org/browse/MDEV-32973
-     * @noinspection SpellCheckingInspection for MDEV
-     */
-    public function getTableNames(bool $withPrefix = false): array
-    {
-        $prefixLength  = strlen($this->tablePrefix);
-        $escapedPrefix = $this->mysqli->real_escape_string($this->tablePrefix);
-        $query         = <<<__SQL__
-            SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES
-            WHERE TABLE_SCHEMA = DATABASE()
-              AND LEFT(TABLE_NAME, $prefixLength) = '$escapedPrefix'
-              AND TABLE_TYPE = 'BASE TABLE'
-            __SQL__;
-        $result        = $this->mysqli->query($query);
-        $tableNames    = array_column($result->fetch_all(), 0);
-        $result->free();
-
-        // Sort _tables to the bottom
-        usort($tableNames, fn($a, $b) => (($a[$prefixLength] ?? '') === '_') <=> (($b[$prefixLength] ?? '') === '_') ?: ($a <=> $b));
-
-        // Remove prefix
-        if (!$withPrefix) {
-            $tableNames = array_map(fn($name) => substr($name, $prefixLength), $tableNames);
-        }
-
-        return $tableNames;
-    }
-
-    /**
-     * Return column definitions for a table, parsed from `SHOW CREATE TABLE` and
-     * normalized for stable comparison across MySQL/MariaDB versions.
-     *
-     *     $defs = $db->getColumnDefinitions('news');
-     *     // [
-     *     //   "num"         => "int unsigned NOT NULL AUTO_INCREMENT",
-     *     //   "title"       => "varchar(255) NOT NULL DEFAULT ''",
-     *     //   "createdDate" => "datetime NOT NULL DEFAULT CURRENT_TIMESTAMP",
-     *     // ]
-     *
-     * Each value is the part of the column declaration after the column name -
-     * the type, modifiers, any column-level charset overrides, default, and
-     * comment - with three normalizations applied:
-     *
-     *   - Column-level `CHARACTER SET` / `COLLATE` is stripped when it matches
-     *     the table's default. Inherited charsets show up explicitly in
-     *     `SHOW CREATE TABLE` output but aren't part of the column declaration,
-     *     so dropping them keeps comparisons stable.
-     *   - Display widths are stripped (`int(11)` → `int`, `year(4)` → `year`).
-     *     MySQL 8.0.19+ stopped emitting widths while MariaDB still includes
-     *     them, so stripping here keeps the output consistent across both
-     *     engines. Two keep their width, matching MySQL 8's own output: plain
-     *     signed `tinyint(1)` (the conventional boolean marker) and ZEROFILL
-     *     columns (the width sets the padding).
-     *   - `DEFAULT` / `ON UPDATE current_timestamp()` (MariaDB's spelling) is
-     *     normalized to MySQL's `CURRENT_TIMESTAMP`.
-     *
-     * COMMENT text is never modified: it is split off before normalizing and
-     * reattached after.
-     *
-     * Returns an empty array if the table doesn't exist, the name isn't a valid
-     * identifier, or `SHOW CREATE TABLE` throws. Indexes, constraints, and other
-     * non-column lines are skipped.
-     *
-     * @param string $baseTable Base table name (without table prefix)
-     * @return array<string,string> column name => normalized definition
-     */
-    public function getColumnDefinitions(string $baseTable): array
-    {
-        try {
-            $createTableSQL = $this->query('SHOW CREATE TABLE `::?`', $baseTable)->first()->nth(1)->value();
-            $lines          = explode("\n", $createTableSQL);
-        } catch (mysqli_sql_exception|InvalidArgumentException) {
-            $lines = [];
-        }
-
-        // Extract charset/collation from the table-options line: the one starting with ')'.
-        // Partitioned tables append PARTITION clauses after it, so it isn't always last.
-        // COLLATE is omitted when the table uses the charset's default collation, so handle each separately.
-        // e.g. `DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci` or `DEFAULT CHARSET=utf8mb4`
-        $tableLine  = implode('', preg_grep('/^\)/', $lines));
-        $defaultRxs = []; // trailing \b so a utf8 table default doesn't match the leading part of a column's utf8mb4
-        if (preg_match('/\bCHARSET=(\S+)/', $tableLine, $m)) {
-            $defaultRxs[] = '/ CHARACTER SET ' . preg_quote($m[1], '/') . '\b/';
-        }
-        if (preg_match('/\bCOLLATE=(\S+)/', $tableLine, $m)) {
-            $defaultRxs[] = '/ COLLATE ' . preg_quote($m[1], '/') . '\b/';
-        }
-
-        // Get column definitions
-        // e.g. "  `title` varchar(255) NOT NULL DEFAULT ''"                                           → "varchar(255) NOT NULL DEFAULT ''"
-        // e.g. "  `createdDate` datetime NOT NULL DEFAULT current_timestamp() COMMENT 'when created'" → "datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'when created'"
-        $columnDefinitions = [];
-        foreach ($lines as $line) {
-            if (preg_match('/^ {2}`([^`]+)` (.*?),?$/', $line, $matches)) {
-                [, $columnName, $definition] = $matches;
-
-                // Split off the trailing COMMENT so its text can't affect the normalizations below.
-                // Quotes inside are doubled: COMMENT 'it''s here'
-                $comment = '';
-                if (preg_match("/ COMMENT '(?:[^']|'')*'$/", $definition, $m)) {
-                    $comment    = $m[0];
-                    $definition = substr($definition, 0, -strlen($m[0]));
-                }
-
-                $definition = preg_replace($defaultRxs, '', $definition);
-
-                // Crop deprecated display widths: MySQL 8.0.19+ stopped emitting them, MariaDB still does.
-                // \w*int matches the five int types (point/multipoint never take parens); year(4) diverges
-                // the same way. Two keep their width, matching MySQL 8's own output: plain signed tinyint(1),
-                // which connectors treat as boolean (unsigned loses the width, MySQL bugs #100309/#105667),
-                // and ZEROFILL columns, where the width sets the zero-padding amount.
-                if (stripos($definition, 'zerofill') === false) {
-                    $definition = preg_replace('/^(?!tinyint\(1\)(?! unsigned))(\w*int|year)\(\d+\)/i', '$1', $definition);
-                }
-
-                // MariaDB 10.2+ spells defaults current_timestamp(); MySQL spells them CURRENT_TIMESTAMP
-                $definition = preg_replace('/\b(DEFAULT|ON UPDATE) current_timestamp(?:\(\))?(\(\d+\))?/i', '$1 CURRENT_TIMESTAMP$2', $definition);
-
-                $columnDefinitions[$columnName] = $definition . $comment;
-            }
-        }
-
-        return $columnDefinitions;
-    }
-
-    /**
-     * Check if a table, view, or temporary table exists in the database.
-     *
-     * Returns true/false, never throws. Invalid table names return false.
-     *
-     * @param string $table      Table name
-     * @param bool   $isPrefixed If true, table name already includes the prefix
-     * @return bool
-     */
-    public function hasTable(string $table, bool $isPrefixed = false): bool
-    {
-        $fullTable = $isPrefixed ? $table : $this->tablePrefix . $table;
-        try {
-            $this->assertValidTable($fullTable);
-            $result = $this->mysqli->query("SELECT 1 FROM `$fullTable` LIMIT 0");
-            $result->free();
-            return true;
-        } catch (InvalidArgumentException|mysqli_sql_exception) {
-            return false;
-        }
     }
 
     //endregion
@@ -1084,6 +941,46 @@ class Connection
         }
 
         return $cache[$this];
+    }
+
+    //endregion
+    //region Deprecations
+
+    /**
+     * @deprecated Use $connection->table->exists() or ->table->existsFull() instead
+     * @see        TableInfo::exists()
+     * @see        TableInfo::existsFull()
+     */
+    #[Deprecated(reason: 'use ->table->exists() or ->table->existsFull() instead')]
+    public function hasTable(string $table, bool $isPrefixed = false): bool
+    {
+        return $isPrefixed ? $this->table->existsFull($table) : $this->table->exists($table);
+    }
+
+    /**
+     * @deprecated Use $connection->table->baseNames() or ->fullNames() instead
+     * @see        Table::baseNames()
+     * @see        Table::fullNames()
+     */
+    #[Deprecated(reason: 'use ->table->baseNames() or ->table->fullNames() instead')]
+    public function getTableNames(bool $withPrefix = false): array
+    {
+        return $withPrefix ? $this->table->fullNames() : $this->table->baseNames();
+    }
+
+    /**
+     * @deprecated Use $connection->table->columnDefinitions() instead; note it throws for unknown
+     *             tables and invalid names where this returns []
+     * @see        TableInfo::columnDefinitions()
+     */
+    #[Deprecated(reason: 'use ->table->columnDefinitions() instead')]
+    public function getColumnDefinitions(string $baseTable): array
+    {
+        try {
+            return $this->table->columnDefinitions($baseTable);
+        } catch (mysqli_sql_exception|InvalidArgumentException) {
+            return []; // legacy contract: unknown table or invalid name returns no definitions
+        }
     }
 
     //endregion

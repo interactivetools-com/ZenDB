@@ -6,12 +6,16 @@ namespace Itools\ZenDB\Tests\TableHelpers;
 
 use Exception;
 use Itools\ZenDB\DB;
+use Itools\ZenDB\Table;
 use Itools\ZenDB\Tests\BaseTestCase;
 
 /**
- * Tests for DB::getTableNames() method
+ * Tests for Table::baseNames()/fullNames(), on the default connection and on clones,
+ * plus the deprecated DB::getTableNames() shim kept until removal
  *
- * @covers \Itools\ZenDB\Connection::getTableNames
+ * @covers \Itools\ZenDB\Table::baseNames
+ * @covers \Itools\ZenDB\Table::fullNames
+ * @covers \Itools\ZenDB\DB::getTableNames
  */
 class GetTableNamesTest extends BaseTestCase
 {
@@ -71,25 +75,25 @@ class GetTableNamesTest extends BaseTestCase
      */
     public function testInclusionScenarios(string $baseName, bool $expectedInList): void
     {
-        $tables = DB::getTableNames();
+        $tables = Table::baseNames();
 
         if ($expectedInList) {
-            $this->assertContains($baseName, $tables, "'$baseName' should be in getTableNames()");
+            $this->assertContains($baseName, $tables, "'$baseName' should be in baseNames()");
         } else {
-            $this->assertNotContains($baseName, $tables, "'$baseName' should NOT be in getTableNames()");
+            $this->assertNotContains($baseName, $tables, "'$baseName' should NOT be in baseNames()");
         }
     }
 
     public function testReturnsArray(): void
     {
-        $tables = DB::getTableNames();
+        $tables = Table::baseNames();
         $this->assertIsArray($tables);
     }
 
     public function testIncludePrefixOption(): void
     {
-        $withPrefix    = DB::getTableNames(true);
-        $withoutPrefix = DB::getTableNames(false);
+        $withPrefix    = Table::fullNames();
+        $withoutPrefix = Table::baseNames();
 
         // Both should have same count
         $this->assertCount(count($withoutPrefix), $withPrefix);
@@ -106,7 +110,7 @@ class GetTableNamesTest extends BaseTestCase
 
     public function testSortsUnderscoreTablesToBottom(): void
     {
-        $tables = DB::getTableNames();
+        $tables = Table::baseNames();
 
         $underscoreIndex = array_search('_underscore', $tables);
         $aIndex          = array_search('get_tables_a', $tables);
@@ -122,7 +126,7 @@ class GetTableNamesTest extends BaseTestCase
         DB::$mysqli->query("CREATE TABLE cms_pages (id INT)");
 
         $conn   = DB::clone(['tablePrefix' => 'cms_']);
-        $tables = $conn->getTableNames();
+        $tables = $conn->table->baseNames();
 
         $this->assertContains('pages', $tables);
         $this->assertNotContains('get_tables_a', $tables);
@@ -131,11 +135,20 @@ class GetTableNamesTest extends BaseTestCase
     public function testWithEmptyPrefix(): void
     {
         $conn   = DB::clone(['tablePrefix' => '']);
-        $tables = $conn->getTableNames();
+        $tables = $conn->table->baseNames();
 
         // Should see all tables in the database
         $this->assertContains('test_get_tables_a', $tables);
         $this->assertContains('other_table_xyz', $tables);
+    }
+
+    /** @noinspection PhpDeprecationInspection */
+    public function testDeprecatedDbShimMatchesTableNames(): void
+    {
+        // DB::getTableNames() stays until removal; pin its $withPrefix mapping to the living API
+        $this->assertSame(Table::baseNames(), DB::getTableNames(), 'default is base names');
+        $this->assertSame(Table::baseNames(), DB::getTableNames(false));
+        $this->assertSame(Table::fullNames(), DB::getTableNames(true), 'withPrefix returns full names');
     }
 
     //endregion

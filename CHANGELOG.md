@@ -3,14 +3,25 @@
 ## [0.9.2] - 2026-07-05
 
 ### Added
+- `Table` - Experimental internal class for reading table details on the default connection (`Table::exists('users')`); each connection has its own instance bound to its `tablePrefix` (`$connection->table->exists()`), so clones check their own tables. See the class docblock
+- `Server` (`DB::$server`) - Experimental internal class for reading server details; see the class docblock
 - Prefixed value placeholders - `::?` and `:::name` (no backticks) prepend the table prefix inside the quoted value, for matching table names as strings:
   - `SHOW TABLES LIKE ::?` with `user%` → `SHOW TABLES LIKE 'cms_user%'`
   - `WHERE TABLE_NAME = :::table` with `users` → `WHERE TABLE_NAME = 'cms_users'`
   - `IN (:::tables)` with `['users', 'orders']` → `IN ('cms_users', 'cms_orders')`
   - Strings only (or arrays of strings); anything else throws `InvalidArgumentException`
+- `DB::assertIdentifier($identifier, $what)` - Throws `InvalidArgumentException` unless a string is a safe SQL identifier (letters, numbers, `_`, `-`). The same rule every table and column name already passes through internally, now callable directly for identifiers placeholders can't cover, like a user-picked sort column; `$what` names the value in the error message
 - Security footguns guide (`docs/09-security-footguns.md`) - The narrow ways to defeat the safety guarantees on purpose, each with its safe form: raw queries through `DB::$mysqli`, interpolating user input into a quoted template, dynamic identifiers like `ORDER BY`, `rawHtml()` output, NULL and empty arrays in `IN` lists, and the encryption threat model
 
+### Deprecated
+- `DB::hasTable()` and `DB::getTableNames()` - Use `Table::exists()` and `Table::baseNames()`/`fullNames()` instead; both still work and now log deprecation warnings. `DB::tableExists()`'s warning now also points at `Table::exists()`
+- `Connection::hasTable()` and `Connection::getTableNames()` - Use `$connection->table->exists()` and `->table->baseNames()`/`fullNames()` instead; marked deprecated for IDEs, no runtime warning
+- `DB::getColumnDefinitions()` and `Connection::getColumnDefinitions()` - Use `Table::columnDefinitions()` / `$connection->table->columnDefinitions()` instead, which now applies the same cross-server normalizations; the deprecated forms still return `[]` for unknown tables where the replacement throws
+
 ### Fixed
+- `useSmartStrings => false` - Connections and clones with SmartStrings disabled now return plain `SmartArray` results with raw values; previously every query on them threw `InvalidArgumentException` at result wrapping. `query()`/`queryOne()`/`select()`/`selectOne()` return types widened from `SmartArrayHtml` to their shared parent `SmartArrayBase`. `Table` methods now query raw mysqli internally, so they behave identically regardless of connection settings
+- `Table::columnDefinitions()` - Numeric defaults now read quoted the way MySQL prints them (MariaDB's `DEFAULT 0` → `DEFAULT '0'`), so identical schemas return identical definition strings on every supported server; both servers accept either form in DDL. Keywords (`NULL`), expressions (`CURRENT_TIMESTAMP`, `uuid()`), bit literals, and string defaults are untouched. Quoted text is protected throughout: a default, comment, or generated-column expression containing phrases like `DEFAULT 5` or `CHARACTER SET utf8mb4` passes through byte-identical
+- Table existence checks - `Table::exists()`/`existsFull()`, the deprecated `hasTable()`/`tableExists()` wrappers, and `getBaseTable()`/`getFullTable()` table checking now return false only for "no such table" (MySQL error 1146); other failures like a dead connection or missing privilege throw instead of reading as a missing table (previously any error answered false)
 - `DB::transaction()` - When the connection dies mid-transaction, the closure's exception now reaches the caller; previously the failing `ROLLBACK` threw a second "server has gone away" that replaced the real cause
 - Float values - Now written to SQL with exact round-trip precision; PHP's string cast rounds to 14 significant digits, so very large floats could silently match the wrong rows. `NAN` and `INF` now throw `InvalidArgumentException` instead of producing a MySQL syntax error
 - Encrypted reads - A MEDIUMBLOB value that fails to decrypt (wrong `encryptionKey`, or the column holds unencrypted data) still passes through as raw bytes, but now triggers one `E_USER_WARNING` per connection naming the column (was silent)

@@ -5,7 +5,6 @@ declare(strict_types=1);
 
 namespace Itools\ZenDB\Tests\Connection;
 
-use Itools\ZenDB\DB;
 use Itools\ZenDB\Connection;
 use Itools\ZenDB\Tests\BaseTestCase;
 
@@ -76,15 +75,15 @@ class SettingsTest extends BaseTestCase
         $this->assertSame('John Doe', $result->get('name')->value());
     }
 
-    public function testSmartStringsCannotBeDisabledWithSmartArrayHtml(): void
+    public function testSmartStringsDisabledReturnsRawValues(): void
     {
-        // SmartArrayHtml requires useSmartStrings=true
-        // This test verifies the expected exception is thrown
         self::$conn->useSmartStrings = false;
 
-        $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessage("Cannot create SmartArrayHtml with useSmartStrings=false");
-        self::$conn->selectOne('users', ['num' => 1]);
+        $result = self::$conn->selectOne('users', ['num' => 1]);
+
+        $this->assertInstanceOf(\Itools\SmartArray\SmartArray::class, $result);
+        $this->assertNotInstanceOf(\Itools\SmartArray\SmartArrayHtml::class, $result);
+        $this->assertSame('John Doe', $result->get('name'), 'raw value, not a SmartString');
     }
 
     //endregion

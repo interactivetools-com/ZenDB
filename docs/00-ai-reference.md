@@ -486,11 +486,11 @@ DB::TIME      // 'H:i:s'       - format for MySQL TIME columns
 ### Schema Helpers
 
 ```php
-DB::hasTable('users')                     // true/false (adds tablePrefix)
-DB::hasTable('cms_users', true)           // true/false (exact name, no prefix)
-DB::getTableNames()                       // ['users', 'orders', ...] (prefix stripped)
-DB::getTableNames(true)                   // ['cms_users', 'cms_orders', ...]
-DB::getColumnDefinitions('users')         // ['id' => 'int NOT NULL AUTO_INCREMENT', ...]
+Table::exists('users')                    // true/false (adds tablePrefix)
+Table::baseNames()                        // ['users', 'orders', ...] (prefix stripped)
+Table::fullNames()                        // ['cms_users', 'cms_orders', ...]
+DB::clone(['tablePrefix' => 'cms_'])->table->exists('pages')  // per-connection, clone's prefix
+Table::columnDefinitions('users')         // ['id' => 'int NOT NULL AUTO_INCREMENT', ...]
 DB::getFullTable('users')                 // 'cms_users'
 DB::getBaseTable('cms_users')             // 'users'
 ```

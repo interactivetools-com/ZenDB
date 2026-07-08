@@ -4,7 +4,7 @@ declare(strict_types=1);
 namespace Itools\ZenDB;
 
 use InvalidArgumentException;
-use Itools\SmartArray\SmartArrayHtml;
+use Itools\SmartArray\SmartArrayBase;
 use Itools\SmartString\SmartString;
 use RuntimeException;
 use Throwable;
@@ -136,7 +136,7 @@ class DB
      */
     public static function clone(array $config = []): Connection
     {
-        return self::db()->clone($config);
+        return self::connection()->clone($config);
     }
 
     //endregion
@@ -145,33 +145,33 @@ class DB
     /**
      * Wrapper for {@see Connection::query()}
      */
-    public static function query(string $sqlTemplate, ...$params): SmartArrayHtml
+    public static function query(string $sqlTemplate, ...$params): SmartArrayBase
     {
-        return self::db()->query($sqlTemplate, ...$params);
+        return self::connection()->query($sqlTemplate, ...$params);
     }
 
     /**
      * Wrapper for {@see Connection::queryOne()}
      */
-    public static function queryOne(string $sqlTemplate, ...$params): SmartArrayHtml
+    public static function queryOne(string $sqlTemplate, ...$params): SmartArrayBase
     {
-        return self::db()->queryOne($sqlTemplate, ...$params);
+        return self::connection()->queryOne($sqlTemplate, ...$params);
     }
 
     /**
      * Wrapper for {@see Connection::select()}
      */
-    public static function select(string $baseTable, int|array|string $whereEtc = [], ...$params): SmartArrayHtml
+    public static function select(string $baseTable, int|array|string $whereEtc = [], ...$params): SmartArrayBase
     {
-        return self::db()->select($baseTable, $whereEtc, ...$params);
+        return self::connection()->select($baseTable, $whereEtc, ...$params);
     }
 
     /**
      * Wrapper for {@see Connection::selectOne()}
      */
-    public static function selectOne(string $baseTable, int|array|string $whereEtc = [], ...$params): SmartArrayHtml
+    public static function selectOne(string $baseTable, int|array|string $whereEtc = [], ...$params): SmartArrayBase
     {
-        return self::db()->selectOne($baseTable, $whereEtc, ...$params);
+        return self::connection()->selectOne($baseTable, $whereEtc, ...$params);
     }
 
     /**
@@ -179,7 +179,7 @@ class DB
      */
     public static function insert(string $baseTable, array $values): int
     {
-        return self::db()->insert($baseTable, $values);
+        return self::connection()->insert($baseTable, $values);
     }
 
     /**
@@ -187,7 +187,7 @@ class DB
      */
     public static function update(string $baseTable, array $values, int|array|string $whereEtc, ...$params): int
     {
-        return self::db()->update($baseTable, $values, $whereEtc, ...$params);
+        return self::connection()->update($baseTable, $values, $whereEtc, ...$params);
     }
 
     /**
@@ -195,7 +195,7 @@ class DB
      */
     public static function delete(string $baseTable, int|array|string $whereEtc, ...$params): int
     {
-        return self::db()->delete($baseTable, $whereEtc, ...$params);
+        return self::connection()->delete($baseTable, $whereEtc, ...$params);
     }
 
     /**
@@ -203,7 +203,7 @@ class DB
      */
     public static function count(string $baseTable, int|array|string $whereEtc = [], ...$params): int
     {
-        return self::db()->count($baseTable, $whereEtc, ...$params);
+        return self::connection()->count($baseTable, $whereEtc, ...$params);
     }
 
     /**
@@ -213,7 +213,7 @@ class DB
      */
     public static function transaction(callable $fn): mixed
     {
-        return self::db()->transaction($fn);
+        return self::connection()->transaction($fn);
     }
 
     //endregion
@@ -224,7 +224,7 @@ class DB
      */
     public static function getBaseTable(string $table, bool $checkDb = false): string
     {
-        return self::db()->getBaseTable($table, $checkDb);
+        return self::connection()->getBaseTable($table, $checkDb);
     }
 
     /**
@@ -232,31 +232,7 @@ class DB
      */
     public static function getFullTable(string $table, bool $checkDb = false): string
     {
-        return self::db()->getFullTable($table, $checkDb);
-    }
-
-    /**
-     * Wrapper for {@see Connection::getTableNames()}
-     */
-    public static function getTableNames(bool $withPrefix = false): array
-    {
-        return self::db()->getTableNames($withPrefix);
-    }
-
-    /**
-     * Wrapper for {@see Connection::getColumnDefinitions()}
-     */
-    public static function getColumnDefinitions(string $baseTable): array
-    {
-        return self::db()->getColumnDefinitions($baseTable);
-    }
-
-    /**
-     * Wrapper for {@see Connection::hasTable()}
-     */
-    public static function hasTable(string $table, bool $isPrefixed = false): bool
-    {
-        return self::db()->hasTable($table, $isPrefixed);
+        return self::connection()->getFullTable($table, $checkDb);
     }
 
     //endregion
@@ -294,7 +270,7 @@ class DB
      */
     public static function likeContains(string|int|float|null|SmartString $input): RawSql
     {
-        return self::db()->likeContains($input);
+        return self::connection()->likeContains($input);
     }
 
     /**
@@ -302,7 +278,7 @@ class DB
      */
     public static function likeContainsTSV(string|int|float|null|SmartString $input): RawSql
     {
-        return self::db()->likeContainsTSV($input);
+        return self::connection()->likeContainsTSV($input);
     }
 
     /**
@@ -310,7 +286,7 @@ class DB
      */
     public static function likeStartsWith(string|int|float|null|SmartString $input): RawSql
     {
-        return self::db()->likeStartsWith($input);
+        return self::connection()->likeStartsWith($input);
     }
 
     /**
@@ -318,7 +294,27 @@ class DB
      */
     public static function likeEndsWith(string|int|float|null|SmartString $input): RawSql
     {
-        return self::db()->likeEndsWith($input);
+        return self::connection()->likeEndsWith($input);
+    }
+
+    /**
+     * Throw unless a string is a safe SQL identifier: letters, numbers, _ and - only.
+     * ZenDB runs this rule on every table and column name it puts between backticks;
+     * call it yourself before building SQL around an identifier placeholders can't
+     * cover, like a user-picked sort column. $what names the value in the error message.
+     *
+     *     DB::assertIdentifier($sortColumn, 'sort column'); // throws for 'title; DROP TABLE users'
+     *     $rows = DB::query("SELECT * FROM `?` ORDER BY `$sortColumn`", 'news');
+     *
+     * @param string $identifier The string to check
+     * @param string $what Noun for the error message, e.g. 'table name', 'sort column'
+     * @throws InvalidArgumentException
+     */
+    public static function assertIdentifier(string $identifier, string $what = 'identifier'): void
+    {
+        if (!preg_match('/^[\w-]+\z/', $identifier)) { // \z: $ would also match before a trailing newline
+            throw new InvalidArgumentException("Invalid $what '$identifier', allowed characters: a-z, A-Z, 0-9, _, -");
+        }
     }
 
     //endregion
@@ -329,7 +325,7 @@ class DB
      */
     public static function encryptValue(string|int|float|null|SmartString $value): string|null
     {
-        return self::db()->encryptValue($value);
+        return self::connection()->encryptValue($value);
     }
 
     /**

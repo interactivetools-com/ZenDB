@@ -5,6 +5,7 @@ namespace Itools\ZenDB;
 
 use InvalidArgumentException;
 use RuntimeException;
+use Itools\SmartArray\SmartArray;
 use Itools\SmartArray\SmartArrayBase;
 use Itools\SmartArray\SmartArrayHtml;
 use Itools\SmartArray\SmartNull;
@@ -119,9 +120,7 @@ trait ConnectionInternals
      */
     private function assertValidTable(string $identifier): void
     {
-        if (!preg_match('/^[\w-]+\z/', $identifier)) { // \z: $ would also match before a trailing newline
-            throw new InvalidArgumentException("Invalid table name '$identifier', allowed characters: a-z, A-Z, 0-9, _, -");
-        }
+        DB::assertIdentifier($identifier, 'table name');
     }
 
     /**
@@ -130,9 +129,7 @@ trait ConnectionInternals
      */
     private function assertValidColumn(string $identifier): void
     {
-        if (!preg_match('/^[\w-]+\z/', $identifier)) { // \z: $ would also match before a trailing newline
-            throw new InvalidArgumentException("Invalid column name '$identifier', allowed characters: a-z, A-Z, 0-9, _, -");
-        }
+        DB::assertIdentifier($identifier, 'column name');
     }
 
     /**
@@ -875,24 +872,36 @@ trait ConnectionInternals
     }
 
     /**
-     * Wrap rows in a SmartArrayHtml with connection metadata.
+     * Wrap rows in a result object with connection metadata: SmartArrayHtml with SmartString
+     * values by default, plain SmartArray with raw values when `useSmartStrings` is off.
      */
-    private function toSmartArray(array $rows, string $sql, string $baseTable = ''): SmartArrayHtml
+    private function toSmartArray(array $rows, string $sql, string $baseTable = ''): SmartArrayBase
     {
-        return new SmartArrayHtml($rows, [
-            'useSmartStrings' => $this->useSmartStrings,
-            'loadHandler'     => $this->loadHandler,
-            'mysqli'          => [
+        $properties = [
+            'loadHandler' => $this->loadHandler,
+            'mysqli'      => [
                 'query'         => $sql,
                 'baseTable'     => $baseTable,
                 'affected_rows' => $this->mysqli->affected_rows,
                 'insert_id'     => $this->mysqli->insert_id,
             ],
-        ]);
+        ];
+        return $this->useSmartStrings ? new SmartArrayHtml($rows, $properties) : new SmartArray($rows, $properties);
     }
 
     //endregion
     //region Object Lifecycle
+
+    /**
+     * Bind the clone's TableInfo to the clone, so it reads the clone's own tablePrefix
+     * (clone() applies prefix overrides after cloning; TableInfo reads the prefix at call time).
+     */
+    public function __clone()
+    {
+        if ($this->table !== null) {
+            $this->table = new TableInfo($this);
+        }
+    }
 
     /**
      * Clean up on destruction - drain pending results but let PHP handle connection closing.

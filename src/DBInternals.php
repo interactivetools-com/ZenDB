@@ -4,7 +4,7 @@ declare(strict_types=1);
 namespace Itools\ZenDB;
 
 use InvalidArgumentException;
-use Itools\SmartArray\SmartArrayHtml;
+use Itools\SmartArray\SmartArrayBase;
 use Itools\SmartString\SmartString;
 use JetBrains\PhpStorm\Deprecated;
 use RuntimeException;
@@ -27,9 +27,12 @@ trait DBInternals
     private static ?Connection $db = null;
 
     /**
-     * Get the default connection, throwing if not connected.
+     * Get the default Connection instance, e.g. to pass somewhere a Connection is expected.
+     * Throws a RuntimeException when not connected.
+     *
+     *     DB::connection()->table->exists('users');  // same call Table::exists('users') makes
      */
-    private static function db(): Connection
+    public static function connection(): Connection
     {
         return self::$db ?? throw new RuntimeException(
             "No database connection. Call DB::connect() first.",
@@ -41,7 +44,7 @@ trait DBInternals
      */
     public static function escape(string|int|float|null|SmartString $input, bool $escapeLikeWildcards = false): string
     {
-        return self::db()->escape($input, $escapeLikeWildcards);
+        return self::connection()->escape($input, $escapeLikeWildcards);
     }
 
     /**
@@ -49,7 +52,7 @@ trait DBInternals
      */
     public static function escapef(string $format, mixed ...$values): string
     {
-        return self::db()->escapef($format, ...$values);
+        return self::connection()->escapef($format, ...$values);
     }
 
     /**
@@ -57,7 +60,7 @@ trait DBInternals
      */
     public static function escapeCSV(array $values): RawSql
     {
-        return self::db()->escapeCSV($values);
+        return self::connection()->escapeCSV($values);
     }
 
     /**
@@ -65,7 +68,7 @@ trait DBInternals
      */
     public static function decryptRows(array &$rows, array $fetchFields): void
     {
-        self::db()->decryptRows($rows, $fetchFields);
+        self::connection()->decryptRows($rows, $fetchFields);
     }
 
     /**
@@ -96,14 +99,52 @@ trait DBInternals
     //region Deprecations
 
     /**
-     * @deprecated Use DB::hasTable() instead
-     * @see        DB::hasTable()
+     * @deprecated Use Table::exists() instead
+     * @see        Table::exists()
+     * @noinspection PhpDeprecationInspection deliberate delegation, hasTable() keeps the isPrefixed flag working
      */
-    #[Deprecated(replacement: 'DB::hasTable(%parametersList%)')]
+    #[Deprecated(reason: 'use Table::exists() instead')]
     public static function tableExists(string $table, bool $isPrefixed = false): bool
     {
-        self::logDeprecation("DB::tableExists() is deprecated, use DB::hasTable() instead");
-        return self::db()->hasTable($table, $isPrefixed);
+        self::logDeprecation("DB::tableExists() is deprecated, use Table::exists() instead");
+        return self::connection()->hasTable($table, $isPrefixed);
+    }
+
+    /**
+     * @deprecated Use Table::exists() instead
+     * @see        Table::exists()
+     * @noinspection PhpDeprecationInspection deliberate delegation, Connection::hasTable() keeps the isPrefixed flag working
+     */
+    #[Deprecated(reason: 'use Table::exists() instead')]
+    public static function hasTable(string $table, bool $isPrefixed = false): bool
+    {
+        self::logDeprecation("DB::hasTable() is deprecated, use Table::exists() instead");
+        return self::connection()->hasTable($table, $isPrefixed);
+    }
+
+    /**
+     * @deprecated Use Table::baseNames() or Table::fullNames() instead
+     * @see        Table::baseNames()
+     * @see        Table::fullNames()
+     */
+    #[Deprecated(reason: 'use Table::baseNames() or Table::fullNames() instead')]
+    public static function getTableNames(bool $withPrefix = false): array
+    {
+        self::logDeprecation("DB::getTableNames() is deprecated, use Table::baseNames() or Table::fullNames() instead");
+        return $withPrefix ? Table::fullNames() : Table::baseNames();
+    }
+
+    /**
+     * @deprecated Use Table::columnDefinitions() instead; note it throws for unknown tables
+     *             and invalid names where this returns []
+     * @see        TableInfo::columnDefinitions()
+     * @noinspection PhpDeprecationInspection deliberate delegation, Connection::getColumnDefinitions() keeps the []-on-error contract
+     */
+    #[Deprecated(reason: 'use Table::columnDefinitions() instead')]
+    public static function getColumnDefinitions(string $baseTable): array
+    {
+        self::logDeprecation("DB::getColumnDefinitions() is deprecated, use Table::columnDefinitions() instead");
+        return self::connection()->getColumnDefinitions($baseTable);
     }
 
     /**
@@ -111,10 +152,10 @@ trait DBInternals
      * @see        DB::selectOne()
      */
     #[Deprecated(replacement: 'DB::selectOne(%parametersList%)')]
-    public static function get(string $baseTable, int|array|string $whereEtc = [], ...$params): SmartArrayHtml
+    public static function get(string $baseTable, int|array|string $whereEtc = [], ...$params): SmartArrayBase
     {
         self::logDeprecation("DB::get() is deprecated, use DB::selectOne() instead");
-        return self::db()->selectOne($baseTable, $whereEtc, ...$params);
+        return self::connection()->selectOne($baseTable, $whereEtc, ...$params);
     }
 
     /**

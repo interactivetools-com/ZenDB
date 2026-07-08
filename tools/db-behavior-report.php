@@ -141,6 +141,12 @@ $fixtureSql = <<<__SQL__
         createdDate TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         createdMs   DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
         updatedDate DATETIME NULL DEFAULT NULL COMMENT 'it''s optional',
+        negDefault  INT NOT NULL DEFAULT -1,
+        ratio       DOUBLE NOT NULL DEFAULT 0.00001,
+        dtLiteral   DATETIME NOT NULL DEFAULT '2024-01-01 00:00:00',
+        bitDefault  BIT(4) NOT NULL DEFAULT b'101',
+        numText     VARCHAR(10) NOT NULL DEFAULT 123,
+        keywordText VARCHAR(50) NOT NULL DEFAULT 'save DEFAULT 5 each' COMMENT 'uses CHARACTER SET utf8mb4',
         PRIMARY KEY (num)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     __SQL__;

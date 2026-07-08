@@ -5,21 +5,29 @@ declare(strict_types=1);
 namespace Itools\ZenDB\Tests\TableHelpers;
 
 use Exception;
+use Itools\ZenDB\Connection;
 use Itools\ZenDB\DB;
 use Itools\ZenDB\Tests\BaseTestCase;
 
 /**
- * Tests for DB::hasTable() method
+ * Tests for the deprecated hasTable() wrappers, kept until removal to pin their behavior,
+ * including the isPrefixed flag that Table::exists() doesn't have. The living API's
+ * coverage is in tests/Table/TableIntegrationTest.
  *
  * @covers \Itools\ZenDB\Connection::hasTable
+ * @covers \Itools\ZenDB\DB::hasTable
+ * @covers \Itools\ZenDB\DB::tableExists
+ * @noinspection PhpDeprecationInspection
  */
 class HasTableTest extends BaseTestCase
 {
     //region Setup & Teardown
 
+    private static Connection $conn;
+
     public static function setUpBeforeClass(): void
     {
-        self::createDefaultConnection();
+        self::$conn = self::createDefaultConnection();
 
         // Create permanent test table
         DB::$mysqli->query("DROP TABLE IF EXISTS test_exists_check");
@@ -59,7 +67,7 @@ class HasTableTest extends BaseTestCase
      */
     public function testHasTableScenarios(string $table, bool $isPrefixed, bool $expected): void
     {
-        $result = DB::hasTable($table, $isPrefixed);
+        $result = self::$conn->hasTable($table, $isPrefixed);
         $this->assertSame($expected, $result);
     }
 
@@ -78,6 +86,17 @@ class HasTableTest extends BaseTestCase
 
         $result = $conn->hasTable('test_exists_check');
         $this->assertTrue($result);
+    }
+
+    public function testDeprecatedDbShimsMatchInstanceHasTable(): void
+    {
+        // DB::hasTable() and DB::tableExists() stay until removal; pin their isPrefixed mapping
+        $this->assertTrue(DB::hasTable('exists_check'));
+        $this->assertTrue(DB::hasTable('test_exists_check', isPrefixed: true));
+        $this->assertFalse(DB::hasTable('exists_check', isPrefixed: true), 'base name is not the MySQL name');
+        $this->assertFalse(DB::hasTable('nonexistent_xyz'));
+        $this->assertTrue(DB::tableExists('exists_check'));
+        $this->assertFalse(DB::tableExists('nonexistent_xyz'));
     }
 
     //endregion
