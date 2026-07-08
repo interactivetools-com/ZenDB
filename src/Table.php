@@ -31,16 +31,16 @@ class Table
         return DB::connection()->table->existsFull($fullTable);
     }
 
-    /** Wrapper for {@see TableInfo::baseNames()} */
-    public static function baseNames(): array
+    /** Wrapper for {@see TableInfo::names()} */
+    public static function names(): array
     {
-        return DB::connection()->table->baseNames();
+        return DB::connection()->table->names();
     }
 
-    /** Wrapper for {@see TableInfo::fullNames()} */
-    public static function fullNames(): array
+    /** Wrapper for {@see TableInfo::namesFull()} */
+    public static function namesFull(): array
     {
-        return DB::connection()->table->fullNames();
+        return DB::connection()->table->namesFull();
     }
 
     //endregion

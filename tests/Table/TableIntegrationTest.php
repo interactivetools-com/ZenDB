@@ -169,7 +169,7 @@ class TableIntegrationTest extends BaseTestCase
 
         $this->assertTrue($clone->table->exists($shortBase), "clone's exists() uses the clone's prefix");
         $this->assertFalse(Table::exists($shortBase), "default connection's exists() still uses its own prefix");
-        $this->assertContains($this->fullTable, $clone->table->fullNames(), "clone's fullNames() lists under its prefix");
+        $this->assertContains($this->fullTable, $clone->table->namesFull(), "clone's namesFull() lists under its prefix");
     }
 
     #[Test]
@@ -196,26 +196,26 @@ class TableIntegrationTest extends BaseTestCase
     }
 
     //endregion
-    //region baseNames() / fullNames()
+    //region names() / namesFull()
 
     #[Test]
-    public function baseNamesAndFullNamesListTheSameTablesWithAndWithoutPrefix(): void
+    public function namesAndNamesFullListTheSameTablesWithAndWithoutPrefix(): void
     {
-        $baseNames = Table::baseNames();
-        $fullNames = Table::fullNames();
+        $names     = Table::names();
+        $namesFull = Table::namesFull();
 
-        $this->assertContains($this->fullTable, $fullNames, 'fixture table is listed');
-        $this->assertSame($fullNames, array_map(fn($name) => DB::$tablePrefix . $name, $baseNames), 'same list, prefix on or off');
+        $this->assertContains($this->fullTable, $namesFull, 'fixture table is listed');
+        $this->assertSame($namesFull, array_map(fn($name) => DB::$tablePrefix . $name, $names), 'same list, prefix on or off');
     }
 
     #[Test]
     public function namesSortSystemTablesAfterContentTablesEachGroupAlphabetical(): void
     {
-        $baseNames = Table::baseNames();
-        $content   = array_values(array_filter($baseNames, fn($name) => !str_starts_with($name, '_')));
-        $system    = array_values(array_filter($baseNames, fn($name) => str_starts_with($name, '_')));
+        $names = Table::names();
+        $content   = array_values(array_filter($names, fn($name) => !str_starts_with($name, '_')));
+        $system    = array_values(array_filter($names, fn($name) => str_starts_with($name, '_')));
 
-        $this->assertSame([...$content, ...$system], $baseNames, 'content tables first, then _system tables');
+        $this->assertSame([...$content, ...$system], $names, 'content tables first, then _system tables');
 
         $sortedContent = $content;
         sort($sortedContent);
@@ -232,7 +232,7 @@ class TableIntegrationTest extends BaseTestCase
         DB::$mysqli->query("CREATE VIEW `{$this->fullTable}_view` AS SELECT num FROM `$this->fullTable`");
 
         $this->assertTrue(Table::exists($this->baseTable . '_view'), 'exists() counts the view');
-        $this->assertNotContains($this->fullTable . '_view', Table::fullNames(), 'fullNames() lists real tables only');
+        $this->assertNotContains($this->fullTable . '_view', Table::namesFull(), 'namesFull() lists real tables only');
     }
 
     //endregion

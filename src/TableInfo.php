@@ -12,7 +12,7 @@ use mysqli_sql_exception;
  * releases.
  *
  * Reads the MySQL-level facts about a connection's tables: whether a table exists, its columns,
- * its primary key, its indexes, and its FOREIGN KEY constraints. baseNames() and fullNames()
+ * its primary key, its indexes, and its FOREIGN KEY constraints. names() and namesFull()
  * list the tables themselves.
  *
  * Every connection has one, bound to its table prefix. Set at connect, null when disconnected.
@@ -22,7 +22,7 @@ use mysqli_sql_exception;
  *     Table::exists('users');                                        // default connection
  *     DB::clone(['tablePrefix' => 'cms_'])->table->exists('pages');  // clone with its own prefix
  *
- * exists() reports whether a table is there, baseNames()/fullNames() list what's there, and
+ * exists() reports whether a table is there, names()/namesFull() list what's there, and
  * the per-table methods expect an existing table: columnDefinitions(), primaryKey(), and
  * indexes() throw MySQL's "table doesn't exist" error for unknown tables, while columns(),
  * hasColumn(), and the FOREIGN KEY methods query information_schema and return [] or false
@@ -91,23 +91,23 @@ class TableInfo
      * Get every table's base name (prefix stripped): content tables first, then system
      * tables (leading underscore), each group alphabetical.
      *
-     *     Table::baseNames(); // ['accounts', 'articles', ..., '_cron_log', '_error_log', ...]
+     *     Table::names(); // ['accounts', 'articles', ..., '_cron_log', '_error_log', ...]
      *
-     * Same list as fullNames(), just without the prefix.
+     * Same list as namesFull(), just without the prefix.
      *
      * @return list<string> Base table names, prefix stripped
      */
-    public function baseNames(): array
+    public function names(): array
     {
         $prefixLength = strlen($this->db->tablePrefix);
-        return array_map(fn(string $name) => substr($name, $prefixLength), $this->fullNames());
+        return array_map(fn(string $name) => substr($name, $prefixLength), $this->namesFull());
     }
 
     /**
      * Get every table's full MySQL name (prefix included): content tables first, then
      * system tables (underscore after the prefix), each group alphabetical.
      *
-     *     Table::fullNames(); // ['cms_accounts', 'cms_articles', ..., 'cms__cron_log', ...]
+     *     Table::namesFull(); // ['cms_accounts', 'cms_articles', ..., 'cms__cron_log', ...]
      *
      * Only real tables whose names start with `tablePrefix` are listed; views and temporary
      * tables are not (exists() counts those). The list comes from information_schema rather
@@ -117,7 +117,7 @@ class TableInfo
      *
      * @return list<string> Full table names, prefix included
      */
-    public function fullNames(): array
+    public function namesFull(): array
     {
         $prefix        = $this->db->tablePrefix;
         $prefixLength  = strlen($prefix);

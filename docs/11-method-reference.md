@@ -32,7 +32,7 @@ methods. `DB::` delegates to its internal singleton connection.
 |              `DB::getBaseTable($table, $checkDb)` | Strip table prefix from a name, optionally check DB for ambiguity |
 |              `DB::getFullTable($table, $checkDb)` | Prepend table prefix to a name, optionally check DB for ambiguity |
 |                       `Table::exists($baseTable)` | Check if a table, view, or temp table exists                      |
-|       `Table::baseNames()` / `Table::fullNames()` | List all tables matching the configured prefix                    |
+|           `Table::names()` / `Table::namesFull()` | List all tables matching the configured prefix                    |
 |            `Table::columnDefinitions($baseTable)` | Column name-to-definition pairs from SHOW CREATE TABLE            |
 |                                      **Escaping** |                                                                   |
 |        `DB::escape($input, $escapeLikeWildcards)` | Escape a value for safe use in raw SQL                            |

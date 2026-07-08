@@ -14,8 +14,8 @@
 - Security footguns guide (`docs/09-security-footguns.md`) - The narrow ways to defeat the safety guarantees on purpose, each with its safe form: raw queries through `DB::$mysqli`, interpolating user input into a quoted template, dynamic identifiers like `ORDER BY`, `rawHtml()` output, NULL and empty arrays in `IN` lists, and the encryption threat model
 
 ### Deprecated
-- `DB::hasTable()` and `DB::getTableNames()` - Use `Table::exists()` and `Table::baseNames()`/`fullNames()` instead; both still work and now log deprecation warnings. `DB::tableExists()`'s warning now also points at `Table::exists()`
-- `Connection::hasTable()` and `Connection::getTableNames()` - Use `$connection->table->exists()` and `->table->baseNames()`/`fullNames()` instead; marked deprecated for IDEs, no runtime warning
+- `DB::hasTable()` and `DB::getTableNames()` - Use `Table::exists()` and `Table::names()`/`namesFull()` instead; both still work and now log deprecation warnings. `DB::tableExists()`'s warning now also points at `Table::exists()`
+- `Connection::hasTable()` and `Connection::getTableNames()` - Use `$connection->table->exists()` and `->table->names()`/`namesFull()` instead; marked deprecated for IDEs, no runtime warning
 - `DB::getColumnDefinitions()` and `Connection::getColumnDefinitions()` - Use `Table::columnDefinitions()` / `$connection->table->columnDefinitions()` instead, which now applies the same cross-server normalizations; the deprecated forms still return `[]` for unknown tables where the replacement throws
 
 ### Fixed

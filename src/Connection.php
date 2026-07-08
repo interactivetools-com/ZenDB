@@ -958,14 +958,14 @@ class Connection
     }
 
     /**
-     * @deprecated Use $connection->table->baseNames() or ->fullNames() instead
-     * @see        Table::baseNames()
-     * @see        Table::fullNames()
+     * @deprecated Use $connection->table->names() or ->namesFull() instead
+     * @see        Table::names()
+     * @see        Table::namesFull()
      */
-    #[Deprecated(reason: 'use ->table->baseNames() or ->table->fullNames() instead')]
+    #[Deprecated(reason: 'use ->table->names() or ->table->namesFull() instead')]
     public function getTableNames(bool $withPrefix = false): array
     {
-        return $withPrefix ? $this->table->fullNames() : $this->table->baseNames();
+        return $withPrefix ? $this->table->namesFull() : $this->table->names();
     }
 
     /**

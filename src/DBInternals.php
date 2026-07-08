@@ -123,15 +123,15 @@ trait DBInternals
     }
 
     /**
-     * @deprecated Use Table::baseNames() or Table::fullNames() instead
-     * @see        Table::baseNames()
-     * @see        Table::fullNames()
+     * @deprecated Use Table::names() or Table::namesFull() instead
+     * @see        Table::names()
+     * @see        Table::namesFull()
      */
-    #[Deprecated(reason: 'use Table::baseNames() or Table::fullNames() instead')]
+    #[Deprecated(reason: 'use Table::names() or Table::namesFull() instead')]
     public static function getTableNames(bool $withPrefix = false): array
     {
-        self::logDeprecation("DB::getTableNames() is deprecated, use Table::baseNames() or Table::fullNames() instead");
-        return $withPrefix ? Table::fullNames() : Table::baseNames();
+        self::logDeprecation("DB::getTableNames() is deprecated, use Table::names() or Table::namesFull() instead");
+        return $withPrefix ? Table::namesFull() : Table::names();
     }
 
     /**

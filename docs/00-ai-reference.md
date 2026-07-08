@@ -487,8 +487,8 @@ DB::TIME      // 'H:i:s'       - format for MySQL TIME columns
 
 ```php
 Table::exists('users')                    // true/false (adds tablePrefix)
-Table::baseNames()                        // ['users', 'orders', ...] (prefix stripped)
-Table::fullNames()                        // ['cms_users', 'cms_orders', ...]
+Table::names()                            // ['users', 'orders', ...] (prefix stripped)
+Table::namesFull()                        // ['cms_users', 'cms_orders', ...]
 DB::clone(['tablePrefix' => 'cms_'])->table->exists('pages')  // per-connection, clone's prefix
 Table::columnDefinitions('users')         // ['id' => 'int NOT NULL AUTO_INCREMENT', ...]
 DB::getFullTable('users')                 // 'cms_users'
