@@ -163,6 +163,15 @@ class Table
         return TableInfo::normalizeCreateTable($createTableSql);
     }
 
+    /**
+     * Wrapper for {@see TableInfo::maskStringLiterals()}, for callers writing their own
+     * transforms over CREATE TABLE text. Pure string transform: no connection involved.
+     */
+    public static function maskStringLiterals(string $sql): array
+    {
+        return TableInfo::maskStringLiterals($sql);
+    }
+
     //endregion
     //region Indexes
 

@@ -399,6 +399,17 @@ final class TableTest extends TestCase
             SQL, $normalized);
     }
 
+    #[Test]
+    public function maskStringLiteralsHidesQuotedTextAndRestoresItByteIdentical(): void
+    {
+        $original = "varchar(255) DEFAULT 'a, ''b''' COMMENT 'not int(11)'";
+
+        [$masked, $literals] = Table::maskStringLiterals($original);
+
+        $this->assertStringNotContainsString('int(11)', $masked, 'quoted text is hidden from transforms');
+        $this->assertSame($original, strtr($masked, $literals), 'strtr() restores the original');
+    }
+
     //endregion
     //region defaultFromDefinition()
 

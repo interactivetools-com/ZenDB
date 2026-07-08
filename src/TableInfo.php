@@ -479,7 +479,7 @@ class TableInfo
      *
      * @return array{string, array<string, string>} [masked SQL, placeholder => original literal]
      */
-    private static function maskStringLiterals(string $sql): array
+    public static function maskStringLiterals(string $sql): array
     {
         $literals = [];
         $masked   = preg_replace_callback("/'(?:[^'\\\\]++|\\\\.|'')*+'/", static function (array $match) use (&$literals): string {
