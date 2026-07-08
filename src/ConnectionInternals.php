@@ -32,6 +32,7 @@ trait ConnectionInternals
      * Parameter values for current query (reset per query method call)
      */
     private array $paramValues = [];
+    private bool  $paramsFromPositionalArray = false;  // set by parseParams(), read by the unused-positional check in replacePlaceholders()
 
     /**
      * Parse variadic query args into a parameter map.
@@ -41,9 +42,9 @@ trait ConnectionInternals
      * Unwraps SmartString/SmartNull values.
      *
      * Supports:
-     *   - query($sql, 'a', 'b', 'c')                    // Up to 3 positional args (use array for more)
+     *   - query($sql, 'a', 'b', 'c')                    // Positional values for ? placeholders (max 3)
      *   - query($sql, [':name' => 'Bob', ':age' => 45]) // Named params in array
-     *   - query($sql, ['a', 'b', 'c'])                    // Positional params in array
+     *   - query($sql, ['a', 'b', 'c'])                  // Deprecated: positional values in an array (use named placeholders)
      *
      * @param array $args Variadic args from query method
      * @return array Parameter map, e.g. [':1' => 'a', ':2' => 'b'] or [':name' => 'Bob']
@@ -51,19 +52,25 @@ trait ConnectionInternals
      */
     private function parseParams(array $args): array
     {
+        $this->paramsFromPositionalArray = false;  // reset per call; the no-args return below skips the assignment further down
+
         if (!$args) {
             return [];
         }
 
-        // Validate format: either single array OR multiple non-array values
-        $passedAsArray  = count($args) === 1 && is_array($args[0]);
-        $passedAsValues = empty(array_filter($args, 'is_array'));
-        if (!$passedAsArray && !$passedAsValues) {
-            throw new InvalidArgumentException("Param args must be either a single array or multiple non-array values");
-        }
-        if (count($args) > 3 && !$passedAsArray) {
-            throw new InvalidArgumentException("Max 3 positional arguments allowed. If you need more pass an array instead");
-        }
+        // Valid forms: up to 3 direct values (for ? placeholders), or one array of ':name' => value pairs.
+        // Positional values in an array are deprecated and will throw in a future version.
+        $passedAsArray     = count($args) === 1 && is_array($args[0]);
+        $passedAsValues    = empty(array_filter($args, 'is_array'));
+        $isPositionalArray = $passedAsArray && $args[0] !== [] && !array_filter(array_keys($args[0]), 'is_string');
+
+        $this->paramsFromPositionalArray = $isPositionalArray;
+        match (true) {
+            !$passedAsArray && !$passedAsValues => throw new InvalidArgumentException("Param args must be either a single array or multiple non-array values"),
+            count($args) > 3                    => throw new InvalidArgumentException("Max 3 positional arguments allowed. For more, use named placeholders: [':name' => \$value]"),
+            $isPositionalArray                  => DB::logDeprecation("Positional values in an array are deprecated. Pass up to 3 values directly for ? placeholders, or use named placeholders: [':name' => \$value]"),
+            default                             => null,
+        };
 
         // Parse params into map
         $inputParams     = $passedAsArray ? $args[0] : $args;
@@ -532,7 +539,7 @@ trait ConnectionInternals
 
         // Find and replace all placeholders with their escaped/formatted values
         $positionalCount = 0;
-        return preg_replace_callback(
+        $sql = preg_replace_callback(
             pattern : $placeholderRegex,
             callback: function ($matches) use (&$positionalCount) {
                 $match = $matches[0]; // e.g., ?, :name, `?`, etc
@@ -551,6 +558,16 @@ trait ConnectionInternals
             },
             subject : $template,
         );
+
+        // Unused positional values almost always mean a bug, e.g. "IN (?)" with [1, 2, 3] only uses the 1.
+        // Skipped when parseParams() already logged the positional-array deprecation for this call.
+        // Unused named values stay allowed: passing a shared param array with extras is legitimate.
+        $positionalProvided = count(preg_grep('/^:\d+$/', array_keys($this->paramValues)));
+        if ($positionalCount < $positionalProvided && !$this->paramsFromPositionalArray) {
+            DB::logDeprecation("Query has $positionalCount positional (?) placeholder(s) but $positionalProvided values were passed. Unused positional values are deprecated and will throw in a future version. For IN() lists use a named placeholder: ':ids' => [...]");
+        }
+
+        return $sql;
     }
 
     /**
