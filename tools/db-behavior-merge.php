@@ -64,7 +64,7 @@ echo <<<__SUMMARY__
     - Bare TIMESTAMP columns get implicit DEFAULT CURRENT_TIMESTAMP ON UPDATE on MySQL/Percona 5.7 and MariaDB thru 10.6, but stay plain nullable on MySQL/Percona 8.0+ and MariaDB 10.11+ (explicit_defaults_for_timestamp default changed)
     - Time zone offsets beyond -12:59..+13:00 are accepted only by MySQL/Percona 8.0+ (widened in MySQL 8.0.19); everything else rejects with error 1298
     - AES_ENCRYPT produces identical ciphertext on every server and matches PHP openssl aes-128-ecb, so encrypted data is fully portable
-    - Result metadata through a view: MySQL reports the underlying base table in orgtable, MariaDB reports the view name
+    - Result metadata through an aliased view: MySQL/Percona report the view's name in orgtable, MariaDB reports the query alias; neither reports the underlying base table
     - MEDIUMTEXT metadata charset varies by era (45 / 255 / 224) but is never binary (63), so MEDIUMBLOB encryption detection is safe everywhere
 
     ## Probe results

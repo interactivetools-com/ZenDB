@@ -12,8 +12,8 @@ use mysqli_sql_exception;
  * releases.
  *
  * Reads the MySQL-level facts about a connection's tables: whether a table exists, its columns,
- * its primary key, its indexes, and its FOREIGN KEY constraints. names() and namesFull()
- * list the tables themselves.
+ * its CREATE TABLE statement, its primary key, its indexes, and its FOREIGN KEY constraints.
+ * names() and namesFull() list the tables themselves.
  *
  * Every connection has one, bound to its table prefix. Set at connect, null when disconnected.
  * The Table class is the static front door for the default connection; reach an instance
@@ -263,6 +263,71 @@ class TableInfo
      */
     public function columnDefinitions(string $baseTable): array
     {
+        return self::parseCreateTableColumns($this->showCreateTable($baseTable));
+    }
+
+    /**
+     * Extract column definitions from SHOW CREATE TABLE output.
+     * Separate from columnDefinitions() so tests can feed it fixture DDL without a database.
+     *
+     * @param string $createTableSql Full SHOW CREATE TABLE statement
+     * @return array<string, string> columnName => definition SQL
+     */
+    private static function parseCreateTableColumns(string $createTableSql): array
+    {
+        $createTableSql = self::stripRedundantCharsetCollate($createTableSql);
+
+        // column lines start with a backtick-quoted name; PRIMARY KEY, KEY, and CONSTRAINT lines don't
+        $definitions = [];
+        foreach (explode("\n", $createTableSql) as $line) {
+            if (!preg_match('/^\s*`([^`]+)` (.*?),?$/', $line, $match)) {
+                continue;
+            }
+            [, $columnName, $definition] = $match;
+            [$definition, $literals]     = self::maskStringLiterals($definition);
+
+            $definition = self::cropIntDisplayWidth($definition);
+
+            // MariaDB 10.2+ spells defaults current_timestamp(); MySQL spells them CURRENT_TIMESTAMP
+            $definition = preg_replace('/\b(DEFAULT|ON UPDATE) current_timestamp(?:\(\))?(\(\d+\))?/i', '$1 CURRENT_TIMESTAMP$2', $definition);
+
+            // MariaDB prints numeric-typed defaults bare (DEFAULT 0); MySQL prints them quoted (DEFAULT '0').
+            // Quote bare numeric literals to match MySQL. Numbers only: other bare tokens are keywords (NULL)
+            // or expressions (CURRENT_TIMESTAMP, uuid()) and must stay bare to keep their meaning, and string
+            // defaults are quoted, so they're masked above and can never match
+            $definition = preg_replace("/\bDEFAULT (-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)(?=,| |$)/", "DEFAULT '$1'", $definition);
+
+            $definitions[$columnName] = strtr($definition, $literals);
+        }
+
+        return $definitions;
+    }
+
+    //endregion
+    //region Create Table
+
+    /**
+     * Get a table's CREATE TABLE statement, verbatim as SHOW CREATE TABLE returns it.
+     *
+     *     Table::showCreateTable('articles');
+     *     // CREATE TABLE `cms_articles` (
+     *     //   `num` int NOT NULL AUTO_INCREMENT,
+     *     //   ...
+     *     // ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+     *
+     * The output is this server's own formatting, so the same schema prints differently
+     * across servers (int display widths, default collations, default spellings). For text
+     * that reads the same everywhere and replays cleanly on any supported server, pass the
+     * result through normalizeCreateTable().
+     *
+     * Expects an existing table: unknown tables throw MySQL's "table doesn't exist" error,
+     * like columnDefinitions().
+     *
+     * @param string $baseTable Table name without prefix
+     * @return string The CREATE TABLE statement
+     */
+    public function showCreateTable(string $baseTable): string
+    {
         $fullTable = $this->db->tablePrefix . $baseTable;
         self::assertValidName($fullTable);
         $escapedFullTable = $this->mysqli->real_escape_string($fullTable);
@@ -271,7 +336,158 @@ class TableInfo
         $row    = $result->fetch_row();
         $result->free();
 
-        return self::parseCreateTableColumns($row[1] ?? ''); // column 1: 'Create Table'
+        return $row[1] ?? ''; // column 1: 'Create Table'
+    }
+
+    /**
+     * Normalize a CREATE TABLE statement for cross-server portability. String in, string out:
+     * no queries run, and text inside quotes (COMMENT, DEFAULT, enum values) is never modified.
+     *
+     *     $sql = Table::normalizeCreateTable(Table::showCreateTable('articles'));
+     *
+     * Servers print the same schema differently, and some print DDL other servers reject, so
+     * statements saved for replay elsewhere (backups, schema exports) are normalized first:
+     *   - deprecated int/year display widths are cropped ('int(11)' → 'int'), matching MySQL 8's
+     *     own output; plain signed tinyint(1) (boolean marker) and zerofill columns (the width
+     *     sets the padding) keep theirs
+     *   - column-level CHARACTER SET / COLLATE clauses matching the table's own defaults are
+     *     removed as noise: a column without them inherits those same defaults back
+     *   - collations that are some server version's built-in default (utf8mb4_general_ci,
+     *     utf8mb4_0900_ai_ci, utf8mb4_uca1400_ai_ci, ...) are removed from columns and table
+     *     options, so each server applies its own default on replay and the statement never
+     *     names a collation the target server doesn't have (MariaDB's uca1400 names don't
+     *     exist on MySQL). Intentional collations like utf8mb4_bin are kept
+     *
+     * Engine, charset, and everything else replay as-is: this removes server-version noise,
+     * it doesn't upgrade schemas. See tools/db-behavior-report.md (2026-07).
+     *
+     * @param string $createTableSql Full CREATE TABLE statement, as returned by showCreateTable()
+     * @return string The normalized statement
+     */
+    public static function normalizeCreateTable(string $createTableSql): string
+    {
+        // COLUMN CHARSET/COLLATE NOISE - drop clauses that just restate the table's own defaults
+        $createTableSql = self::stripRedundantCharsetCollate($createTableSql);
+
+        // SERVER-DEFAULT COLLATIONS - stripped everywhere below, so each server applies its own
+        // default on replay and a statement never names a collation the target doesn't have.
+        // Deliberate choices like utf8mb4_bin aren't in the list and survive
+        $defaultCollationsRx = implode('|', [
+            'utf8_general_ci',        // legacy utf8 (3-byte) default, pre-rename naming
+            'utf8mb3_general_ci',     // legacy utf8 default, renamed spelling (MySQL 8.0+, MariaDB 10.6+)
+            'utf8mb3_uca1400_ai_ci',  // legacy utf8 default on MariaDB 11.8+
+            'utf8mb4_general_ci',     // utf8mb4 default: MySQL/Percona 5.7, MariaDB thru 10.11
+            'utf8mb4_0900_ai_ci',     // utf8mb4 default: MySQL/Percona 8.0+ (unknown to MariaDB before 11.4)
+            'utf8mb4_uca1400_ai_ci',  // utf8mb4 default: MariaDB 11.4+ (unknown to MySQL, and MariaDB before 10.10)
+            'utf8mb4_unicode_ci',     // no server's default; the usual explicit pin, chosen because every server has it
+        ]);
+
+        $lines = explode("\n", $createTableSql);
+        foreach ($lines as &$line) {
+            // TABLE OPTIONS LINE ") ENGINE=... COLLATE=utf8mb4_0900_ai_ci" - drop a server-default COLLATE=, keep everything else
+            if (str_starts_with($line, ')')) {
+                $line = preg_replace("/\s*COLLATE=(?:$defaultCollationsRx)\b/", '', $line);
+                continue;
+            }
+
+            // COLUMN LINES "`name` ..." - KEY, CONSTRAINT, and CREATE lines pass through untouched
+            if (!preg_match('/^(\s*`[^`]+` )(.*)$/', $line, $match)) {
+                continue;
+            }
+            [, $namePart, $definition] = $match;
+            [$definition, $literals]   = self::maskStringLiterals($definition); // COMMENT/DEFAULT/enum text stays byte-identical
+
+            $definition = preg_replace("/ COLLATE (?:$defaultCollationsRx)\\b/", '', $definition);
+            $definition = self::cropIntDisplayWidth($definition);
+
+            $line = $namePart . strtr($definition, $literals);
+        }
+        unset($line);
+
+        return implode("\n", $lines);
+    }
+
+    /**
+     * Remove column-level CHARACTER SET / COLLATE clauses that are redundant: ones spelling
+     * out exactly what the column would inherit from the table's own defaults anyway.
+     *
+     *     `body` mediumtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL   // before
+     *     `body` mediumtext NOT NULL                                             // after: same column
+     *     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin            // the defaults they restate
+     *
+     * A column with a DIFFERENT charset or collation keeps it, and the table-options line
+     * itself is never modified.
+     *
+     * Details: the ") ENGINE=..." line is found by prefix, not position (partitioned tables
+     * append PARTITION lines after it); CHARSET and COLLATE are handled separately because
+     * COLLATE is often omitted; \w+ captures can't pick up regex syntax from a mangled line;
+     * and the trailing \b stops a utf8 default from eating the front of a column's utf8mb4.
+     *
+     * @param string $createTableSql Full CREATE TABLE statement
+     * @return string The statement with redundant column charset/collate clauses removed
+     */
+    private static function stripRedundantCharsetCollate(string $createTableSql): string
+    {
+        $lines = explode("\n", $createTableSql);
+
+        $tableLine = implode('', preg_grep('/^\)/', $lines));
+        preg_match('/\bCHARSET=(\w+)/', $tableLine, $charsetMatch);
+        preg_match('/\bCOLLATE=(\w+)/', $tableLine, $collateMatch);
+
+        $redundantRxs = [];
+        if (isset($charsetMatch[1])) {
+            $redundantRxs[] = "/ CHARACTER SET $charsetMatch[1]\\b/";
+        }
+        if (isset($collateMatch[1])) {
+            $redundantRxs[] = "/ COLLATE $collateMatch[1]\\b/";
+        }
+        if (!$redundantRxs) {
+            return $createTableSql;
+        }
+
+        // strip from column lines only (they start with a backtick-quoted name), with quoted
+        // text masked so a COMMENT mentioning a charset can't match
+        foreach ($lines as &$line) {
+            if (!preg_match('/^(\s*`[^`]+` )(.*)$/', $line, $match)) {
+                continue;
+            }
+            [$definition, $literals] = self::maskStringLiterals($match[2]);
+            $definition              = preg_replace($redundantRxs, '', $definition);
+            $line                    = $match[1] . strtr($definition, $literals);
+        }
+        unset($line);
+
+        return implode("\n", $lines);
+    }
+
+    /**
+     * Hide quoted text behind placeholders so normalization regexes can't touch it, then
+     * restore it afterward with strtr():
+     *
+     *     [$sql, $literals] = self::maskStringLiterals("varchar(255) DEFAULT 'a, b' COMMENT 'not int(11)'");
+     *     // $sql:      "varchar(255) DEFAULT \x000\x00 COMMENT \x001\x00"
+     *     // $literals: ["\x000\x00" => "'a, b'", "\x001\x00" => "'not int(11)'"]
+     *
+     *     // ... run regexes on $sql; the int(11) in the COMMENT can't match ...
+     *
+     *     $sql = strtr($sql, $literals);  // puts the original quoted text back
+     *
+     * Each placeholder is a counter wrapped in NUL bytes: the counter keeps placeholders
+     * unique, and NUL never appears in SHOW CREATE output or matches a word/digit pattern,
+     * so no transform can touch the token. Quotes inside a literal are handled in both
+     * forms: doubled ('') and backslash-escaped.
+     *
+     * @return array{string, array<string, string>} [masked SQL, placeholder => original literal]
+     */
+    private static function maskStringLiterals(string $sql): array
+    {
+        $literals = [];
+        $masked   = preg_replace_callback("/'(?:[^'\\\\]++|\\\\.|'')*+'/", static function (array $match) use (&$literals): string {
+            $placeholder            = "\x00" . count($literals) . "\x00"; // counter wrapped in NULs to ensure it's unique
+            $literals[$placeholder] = $match[0];
+            return $placeholder;
+        }, $sql);
+        return [$masked, $literals];
     }
 
     //endregion
@@ -355,6 +571,55 @@ class TableInfo
             $colLower = strtolower($columnName);
             $indexes  = array_filter($indexes, fn($index) => in_array($colLower, array_map('strtolower', $index['cols']), true));
         }
+
+        return $indexes;
+    }
+
+    /**
+     * Group SHOW INDEX rows by index name and classify each index.
+     * Separate from indexes() so tests can feed it fixture rows without a database.
+     *
+     * @param array<array<string, mixed>> $rows         Rows as returned by SHOW INDEX
+     * @param list<list<string>>          $fkColumnSets Column lists of the table's FOREIGN KEY constraints, one list per constraint
+     * @return array<string, array{name: string, cols: list<string>, isAuto: bool, isPrimary: bool, isUnique: bool, indexType: string, isVisible: bool, comment: string, colsCsv: string, isFk: bool, isCustom: bool}> indexName => index details
+     */
+    private static function parseShowIndexRows(array $rows, array $fkColumnSets = []): array
+    {
+        // group rows into indexes
+        $indexes     = [];
+        $displayCols = []; // cols with prefix lengths, e.g. 'email(10)'; joined into colsCsv below
+        foreach ($rows as $row) {
+            $name           = $row['Key_name'];
+            $isHidden       = ($row['Visible'] ?? '') === 'NO' || ($row['Ignored'] ?? '') === 'YES'; // MySQL 8 INVISIBLE / MariaDB IGNORED
+            $indexes[$name] ??= [
+                'name'      => $name,
+                'cols'      => [],
+                'isAuto'    => str_starts_with($name, '_auto_'),
+                'isPrimary' => $name === 'PRIMARY',
+                'isUnique'  => empty($row['Non_unique']),
+                'indexType' => $row['Index_type'] ?? '',
+                'isVisible' => !$isHidden,
+                'comment'   => $row['Index_comment'] ?? '',
+            ];
+            // functional index parts have no column name (MySQL 8); show the expression where the server reports it
+            $col                      = $row['Column_name'] ?? (isset($row['Expression']) ? "({$row['Expression']})" : '(expression)');
+            $indexes[$name]['cols'][] = $col;
+            $displayCols[$name][]     = $col . (empty($row['Sub_part']) ? '' : "($row[Sub_part])");
+        }
+
+        // classify each index:
+        //   - isFk: non-UNIQUE, and columns exactly match an FK constraint's (case-insensitive, like MySQL)
+        //   - UNIQUE never counts as isFk: MySQL doesn't auto-create UNIQUE indexes for FKs, so those are the admin's own
+        //   - exact match only, no leftmost-prefix, by design: a composite index that merely starts with the
+        //     FK columns was added by the admin (MySQL just reuses it), so it stays visible as isCustom.
+        //     Don't "fix" this into a leftmost-prefix match; TableTest pins it
+        $fkColumnSetsLower = array_map(fn($cols) => array_map('strtolower', $cols), $fkColumnSets);
+        foreach ($indexes as $name => &$index) {
+            $index['colsCsv']  = implode(', ', $displayCols[$name]);
+            $index['isFk']     = !$index['isUnique'] && in_array(array_map('strtolower', $index['cols']), $fkColumnSetsLower, true);
+            $index['isCustom'] = !$index['isAuto'] && !$index['isPrimary'] && !$index['isFk'];
+        }
+        unset($index);
 
         return $indexes;
     }
@@ -477,68 +742,6 @@ class TableInfo
     }
 
     /**
-     * Extract column definitions from SHOW CREATE TABLE output.
-     * Separate from columnDefinitions() so tests can feed it fixture DDL without a database.
-     *
-     * @param string $createTableSql Full SHOW CREATE TABLE statement
-     * @return array<string, string> columnName => definition SQL
-     */
-    private static function parseCreateTableColumns(string $createTableSql): array
-    {
-        $lines = explode("\n", $createTableSql);
-
-        // the closing ") ENGINE=... DEFAULT CHARSET=x COLLATE=y" line names the defaults every column
-        // inherits; build their column-level spellings so the loop below can remove them as redundant.
-        // Partitioned tables append PARTITION clauses after that line, so it isn't always last, and
-        // COLLATE is omitted when the table uses the charset's default collation, so handle each
-        // separately. The trailing \b matches whole names only, so a utf8 default can't eat the
-        // front of a column's utf8mb4
-        $tableLine       = implode('', preg_grep('/^\)/', $lines));
-        $tableDefaultRxs = [];
-        if (preg_match('/\bCHARSET=(\S+)/', $tableLine, $match)) {
-            $tableDefaultRxs[] = '/ CHARACTER SET ' . preg_quote($match[1], '/') . '\b/';
-        }
-        if (preg_match('/\bCOLLATE=(\S+)/', $tableLine, $match)) {
-            $tableDefaultRxs[] = '/ COLLATE ' . preg_quote($match[1], '/') . '\b/';
-        }
-
-        // column lines start with a backtick-quoted name; PRIMARY KEY, KEY, and CONSTRAINT lines don't
-        $definitions = [];
-        foreach ($lines as $line) {
-            if (!preg_match('/^\s*`([^`]+)` (.*?),?$/', $line, $match)) {
-                continue;
-            }
-            [, $columnName, $definition] = $match;
-
-            // mask quoted string literals (defaults, comments, enum values, generated expressions)
-            // so the normalizations below only ever see structural SQL, never text inside quotes;
-            // quotes inside a literal are doubled ('') or backslash-escaped
-            $literals   = [];
-            $definition = preg_replace_callback("/'(?:[^'\\\\]++|\\\\.|'')*+'/", static function (array $match) use (&$literals): string {
-                $placeholder            = "\x00" . count($literals) . "\x00";
-                $literals[$placeholder] = $match[0];
-                return $placeholder;
-            }, $definition);
-
-            $definition = preg_replace($tableDefaultRxs, '', $definition);
-            $definition = self::cropIntDisplayWidth($definition);
-
-            // MariaDB 10.2+ spells defaults current_timestamp(); MySQL spells them CURRENT_TIMESTAMP
-            $definition = preg_replace('/\b(DEFAULT|ON UPDATE) current_timestamp(?:\(\))?(\(\d+\))?/i', '$1 CURRENT_TIMESTAMP$2', $definition);
-
-            // MariaDB prints numeric-typed defaults bare (DEFAULT 0); MySQL prints them quoted (DEFAULT '0').
-            // Quote bare numeric literals to match MySQL. Numbers only: other bare tokens are keywords (NULL)
-            // or expressions (CURRENT_TIMESTAMP, uuid()) and must stay bare to keep their meaning, and string
-            // defaults are quoted, so they're masked above and can never match
-            $definition = preg_replace("/\bDEFAULT (-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)(?=,| |$)/", "DEFAULT '$1'", $definition);
-
-            $definitions[$columnName] = strtr($definition, $literals);
-        }
-
-        return $definitions;
-    }
-
-    /**
      * Crop the deprecated display width from the start of a column type or definition,
      * e.g. 'int(11) unsigned NOT NULL' → 'int unsigned NOT NULL', 'year(4)' → 'year'. Widths never
      * affected storage or range, and MySQL 8.0.19+ omits them from its output, so cropping makes
@@ -553,55 +756,6 @@ class TableInfo
             return $typeSql;
         }
         return preg_replace('/^(?!tinyint\(1\)(?! unsigned))(\w*int|year)\(\d+\)/i', '$1', $typeSql);
-    }
-
-    /**
-     * Group SHOW INDEX rows by index name and classify each index.
-     * Separate from indexes() so tests can feed it fixture rows without a database.
-     *
-     * @param array<array<string, mixed>> $rows         Rows as returned by SHOW INDEX
-     * @param list<list<string>>          $fkColumnSets Column lists of the table's FOREIGN KEY constraints, one list per constraint
-     * @return array<string, array{name: string, cols: list<string>, isAuto: bool, isPrimary: bool, isUnique: bool, indexType: string, isVisible: bool, comment: string, colsCsv: string, isFk: bool, isCustom: bool}> indexName => index details
-     */
-    private static function parseShowIndexRows(array $rows, array $fkColumnSets = []): array
-    {
-        // group rows into indexes
-        $indexes     = [];
-        $displayCols = []; // cols with prefix lengths, e.g. 'email(10)'; joined into colsCsv below
-        foreach ($rows as $row) {
-            $name           = $row['Key_name'];
-            $isHidden       = ($row['Visible'] ?? '') === 'NO' || ($row['Ignored'] ?? '') === 'YES'; // MySQL 8 INVISIBLE / MariaDB IGNORED
-            $indexes[$name] ??= [
-                'name'      => $name,
-                'cols'      => [],
-                'isAuto'    => str_starts_with($name, '_auto_'),
-                'isPrimary' => $name === 'PRIMARY',
-                'isUnique'  => empty($row['Non_unique']),
-                'indexType' => $row['Index_type'] ?? '',
-                'isVisible' => !$isHidden,
-                'comment'   => $row['Index_comment'] ?? '',
-            ];
-            // functional index parts have no column name (MySQL 8); show the expression where the server reports it
-            $col                      = $row['Column_name'] ?? (isset($row['Expression']) ? "({$row['Expression']})" : '(expression)');
-            $indexes[$name]['cols'][] = $col;
-            $displayCols[$name][]     = $col . (empty($row['Sub_part']) ? '' : "($row[Sub_part])");
-        }
-
-        // classify each index:
-        //   - isFk: non-UNIQUE, and columns exactly match an FK constraint's (case-insensitive, like MySQL)
-        //   - UNIQUE never counts as isFk: MySQL doesn't auto-create UNIQUE indexes for FKs, so those are the admin's own
-        //   - exact match only, no leftmost-prefix, by design: a composite index that merely starts with the
-        //     FK columns was added by the admin (MySQL just reuses it), so it stays visible as isCustom.
-        //     Don't "fix" this into a leftmost-prefix match; TableTest pins it
-        $fkColumnSetsLower = array_map(fn($cols) => array_map('strtolower', $cols), $fkColumnSets);
-        foreach ($indexes as $name => &$index) {
-            $index['colsCsv']  = implode(', ', $displayCols[$name]);
-            $index['isFk']     = !$index['isUnique'] && in_array(array_map('strtolower', $index['cols']), $fkColumnSetsLower, true);
-            $index['isCustom'] = !$index['isAuto'] && !$index['isPrimary'] && !$index['isFk'];
-        }
-        unset($index);
-
-        return $indexes;
     }
 
     //endregion

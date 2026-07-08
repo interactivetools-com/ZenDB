@@ -349,6 +349,29 @@ class TableIntegrationTest extends BaseTestCase
     }
 
     //endregion
+    //region showCreateTable()
+
+    #[Test]
+    public function showCreateTableReturnsTheVerbatimCreateStatement(): void
+    {
+        $sql = Table::showCreateTable($this->baseTable);
+
+        $this->assertStringStartsWith("CREATE TABLE `$this->fullTable`", $sql);
+        foreach (['num', 'title', 'sort_date', 'parent_num', 'owner_num'] as $column) {
+            $this->assertStringContainsString("`$column`", $sql);
+        }
+        $this->assertStringContainsString('PRIMARY KEY (`num`)', $sql);
+        $this->assertStringContainsString('CONSTRAINT `fk_owner`', $sql, 'keys and constraints are part of the statement, unlike columnDefinitions()');
+    }
+
+    #[Test]
+    public function showCreateTableThrowsForUnknownTables(): void
+    {
+        $this->expectException(mysqli_sql_exception::class);
+        Table::showCreateTable($this->baseTable . '_no_such_table');
+    }
+
+    //endregion
     //region indexes()
 
     #[Test]

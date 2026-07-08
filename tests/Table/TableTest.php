@@ -12,7 +12,8 @@ use ReflectionMethod;
 
 /**
  * Tests for the DB-free parser halves: TableInfo's parseShowIndexRows() (behind indexes()) and
- * parseCreateTableColumns() (behind columnDefinitions()), and Table::defaultFromDefinition().
+ * parseCreateTableColumns() (behind columnDefinitions()), plus the pure string transforms
+ * Table::normalizeCreateTable() and Table::defaultFromDefinition().
  * Index fixture rows use the SHOW INDEX column names (Key_name, Non_unique, Column_name), with
  * only the keys the parser reads. The parse methods are private implementation details, so
  * calls go through ReflectionMethod.
@@ -304,6 +305,98 @@ final class TableTest extends TestCase
     public function returnsEmptyArrayForEmptyDdl(): void
     {
         $this->assertSame([], self::parseDdl(''));
+    }
+
+    //endregion
+    //region normalizeCreateTable()
+
+    #[Test]
+    public function normalizeCreateTableCropsWidthsAndStripsDefaultCollations(): void
+    {
+        // MariaDB 11.4 output shape: int display widths everywhere, uca1400 as the table default
+        $normalized = Table::normalizeCreateTable(<<<'SQL'
+            CREATE TABLE `articles` (
+              `num` int(11) NOT NULL AUTO_INCREMENT,
+              `padded` int(6) unsigned zerofill DEFAULT NULL,
+              `isAdmin` tinyint(1) NOT NULL DEFAULT 0,
+              `flags` tinyint(1) unsigned NOT NULL DEFAULT 0,
+              `title` varchar(255) COLLATE utf8mb4_uca1400_ai_ci NOT NULL COMMENT 'not int(11), COLLATE utf8mb4_general_ci here',
+              `body` mediumtext CHARACTER SET utf8mb4 COLLATE utf8mb4_uca1400_ai_ci DEFAULT NULL,
+              `code` varchar(20) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+              PRIMARY KEY (`num`),
+              KEY `idx_title` (`title`(10))
+            ) ENGINE=InnoDB AUTO_INCREMENT=42 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci
+            SQL);
+
+        $this->assertSame(<<<'SQL'
+            CREATE TABLE `articles` (
+              `num` int NOT NULL AUTO_INCREMENT,
+              `padded` int(6) unsigned zerofill DEFAULT NULL,
+              `isAdmin` tinyint(1) NOT NULL DEFAULT 0,
+              `flags` tinyint unsigned NOT NULL DEFAULT 0,
+              `title` varchar(255) NOT NULL COMMENT 'not int(11), COLLATE utf8mb4_general_ci here',
+              `body` mediumtext DEFAULT NULL,
+              `code` varchar(20) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+              PRIMARY KEY (`num`),
+              KEY `idx_title` (`title`(10))
+            ) ENGINE=InnoDB AUTO_INCREMENT=42 DEFAULT CHARSET=utf8mb4
+            SQL, $normalized);
+    }
+
+    #[Test]
+    public function normalizeCreateTableStripsTheLegacyUnicodeCiPinButKeepsIntentionalCollations(): void
+    {
+        // utf8mb4_unicode_ci is no server's default, but CMS Builder pinned it for years, so it
+        // strips like one; utf8mb4_bin is a deliberate choice and must survive
+        $normalized = Table::normalizeCreateTable(<<<'SQL'
+            CREATE TABLE `t` (
+              `name` varchar(80) COLLATE utf8mb4_unicode_ci NOT NULL,
+              `slug` varchar(80) COLLATE utf8mb4_bin NOT NULL
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            SQL);
+
+        $this->assertSame(<<<'SQL'
+            CREATE TABLE `t` (
+              `name` varchar(80) NOT NULL,
+              `slug` varchar(80) COLLATE utf8mb4_bin NOT NULL
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            SQL, $normalized);
+    }
+
+    #[Test]
+    public function normalizeCreateTableLeavesAlreadyNormalizedStatementsUntouched(): void
+    {
+        // clean MySQL 8 output: nothing to crop, nothing to strip
+        $sql = <<<'SQL'
+            CREATE TABLE `t` (
+              `num` int NOT NULL AUTO_INCREMENT,
+              `title` varchar(255) NOT NULL DEFAULT '',
+              PRIMARY KEY (`num`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            SQL;
+
+        $this->assertSame($sql, Table::normalizeCreateTable($sql));
+    }
+
+    #[Test]
+    public function normalizeCreateTableRemovesNoiseButNeverUpgradesSchemas(): void
+    {
+        // engine and charset replay as-is: a legacy MyISAM/latin1 table stays one, and a column's
+        // own charset survives (only its era-default collation strips; the column keeps that same
+        // collation back as utf8's default on every server)
+        $normalized = Table::normalizeCreateTable(<<<'SQL'
+            CREATE TABLE `legacy` (
+              `num` int(11) NOT NULL,
+              `name` varchar(50) CHARACTER SET utf8 COLLATE utf8_general_ci DEFAULT NULL
+            ) ENGINE=MyISAM DEFAULT CHARSET=latin1
+            SQL);
+
+        $this->assertSame(<<<'SQL'
+            CREATE TABLE `legacy` (
+              `num` int NOT NULL,
+              `name` varchar(50) CHARACTER SET utf8 DEFAULT NULL
+            ) ENGINE=MyISAM DEFAULT CHARSET=latin1
+            SQL, $normalized);
     }
 
     //endregion

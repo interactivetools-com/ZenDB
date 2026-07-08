@@ -4,6 +4,8 @@
 
 ### Added
 - `Table` - Experimental internal class for reading table details on the default connection (`Table::exists('users')`); each connection has its own instance bound to its `tablePrefix` (`$connection->table->exists()`), so clones check their own tables. See the class docblock
+- `Table::showCreateTable()` - A table's CREATE TABLE statement, verbatim as SHOW CREATE TABLE returns it (raw mysqli, prefix-aware, plain string)
+- `Table::normalizeCreateTable()` - Normalizes a CREATE TABLE statement for cross-server portability, string in, string out: crops deprecated int/year display widths (signed `tinyint(1)` and ZEROFILL columns keep theirs), strips column-level CHARACTER SET/COLLATE clauses matching the table's own defaults, and strips collations that are some server version's built-in default (including MariaDB's uca1400 names, which don't exist on MySQL) so each server applies its own default on replay. Quoted text (COMMENT, DEFAULT, enum values) is never modified, and engines and charsets replay as-is: it removes server-version noise, it doesn't upgrade schemas
 - `Server` (`DB::$server`) - Experimental internal class for reading server details; see the class docblock
 - Prefixed value placeholders - `::?` and `:::name` (no backticks) prepend the table prefix inside the quoted value, for matching table names as strings:
   - `SHOW TABLES LIKE ::?` with `user%` → `SHOW TABLES LIKE 'cms_user%'`

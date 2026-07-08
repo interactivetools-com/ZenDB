@@ -8,9 +8,9 @@ namespace Itools\ZenDB;
  * releases.
  *
  * Static front door to {@see TableInfo}, which reads the MySQL-level facts about a table:
- * whether it exists, its columns, its primary key, its indexes, and its FOREIGN KEY
- * constraints. Every method here runs on the default connection; for any other connection
- * call the same methods on its own instance:
+ * whether it exists, its columns, its CREATE TABLE statement, its primary key, its indexes,
+ * and its FOREIGN KEY constraints. Every method here runs on the default connection; for any
+ * other connection call the same methods on its own instance:
  *
  *     Table::exists('users');                                        // default connection
  *     DB::clone(['tablePrefix' => 'cms_'])->table->exists('pages');  // clone with its own prefix
@@ -143,6 +143,24 @@ class Table
             ]);
         }
         return $default;
+    }
+
+    //endregion
+    //region Create Table
+
+    /** Wrapper for {@see TableInfo::showCreateTable()} */
+    public static function showCreateTable(string $baseTable): string
+    {
+        return DB::connection()->table->showCreateTable($baseTable);
+    }
+
+    /**
+     * Wrapper for {@see TableInfo::normalizeCreateTable()}. Like defaultFromDefinition(),
+     * it only transforms the string you pass it: no connection involved.
+     */
+    public static function normalizeCreateTable(string $createTableSql): string
+    {
+        return TableInfo::normalizeCreateTable($createTableSql);
     }
 
     //endregion
