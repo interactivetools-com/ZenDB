@@ -80,7 +80,7 @@ class DB
      *     databaseAutoCreate?:    bool,        // Create database if missing (default: false)
      *     connectTimeout?:        int,         // Connection timeout in seconds (default: 3)
      *     readTimeout?:           int,         // Read timeout in seconds (default: 60)
-     *     queryLogger?:           callable,    // fn(string $query, float $secs, ?Throwable $exception)
+     *     queryLogger?:           callable,    // fn(string $query, float $secs, ?Throwable $exception) - $query is resolved SQL with values inlined, so logs can contain user data
      *     sqlMode?:               string,      // MySQL SQL mode
      *     encryptionKey?:         string,      // AES encryption key, sets MySQL @ek session variable on first use
      * } $config

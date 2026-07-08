@@ -66,6 +66,7 @@ class MysqliWrapper extends mysqli
 
     /**
      * @param callable|null $queryLogger Query logger: fn(string $query, float $duration, ?Throwable $exception): void
+     *                                   $query is the resolved SQL with values inlined, so logged queries can contain user data.
      */
     public function __construct(?callable $queryLogger = null)
     {
