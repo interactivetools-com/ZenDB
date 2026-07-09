@@ -287,6 +287,125 @@ echo "### CHECK constraints\n\n";
 echo mdTable($checkProbes);
 
 //
+// CHECK lifecycle - every way to add, alter, drop, rename around, and list CHECK
+// constraints, for a future schema-editor feature (the display question: column-attached
+// vs table-level). Each probe starts from a fresh table so a failure can't cascade, and
+// records acceptance plus the CHECK clauses SHOW CREATE prints afterward, so
+// add/replace/accumulate/drop semantics and auto-naming are all visible per server
+//
+$freshCheckTable = function (string $columnsSql) use ($mysqli): void {
+    $mysqli->query("DROP TABLE IF EXISTS zdb_probe_check");
+    $mysqli->query("CREATE TABLE zdb_probe_check ($columnsSql)");
+};
+$checkClauses = function () use ($mysqli): string {
+    $createTable = $mysqli->query("SHOW CREATE TABLE zdb_probe_check")->fetch_row()[1];
+    // \bCHECK \( skips the CREATE TABLE line, whose table name also contains "check"
+    $lines       = array_map(fn($line) => rtrim(trim($line), ','), preg_grep('/\bCHECK \(/i', explode("\n", $createTable)));
+    return $lines ? implode('; ', $lines) : 'no CHECK clauses';
+};
+$alterAndReport = function (string $alterSql) use ($mysqli, $checkClauses): string {
+    try {
+        $mysqli->query($alterSql);
+        return 'accepted → ' . $checkClauses();
+    } catch (mysqli_sql_exception $e) {
+        return "rejected (error {$e->getCode()}): {$e->getMessage()}";
+    }
+};
+$createAndReport = function (string $columnsSql) use ($freshCheckTable, $checkClauses): string {
+    try {
+        $freshCheckTable($columnsSql);
+        return 'accepted → ' . $checkClauses();
+    } catch (mysqli_sql_exception $e) {
+        return "rejected (error {$e->getCode()}): {$e->getMessage()}";
+    }
+};
+
+$plainColumns    = "age INT NOT NULL, size INT NOT NULL";
+$columnCheck     = "age INT NOT NULL CHECK (age >= 0), size INT NOT NULL";
+$namedTableCheck = "age INT NOT NULL, size INT NOT NULL, CONSTRAINT zdb_age_max CHECK (age <= 150)";
+$checkOpsProbes  = [];
+
+try {
+    // ways to create - inline column CHECK and named table CHECK are probed above
+    $checkOpsProbes['CHECK add: CREATE with unnamed table CHECK (auto-name)'] = $createAndReport("age INT NOT NULL, CHECK (age >= 0)");
+    $checkOpsProbes['CHECK add: CREATE with named column CHECK']              = $createAndReport("age INT NOT NULL CONSTRAINT zdb_age_min CHECK (age >= 0)");
+
+    // ways to add to an existing table
+    $freshCheckTable($plainColumns);
+    $checkOpsProbes['CHECK add: ALTER ADD CONSTRAINT named'] = $alterAndReport("ALTER TABLE zdb_probe_check ADD CONSTRAINT zdb_age_max CHECK (age <= 150)");
+    $freshCheckTable($plainColumns);
+    $checkOpsProbes['CHECK add: ALTER ADD CHECK unnamed'] = $alterAndReport("ALTER TABLE zdb_probe_check ADD CHECK (age >= 0)");
+    $freshCheckTable($plainColumns);
+    $checkOpsProbes['CHECK add: MODIFY COLUMN with inline CHECK'] = $alterAndReport("ALTER TABLE zdb_probe_check MODIFY age INT NOT NULL CHECK (age >= 0)");
+    // deliberately continues on the table above: does a second inline CHECK replace the first or pile up?
+    $checkOpsProbes['CHECK add: second MODIFY with a different inline CHECK'] = $alterAndReport("ALTER TABLE zdb_probe_check MODIFY age INT NOT NULL CHECK (age >= 1)");
+
+    // what MODIFY COLUMN does to existing CHECKs it doesn't restate
+    $freshCheckTable($columnCheck);
+    $checkOpsProbes['CHECK modify: MODIFY COLUMN without restating its column CHECK'] = $alterAndReport("ALTER TABLE zdb_probe_check MODIFY age INT NOT NULL");
+    $freshCheckTable($namedTableCheck);
+    $checkOpsProbes['CHECK modify: MODIFY COLUMN with a table CHECK present'] = $alterAndReport("ALTER TABLE zdb_probe_check MODIFY age INT NOT NULL");
+
+    // enforcement toggles - no server can change an expression in place (drop + re-add)
+    $freshCheckTable($namedTableCheck);
+    $checkOpsProbes['CHECK alter: ALTER CHECK name NOT ENFORCED'] = $alterAndReport("ALTER TABLE zdb_probe_check ALTER CHECK zdb_age_max NOT ENFORCED");
+    $freshCheckTable($namedTableCheck);
+    $checkOpsProbes['CHECK alter: ALTER CONSTRAINT name NOT ENFORCED'] = $alterAndReport("ALTER TABLE zdb_probe_check ALTER CONSTRAINT zdb_age_max NOT ENFORCED");
+
+    // ways to drop
+    $freshCheckTable($namedTableCheck);
+    $checkOpsProbes['CHECK drop: DROP CONSTRAINT name'] = $alterAndReport("ALTER TABLE zdb_probe_check DROP CONSTRAINT zdb_age_max");
+    $freshCheckTable($namedTableCheck);
+    $checkOpsProbes['CHECK drop: DROP CHECK name'] = $alterAndReport("ALTER TABLE zdb_probe_check DROP CHECK zdb_age_max");
+
+    // the auto-name a column CHECK gets, and whether DROP CONSTRAINT accepts it
+    $freshCheckTable($columnCheck);
+    try {
+        $autoName = $mysqli->query("SELECT CONSTRAINT_NAME FROM information_schema.CHECK_CONSTRAINTS WHERE CONSTRAINT_SCHEMA = DATABASE()")->fetch_row()[0] ?? null;
+        $checkOpsProbes['CHECK drop: column CHECK by its auto-name'] = $autoName === null
+            ? 'no I_S.CHECK_CONSTRAINTS row to name it'
+            : "I_S names it '$autoName'; DROP CONSTRAINT: " . $alterAndReport("ALTER TABLE zdb_probe_check DROP CONSTRAINT `$autoName`");
+    } catch (mysqli_sql_exception $e) {
+        $checkOpsProbes['CHECK drop: column CHECK by its auto-name'] = "I_S lookup failed (error {$e->getCode()}): {$e->getMessage()}";
+    }
+
+    // column operations around CHECKs - the schema-editor cases (rename or drop a field)
+    $freshCheckTable($columnCheck);
+    $checkOpsProbes['CHECK column: DROP COLUMN with its own column CHECK'] = $alterAndReport("ALTER TABLE zdb_probe_check DROP COLUMN age");
+    $freshCheckTable($namedTableCheck);
+    $checkOpsProbes['CHECK column: DROP COLUMN referenced by a table CHECK'] = $alterAndReport("ALTER TABLE zdb_probe_check DROP COLUMN age");
+    $freshCheckTable($columnCheck);
+    $checkOpsProbes['CHECK column: CHANGE rename with column CHECK restated under the new name'] = $alterAndReport("ALTER TABLE zdb_probe_check CHANGE age age2 INT NOT NULL CHECK (age2 >= 0)");
+    $freshCheckTable($namedTableCheck);
+    $checkOpsProbes['CHECK column: CHANGE rename of a column referenced by a table CHECK'] = $alterAndReport("ALTER TABLE zdb_probe_check CHANGE age age2 INT NOT NULL");
+
+    // ways to list - what each metadata source reports for one column CHECK + one named table CHECK
+    $freshCheckTable("age INT NOT NULL CHECK (age >= 0), size INT NOT NULL, CONSTRAINT zdb_age_max CHECK (age <= 150)");
+    try {
+        $fields = $mysqli->query("SELECT * FROM information_schema.CHECK_CONSTRAINTS LIMIT 0")->fetch_fields();
+        $checkOpsProbes['CHECK list: I_S.CHECK_CONSTRAINTS columns'] = implode(', ', array_column($fields, 'name'));
+        $rows = $mysqli->query("SELECT CONSTRAINT_NAME, CHECK_CLAUSE FROM information_schema.CHECK_CONSTRAINTS WHERE CONSTRAINT_SCHEMA = DATABASE() ORDER BY CONSTRAINT_NAME")->fetch_all();
+        $checkOpsProbes['CHECK list: I_S.CHECK_CONSTRAINTS rows'] = $rows ? implode('; ', array_map(fn($row) => "$row[0]: $row[1]", $rows)) : 'no rows';
+    } catch (mysqli_sql_exception $e) {
+        $checkOpsProbes['CHECK list: I_S.CHECK_CONSTRAINTS rows'] = "failed (error {$e->getCode()}): {$e->getMessage()}";
+    }
+    try {
+        $rows = $mysqli->query("SELECT CONSTRAINT_NAME FROM information_schema.TABLE_CONSTRAINTS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'zdb_probe_check' AND CONSTRAINT_TYPE = 'CHECK' ORDER BY CONSTRAINT_NAME")->fetch_all();
+        $checkOpsProbes['CHECK list: I_S.TABLE_CONSTRAINTS type=CHECK rows'] = $rows ? implode(', ', array_column($rows, 0)) : 'no rows';
+    } catch (mysqli_sql_exception $e) {
+        $checkOpsProbes['CHECK list: I_S.TABLE_CONSTRAINTS type=CHECK rows'] = "failed (error {$e->getCode()}): {$e->getMessage()}";
+    }
+
+    $mysqli->query("DROP TABLE zdb_probe_check");
+} catch (mysqli_sql_exception $e) {
+    $checkOpsProbes['CHECK lifecycle'] = 'probe failed: ' . $e->getMessage();
+}
+$probes += $checkOpsProbes;
+
+echo "### CHECK lifecycle\n\n";
+echo mdTable($checkOpsProbes);
+
+//
 // Encryption interop - ZenDB encrypts in PHP with aes-128-ecb and MySQL's XOR-folded
 // SHA-512 key, then decrypts server-side with AES_DECRYPT(col, @ek). That only works
 // if AES_ENCRYPT runs in aes-128-ecb mode and folds over-length keys the same way on
