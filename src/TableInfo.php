@@ -66,7 +66,7 @@ class TableInfo
      * hides temporary tables on every supported server except MariaDB 11.4+; the SELECT probe
      * sees them everywhere). Name matching is MySQL's own: case-insensitive on Windows and
      * macOS servers, case-sensitive on most Linux servers (lower_case_table_names).
-     * See tools/db-behavior-report.md (2026-07).
+     * See docs/internal/db-behavior-matrix.md (2026-07).
      *
      * For a name that already includes the prefix use existsFull().
      *
@@ -290,7 +290,7 @@ class TableInfo
      * keeps them inline on the column line, so they show up here (and MODIFY COLUMN drops a
      * CHECK unless it's restated); MySQL/Percona 8.0+ hoist them into auto-named CONSTRAINT
      * lines the parser skips, and 5.7 discards CHECK entirely.
-     * See tools/db-behavior-report.md (2026-07).
+     * See docs/internal/db-behavior-matrix.md (2026-07).
      *
      * Known limit: a column COMMENT containing a newline breaks the line-based parse for that column.
      *
@@ -416,7 +416,7 @@ class TableInfo
      *     doesn't replay there; current_timestamp defaults keep their printed form
      *
      * Engine, charset, and everything else replay as-is: this removes server-version noise,
-     * it doesn't upgrade schemas. See tools/db-behavior-report.md (2026-07).
+     * it doesn't upgrade schemas. See docs/internal/db-behavior-matrix.md (2026-07).
      *
      * @param string $createTableSql Full CREATE TABLE statement, as returned by showCreateTable()
      * @return string The normalized statement

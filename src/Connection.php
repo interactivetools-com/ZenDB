@@ -161,7 +161,7 @@ class Connection
                     // COLLATE pinned: the default utf8mb4 collation differs per server (MySQL 8.0+:
                     // 0900_ai_ci, MariaDB 10.3-10.11: general_ci, MariaDB 11.4+: uca1400_ai_ci) while
                     // utf8mb4_unicode_ci exists on every supported server, so auto-created databases
-                    // collate identically everywhere. See tools/db-behavior-report.md (2026-07)
+                    // collate identically everywhere. See docs/internal/db-behavior-matrix.md (2026-07)
                     $dbCreateQuery = "CREATE DATABASE `$database` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci";
                     $this->mysqli->real_connect($this->secret('hostname'), $this->secret('username'), $this->secret('password'), null, null, null, $flags);
                     try {
@@ -793,7 +793,7 @@ class Connection
      * on every supported server under stock settings, so PHP-side and SQL-side ({{column}})
      * encryption are interchangeable and encrypted data ports across servers. MariaDB through
      * 10.11 has no block_encryption_mode variable (always aes-128-ecb); MySQL/Percona and
-     * MariaDB 11.4+ have it and default to aes-128-ecb. See tools/db-behavior-report.md (2026-07).
+     * MariaDB 11.4+ have it and default to aes-128-ecb. See docs/internal/db-behavior-matrix.md (2026-07).
      *
      * Requires `encryptionKey` on the connection; aesKey() throws RuntimeException without one.
      *

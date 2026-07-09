@@ -21,7 +21,7 @@ class Server
      *     DB::$server->version();  // "10.6.27"
      *
      * Every server reports its version in four places. Example values from mariadb:10.6;
-     * tools/db-behavior-report.md compares all four across all 17 supported servers:
+     * docs/internal/db-behavior-matrix.md compares all four across all 17 supported servers:
      *
      *   $mysqli->server_info     "10.6.27-MariaDB-ubu2204"          free with the handshake, no query
      *   SELECT VERSION()         "10.6.27-MariaDB-ubu2204"          same string, costs a query (@@version too)
@@ -42,7 +42,7 @@ class Server
      * server_info ourselves returns the same answer on every PHP version.
      *
      * @see \Itools\ZenDB\Tests\Connection\ServerTest every server's string and its parsed version
-     * @see tools/db-behavior-report.md CI probes every supported server and reports where they disagree
+     * @see docs/internal/db-behavior-matrix.md CI probes every supported server and reports where they disagree
      */
     public function version(): string
     {
@@ -86,7 +86,7 @@ class Server
      * anyway. Hosting is not a vendor - RDS-hosted stock MySQL reports "mysql".
      *
      * @see \Itools\ZenDB\Tests\Connection\ServerTest every vendor's strings and the token each returns
-     * @see tools/db-behavior-report.md @@version_comment values for all 17 supported servers
+     * @see docs/internal/db-behavior-matrix.md @@version_comment values for all 17 supported servers
      */
     public function vendor(): string
     {
@@ -168,7 +168,7 @@ class Server
      * is guaranteed to fail. True means the server side will accept TLS - the client
      * can still reject an untrusted certificate, so success isn't guaranteed.
      *
-     * @see tools/db-behavior-report.md how every supported server answers the TLS probes
+     * @see docs/internal/db-behavior-matrix.md how every supported server answers the TLS probes
      */
     public function isSSLAvailable(): bool
     {
@@ -190,7 +190,7 @@ class Server
      * Reads session status Ssl_cipher, which is non-empty (e.g. "TLS_AES_256_GCM_SHA384")
      * exactly when this connection negotiated TLS. Every supported server reports it,
      * making it the one encryption signal that works everywhere - the config variables
-     * all have version holes (see tools/db-behavior-report.md).
+     * all have version holes (see docs/internal/db-behavior-matrix.md).
      *
      * Local connections (Unix socket, named pipe) report false: no TLS was negotiated
      * because nothing leaves the machine.
@@ -218,7 +218,7 @@ class Server
      * set, a logged statement can include the key - so encryption UIs warn or refuse
      * while this returns true. Both variables exist on every supported server.
      *
-     * @see tools/db-behavior-report.md the @@GLOBAL.general_log / @@GLOBAL.log_output probe
+     * @see docs/internal/db-behavior-matrix.md the @@GLOBAL.general_log / @@GLOBAL.log_output probe
      */
     public function isGeneralQueryLogActive(): bool
     {
