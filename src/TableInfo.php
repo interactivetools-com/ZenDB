@@ -34,6 +34,24 @@ use mysqli_sql_exception;
  */
 class TableInfo
 {
+    /**
+     * Collations that are some server version's built-in default, stripped from normalized output
+     * (columnDefinitions() and normalizeCreateTable()): servers disagree on whether the default is
+     * printed at all and on which collation it is, so on replay each server applies its own.
+     * Deliberate collations like utf8mb4_bin aren't in the list and survive. utf8mb3_* spellings
+     * never appear here: rewriteUtf8mb3ToUtf8() runs before the strip.
+     */
+    private const DEFAULT_COLLATIONS = [
+        'utf8_general_ci',       // legacy utf8 (3-byte) default on every server except MariaDB 11.8+
+        'utf8_uca1400_ai_ci',    // legacy utf8 default on MariaDB 11.8+
+        'utf8mb4_general_ci',    // utf8mb4 default: MySQL/Percona 5.7, MariaDB thru 10.11
+        'utf8mb4_0900_ai_ci',    // utf8mb4 default: MySQL/Percona 8.0+ (unknown to MariaDB before 11.4)
+        'utf8mb4_uca1400_ai_ci', // utf8mb4 default: MariaDB 11.4+ (unknown to MySQL, and MariaDB before 10.10)
+        'utf8mb4_unicode_ci',    // no server's default; the usual explicit pin, chosen because every server has it
+        'latin1_swedish_ci',     // latin1 default on every server
+        'ascii_general_ci',      // ascii default on every server
+    ];
+
     //region Tables
 
     /**
@@ -248,6 +266,13 @@ class TableInfo
      * on MySQL and MariaDB thanks to these normalizations (MODIFY still accepts every result):
      *   - CHARACTER SET / COLLATE clauses matching the table's own defaults are removed as noise: a column
      *     without them inherits those same defaults back. A column with a different charset keeps it
+     *   - the utf8mb3 charset rename is spelled the old way ('CHARACTER SET utf8mb3' → 'CHARACTER SET utf8',
+     *     'utf8mb3_*' collations → 'utf8_*'): same charset either way, and utf8 is the only spelling every
+     *     supported server accepts in DDL (MySQL 5.7 rejects utf8mb3)
+     *   - collations that are some server version's built-in default (utf8mb4_general_ci, utf8mb4_0900_ai_ci,
+     *     utf8mb4_uca1400_ai_ci, latin1_swedish_ci, ...) are stripped: servers disagree on whether the
+     *     default is printed at all and on which collation it is, so on replay each server applies its own.
+     *     Deliberate collations like utf8mb4_bin survive. For the server's verbatim DDL use showCreateTable()
      *   - deprecated display widths are cropped ('int(11)' → 'int', 'year(4)' → 'year'), same as columns();
      *     plain signed tinyint(1) (boolean marker) and zerofill columns (width sets the padding) keep theirs
      *   - MariaDB's default spelling current_timestamp() is normalized to MySQL's CURRENT_TIMESTAMP
@@ -255,6 +280,7 @@ class TableInfo
      *     both servers accept either form in DDL, the quoting is spelling, not type
      *
      * COMMENT text is never modified: it is split off before normalizing and reattached after.
+     * See tools/db-behavior-report.md (2026-07).
      *
      * Known limit: a column COMMENT containing a newline breaks the line-based parse for that column.
      *
@@ -275,7 +301,8 @@ class TableInfo
      */
     private static function parseCreateTableColumns(string $createTableSql): array
     {
-        $createTableSql = self::stripRedundantCharsetCollate($createTableSql);
+        $createTableSql      = self::stripRedundantCharsetCollate($createTableSql);
+        $defaultCollationsRx = implode('|', self::DEFAULT_COLLATIONS);
 
         // column lines start with a backtick-quoted name; PRIMARY KEY, KEY, and CONSTRAINT lines don't
         $definitions = [];
@@ -285,6 +312,12 @@ class TableInfo
             }
             [, $columnName, $definition] = $match;
             [$definition, $literals]     = self::maskStringLiterals($definition);
+
+            $definition = self::rewriteUtf8mb3ToUtf8($definition);
+
+            // server-default collations are noise: servers disagree on whether they're printed at
+            // all and on which collation is the default, so on replay each server applies its own
+            $definition = preg_replace("/ COLLATE (?:$defaultCollationsRx)\\b/", '', $definition);
 
             $definition = self::cropIntDisplayWidth($definition);
 
@@ -357,6 +390,9 @@ class TableInfo
      *     options, so each server applies its own default on replay and the statement never
      *     names a collation the target server doesn't have (MariaDB's uca1400 names don't
      *     exist on MySQL). Intentional collations like utf8mb4_bin are kept
+     *   - the utf8mb3 charset rename is spelled the old way on columns and table options
+     *     ('CHARACTER SET utf8mb3' / 'CHARSET=utf8mb3' → utf8, 'utf8mb3_*' collations →
+     *     'utf8_*'): same charset either way, and MySQL 5.7 rejects the utf8mb3 spelling in DDL
      *
      * Engine, charset, and everything else replay as-is: this removes server-version noise,
      * it doesn't upgrade schemas. See tools/db-behavior-report.md (2026-07).
@@ -370,22 +406,15 @@ class TableInfo
         $createTableSql = self::stripRedundantCharsetCollate($createTableSql);
 
         // SERVER-DEFAULT COLLATIONS - stripped everywhere below, so each server applies its own
-        // default on replay and a statement never names a collation the target doesn't have.
-        // Deliberate choices like utf8mb4_bin aren't in the list and survive
-        $defaultCollationsRx = implode('|', [
-            'utf8_general_ci',        // legacy utf8 (3-byte) default, pre-rename naming
-            'utf8mb3_general_ci',     // legacy utf8 default, renamed spelling (MySQL 8.0+, MariaDB 10.6+)
-            'utf8mb3_uca1400_ai_ci',  // legacy utf8 default on MariaDB 11.8+
-            'utf8mb4_general_ci',     // utf8mb4 default: MySQL/Percona 5.7, MariaDB thru 10.11
-            'utf8mb4_0900_ai_ci',     // utf8mb4 default: MySQL/Percona 8.0+ (unknown to MariaDB before 11.4)
-            'utf8mb4_uca1400_ai_ci',  // utf8mb4 default: MariaDB 11.4+ (unknown to MySQL, and MariaDB before 10.10)
-            'utf8mb4_unicode_ci',     // no server's default; the usual explicit pin, chosen because every server has it
-        ]);
+        // default on replay and a statement never names a collation the target doesn't have
+        $defaultCollationsRx = implode('|', self::DEFAULT_COLLATIONS);
 
         $lines = explode("\n", $createTableSql);
         foreach ($lines as &$line) {
-            // TABLE OPTIONS LINE ") ENGINE=... COLLATE=utf8mb4_0900_ai_ci" - drop a server-default COLLATE=, keep everything else
+            // TABLE OPTIONS LINE ") ENGINE=... CHARSET=... COLLATE=..." - rewrite the charset
+            // spelling and drop a server-default COLLATE=, keep everything else
             if (str_starts_with($line, ')')) {
+                $line = self::rewriteUtf8mb3ToUtf8($line);
                 $line = preg_replace("/\s*COLLATE=(?:$defaultCollationsRx)\b/", '', $line);
                 continue;
             }
@@ -397,6 +426,7 @@ class TableInfo
             [, $namePart, $definition] = $match;
             [$definition, $literals]   = self::maskStringLiterals($definition); // COMMENT/DEFAULT/enum text stays byte-identical
 
+            $definition = self::rewriteUtf8mb3ToUtf8($definition);
             $definition = preg_replace("/ COLLATE (?:$defaultCollationsRx)\\b/", '', $definition);
             $definition = self::cropIntDisplayWidth($definition);
 
@@ -405,6 +435,36 @@ class TableInfo
         unset($line);
 
         return implode("\n", $lines);
+    }
+
+    /**
+     * Hide quoted text behind placeholders so normalization regexes can't touch it, then
+     * restore it afterward with strtr():
+     *
+     *     [$sql, $literals] = self::maskStringLiterals("varchar(255) DEFAULT 'a, b' COMMENT 'not int(11)'");
+     *     // $sql:      "varchar(255) DEFAULT \x000\x00 COMMENT \x001\x00"
+     *     // $literals: ["\x000\x00" => "'a, b'", "\x001\x00" => "'not int(11)'"]
+     *
+     *     // ... run regexes on $sql; the int(11) in the COMMENT can't match ...
+     *
+     *     $sql = strtr($sql, $literals);  // puts the original quoted text back
+     *
+     * Each placeholder is a counter wrapped in NUL bytes: the counter keeps placeholders
+     * unique, and NUL never appears in SHOW CREATE output or matches a word/digit pattern,
+     * so no transform can touch the token. Quotes inside a literal are handled in both
+     * forms: doubled ('') and backslash-escaped.
+     *
+     * @return array{string, array<string, string>} [masked SQL, placeholder => original literal]
+     */
+    public static function maskStringLiterals(string $sql): array
+    {
+        $literals = [];
+        $masked   = preg_replace_callback("/'(?:[^'\\\\]++|\\\\.|'')*+'/", static function (array $match) use (&$literals): string {
+            $placeholder            = "\x00" . count($literals) . "\x00"; // counter wrapped in NULs to ensure it's unique
+            $literals[$placeholder] = $match[0];
+            return $placeholder;
+        }, $sql);
+        return [$masked, $literals];
     }
 
     /**
@@ -461,33 +521,32 @@ class TableInfo
     }
 
     /**
-     * Hide quoted text behind placeholders so normalization regexes can't touch it, then
-     * restore it afterward with strtr():
+     * Rewrite the utf8mb3 spelling to utf8 in masked DDL text: CHARACTER SET / CHARSET= clauses
+     * and utf8mb3_* collation names. utf8mb4 can never match, and callers mask string literals
+     * first so quoted text is untouched.
      *
-     *     [$sql, $literals] = self::maskStringLiterals("varchar(255) DEFAULT 'a, b' COMMENT 'not int(11)'");
-     *     // $sql:      "varchar(255) DEFAULT \x000\x00 COMMENT \x001\x00"
-     *     // $literals: ["\x000\x00" => "'a, b'", "\x001\x00" => "'not int(11)'"]
+     * At a glance (utf8 and utf8mb3 are the same charset, two spellings):
      *
-     *     // ... run regexes on $sql; the int(11) in the COMMENT can't match ...
+     *   spelling   printed in SHOW CREATE by            accepted in DDL by
+     *   utf8       MySQL/Percona 5.7, MariaDB <= 10.5   every supported server  <- we write this
+     *   utf8mb3    MySQL/Percona 8.0+, MariaDB 10.6+    everything EXCEPT MySQL/Percona 5.7, MariaDB <= 10.5
+     *   utf8mb4    (different charset - never touched by this rewrite)
      *
-     *     $sql = strtr($sql, $literals);  // puts the original quoted text back
+     * Nobody types utf8mb3 - newer servers print it for any column still on legacy 3-byte utf8.
+     * Those columns come from pre-utf8mb4 installs and old backups, so without the rewrite the
+     * same column reads differently per server and DDL from new servers fails to replay on old ones.
      *
-     * Each placeholder is a counter wrapped in NUL bytes: the counter keeps placeholders
-     * unique, and NUL never appears in SHOW CREATE output or matches a word/digit pattern,
-     * so no transform can touch the token. Quotes inside a literal are handled in both
-     * forms: doubled ('') and backslash-escaped.
+     * TODO-MYSQL80: dropping MySQL 5.7 doesn't retire this - the renamed servers still print
+     * utf8mb3 while older DDL says utf8, so one canonical spelling is still needed. Re-evaluate
+     * at the bump anyway.
      *
-     * @return array{string, array<string, string>} [masked SQL, placeholder => original literal]
+     * @param string $maskedSql DDL text with string literals already masked
+     * @return string The text with utf8mb3 spellings rewritten to utf8
      */
-    public static function maskStringLiterals(string $sql): array
+    private static function rewriteUtf8mb3ToUtf8(string $maskedSql): string
     {
-        $literals = [];
-        $masked   = preg_replace_callback("/'(?:[^'\\\\]++|\\\\.|'')*+'/", static function (array $match) use (&$literals): string {
-            $placeholder            = "\x00" . count($literals) . "\x00"; // counter wrapped in NULs to ensure it's unique
-            $literals[$placeholder] = $match[0];
-            return $placeholder;
-        }, $sql);
-        return [$masked, $literals];
+        $maskedSql = preg_replace('/\b(CHARACTER SET |CHARSET=)utf8mb3\b/', '$1utf8', $maskedSql);
+        return preg_replace('/\b(COLLATE[ =])utf8mb3_/', '$1utf8_', $maskedSql);
     }
 
     //endregion

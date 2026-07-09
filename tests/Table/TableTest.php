@@ -87,14 +87,72 @@ final class TableTest extends TestCase
     public function tableDefaultCharsetThatPrefixesAColumnCharsetIsNotRemoved(): void
     {
         // 'utf8' is the leading substring of 'utf8mb4'; the removal must match whole names only,
-        // or the column's clause is left corrupted as 'mediumtextmb4 COLLATE ...'
+        // or the column's clause is left corrupted as 'mediumtextmb4 COLLATE ...'. The unicode_ci
+        // pin strips separately as a default collation; the charset must survive intact
         $definitions = self::parseDdl(<<<'SQL'
             CREATE TABLE `t` (
               `body` mediumtext CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL
             ) ENGINE=MyISAM DEFAULT CHARSET=utf8 COLLATE=utf8_general_ci
             SQL);
 
-        $this->assertSame('mediumtext CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL', $definitions['body']);
+        $this->assertSame('mediumtext CHARACTER SET utf8mb4 NOT NULL', $definitions['body']);
+    }
+
+    #[Test]
+    public function legacyUtf8ColumnsReadTheSameFromEveryServer(): void
+    {
+        // the same VARCHAR(50) CHARSET utf8 column prints four ways across servers: the utf8mb3
+        // rename, plus whether the charset's default collation is printed at all. All four must
+        // normalize to one string. Column lines are real server output from
+        // tools/db-behavior-report.md (2026-07), 'SHOW CREATE: oldText'
+        $serverVariants = [
+            'mysql/percona 5.7, mariadb 10.2'   => "`oldText` varchar(50) CHARACTER SET utf8 NOT NULL DEFAULT ''",
+            'mariadb 10.3-10.5'                 => "`oldText` varchar(50) CHARACTER SET utf8 COLLATE utf8_general_ci NOT NULL DEFAULT ''",
+            'mysql/percona 8.0+, mariadb 10.6+' => "`oldText` varchar(50) CHARACTER SET utf8mb3 COLLATE utf8mb3_general_ci NOT NULL DEFAULT ''",
+            'mariadb 11.8+'                     => "`oldText` varchar(50) CHARACTER SET utf8mb3 COLLATE utf8mb3_uca1400_ai_ci NOT NULL DEFAULT ''",
+        ];
+
+        foreach ($serverVariants as $server => $columnLine) {
+            $definitions = self::parseDdl("CREATE TABLE `t` (\n  $columnLine\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
+            $this->assertSame("varchar(50) CHARACTER SET utf8 NOT NULL DEFAULT ''", $definitions['oldText'], $server);
+        }
+    }
+
+    #[Test]
+    public function stripsServerDefaultCollationsButKeepsIntentionalOnes(): void
+    {
+        // ascii_general_ci and latin1_swedish_ci are their charsets' defaults on every supported
+        // server: 5.7-era prints the bare charset, newer servers append the collation, so the same
+        // column reads two ways. Stripping the default makes them identical; _bin choices survive
+        $definitions = self::parseDdl(<<<'SQL'
+            CREATE TABLE `t` (
+              `tableName` varchar(255) CHARACTER SET ascii COLLATE ascii_general_ci NOT NULL,
+              `legacy` varchar(100) CHARACTER SET latin1 COLLATE latin1_swedish_ci NOT NULL DEFAULT '',
+              `code` varchar(20) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+              `pinned` varchar(80) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+            SQL);
+
+        $this->assertSame('varchar(255) CHARACTER SET ascii NOT NULL', $definitions['tableName']);
+        $this->assertSame("varchar(100) CHARACTER SET latin1 NOT NULL DEFAULT ''", $definitions['legacy']);
+        $this->assertSame('varchar(20) CHARACTER SET ascii COLLATE ascii_bin NOT NULL', $definitions['code'], 'a deliberate _bin collation survives');
+        $this->assertSame('varchar(80) NOT NULL', $definitions['pinned'], 'table-default charset and the unicode_ci pin both strip');
+    }
+
+    #[Test]
+    public function charsetSpellingInsideStringDefaultsIsNeverModified(): void
+    {
+        // string defaults can contain the exact phrases the charset normalizations look for;
+        // quoted literals are masked before normalizing, so the text comes through byte-identical
+        $definitions = self::parseDdl(<<<'SQL'
+            CREATE TABLE `t` (
+              `hint` varchar(80) NOT NULL DEFAULT 'use CHARACTER SET utf8mb3 here',
+              `note` varchar(80) NOT NULL DEFAULT 'sorts by COLLATE utf8mb4_general_ci'
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
+            SQL);
+
+        $this->assertSame("varchar(80) NOT NULL DEFAULT 'use CHARACTER SET utf8mb3 here'", $definitions['hint'], 'utf8mb3 inside a string must not be rewritten');
+        $this->assertSame("varchar(80) NOT NULL DEFAULT 'sorts by COLLATE utf8mb4_general_ci'", $definitions['note'], 'a default collation inside a string must not be stripped');
     }
 
     #[Test]
@@ -359,6 +417,65 @@ final class TableTest extends TestCase
             CREATE TABLE `t` (
               `name` varchar(80) NOT NULL,
               `slug` varchar(80) COLLATE utf8mb4_bin NOT NULL
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            SQL, $normalized);
+    }
+
+    #[Test]
+    public function normalizeCreateTableRewritesUtf8mb3SpellingOnColumns(): void
+    {
+        // MySQL 8 output for legacy utf8 columns prints the renamed utf8mb3 spelling, which
+        // MySQL 5.7 rejects in DDL; utf8 is the spelling every supported server accepts. The
+        // charset default collation strips, a _bin choice keeps its collation under the old name
+        $normalized = Table::normalizeCreateTable(<<<'SQL'
+            CREATE TABLE `legacy` (
+              `name` varchar(50) CHARACTER SET utf8mb3 COLLATE utf8mb3_general_ci DEFAULT NULL,
+              `sorted` varchar(50) CHARACTER SET utf8mb3 COLLATE utf8mb3_bin DEFAULT NULL
+            ) ENGINE=InnoDB DEFAULT CHARSET=latin1
+            SQL);
+
+        $this->assertSame(<<<'SQL'
+            CREATE TABLE `legacy` (
+              `name` varchar(50) CHARACTER SET utf8 DEFAULT NULL,
+              `sorted` varchar(50) CHARACTER SET utf8 COLLATE utf8_bin DEFAULT NULL
+            ) ENGINE=InnoDB DEFAULT CHARSET=latin1
+            SQL, $normalized);
+    }
+
+    #[Test]
+    public function normalizeCreateTableRewritesUtf8mb3TableOptions(): void
+    {
+        // a whole legacy-utf8 table on MySQL 8: CHARSET=utf8mb3 in the table options must become
+        // CHARSET=utf8 or the statement won't replay on MySQL 5.7
+        $normalized = Table::normalizeCreateTable(<<<'SQL'
+            CREATE TABLE `legacy` (
+              `name` varchar(50) DEFAULT NULL
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci
+            SQL);
+
+        $this->assertSame(<<<'SQL'
+            CREATE TABLE `legacy` (
+              `name` varchar(50) DEFAULT NULL
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8
+            SQL, $normalized);
+    }
+
+    #[Test]
+    public function normalizeCreateTableStripsUniversalCharsetDefaultCollations(): void
+    {
+        // latin1_swedish_ci and ascii_general_ci are their charsets' defaults on every supported
+        // server; newer servers print them, 5.7-era doesn't, so they strip as noise
+        $normalized = Table::normalizeCreateTable(<<<'SQL'
+            CREATE TABLE `t` (
+              `legacy` varchar(100) CHARACTER SET latin1 COLLATE latin1_swedish_ci NOT NULL DEFAULT '',
+              `tableName` varchar(255) CHARACTER SET ascii COLLATE ascii_general_ci NOT NULL
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            SQL);
+
+        $this->assertSame(<<<'SQL'
+            CREATE TABLE `t` (
+              `legacy` varchar(100) CHARACTER SET latin1 NOT NULL DEFAULT '',
+              `tableName` varchar(255) CHARACTER SET ascii NOT NULL
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
             SQL, $normalized);
     }
