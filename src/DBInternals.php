@@ -41,6 +41,8 @@ trait DBInternals
 
     /**
      * Wrapper for {@see Connection::escape()}
+     *
+     * @internal
      */
     public static function escape(string|int|float|null|SmartString $input, bool $escapeLikeWildcards = false): string
     {
@@ -49,6 +51,8 @@ trait DBInternals
 
     /**
      * Wrapper for {@see Connection::escapef()}
+     *
+     * @internal
      */
     public static function escapef(string $format, mixed ...$values): string
     {
@@ -57,6 +61,8 @@ trait DBInternals
 
     /**
      * Wrapper for {@see Connection::escapeCSV()}
+     *
+     * @internal
      */
     public static function escapeCSV(array $values): RawSql
     {

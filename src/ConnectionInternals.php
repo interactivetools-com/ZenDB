@@ -633,8 +633,12 @@ trait ConnectionInternals
     //region Escape Methods
 
     /**
+     * Internal use, undocumented by design. Use placeholders instead; they're
+     * safer unless you know exactly what you're doing.
+     *
      * Escape a string for safe inclusion in raw SQL.
      *
+     * @internal
      * @param string|int|float|null|SmartString $input               Value to escape
      * @param bool                              $escapeLikeWildcards Also escape % and _ for LIKE queries
      * @return string Escaped string (without quotes)
@@ -658,8 +662,12 @@ trait ConnectionInternals
     }
 
     /**
+     * Internal use, undocumented by design. Use placeholders instead; they're
+     * safer unless you know exactly what you're doing.
+     *
      * Escapes and quotes values, inserting them into a format string with ? placeholders.
      *
+     * @internal
      * @param string $format    Format string with ? placeholders
      * @param mixed  ...$values Values to escape and insert
      * @return string SQL-safe string
@@ -690,6 +698,9 @@ trait ConnectionInternals
     }
 
     /**
+     * Internal use, undocumented by design. Use placeholders instead; they're
+     * safer unless you know exactly what you're doing.
+     *
      * Converts array values to a safe CSV string for use in MySQL IN clauses.
      *
      * NULL values are skipped: NULL never matches inside IN (...), and one NULL in a
@@ -708,6 +719,7 @@ trait ConnectionInternals
      *         ':ids' => [1, 2, 3],
      *     ]);
      *
+     * @internal
      * @param array $values Array of values to convert
      * @return RawSql SQL-safe comma-separated list, deduplicated, NULLs skipped
      * @throws InvalidArgumentException on unsupported value types
