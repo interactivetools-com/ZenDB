@@ -150,6 +150,38 @@ class ServerTest extends BaseTestCase
         $this->assertSame($expected, $server->isSSLAvailable());
     }
 
+    public static function generalQueryLogProvider(): array
+    {
+        return [
+            // @@GLOBAL.general_log, @@GLOBAL.log_output, expected
+            ['0', 'FILE',       false],  // stock default on every supported server
+            ['1', 'FILE',       true],
+            ['1', 'TABLE',      true],
+            ['1', 'FILE,TABLE', true],
+            ['1', 'NONE',       false],  // log on but discarding everything
+            ['1', 'FILE,NONE',  false],  // NONE takes precedence over other destinations
+            ['0', 'NONE',       false],
+        ];
+    }
+
+    #[DataProvider('generalQueryLogProvider')]
+    public function testIsGeneralQueryLogActive(string $generalLog, string $logOutput, bool $expected): void
+    {
+        $server = new Server(new FakeMysqli('8.0.46', generalLog: $generalLog, logOutput: $logOutput));
+
+        $this->assertSame($expected, $server->isGeneralQueryLogActive());
+    }
+
+    public function testGeneralQueryLogAnswerIsCachedAfterFirstQuery(): void
+    {
+        $fakeMysqli = new FakeMysqli('8.0.46', generalLog: '1', logOutput: 'FILE');
+        $server     = new Server($fakeMysqli);
+
+        $server->isGeneralQueryLogActive();
+        $server->isGeneralQueryLogActive();
+        $this->assertSame(1, $fakeMysqli->queries);
+    }
+
     public function testServerIsWiredToConnectionLifecycle(): void
     {
         $db = self::createDefaultConnection();
@@ -160,6 +192,7 @@ class ServerTest extends BaseTestCase
         $this->assertContains(DB::$server->vendor(), ['mysql', 'mariadb', 'percona', 'aurora']);
         $this->assertFalse(DB::$server->isSSLConnection(), 'test suite connects without TLS');
         $this->assertIsBool(DB::$server->isSSLAvailable());
+        $this->assertIsBool(DB::$server->isGeneralQueryLogActive());
 
         DB::disconnect();
         $this->assertNull(DB::$server);
@@ -182,6 +215,8 @@ class FakeMysqli extends stdClass
         private string $datadir = '/var/lib/mysql/',
         private string $sslCipher = '',
         private ?string $haveSSL = null,
+        private string $generalLog = '0',
+        private string $logOutput = 'FILE',
     ) {
     }
 
@@ -189,9 +224,10 @@ class FakeMysqli extends stdClass
     {
         $this->queries++;
         $row = match (true) {
-            str_contains($sql, 'Ssl_cipher') => ['Ssl_cipher', $this->sslCipher],
-            str_contains($sql, 'have_ssl')   => $this->haveSSL === null ? null : ['have_ssl', $this->haveSSL],
-            default                          => $this->vendorRow($sql),
+            str_contains($sql, 'Ssl_cipher')  => ['Ssl_cipher', $this->sslCipher],
+            str_contains($sql, 'have_ssl')    => $this->haveSSL === null ? null : ['have_ssl', $this->haveSSL],
+            str_contains($sql, 'general_log') => [$this->generalLog, $this->logOutput],
+            default                           => $this->vendorRow($sql),
         };
         return new class ($row) {
             public function __construct(private readonly ?array $row)

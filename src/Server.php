@@ -204,6 +204,31 @@ class Server
         return $this->isSSLConnection;
     }
 
+    /**
+     * True when the general query log is writing statements somewhere.
+     *
+     *     DB::$server->isGeneralQueryLogActive();  // true → query text is being recorded
+     *
+     * Reads @@GLOBAL.general_log and @@GLOBAL.log_output, cached so the query runs at
+     * most once per connection. The log only captures when general_log is on AND
+     * log_output names a destination: log_output is a set (FILE, TABLE, or both), and
+     * NONE anywhere in it discards everything even while general_log is on.
+     *
+     * Built to gate features that put secrets in query text - when `encryptionKey` is
+     * set, a logged statement can include the key - so encryption UIs warn or refuse
+     * while this returns true. Both variables exist on every supported server.
+     *
+     * @see tools/db-behavior-report.md the @@GLOBAL.general_log / @@GLOBAL.log_output probe
+     */
+    public function isGeneralQueryLogActive(): bool
+    {
+        if ($this->isGeneralQueryLogActive === null) {
+            [$generalLog, $logOutput]      = $this->mysqli->query("SELECT @@GLOBAL.general_log, @@GLOBAL.log_output")->fetch_row();
+            $this->isGeneralQueryLogActive = $generalLog === '1' && !str_contains($logOutput, 'NONE');
+        }
+        return $this->isGeneralQueryLogActive;
+    }
+
     //endregion
     //region Internals
 
@@ -218,6 +243,9 @@ class Server
 
     /** Cached isSSLAvailable() answer */
     private ?bool $isSSLAvailable = null;
+
+    /** Cached isGeneralQueryLogActive() answer */
+    private ?bool $isGeneralQueryLogActive = null;
 
     /** Cached vendorStrings() answer, e.g. "mysql community server - gpl | /usr/ | /var/lib/mysql/" */
     private ?string $vendorStrings = null;
