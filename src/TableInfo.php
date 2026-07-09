@@ -8,8 +8,7 @@ use RuntimeException;
 use mysqli_sql_exception;
 
 /**
- * EXPERIMENTAL: New API, still settling - method names and return values may change between
- * releases.
+ * INTERNAL: Method names and return values may change between releases.
  *
  * Reads the MySQL-level facts about a connection's tables: whether a table exists, its columns,
  * its CREATE TABLE statement, its primary key, its indexes, and its FOREIGN KEY constraints.

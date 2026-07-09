@@ -4,8 +4,7 @@ declare(strict_types=1);
 namespace Itools\ZenDB;
 
 /**
- * EXPERIMENTAL: New API, still settling - method names and return values may change between
- * releases.
+ * INTERNAL: Method names and return values may change between releases.
  *
  * Static front door to {@see TableInfo}, which reads the MySQL-level facts about a table:
  * whether it exists, its columns, its CREATE TABLE statement, its primary key, its indexes,

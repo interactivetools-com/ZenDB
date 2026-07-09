@@ -7,9 +7,9 @@ use mysqli;
 use stdClass;
 
 /**
- * Identity facts about the connected database server.
+ * INTERNAL: Method names and return values may change between releases.
  *
- * @experimental Method names and return values may change between releases.
+ * Identity facts about the connected database server.
  */
 class Server
 {

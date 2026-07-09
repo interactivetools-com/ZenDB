@@ -77,6 +77,7 @@ trait DBInternals
      *
      *     DB::assertIdentifier($fullTable, 'table name'); // throws for 'title; DROP TABLE users'
      *
+     * @internal
      * @param string $identifier The string to check
      * @param string $what Noun for the error message, e.g. 'table name', 'column name'
      * @throws InvalidArgumentException
