@@ -311,6 +311,8 @@ class DB
     /**
      * Returns the SQL expression to decrypt an encrypted column using the session encryption key (@ek).
      * Used internally by the {{column}} template syntax and available for custom query building.
+     * The template layer expands a leading :: to the table prefix ({{::users.email}}) before
+     * this method builds the expression; this method itself takes names as-is.
      *
      *     DB::decryptExpr('email')       // "AES_DECRYPT(`email`, @ek)"
      *     DB::decryptExpr('blog.title')  // "AES_DECRYPT(`blog`.`title`, @ek)"

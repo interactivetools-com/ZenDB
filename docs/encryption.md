@@ -118,9 +118,19 @@ $users = DB::select('users', "{{apiToken}} LIKE ?", '%token%');
 The same expansion is available as a string from `DB::decryptExpr('apiToken')`,
 for SQL built outside a template.
 
-`{{table.column}}` works too, for joins. Use the stored table name:
-`{{...}}` doesn't apply `tablePrefix`, so with a `cms_` prefix write
-`{{cms_users.apiToken}}`, not `{{users.apiToken}}`.
+`{{table.column}}` works too, for joins. Write the column reference exactly
+as you would without encryption, then wrap it in braces: `::` applies the
+table prefix inside `{{}}` just as it does outside, and alias qualifiers stay
+as written:
+
+```php
+$users = DB::select('users', "{{::users.apiToken}} LIKE ?", '%token%');
+// with tablePrefix 'cms_' this runs:
+// SELECT * FROM `cms_users` WHERE AES_DECRYPT(`cms_users`.`apiToken`, @ek) LIKE '%token%'
+
+$rows = DB::query("SELECT * FROM ::users u WHERE {{u.apiToken}} LIKE ?", '%token%');
+// aliases pass through as written: WHERE AES_DECRYPT(`u`.`apiToken`, @ek) LIKE ...
+```
 
 > **Internal detail, safe to ignore:** `@ek` is a MySQL session variable
 > holding the key. ZenDB sets it once per connection, before the first query

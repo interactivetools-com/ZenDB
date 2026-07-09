@@ -605,7 +605,9 @@ DB::decryptRows($rows, $result->fetch_fields());
 
 `DB::encryptValue()` produces the same ciphertext as `insert()`/`update()`,
 so it also writes encrypted values through raw SQL. `{{table.column}}` works
-in joins.
+in joins: write the column reference as you would unencrypted, wrapped in
+braces. `::` applies `tablePrefix` inside `{{}}` (`{{::users.apiToken}}`
+matches `FROM ::users`); alias qualifiers stay as written (`{{u.apiToken}}`).
 
 ---
 

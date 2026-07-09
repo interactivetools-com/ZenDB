@@ -161,6 +161,24 @@ output.
 
 ---
 
+## Encrypted-Column Qualifiers - DECIDED: `::` works inside `{{}}` (2026-07)
+
+`{{...}}` contents are SQL, not a method argument: write the column reference
+exactly as you would without encryption, then wrap it in braces. `::` applies
+`tablePrefix` inside the braces just as it does outside (`{{::users.apiToken}}`
+matches `FROM ::users`); alias and already-prefixed qualifiers stay as written
+(`{{u.apiToken}}`).
+
+Auto-prefixing the table half (matching how `select('users')` takes base
+names) was rejected: the expansion can't tell an alias from a table name, so
+`FROM ::users u ... {{u.apiToken}}` would become `cms_u.apiToken` and break
+the common join form. Guessing from the schema is the schema-awareness magic
+rejected under Other Ideas Rejected. Method arguments take base names because
+the whole argument is a table name by definition; inside SQL text, `::` is
+the marker, and `{{}}` lives inside SQL text.
+
+---
+
 ## Undocumented on Purpose - DECIDED (2026-07)
 
 The docs deliberately omit these; the omission is a decision, not a gap

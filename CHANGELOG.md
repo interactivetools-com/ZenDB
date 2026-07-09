@@ -1,5 +1,10 @@
 # ZenDB Changelog
 
+## [Unreleased]
+
+### Added
+- `::` works inside `{{}}` - Encrypted-column reads take the table prefix the same way the rest of the query does: `{{::users.apiToken}}` expands to `` AES_DECRYPT(`cms_users`.`apiToken`, @ek) ``, matching `FROM ::users`. Write the column reference as you would unencrypted, wrapped in braces; alias qualifiers pass through as written (`{{u.apiToken}}`). Previously the prefix had to be hardcoded (`{{cms_users.apiToken}}`), which broke if `tablePrefix` changed; that form still works
+
 ## [1.0.0] - 2026-07-08
 
 First stable release, and the first with a complete manual: task-oriented guides in `docs/` covering everything from your first query to joins, encryption, security, and troubleshooting, plus [ai-reference.md](docs/ai-reference.md), the whole API in one file for AI coding assistants.

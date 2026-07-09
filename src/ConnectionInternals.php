@@ -479,6 +479,8 @@ trait ConnectionInternals
      *   `?`, `:name`       - backtick-wrapped and unescaped, throws if unsafe chars
      *   `::?`, `:::name`   - same as above with table prefix prepended
      *   ::                 - table prefix alone
+     *   {{column}}         - encrypted column read, expands to AES_DECRYPT(`column`, @ek);
+     *                        a leading :: applies the table prefix ({{::users.token}})
      *
      * In LIKE patterns, a `_` in the table prefix matches any single character
      * (::? with 'user%' and prefix 'cms_' also matches cms2users); escape the
@@ -494,8 +496,14 @@ trait ConnectionInternals
             DB::logDeprecation(":_ syntax is deprecated, use :: instead");
         }
 
-        // {{column}} or {{table.column}} - expand encrypted column references, see decryptExpr()
-        $template = preg_replace_callback('/\{\{([\w.-]+)}}/', fn($m) => DB::decryptExpr($m[1]), $template);
+        // {{column}} or {{table.column}} - expand encrypted column references, see decryptExpr().
+        // A leading :: applies the table prefix, same as outside the braces: write the column
+        // reference as you would unencrypted ({{::users.token}}, {{u.token}}), wrapped in braces.
+        $template = preg_replace_callback(
+            '/\{\{(::)?([\w.-]+)}}/',
+            fn($m) => DB::decryptExpr(($m[1] ? $this->tablePrefix : '') . $m[2]),
+            $template,
+        );
 
         // Placeholder types
         $placeholderRegex = '/' . implode("|", [

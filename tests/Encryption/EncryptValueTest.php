@@ -336,6 +336,44 @@ class EncryptValueTest extends BaseTestCase
         $this->assertSame(109, $results->first()->get('num')->value());
     }
 
+    public function testDoubleBracePrefixAppliesTablePrefix(): void
+    {
+        self::$conn->insert('enc_users', [
+            'num'   => 112,
+            'name'  => 'Prefix Test',
+            'token' => 'prefix-expansion-test',
+        ]);
+
+        // :: inside the braces applies tablePrefix, matching FROM ::enc_users
+        $results = self::$conn->query(
+            "SELECT * FROM ::enc_users WHERE {{::enc_users.token}} = ?",
+            'prefix-expansion-test'
+        );
+
+        $this->assertCount(1, $results);
+        $this->assertSame(112, $results->first()->get('num')->value());
+        $this->assertStringContainsString('AES_DECRYPT(`test_enc_users`.`token`, @ek)', $results->mysqli('query'));
+    }
+
+    public function testDoubleBraceAliasStaysLiteral(): void
+    {
+        self::$conn->insert('enc_users', [
+            'num'   => 113,
+            'name'  => 'Alias Test',
+            'token' => 'alias-literal-test',
+        ]);
+
+        // no :: means no prefix, so alias qualifiers pass through as written
+        $results = self::$conn->query(
+            "SELECT * FROM ::enc_users u WHERE {{u.token}} = ?",
+            'alias-literal-test'
+        );
+
+        $this->assertCount(1, $results);
+        $this->assertSame(113, $results->first()->get('num')->value());
+        $this->assertStringContainsString('AES_DECRYPT(`u`.`token`, @ek)', $results->mysqli('query'));
+    }
+
     public function testDoubleBraceInOrderBy(): void
     {
         self::$conn->insert('enc_users', ['num' => 110, 'name' => 'A', 'token' => 'AAA-first']);
