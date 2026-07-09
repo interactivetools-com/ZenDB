@@ -91,7 +91,7 @@ class TableInfo
     public function existsFull(string $fullTable): bool
     {
         try {
-            self::assertValidName($fullTable);
+            DB::assertIdentifier($fullTable, 'table name');
             $escapedFullTable = $this->mysqli->real_escape_string($fullTable);
             $this->mysqli->query("SELECT 1 FROM `$escapedFullTable` LIMIT 0")->free();
             return true;
@@ -372,7 +372,7 @@ class TableInfo
     public function showCreateTable(string $baseTable): string
     {
         $fullTable = $this->db->tablePrefix . $baseTable;
-        self::assertValidName($fullTable);
+        DB::assertIdentifier($fullTable, 'table name');
         $escapedFullTable = $this->mysqli->real_escape_string($fullTable);
 
         $result = $this->mysqli->query("SHOW CREATE TABLE `$escapedFullTable`");
@@ -677,7 +677,7 @@ class TableInfo
     public function primaryKey(string $baseTable): string
     {
         $fullTable = $this->db->tablePrefix . $baseTable;
-        self::assertValidName($fullTable);
+        DB::assertIdentifier($fullTable, 'table name');
         $escapedFullTable = $this->mysqli->real_escape_string($fullTable);
 
         $result = $this->mysqli->query("SHOW INDEX FROM `$escapedFullTable` WHERE Key_name = 'PRIMARY' AND Seq_in_index = 1");
@@ -724,7 +724,7 @@ class TableInfo
     public function indexes(string $baseTable, ?string $columnName = null): array
     {
         $fullTable = $this->db->tablePrefix . $baseTable;
-        self::assertValidName($fullTable);
+        DB::assertIdentifier($fullTable, 'table name');
         $escapedFullTable = $this->mysqli->real_escape_string($fullTable);
 
         $result = $this->mysqli->query("SHOW INDEX FROM `$escapedFullTable`");
@@ -897,18 +897,6 @@ class TableInfo
 
     //endregion
     //region Internal Helpers
-
-    /**
-     * Validate a table name for safe backtick interpolation, same rule as the query
-     * pipeline's identifier check. This is the guard that matters in backtick context:
-     * real_escape_string() doesn't escape backticks, so escaping alone isn't enough there.
-     *
-     * @throws InvalidArgumentException
-     */
-    private static function assertValidName(string $identifier): void
-    {
-        DB::assertIdentifier($identifier, 'table name');
-    }
 
     /**
      * Crop the deprecated display width from the start of a column type or definition,

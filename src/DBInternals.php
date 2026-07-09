@@ -64,6 +64,25 @@ trait DBInternals
     }
 
     /**
+     * Throw unless a string is a safe SQL identifier: letters, numbers, _ and - only.
+     * Runs on every table and column name ZenDB puts between backticks - the check that
+     * matters there, since real_escape_string() doesn't escape backticks, so escaping
+     * alone can't make an identifier safe. $what names the value in the error message.
+     *
+     *     DB::assertIdentifier($fullTable, 'table name'); // throws for 'title; DROP TABLE users'
+     *
+     * @param string $identifier The string to check
+     * @param string $what Noun for the error message, e.g. 'table name', 'column name'
+     * @throws InvalidArgumentException
+     */
+    public static function assertIdentifier(string $identifier, string $what = 'identifier'): void
+    {
+        if (!preg_match('/^[\w-]+\z/', $identifier)) { // \z: $ would also match before a trailing newline
+            throw new InvalidArgumentException("Invalid $what '$identifier', allowed characters: a-z, A-Z, 0-9, _, -");
+        }
+    }
+
+    /**
      * @see Connection::decryptRows()
      */
     public static function decryptRows(array &$rows, array $fetchFields): void

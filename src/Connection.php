@@ -370,7 +370,7 @@ class Connection
         $this->mysqli->lastQuery = "SELECT * FROM `$fullTable` [WHERE ...]";
 
         // Validate
-        $this->assertValidTable($baseTable);
+        DB::assertIdentifier($baseTable, 'table name');
         $this->logDeprecatedNumericWhere($whereEtc);
 
         // Bind params and build SQL
@@ -404,7 +404,7 @@ class Connection
         $fullTable               = $this->tablePrefix . $baseTable;
         $this->mysqli->lastQuery = "SELECT * FROM `$fullTable` [WHERE ...] LIMIT 1";
 
-        $this->assertValidTable($baseTable);
+        DB::assertIdentifier($baseTable, 'table name');
         $this->logDeprecatedNumericWhere($whereEtc);
         $this->rejectLimitAndOffset($whereEtc);
         $this->rejectPreLimitConflicts($whereEtc);
@@ -436,7 +436,7 @@ class Connection
         $this->mysqli->lastQuery = "INSERT INTO `$fullTable` [SET ...]";
 
         // Validate
-        $this->assertValidTable($baseTable);
+        DB::assertIdentifier($baseTable, 'table name');
 
         // Build SQL
         $this->encryptRow($fullTable, $values);
@@ -465,7 +465,7 @@ class Connection
         $fullTable               = $this->tablePrefix . $baseTable;
         $this->mysqli->lastQuery = "UPDATE `$fullTable` [SET ...] [WHERE ...]";
 
-        $this->assertValidTable($baseTable);
+        DB::assertIdentifier($baseTable, 'table name');
         $this->logDeprecatedNumericWhere($whereEtc);
         $this->rejectEmptyWhere($whereEtc, 'UPDATE');
 
@@ -500,7 +500,7 @@ class Connection
         $fullTable               = $this->tablePrefix . $baseTable;
         $this->mysqli->lastQuery = "DELETE FROM `$fullTable` [WHERE ...]";
 
-        $this->assertValidTable($baseTable);
+        DB::assertIdentifier($baseTable, 'table name');
         $this->logDeprecatedNumericWhere($whereEtc);
         $this->rejectEmptyWhere($whereEtc, 'DELETE');
 
@@ -536,7 +536,7 @@ class Connection
         $fullTable               = $this->tablePrefix . $baseTable;
         $this->mysqli->lastQuery = "SELECT COUNT(*) FROM `$fullTable` [WHERE ...]";
 
-        $this->assertValidTable($baseTable);
+        DB::assertIdentifier($baseTable, 'table name');
         $this->logDeprecatedNumericWhere($whereEtc);
         $this->rejectLimitAndOffset($whereEtc);
 

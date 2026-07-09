@@ -14,8 +14,6 @@ use Itools\ZenDB\Tests\BaseTestCase;
  * Tests for table and column identifier validation
  *
  * @covers \Itools\ZenDB\DB::assertIdentifier
- * @covers \Itools\ZenDB\ConnectionInternals::assertValidTable
- * @covers \Itools\ZenDB\ConnectionInternals::assertValidColumn
  */
 class IdentifierValidationTest extends BaseTestCase
 {

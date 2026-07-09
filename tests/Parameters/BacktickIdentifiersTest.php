@@ -14,8 +14,7 @@ use Itools\ZenDB\Tests\BaseTestCase;
  * Tests for backtick identifier placeholders (`?`, `:name`, `::?`, `:::name`)
  *
  * @covers \Itools\ZenDB\ConnectionInternals::replacePlaceholders
- * @covers \Itools\ZenDB\ConnectionInternals::assertValidTable
- * @covers \Itools\ZenDB\ConnectionInternals::assertValidColumn
+ * @covers \Itools\ZenDB\DB::assertIdentifier
  */
 class BacktickIdentifiersTest extends BaseTestCase
 {

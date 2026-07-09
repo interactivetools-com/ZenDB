@@ -297,26 +297,6 @@ class DB
         return self::connection()->likeEndsWith($input);
     }
 
-    /**
-     * Throw unless a string is a safe SQL identifier: letters, numbers, _ and - only.
-     * ZenDB runs this rule on every table and column name it puts between backticks;
-     * call it yourself before building SQL around an identifier placeholders can't
-     * cover, like a user-picked sort column. $what names the value in the error message.
-     *
-     *     DB::assertIdentifier($sortColumn, 'sort column'); // throws for 'title; DROP TABLE users'
-     *     $rows = DB::query("SELECT * FROM `?` ORDER BY `$sortColumn`", 'news');
-     *
-     * @param string $identifier The string to check
-     * @param string $what Noun for the error message, e.g. 'table name', 'sort column'
-     * @throws InvalidArgumentException
-     */
-    public static function assertIdentifier(string $identifier, string $what = 'identifier'): void
-    {
-        if (!preg_match('/^[\w-]+\z/', $identifier)) { // \z: $ would also match before a trailing newline
-            throw new InvalidArgumentException("Invalid $what '$identifier', allowed characters: a-z, A-Z, 0-9, _, -");
-        }
-    }
-
     //endregion
     //region Encryption
 

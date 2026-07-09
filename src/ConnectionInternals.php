@@ -122,24 +122,6 @@ trait ConnectionInternals
     //region Validation
 
     /**
-     * Validate table name contains only safe characters.
-     * @throws InvalidArgumentException
-     */
-    private function assertValidTable(string $identifier): void
-    {
-        DB::assertIdentifier($identifier, 'table name');
-    }
-
-    /**
-     * Validate column name contains only safe characters.
-     * @throws InvalidArgumentException
-     */
-    private function assertValidColumn(string $identifier): void
-    {
-        DB::assertIdentifier($identifier, 'column name');
-    }
-
-    /**
      * Assert SQL template is safe - rejects quotes, standalone numbers, and dangerous characters.
      *
      * Forces developers to use placeholders instead of embedding values directly.
@@ -388,7 +370,7 @@ trait ConnectionInternals
                 throw new InvalidArgumentException("Column names must be strings, got " . get_debug_type($column));
             }
 
-            $this->assertValidColumn($column);
+            DB::assertIdentifier($column, 'column name');
 
             if ($value instanceof SmartString) {
                 $value = $value->value(); // unwrap before the type check; SmartString can wrap null/bool
@@ -471,7 +453,7 @@ trait ConnectionInternals
                 throw new InvalidArgumentException("Column names must be strings, got " . get_debug_type($column));
             }
 
-            $this->assertValidColumn($column);
+            DB::assertIdentifier($column, 'column name');
 
             if ($value instanceof SmartString) {
                 $value = $value->value(); // unwrap before the type check; SmartString can wrap null/bool
