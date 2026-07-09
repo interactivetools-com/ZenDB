@@ -277,8 +277,9 @@ final class TableTest extends TestCase
     {
         // the don't-overshoot cases: bare tokens that aren't plain numbers carry meaning in their
         // bare form and must never gain quotes. NULL is the keyword (quoting it would make it the
-        // string 'NULL'), CURRENT_TIMESTAMP is a generator, uuid() is an expression, b'101' is a
-        // bit literal, and 0x1F would be hex (the number match requires a clean token boundary)
+        // string 'NULL'), CURRENT_TIMESTAMP is a generator, uuid() is an expression (it gains
+        // parens, never quotes), b'101' is a bit literal, and 0x1F would be hex (the number match
+        // requires a clean token boundary)
         $definitions = self::parseDdl(<<<'SQL'
             CREATE TABLE `t` (
               `d_null` datetime DEFAULT NULL,
@@ -291,7 +292,7 @@ final class TableTest extends TestCase
 
         $this->assertSame('datetime DEFAULT NULL', $definitions['d_null'], 'the NULL keyword stays bare');
         $this->assertSame('timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP', $definitions['d_ts']);
-        $this->assertSame('varchar(36) NOT NULL DEFAULT uuid()', $definitions['d_expr'], "MariaDB's bare expression defaults stay bare");
+        $this->assertSame('varchar(36) NOT NULL DEFAULT (uuid())', $definitions['d_expr'], 'an expression default gains parens, never quotes');
         $this->assertSame("bit(4) NOT NULL DEFAULT b'101'", $definitions['d_bit']);
         $this->assertSame('int NOT NULL DEFAULT 0x1F', $definitions['d_hex'], 'hex is not a plain number, left alone');
     }
@@ -357,6 +358,79 @@ final class TableTest extends TestCase
         $this->assertSame("varchar(101) GENERATED ALWAYS AS (concat('use DEFAULT 5 here')) STORED", $definitions['label'], 'DEFAULT <number> inside the expression must not gain quotes');
         $this->assertSame("varchar(101) GENERATED ALWAYS AS (concat('x CHARACTER SET utf8mb4 y')) STORED", $definitions['cs'], 'charset text inside the expression must not be stripped');
         $this->assertSame("int GENERATED ALWAYS AS (if(`mode` = 'zerofill',0,1)) STORED", $definitions['n'], "the 'zerofill' inside the expression must not stop the int(11) crop");
+    }
+
+    #[Test]
+    public function generatedColumnsReadTheSameFromEveryServer(): void
+    {
+        // the same generated columns print three ways: MySQL/Percona wrap the expression in a
+        // redundant outer paren pair, MariaDB doesn't, and display widths vary by era. All must
+        // normalize to one string. Column lines are real server output from
+        // tools/db-behavior-report.md (2026-07), 'GENERATED: doubled/tripled INT'
+        $serverVariants = [
+            'mysql/percona 5.7'  => ['`doubled` int(11) GENERATED ALWAYS AS ((`num` * 2)) VIRTUAL', '`tripled` int(11) GENERATED ALWAYS AS ((`num` * 3)) STORED'],
+            'mysql/percona 8.0+' => ['`doubled` int GENERATED ALWAYS AS ((`num` * 2)) VIRTUAL',     '`tripled` int GENERATED ALWAYS AS ((`num` * 3)) STORED'],
+            'all mariadb'        => ['`doubled` int(11) GENERATED ALWAYS AS (`num` * 2) VIRTUAL',   '`tripled` int(11) GENERATED ALWAYS AS (`num` * 3) STORED'],
+        ];
+
+        foreach ($serverVariants as $server => [$doubled, $tripled]) {
+            $definitions = self::parseDdl("CREATE TABLE `t` (\n  $doubled,\n  $tripled\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+            $this->assertSame('int GENERATED ALWAYS AS (`num` * 2) VIRTUAL', $definitions['doubled'], $server);
+            $this->assertSame('int GENERATED ALWAYS AS (`num` * 3) STORED', $definitions['tripled'], $server);
+        }
+    }
+
+    #[Test]
+    public function parensStripOnlyWhenTheyWrapTheWholeExpression(): void
+    {
+        // only a paren pair around the ENTIRE expression is redundant; a leading paren that
+        // closes mid-expression is part of it, and a greedy regex strip would corrupt it
+        $definitions = self::parseDdl(<<<'SQL'
+            CREATE TABLE `t` (
+              `wrapped` int GENERATED ALWAYS AS (((`a` + 1))) VIRTUAL,
+              `leading` int GENERATED ALWAYS AS ((`a` + 1) * (`b` + 2)) VIRTUAL,
+              `text` varchar(20) GENERATED ALWAYS AS (concat('(',`a`,')')) STORED
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            SQL);
+
+        $this->assertSame('int GENERATED ALWAYS AS (`a` + 1) VIRTUAL', $definitions['wrapped'], 'every fully-wrapping layer strips');
+        $this->assertSame('int GENERATED ALWAYS AS ((`a` + 1) * (`b` + 2)) VIRTUAL', $definitions['leading'], 'the leading paren closes mid-expression, so nothing strips');
+        $this->assertSame("varchar(20) GENERATED ALWAYS AS (concat('(',`a`,')')) STORED", $definitions['text'], 'parens inside string literals are text, not structure');
+    }
+
+    #[Test]
+    public function expressionDefaultsReadTheSameFromEveryServer(): void
+    {
+        // the same DEFAULT (uuid()) column prints two ways (tools/db-behavior-report.md, 'SHOW
+        // CREATE: code VARCHAR(36) DEFAULT (uuid())'): MySQL 8.0+ prints the parens its DDL
+        // grammar requires, MariaDB prints the call bare. Parenthesized is the one spelling
+        // every server that supports expression defaults replays, so bare calls gain parens
+        $serverVariants = [
+            'mysql/percona 8.0+' => '`code` varchar(36) NOT NULL DEFAULT (uuid())',
+            'all mariadb'        => '`code` varchar(36) NOT NULL DEFAULT uuid()',
+        ];
+
+        foreach ($serverVariants as $server => $columnLine) {
+            $definitions = self::parseDdl("CREATE TABLE `t` (\n  $columnLine\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+            $this->assertSame('varchar(36) NOT NULL DEFAULT (uuid())', $definitions['code'], $server);
+            $this->assertSame('(uuid())', Table::defaultFromDefinition($definitions['code']), "defaultFromDefinition agrees: $server");
+        }
+    }
+
+    #[Test]
+    public function expressionDefaultWrapCoversTheWholeCall(): void
+    {
+        // the added parens must span nested calls and ignore parens inside string arguments;
+        // an already-parenthesized default must not gain a second layer
+        $definitions = self::parseDdl(<<<'SQL'
+            CREATE TABLE `t` (
+              `slug` varchar(80) NOT NULL DEFAULT concat(uuid(),'(x)'),
+              `made` varchar(36) NOT NULL DEFAULT (uuid()) COMMENT 'made (auto)'
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            SQL);
+
+        $this->assertSame("varchar(80) NOT NULL DEFAULT (concat(uuid(),'(x)'))", $definitions['slug'], 'nested parens and a paren inside a string argument');
+        $this->assertSame("varchar(36) NOT NULL DEFAULT (uuid()) COMMENT 'made (auto)'", $definitions['made'], 'already parenthesized: unchanged, comment parens are text');
     }
 
     #[Test]
@@ -476,6 +550,50 @@ final class TableTest extends TestCase
             CREATE TABLE `t` (
               `legacy` varchar(100) CHARACTER SET latin1 NOT NULL DEFAULT '',
               `tableName` varchar(255) CHARACTER SET ascii NOT NULL
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            SQL, $normalized);
+    }
+
+    #[Test]
+    public function normalizeCreateTableStripsRedundantGeneratedColumnParens(): void
+    {
+        // MySQL 8 output shape: the printer wraps generated expressions in an extra paren pair
+        // MariaDB doesn't print; both vendors accept the single-paren form in DDL
+        $normalized = Table::normalizeCreateTable(<<<'SQL'
+            CREATE TABLE `t` (
+              `num` int NOT NULL,
+              `doubled` int GENERATED ALWAYS AS ((`num` * 2)) VIRTUAL,
+              `tripled` int GENERATED ALWAYS AS ((`num` * 3)) STORED
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            SQL);
+
+        $this->assertSame(<<<'SQL'
+            CREATE TABLE `t` (
+              `num` int NOT NULL,
+              `doubled` int GENERATED ALWAYS AS (`num` * 2) VIRTUAL,
+              `tripled` int GENERATED ALWAYS AS (`num` * 3) STORED
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            SQL, $normalized);
+    }
+
+    #[Test]
+    public function normalizeCreateTableParenthesizesBareExpressionDefaults(): void
+    {
+        // MariaDB prints DEFAULT uuid() bare, but MySQL 8's DDL grammar requires the parens, so
+        // the bare form doesn't replay there; both vendors accept DEFAULT (uuid()). Timestamp
+        // defaults keep their printed form: they replay everywhere and are MySQL 5.7's only
+        // function default, so they must never gain parens
+        $normalized = Table::normalizeCreateTable(<<<'SQL'
+            CREATE TABLE `t` (
+              `code` varchar(36) NOT NULL DEFAULT uuid(),
+              `createdDate` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            SQL);
+
+        $this->assertSame(<<<'SQL'
+            CREATE TABLE `t` (
+              `code` varchar(36) NOT NULL DEFAULT (uuid()),
+              `createdDate` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
             SQL, $normalized);
     }

@@ -276,6 +276,10 @@ class TableInfo
      *   - deprecated display widths are cropped ('int(11)' → 'int', 'year(4)' → 'year'), same as columns();
      *     plain signed tinyint(1) (boolean marker) and zerofill columns (width sets the padding) keep theirs
      *   - MariaDB's default spelling current_timestamp() is normalized to MySQL's CURRENT_TIMESTAMP
+     *   - MySQL's redundant outer parens on generated-column expressions are stripped
+     *     ('AS ((`num` * 2))' → 'AS (`num` * 2)'), matching MariaDB; both accept the single pair
+     *   - MariaDB's bare expression defaults gain the parens MySQL's DDL grammar requires
+     *     ('DEFAULT uuid()' → 'DEFAULT (uuid())'); CURRENT_TIMESTAMP stays bare per the rule above
      *   - MariaDB's bare numeric defaults are quoted the way MySQL prints them ('DEFAULT 0' → "DEFAULT '0'");
      *     both servers accept either form in DDL, the quoting is spelling, not type
      *
@@ -302,7 +306,7 @@ class TableInfo
     private static function parseCreateTableColumns(string $createTableSql): array
     {
         $createTableSql      = self::stripRedundantCharsetCollate($createTableSql);
-        $defaultCollationsRx = implode('|', self::DEFAULT_COLLATIONS);
+        $defaultCollationsRx = '(?:' . implode('|', self::DEFAULT_COLLATIONS) . ')';
 
         // column lines start with a backtick-quoted name; PRIMARY KEY, KEY, and CONSTRAINT lines don't
         $definitions = [];
@@ -317,12 +321,18 @@ class TableInfo
 
             // server-default collations are noise: servers disagree on whether they're printed at
             // all and on which collation is the default, so on replay each server applies its own
-            $definition = preg_replace("/ COLLATE (?:$defaultCollationsRx)\\b/", '', $definition);
+            $definition = preg_replace("/ COLLATE $defaultCollationsRx\\b/", '', $definition);
 
             $definition = self::cropIntDisplayWidth($definition);
 
             // MariaDB 10.2+ spells defaults current_timestamp(); MySQL spells them CURRENT_TIMESTAMP
             $definition = preg_replace('/\b(DEFAULT|ON UPDATE) current_timestamp(?:\(\))?(\(\d+\))?/i', '$1 CURRENT_TIMESTAMP$2', $definition);
+
+            // vendors disagree on expression parens both ways: MySQL wraps generated-column
+            // expressions in a redundant extra pair, and MariaDB prints expression defaults
+            // without the parens MySQL's DDL grammar requires
+            $definition = self::stripRedundantGeneratedParens($definition);
+            $definition = self::parenthesizeExpressionDefault($definition);
 
             // MariaDB prints numeric-typed defaults bare (DEFAULT 0); MySQL prints them quoted (DEFAULT '0').
             // Quote bare numeric literals to match MySQL. Numbers only: other bare tokens are keywords (NULL)
@@ -393,6 +403,11 @@ class TableInfo
      *   - the utf8mb3 charset rename is spelled the old way on columns and table options
      *     ('CHARACTER SET utf8mb3' / 'CHARSET=utf8mb3' → utf8, 'utf8mb3_*' collations →
      *     'utf8_*'): same charset either way, and MySQL 5.7 rejects the utf8mb3 spelling in DDL
+     *   - MySQL's redundant outer parens on generated-column expressions are stripped
+     *     ('AS ((`num` * 2))' → 'AS (`num` * 2)'): both vendors accept the single pair
+     *   - bare expression defaults gain parens ('DEFAULT uuid()' → 'DEFAULT (uuid())'): MariaDB
+     *     prints them bare but MySQL's DDL grammar rejects that form, so the bare spelling
+     *     doesn't replay there; current_timestamp defaults keep their printed form
      *
      * Engine, charset, and everything else replay as-is: this removes server-version noise,
      * it doesn't upgrade schemas. See tools/db-behavior-report.md (2026-07).
@@ -407,7 +422,7 @@ class TableInfo
 
         // SERVER-DEFAULT COLLATIONS - stripped everywhere below, so each server applies its own
         // default on replay and a statement never names a collation the target doesn't have
-        $defaultCollationsRx = implode('|', self::DEFAULT_COLLATIONS);
+        $defaultCollationsRx = '(?:' . implode('|', self::DEFAULT_COLLATIONS) . ')';
 
         $lines = explode("\n", $createTableSql);
         foreach ($lines as &$line) {
@@ -415,7 +430,7 @@ class TableInfo
             // spelling and drop a server-default COLLATE=, keep everything else
             if (str_starts_with($line, ')')) {
                 $line = self::rewriteUtf8mb3ToUtf8($line);
-                $line = preg_replace("/\s*COLLATE=(?:$defaultCollationsRx)\b/", '', $line);
+                $line = preg_replace("/\s*COLLATE=$defaultCollationsRx\b/", '', $line);
                 continue;
             }
 
@@ -427,8 +442,13 @@ class TableInfo
             [$definition, $literals]   = self::maskStringLiterals($definition); // COMMENT/DEFAULT/enum text stays byte-identical
 
             $definition = self::rewriteUtf8mb3ToUtf8($definition);
-            $definition = preg_replace("/ COLLATE (?:$defaultCollationsRx)\\b/", '', $definition);
+            $definition = preg_replace("/ COLLATE $defaultCollationsRx\\b/", '', $definition);
             $definition = self::cropIntDisplayWidth($definition);
+
+            // vendors disagree on expression parens both ways: MySQL's redundant pair on generated
+            // columns is noise, and MariaDB's bare expression defaults don't replay on MySQL
+            $definition = self::stripRedundantGeneratedParens($definition);
+            $definition = self::parenthesizeExpressionDefault($definition);
 
             $line = $namePart . strtr($definition, $literals);
         }
@@ -547,6 +567,96 @@ class TableInfo
     {
         $maskedSql = preg_replace('/\b(CHARACTER SET |CHARSET=)utf8mb3\b/', '$1utf8', $maskedSql);
         return preg_replace('/\b(COLLATE[ =])utf8mb3_/', '$1utf8_', $maskedSql);
+    }
+
+    /**
+     * Strip the redundant outer paren pair MySQL prints around generated-column expressions.
+     * MySQL/Percona print 'GENERATED ALWAYS AS ((`num` * 2))' while MariaDB prints the
+     * expression in single parens, and every supported server accepts the single-paren form
+     * in DDL, so the extra layer is noise:
+     *
+     *     int GENERATED ALWAYS AS ((`num` * 2)) VIRTUAL  →  int GENERATED ALWAYS AS (`num` * 2) VIRTUAL
+     *
+     * Only a pair wrapping the ENTIRE expression is redundant: in AS ((`a` + 1) * (`b` + 2))
+     * the leading paren closes mid-expression, so the strip walks parens instead of trusting
+     * a regex. Callers mask string literals first, so parens in quoted text can't miscount.
+     *
+     * @param string $maskedDefinition Column definition with string literals already masked
+     * @return string The definition with redundant expression parens removed
+     */
+    private static function stripRedundantGeneratedParens(string $maskedDefinition): string
+    {
+        $marker   = 'GENERATED ALWAYS AS (';
+        $position = strpos($maskedDefinition, $marker);
+        if ($position === false) {
+            return $maskedDefinition;
+        }
+
+        $open  = $position + strlen($marker) - 1;
+        $close = self::matchingParenPos($maskedDefinition, $open);
+        if ($close === null) {
+            return $maskedDefinition;
+        }
+
+        $expression = substr($maskedDefinition, $open + 1, $close - $open - 1);
+        while (str_starts_with($expression, '(') && self::matchingParenPos($expression, 0) === strlen($expression) - 1) {
+            $expression = substr($expression, 1, -1);
+        }
+
+        return substr($maskedDefinition, 0, $open + 1) . $expression . substr($maskedDefinition, $close);
+    }
+
+    /**
+     * Wrap a bare expression default in the parens MySQL requires. MariaDB prints
+     * 'DEFAULT uuid()' while MySQL 8.0+ prints 'DEFAULT (uuid())', and MySQL's DDL grammar
+     * rejects the bare spelling, so parenthesized is the one form every server that supports
+     * expression defaults replays (MySQL 5.7 supports none, whatever the spelling):
+     *
+     *     varchar(36) NOT NULL DEFAULT uuid()  →  varchar(36) NOT NULL DEFAULT (uuid())
+     *
+     * current_timestamp defaults never gain parens: every server prints and accepts them
+     * bare, and they're the one function default MySQL 5.7 allows, where the parenthesized
+     * form is a syntax error. Callers mask string literals first, so parens in quoted
+     * arguments can't miscount.
+     *
+     * @param string $maskedDefinition Column definition with string literals already masked
+     * @return string The definition with a bare expression default parenthesized
+     */
+    private static function parenthesizeExpressionDefault(string $maskedDefinition): string
+    {
+        if (!preg_match('/\bDEFAULT (?!CURRENT_TIMESTAMP\b)[a-z_]\w*\(/i', $maskedDefinition, $match, PREG_OFFSET_CAPTURE)) {
+            return $maskedDefinition;
+        }
+        [$matchedText, $matchOffset] = $match[0]; // PREG_OFFSET_CAPTURE: [matched text, byte offset]
+        $matchOffset                 = (int)$matchOffset; // already an int; PhpStorm's stubs type all match slots as string
+
+        $open  = $matchOffset + strlen($matchedText) - 1;
+        $close = self::matchingParenPos($maskedDefinition, $open);
+        if ($close === null) {
+            return $maskedDefinition;
+        }
+
+        $callStart = $matchOffset + strlen('DEFAULT ');
+        return substr($maskedDefinition, 0, $callStart)
+            . '(' . substr($maskedDefinition, $callStart, $close - $callStart + 1) . ')'
+            . substr($maskedDefinition, $close + 1);
+    }
+
+    /**
+     * Find the ')' that closes the '(' at $openPos, or null if it never closes.
+     * Callers pass masked text, so parens inside string literals can't miscount.
+     */
+    private static function matchingParenPos(string $maskedText, int $openPos): ?int
+    {
+        $depth = 0;
+        for ($pos = $openPos, $length = strlen($maskedText); $pos < $length; $pos++) {
+            if ($maskedText[$pos] === '(') {
+                $depth++;
+            } elseif ($maskedText[$pos] === ')' && --$depth === 0) {
+                return $pos;
+            }
+        }
+        return null;
     }
 
     //endregion
