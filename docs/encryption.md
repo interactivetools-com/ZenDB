@@ -51,7 +51,8 @@ either side of `MEDIUMBLOB`'s 16 MB.
 
 Turning on encryption does not encrypt existing rows. If your `MEDIUMBLOB`
 columns already hold data, re-encrypt those rows first (read without the key,
-write back with it).
+write back with it). CMS Builder does this for you when you check the
+encryption box on an existing field.
 
 ## Writing and Reading Encrypted Data
 

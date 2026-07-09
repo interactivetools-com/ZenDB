@@ -54,6 +54,10 @@ MySQL's `LIMIT` only accepts literal integers, so the guard strips a trailing
 `LIMIT #` from the copy it checks; anything that isn't a plain trailing
 `LIMIT #` still throws.
 
+**Hitting this on CREATE TABLE or ALTER TABLE?** Type lengths like
+`VARCHAR(255)` are standalone numbers too. Run schema statements through
+`DB::$mysqli->query()`, which is plain mysqli with no template guard.
+
 ### "Max 3 positional arguments allowed. For more, use named placeholders: [':name' => $value]"
 
 **What happened:** More than 3 values were passed for `?` placeholders.
@@ -254,11 +258,29 @@ DB::select('users', "id IN (:ids)", [':ids' => [1, 2, 3]]);
 
 ## Connection Problems
 
-### Connection Fails on WSL with "No such file or directory"
+### "Couldn't connect to server, check database server is running and connection settings are correct."
 
-`localhost` on Windows Subsystem for Linux connects through a Unix socket,
-which doesn't exist when MySQL runs on the Windows host. Use the IP address
-instead:
+The message continues with the driver detail, for example
+`MySQL Error(2002): Connection refused`.
+
+**What happened:** MySQL error 2002: nothing accepted the connection.
+The server isn't running, or the hostname or port doesn't point at it.
+
+**Fix:** Confirm the MySQL server is running, then check `hostname` (and the
+port, if not the default 3306: `'hostname' => 'localhost:3307'`). On WSL,
+see the next entry.
+
+### "'localhost' uses Unix sockets. To connect to Windows MySQL from WSL, use '127.0.0.1' or 'localhost:3306' with WSL mirrored networking."
+
+The message ends with `MySQL Error(2002): No such file or directory`.
+
+**What happened:** On Windows Subsystem for Linux, the hostname `localhost`
+connects through a Unix socket, which doesn't exist when MySQL runs on the
+Windows host. ZenDB detects this combination and adds this hint to the
+error.
+
+**Fix:** Either form in the message works; both force a TCP connection
+(`localhost:3306` needs WSL mirrored networking to reach the Windows host):
 
 ```php
 DB::connect([

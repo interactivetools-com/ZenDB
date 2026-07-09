@@ -31,6 +31,8 @@ trait DBInternals
      * Throws a RuntimeException when not connected.
      *
      *     DB::connection()->table->exists('users');  // same call Table::exists('users') makes
+     *
+     * @internal
      */
     public static function connection(): Connection
     {
@@ -113,6 +115,7 @@ trait DBInternals
      * loaded (import MySQL's downloadable timezone package into the mysql schema and
      * restart: https://dev.mysql.com/downloads/timezones.html).
      *
+     * @internal
      * @return string A UTC offset like "+02:00", or an IANA zone name for offsets past +13:00
      */
     public static function phpTimezoneForMysql(): string

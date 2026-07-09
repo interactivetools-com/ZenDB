@@ -185,8 +185,9 @@ so user input like `$_GET['page']` can be passed straight in.
 
 ## Custom SQL - `DB::query()` and `DB::queryOne()`
 
-When a query outgrows the table-based methods (joins, unions, subqueries),
-write the SQL yourself with `DB::query()`. The same placeholder rules and
+When a query outgrows the table-based methods (selecting specific columns
+instead of `select()`'s `SELECT *`, joins, unions, subqueries), write the SQL
+yourself with `DB::query()`. The same placeholder rules and
 returned objects apply, and `::` before a table name inserts your table
 prefix:
 

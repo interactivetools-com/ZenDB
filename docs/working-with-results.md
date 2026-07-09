@@ -125,6 +125,9 @@ $result = DB::query("INSERT INTO ::users SET name = ?", 'Alice');
 $newId  = $result->mysqli('insert_id');
 ```
 
+That's for inserts written as raw SQL. `DB::insert()` returns the new ID
+directly, no metadata call needed.
+
 ## Result Methods (Collections)
 
 The most used methods on the collection returned by `DB::select()` and

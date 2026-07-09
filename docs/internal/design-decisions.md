@@ -199,6 +199,10 @@ The docs deliberately omit these; the omission is a decision, not a gap
 - **`get()` with a default argument** - de-emphasized; the default applies only
   to missing keys, never stored nulls, which misleads more than it helps in
   docs examples.
+- **`DB::connection()`, `DB::phpTimezoneForMysql()`** - `@internal` (2026-07):
+  plumbing for code that already knows the internals, not regular-use methods.
+  Rule of thumb: methods living in DBInternals.php are internal unless ruled
+  otherwise.
 
 ---
 

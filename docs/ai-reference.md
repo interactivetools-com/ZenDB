@@ -15,7 +15,7 @@ Contents:
 - Custom SQL - query(), queryOne(), smart joins, clone()
 - Results & Values - SmartArray/SmartString hierarchy, HTML-encoding, methods
 - Helpers - pagination, LIKE patterns, raw SQL, date constants, table names
-- Connection - config options, connection management, multiple connections
+- Connection - config options, connection management, raw mysqli access, multiple connections
 - Encryption (opt-in)
 - Template Safety Rules - what SQL templates reject and allow
 - Common Errors Quick Reference - exact messages and fixes
@@ -151,6 +151,11 @@ $deleted = DB::delete('users', "status = ?", 'Suspended');
 
 Commits when the callback returns, rolls back and rethrows on exception.
 Returns the callback's return value. Nested transactions throw.
+
+DML only (SELECT/INSERT/UPDATE/DELETE). DDL (CREATE, ALTER, DROP, TRUNCATE)
+silently commits all pending work and ends the transaction; everything after
+runs in autocommit mode with no rollback possible. TRUNCATE is DDL -- use
+DELETE inside transactions.
 
 ```php
 $orderId = DB::transaction(function() use ($userId, $skus) {
@@ -564,6 +569,24 @@ DB::isConnected(true)      // also pings the server to verify
 DB::disconnect()           // Close the default connection
 ```
 
+### Raw mysqli Access -- DB::$mysqli
+
+`DB::$mysqli` is the underlying mysqli connection (a mysqli subclass that
+adds query logging and `lastQuery`). Required for DDL: templates reject
+standalone numbers, so `VARCHAR(255)` throws in `DB::query()`.
+
+```php
+// Raw mysqli: no placeholders, no template guard, no :: prefix expansion
+DB::$mysqli->query("ALTER TABLE cms_users ADD COLUMN nickname VARCHAR(64)");
+
+DB::$mysqli->lastQuery;        // last SQL executed, values inlined
+DB::$mysqli->insert_id;        // native mysqli properties work as usual
+DB::$mysqli->affected_rows;
+```
+
+Returns `mysqli_result|true`, not ZenDB collections; failures throw
+`mysqli_sql_exception`. Results skip auto-decryption (see Encryption).
+
 ### Multiple Connections
 
 ```php
@@ -609,6 +632,15 @@ in joins: write the column reference as you would unencrypted, wrapped in
 braces. `::` applies `tablePrefix` inside `{{}}` (`{{::users.apiToken}}`
 matches `FROM ::users`); alias qualifiers stay as written (`{{u.apiToken}}`).
 
+```php
+// Build decrypt expressions for SQL you assemble yourself ({{column}} expands to this)
+DB::decryptExpr('apiToken');        // "AES_DECRYPT(`apiToken`, @ek)"
+DB::decryptExpr('users.apiToken');  // "AES_DECRYPT(`users`.`apiToken`, @ek)"
+
+// Detect encrypted (MEDIUMBLOB) columns from mysqli field metadata
+DB::getEncryptedColumns($result->fetch_fields());  // [fieldIndex => columnName], e.g. [0 => 'token', 3 => 'ssn']
+```
+
 ---
 
 ## Template Safety Rules
@@ -648,7 +680,10 @@ underscore, hyphen only).
 | "Missing value for ? parameter at position N"                                           | Pass enough values for all `?` placeholders                |
 | "Missing value for ':name' parameter"                                                   | Add missing key to params array                            |
 | "Arrays not allowed with positional ? placeholders"                                     | Use named: `"IN (:ids)"`, `[':ids' => [1,2,3]]`            |
+| "Can't mix positional (?) and named (:param) placeholders"                              | Use one placeholder style for the whole query              |
 | "This method doesn't support LIMIT or OFFSET"                                           | Use `select()` not `selectOne()` for custom LIMIT          |
+| "This method doesn't support FOR UPDATE" (also FOR SHARE, LOCK IN SHARE MODE)           | Use `query(...)->first()`; queryOne()'s LIMIT 1 must come before locking clauses |
+| "This method appends LIMIT 1 automatically"                                             | Remove the trailing `--`/`#` comment or `;`, or use `query(...)->first()` |
 | "Invalid table/column name"                                                             | Only `a-z, A-Z, 0-9, _, -` allowed                         |
 
 ## Gotchas

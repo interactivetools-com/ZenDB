@@ -1,7 +1,8 @@
 # Modifying Data
 
 Inserting, updating, and deleting rows: how column values map to SQL types,
-and how to use SQL expressions like `NOW()`.
+how to use SQL expressions like `NOW()`, and how to group related writes
+with transactions.
 
 ## Inserting Rows - `DB::insert()`
 
@@ -119,6 +120,64 @@ DB::update('articles', $newValues, ['id' => 1]);
 **Never pass user input to `rawSql()`.** It marks its contents as trusted
 SQL, so nothing in it gets escaped. Build the expression from fixed strings
 and put the data in placeholders or plain values.
+
+## Transactions - `DB::transaction()`
+
+`DB::transaction()` runs a function as one all-or-nothing unit. When the
+function returns, the changes commit. When it throws, everything rolls back
+and the exception continues up. Either way the database never holds partial
+data:
+
+```php
+$orderId = DB::transaction(function() {
+    $orderId = DB::insert('orders', ['customerId' => 42, 'total' => 59.90]);
+    DB::insert('order_items', ['orderId' => $orderId, 'productId' => 7]);
+    DB::insert('order_items', ['orderId' => $orderId, 'productId' => 12]);
+    return $orderId;
+});
+// START TRANSACTION, the three INSERTs, then COMMIT
+```
+
+`transaction()` returns whatever the function returns, so values created
+inside (`$orderId` above) come back out. If the script dies or times out
+mid-transaction, MySQL rolls back the open transaction when the connection
+closes. Calling `transaction()` inside another `transaction()` throws.
+
+A single query never needs a transaction; it's already atomic:
+
+```php
+DB::query("UPDATE ::counters SET views = views + 1 WHERE id = ?", $pageId);
+```
+
+**A transaction prevents partial writes, not race conditions.** Two requests
+can each read the same row, both see one item left, and both sell it; each
+transaction commits cleanly. When you read a value and then write based on
+it, lock the rows you read with SELECT ... FOR UPDATE. Other connections'
+writes, and their own FOR UPDATE reads, wait until your transaction commits
+or rolls back:
+
+```php
+DB::transaction(function() use ($productId, $customerId) {
+    // FOR UPDATE locks the row; a second request waits here and reads the updated qty
+    $qty = DB::query("SELECT qty FROM ::products WHERE id = ? FOR UPDATE", $productId)->first()->qty->value();
+    if ($qty < 1) {
+        throw new RuntimeException("Out of stock");  // rolls back, nothing written
+    }
+    DB::update('products', ['qty' => $qty - 1], ['id' => $productId]);
+    DB::insert('orders', ['customerId' => $customerId, 'productId' => $productId]);
+});
+```
+
+Note the `query(...)->first()` form: `queryOne()` appends `LIMIT 1`, which
+MySQL requires before FOR UPDATE, so `queryOne()` rejects locking clauses and
+points you to `query()`.
+
+**Only change data (INSERT, UPDATE, DELETE) inside a transaction.** When
+MySQL runs a DDL statement (CREATE, ALTER, DROP, TRUNCATE), it silently
+commits all pending work, ends the transaction, and runs everything after in
+autocommit mode, with no rollback possible. TRUNCATE is the common trap: it
+looks like DELETE, but it's DDL. Use `DELETE FROM` inside transactions
+instead.
 
 ---
 

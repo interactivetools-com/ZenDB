@@ -9,7 +9,7 @@ on the one before. The rest are standalone: open whichever matches your task.
 1. [Getting Started](getting-started.md) - Install, connect, and fetch your first rows.
 2. [Querying Data](querying-data.md) - WHERE conditions, sorting, and pagination with `select()`, `selectOne()`, and `count()`.
 3. [Working with Results](working-with-results.md) - Result sets, rows, and values: HTML-safe output by default, raw access when you need it.
-4. [Modifying Data](modifying-data.md) - `insert()`, `update()`, and `delete()`, plus SQL expressions like `NOW()`.
+4. [Modifying Data](modifying-data.md) - `insert()`, `update()`, and `delete()`, plus transactions and SQL expressions like `NOW()`.
 5. [Placeholders](placeholders.md) - Every placeholder type and when to use each.
 6. [Joins and Custom SQL](joins-and-custom-sql.md) - Full SQL with `query()` and `queryOne()`, keeping the same safety guarantees.
 

@@ -119,6 +119,16 @@ $tables = DB::query("SHOW TABLES LIKE ::?", 'user%');
 // SHOW TABLES LIKE 'cms_user%'
 ```
 
+One quirk in LIKE patterns: the prefix is inserted as-is, so a `_` in it acts
+as the LIKE single-character wildcard (`cms_user%` also matches a table named
+`cms2users`). If that matters, build the pattern with `DB::likeStartsWith()`,
+which escapes `_` and `%` in its input:
+
+```php
+$tables = DB::query("SHOW TABLES LIKE ?", DB::likeStartsWith(DB::$tablePrefix . 'user'));
+// SHOW TABLES LIKE 'cms\_user%'
+```
+
 ## Type Handling
 
 PHP types convert to SQL by actual type, so `10` and `"10"` produce different
