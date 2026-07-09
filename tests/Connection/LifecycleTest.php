@@ -278,7 +278,7 @@ class LifecycleTest extends BaseTestCase
         DB::connect($config);
 
         $this->assertTrue(DB::isConnected());
-        $this->assertTrue(version_compare(DB::$mysqli->server_info, '5.0.0', '>='));
+        $this->assertTrue(version_compare(DB::$server->version(), '5.0.0', '>='));  // same normalized value the versionRequired check compares
     }
 
     public function testRequireSSLOption(): void
