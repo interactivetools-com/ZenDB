@@ -210,6 +210,23 @@ class LifecycleTest extends BaseTestCase
         $this->assertSame($phpOffset, $mysqlTz);
     }
 
+    public function testPhpTimezoneForMysql(): void
+    {
+        $originalTz = date_default_timezone_get();
+        try {
+            date_default_timezone_set('UTC');
+            $this->assertSame('+00:00', DB::phpTimezoneForMysql());
+
+            date_default_timezone_set('Pacific/Kiritimati'); // +14:00 year-round, the bug #63685 case
+            $this->assertSame('Etc/GMT-14', DB::phpTimezoneForMysql());
+
+            date_default_timezone_set('Pacific/Chatham');    // +12:45 passes through; +13:45 during DST (Sep-Apr) remaps
+            $this->assertContains(DB::phpTimezoneForMysql(), ['+12:45', 'Pacific/Chatham']);
+        } finally {
+            date_default_timezone_set($originalTz);
+        }
+    }
+
     public function testConnectRemapsOutOfRangeTimezoneOffset(): void
     {
         // The remap sends an IANA name, which only resolves where the mysql.time_zone tables

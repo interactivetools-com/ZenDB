@@ -210,15 +210,7 @@ class Connection
         }
 
         // Set MySQL server variables
-        // PHP offsets past +13:00 (Kiritimati +14:00, Chatham +13:45 in DST) throw error 1298 on
-        // MariaDB and MySQL < 8.0.19 (bug #63685). The IANA name is accepted wherever the
-        // mysql.time_zone tables are loaded, which is every stock server.
-        $timeZone = match ($offset = date('P')) {
-            '+14:00' => 'Etc/GMT-14',
-            '+13:45' => 'Pacific/Chatham',
-            default  => $offset,
-        };
-        $sets = $this->usePhpTimezone ? "time_zone = '$timeZone', " : '';
+        $sets = $this->usePhpTimezone ? "time_zone = '" . DB::phpTimezoneForMysql() . "', " : '';
         $sets .= $this->sqlMode ? "sql_mode = '$this->sqlMode', " : '';
         if ($sets = rtrim($sets, ', ')) {
             $this->mysqli->real_query("SET $sets");

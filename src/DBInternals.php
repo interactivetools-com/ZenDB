@@ -97,6 +97,33 @@ trait DBInternals
     }
 
     /**
+     * PHP's current timezone expressed as a value MySQL's SET time_zone accepts.
+     * Used at connect when `usePhpTimezone` is set; call it yourself after changing
+     * PHP's timezone mid-request to bring the database session back in step:
+     *
+     *     date_default_timezone_set('Pacific/Kiritimati');
+     *     DB::query("SET time_zone = ?", DB::phpTimezoneForMysql());
+     *
+     * Returns PHP's UTC offset (e.g. "-08:00"), except offsets past +13:00 (Kiritimati
+     * +14:00, Chatham +13:45 in DST), which MariaDB and MySQL before 8.0.19 reject with
+     * error 1298 (bug #63685). Those return an IANA name instead, which needs the
+     * mysql.time_zone tables: Linux servers ship them loaded, Windows installs ship them
+     * empty and reject the name with "Unknown or incorrect time zone" until they're
+     * loaded (import MySQL's downloadable timezone package into the mysql schema and
+     * restart: https://dev.mysql.com/downloads/timezones.html).
+     *
+     * @return string A UTC offset like "+02:00", or an IANA zone name for offsets past +13:00
+     */
+    public static function phpTimezoneForMysql(): string
+    {
+        return match ($offset = date('P')) {
+            '+14:00' => 'Etc/GMT-14',
+            '+13:45' => 'Pacific/Chatham',
+            default  => $offset,
+        };
+    }
+
+    /**
      * Detect encrypted columns from field metadata. Returns column names for MEDIUMBLOB fields,
      * which are the standard storage type for AES_ENCRYPT() data.
      *
