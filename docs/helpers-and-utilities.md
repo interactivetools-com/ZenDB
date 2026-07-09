@@ -1,6 +1,6 @@
 # Helpers and Utilities
 
-Small helpers that build SQL fragments and check inputs: `DB::rawSql()` for
+Small helpers that build SQL fragments: `DB::rawSql()` for
 trusted SQL expressions, `DB::pagingSql()` for pagination, four `like*()`
 helpers for escaped LIKE patterns, table prefix conversion, and date format
 constants.
@@ -79,7 +79,12 @@ DB::pagingSql(-3, 25);     // LIMIT 25 OFFSET 50  (negative becomes positive)
 ```
 
 To show "page 3 of 12", pair it with `DB::count()` on the same WHERE condition
-and divide by the page size.
+and divide by the page size:
+
+```php
+$total      = DB::count('users');
+$totalPages = max(1, ceil($total / 25));   // e.g., 300 rows → 12 pages
+```
 
 ## LIKE Patterns - `DB::likeContains()` and Friends
 

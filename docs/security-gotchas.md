@@ -11,9 +11,10 @@ leave output encoding on, none of this applies to you.
 
 ## Escape Hatches - `DB::$mysqli` and `rawHtml()`
 
-Two methods deliberately step outside the protection: `DB::$mysqli` skips the
-SQL guard, and `rawHtml()` skips output encoding. Both exist because sometimes
-you need direct access, and both are named so they stand out in a code review.
+Two escape hatches deliberately step outside the protection: `DB::$mysqli`
+skips the SQL guard, and `rawHtml()` skips output encoding. Both exist because
+sometimes you need direct access, and both are named so they stand out in a
+code review.
 
 ### Raw Queries - `DB::$mysqli`
 
@@ -62,9 +63,13 @@ value for logic rather than output, use `value()`; `rawHtml()` is an alias of
 it, named for the output case.
 
 `rawHtml()` is deliberately the only name for unencoded output, matching
-`DB::rawSql()`, the parallel opt-out on the SQL side. One name keeps an XSS
-audit to a single search: grep for `rawHtml(` and you've found every
-unencoded output point in your code.
+`DB::rawSql()`, the parallel opt-out on the SQL side. One name per opt-out
+keeps an audit to one search each: grep for `rawHtml(` to find every
+deliberate unencoded output point, and `rawSql(` to find every value that
+enters SQL unescaped (user input must never reach it). One caveat for the
+output grep: `value()` and `string()` return the same raw data for use in
+logic, so echoing their results also outputs unencoded; the grep finds the
+deliberate opt-outs, not misused reads.
 
 ## The Empty-Quotes Gap
 
@@ -126,7 +131,8 @@ $sort = $_GET['sort'] ?? 'name';
 DB::query("SELECT * FROM ::members ORDER BY $sort");
 ```
 
-A value placeholder does not fit here (`ORDER BY 'name'` is not valid SQL).
+A value placeholder does not fit here: `ORDER BY 'name'` orders by a constant
+string, so the query runs but sorts nothing, silently.
 Use the backtick identifier placeholder, which accepts only identifier
 characters (letters, numbers, `_`, `-`) and throws on anything with spaces,
 quotes, parentheses, or other punctuation:
@@ -148,10 +154,10 @@ DB::query("SELECT * FROM ::members ORDER BY `:col` " . $direction, [':col' => $c
 ## Encryption Threat Model
 
 When `encryptionKey` is set, ZenDB encrypts every `MEDIUMBLOB` column with
-AES-128-ECB, matching MySQL's `AES_ENCRYPT()` so PHP-side and MySQL-side
-(`{{column}}`) produce identical ciphertext (setup and searching are covered
-in [Encryption](encryption.md)). That compatibility comes with tradeoffs
-worth knowing:
+AES-128-ECB, matching MySQL's `AES_ENCRYPT()`, so values encrypted in PHP can
+be decrypted in MySQL with the `{{column}}` shorthand (setup and searching
+are covered in [Encryption](encryption.md)). That compatibility comes with
+tradeoffs worth knowing:
 
 - **ECB is deterministic.** The same plaintext always encrypts to the same
   ciphertext. That is what makes `WHERE token = DB::encryptValue($token)`

@@ -1020,7 +1020,8 @@ trait ConnectionInternals
     //endregion
     //region Connection Settings
 
-    // Connection credentials (exist for property_exists validation, values stored in WeakMap)
+    // Connection credentials (values live in the WeakMap vault; the properties exist so
+    // sealSecrets()'s $this->$key = null writes aren't PHP 8.2+ deprecated dynamic properties)
     private ?string $hostname      = null;
     private ?string $username      = null;
     private ?string $password      = null;

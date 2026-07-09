@@ -19,12 +19,13 @@ database. With `tablePrefix` set to `'cms_'` on the default connection:
 ```php
 $legacy = DB::clone(['tablePrefix' => 'legacy_']);
 
-$users    = DB::select('users');       // SELECT * FROM `cms_users`
-$oldUsers = $legacy->select('users');  // SELECT * FROM `legacy_users`
+$users    = DB::select('users');       // this runs: SELECT * FROM `cms_users`
+$oldUsers = $legacy->select('users');  // this runs: SELECT * FROM `legacy_users`
 ```
 
 The clone is a normal `Connection` object: call the same query methods on it
-that you call on `DB::`, and keep it around as long as you need it.
+that you call on `DB::`, and keep it around as long as you need it. `clone()`
+also exists on every `Connection` instance, not just `DB::`.
 
 ### Getting Raw Values - `useSmartStrings`
 
@@ -68,6 +69,10 @@ runs on the same live connection. Passing any other key throws:
 DB::clone(['database' => 'analytics']);
 // throws InvalidArgumentException: clone() only supports: tablePrefix, useSmartJoins, useSmartStrings. Got: database
 ```
+
+The shared link also means shared transaction state: a `DB::transaction()`
+covers queries made through clones too, and starting a second `transaction()`
+on either side throws while one is open.
 
 To reach a different database or server, open a separate connection.
 

@@ -12,7 +12,7 @@ doesn't exist. `or404()` returns the row when the result has data, so it
 chains directly onto a `selectOne()` call:
 
 ```php
-$id   = $_GET['id'] ?? 0;
+$id   = (int) ($_GET['id'] ?? 0);
 $user = DB::selectOne('users', ['id' => $id])->or404();
 // SELECT * FROM `users` WHERE `id` = 123 LIMIT 1
 
@@ -222,13 +222,17 @@ $byCategory = $products->groupBy('category');
 // ['Books' => [row, row, ...], 'Electronics' => [row, ...]]
 
 foreach ($byCategory as $category => $items) {
-    echo "<h2>$category</h2><ul>";
+    echo "<h2>" . htmlspecialchars($category) . "</h2><ul>";
     foreach ($items as $item) {
         echo "<li>$item->name - {$item->price->numberFormat(2)->andPrefix('$')}</li>";
     }
     echo "</ul>";
 }
 ```
+
+One encoding note: group keys are PHP array keys, so `$category` is a plain
+string, not a SmartString, and doesn't HTML-encode itself. Encode it yourself
+on output, as above.
 
 ## Lookup Maps - `pluck()` and `indexBy()`
 
@@ -257,6 +261,7 @@ With rows already loaded, `pluck()` plus `contains()` answers "is this value
 in that column" without another query:
 
 ```php
+$email  = $_POST['email'] ?? '';
 $admins = DB::select('users', ['isAdmin' => 1]);
 
 if ($admins->pluck('email')->contains($email)) {

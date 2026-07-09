@@ -216,7 +216,8 @@ DB::select('users', "id IN (:ids)", [':ids' => [1, 2, 3]]);
 
 ### Named `:name`
 
-Pattern: `/^:\w+$/`. Reusable in same query.
+Names start with a letter, then letters/digits/underscores (`:[a-zA-Z]\w*`).
+Reusable in same query.
 
 ```php
 DB::query("SELECT * FROM ::users WHERE city = :city OR birthplace = :city", [
@@ -229,7 +230,8 @@ DB::query("SELECT * FROM ::users WHERE city = :city OR birthplace = :city", [
 For dynamic table/column names. Validated: only `[a-zA-Z0-9_-]` allowed.
 
 ```php
-DB::query("SELECT `?` FROM ::users", 'name');         // SELECT `name` FROM cms_users
+// with tablePrefix 'cms_' this runs: SELECT `name` FROM cms_users
+DB::query("SELECT `?` FROM ::users", 'name');
 DB::query("SELECT `:col` FROM ::users", [':col' => 'name']); // same
 ```
 
@@ -239,10 +241,12 @@ Replaced with configured `tablePrefix` from `DB::connect()`.
 
 ```php
 DB::query("SELECT * FROM ::users JOIN ::orders ON ::users.id = ::orders.user_id");
-// With tablePrefix='cms_' -> SELECT * FROM cms_users JOIN cms_orders ON cms_users.id = cms_orders.user_id
+// with tablePrefix 'cms_' this runs:
+// SELECT * FROM cms_users JOIN cms_orders ON cms_users.id = cms_orders.user_id
 
 // Dynamic table with prefix
-DB::query("SELECT * FROM `::?`", 'users');             // SELECT * FROM `cms_users`
+// with tablePrefix 'cms_' this runs: SELECT * FROM `cms_users`
+DB::query("SELECT * FROM `::?`", 'users');
 DB::query("SELECT * FROM `:::table`", [':table' => 'users']); // same
 ```
 
@@ -334,6 +338,8 @@ $rows = $db->query("SELECT u.name FROM ::users u JOIN ::orders o ON u.id = o.use
 ```
 
 Shares the same mysqli connection with different config. Original unaffected.
+Only `tablePrefix`, `useSmartJoins`, and `useSmartStrings` can be overridden;
+any other key throws.
 
 ---
 
@@ -342,7 +348,7 @@ Shares the same mysqli connection with different config. Original unaffected.
 ### Hierarchy
 
 ```
-Query -> ResultSet (SmartArrayHtml) -> Rows (SmartArrayHtml) -> Values (SmartString)
+Query -> Result set (SmartArrayHtml) -> Rows (SmartArrayHtml) -> Values (SmartString)
 ```
 
 ### HTML-Encoding (Automatic)
@@ -357,42 +363,42 @@ echo $row->name->rawHtml();         // Alias for value() (trusted HTML)
 
 ### Value Access & Encoding
 
-| Expression                    | Result                         |
-|-------------------------------|--------------------------------|
-| `$row->name`                  | HTML-encoded in string context |
-| `$row->name->value()`         | Raw value, original PHP type   |
-| `$row->name->rawHtml()`       | Alias for `value()`            |
-| `$row->name->htmlEncode()`    | Explicit HTML encoding         |
-| `$row->name->urlEncode()`     | URL-encoded                    |
-| `$row->name->jsonEncode()`    | JSON-encoded                   |
-| `$row->name->int()`           | Cast to int                    |
-| `$row->name->float()`         | Cast to float                  |
-| `$row->name->string()`        | Cast to string (unencoded)     |
-| `$row->get('col', 'default')` | With fallback value            |
+| Expression                    | Result                                                               |
+|-------------------------------|----------------------------------------------------------------------|
+| `$row->name`                  | HTML-encoded in string context                                       |
+| `$row->name->value()`         | Raw value, original PHP type                                         |
+| `$row->name->rawHtml()`       | Alias for `value()`                                                  |
+| `$row->name->htmlEncode()`    | Explicit HTML encoding                                               |
+| `$row->name->urlEncode()`     | URL-encoded                                                          |
+| `$row->name->jsonEncode()`    | JSON-encoded                                                         |
+| `$row->name->int()`           | Cast to int                                                          |
+| `$row->name->float()`         | Cast to float                                                        |
+| `$row->name->string()`        | Cast to string (unencoded)                                           |
+| `$row->get('col', 'default')` | Fallback applies only when the key is missing, never to stored NULLs |
 
 ### Text Methods
 
-| Method                   | Description                       |
-|--------------------------|-----------------------------------|
-| `->textOnly()`           | Strip HTML, decode entities, trim |
-| `->maxChars(100, '...')` | Limit to N chars with suffix      |
-| `->maxWords(20, '...')`  | Limit to N words with suffix      |
+| Method                   | Description                                  |
+|--------------------------|----------------------------------------------|
+| `->textOnly()`           | Strip HTML, decode entities, trim            |
+| `->maxChars(100, '...')` | Limit to N chars with suffix                 |
+| `->maxWords(20, '...')`  | Limit to N words with suffix                 |
 | `->textToHtml()`         | Encode + newlines to `<br>` (returns string) |
-| `->trim()`               | Trim whitespace                   |
+| `->trim()`               | Trim whitespace                              |
 
 ### Formatting & Conditionals
 
-| Method                   | Description                       |
-|--------------------------|-----------------------------------|
-| `->dateFormat('M j, Y')` | Format date                       |
-| `->numberFormat(2)`      | Format number                     |
-| `->or('N/A')`            | Fallback if null or empty         |
-| `->ifZero('None')`       | Fallback if zero                  |
-| `->ifNull('N/A')`        | Fallback if null                  |
-| `->ifBlank('Empty')`     | Fallback if empty string          |
-| `->and(' more')`         | Append if present                 |
-| `->andPrefix('$')`       | Prepend if present                |
-| `->apply($callback)`     | Apply arbitrary function to value |
+| Method                   | Description                                   |
+|--------------------------|-----------------------------------------------|
+| `->dateFormat('M j, Y')` | Format date                                   |
+| `->numberFormat(2)`      | Format number                                 |
+| `->or('N/A')`            | Fallback if null or empty string (zero stays) |
+| `->ifZero('None')`       | Fallback if zero                              |
+| `->ifNull('N/A')`        | Fallback if null                              |
+| `->ifBlank('Empty')`     | Fallback if empty string                      |
+| `->and(' more')`         | Append if present                             |
+| `->andPrefix('$')`       | Prepend if present                            |
+| `->apply($callback)`     | Apply arbitrary function to value             |
 
 ### Validation & Error Handling
 
@@ -418,41 +424,41 @@ $user = DB::selectOne('users', ['id' => $id])->or404();     // 404 if not found
 if ($row->name->isMissing()) { echo "No name"; }
 ```
 
-### ResultSet Methods
+### Result Set Methods
 
-| Method                         | Returns                                             |
-|--------------------------------|-----------------------------------------------------|
-| `count($resultSet)`            | int - row count                                     |
-| `$rs->first()`                 | First row or empty SmartArrayHtml                   |
-| `$rs->last()`                  | Last row or empty SmartArrayHtml                    |
-| `$rs->nth($index)`             | Row by position (0-based, negative counts from end) |
-| `$rs->toArray()`               | Array of raw PHP arrays (no encoding)               |
-| `$rs->pluck('col')`            | Flat array of one column                            |
-| `$rs->pluckNth($index)`        | Extract value at position from each row             |
-| `$rs->column('col', 'keyCol')` | Extract column, optionally keyed by another         |
-| `$rs->sortBy('col')`           | Sorted ResultSet                                    |
-| `$rs->filter(fn)`              | Filtered ResultSet                                  |
-| `$rs->where('col', $val)`      | Rows where column matches (chain for multiple)      |
-| `$rs->map(fn)`                 | Transformed array                                   |
-| `$rs->indexBy('col')`          | Lookup keyed by column                              |
-| `$rs->groupBy('col')`          | Grouped by column value                             |
-| `$rs->implode(', ')`           | Join values into string                             |
-| `$rs->sprintf($format)`        | Format each element of a flat array; `{value}`/`{key}` placeholders, HTML-encodes both |
-| `$rs->or404()`                 | Send 404 if empty ResultSet                         |
-| `$rs->orThrow($msg)`           | Throw RuntimeException if empty                     |
+| Method                         | Returns                                                                                        |
+|--------------------------------|------------------------------------------------------------------------------------------------|
+| `count($resultSet)`            | int - row count                                                                                |
+| `$rs->first()`                 | First row, or `SmartNull` if the set is empty (chaining works, but it is not a SmartArrayHtml) |
+| `$rs->last()`                  | Last row, or `SmartNull` if the set is empty                                                   |
+| `$rs->nth($index)`             | Row by position (0-based, negative counts from end)                                            |
+| `$rs->toArray()`               | Array of raw PHP arrays (no encoding)                                                          |
+| `$rs->pluck('col')`            | Flat collection of one column                                                                  |
+| `$rs->pluckNth($index)`        | Extract value at position from each row                                                        |
+| `$rs->column('col', 'keyCol')` | Extract column, optionally keyed by another                                                    |
+| `$rs->sortBy('col')`           | Sorted result set                                                                              |
+| `$rs->filter(fn)`              | Filtered result set                                                                            |
+| `$rs->where('col', $val)`      | Rows where column matches (chain for multiple)                                                 |
+| `$rs->map(fn)`                 | Transformed collection                                                                         |
+| `$rs->indexBy('col')`          | Lookup keyed by column                                                                         |
+| `$rs->groupBy('col')`          | Grouped by column value                                                                        |
+| `$rs->implode(', ')`           | Join values into string                                                                        |
+| `$rs->sprintf($format)`        | Format each element of a flat collection; `{value}`/`{key}` placeholders, HTML-encodes both    |
+| `$rs->or404()`                 | Send 404 if empty result set                                                                   |
+| `$rs->orThrow($msg)`           | Throw RuntimeException if empty                                                                |
 
 ```php
-// sprintf() works on flat arrays only - pluck a column first (on a row set it throws)
+// sprintf() works on flat collections only - pluck a column first (on a row set it throws)
 echo $users->pluck('name')->sprintf('<li>{value}</li>')->implode("\n");
 ```
 
 ### Loop Position Helpers (on rows inside foreach)
 
-| Method             | Description                    |
-|--------------------|--------------------------------|
-| `$row->isFirst()`  | True if first row in ResultSet |
-| `$row->isLast()`   | True if last row in ResultSet  |
-| `$row->position()` | 1-based position in ResultSet  |
+| Method             | Description                     |
+|--------------------|---------------------------------|
+| `$row->isFirst()`  | True if first row in result set |
+| `$row->isLast()`   | True if last row in result set  |
+| `$row->position()` | 1-based position in result set  |
 
 ### Row Methods
 
@@ -468,7 +474,7 @@ echo $users->pluck('name')->sprintf('<li>{value}</li>')->implode("\n");
 ```php
 $result->mysqli('query');          // Executed SQL
 $result->mysqli('insert_id');      // Auto-increment ID from INSERT
-$result->mysqli('affected_rows');  // Rows changed by UPDATE/DELETE
+$result->mysqli('affected_rows');  // Rows changed by INSERT/UPDATE/DELETE
 $result->mysqli('baseTable');      // Base table name (no prefix)
 ```
 
@@ -480,8 +486,8 @@ $result->mysqli('baseTable');      // Base table name (no prefix)
 
 ```php
 DB::pagingSql($pageNum, $perPage = 10)  // Returns RawSql: LIMIT x OFFSET y
-// $pageNum defaults to 1 if zero/negative/non-numeric
-// $perPage defaults to 10 if zero/negative/non-numeric
+// $pageNum defaults to 1 if zero/non-numeric; negative becomes positive (abs)
+// $perPage defaults to 10 if zero/non-numeric; negative becomes positive (abs)
 ```
 
 ### LIKE Patterns
@@ -514,6 +520,7 @@ DB::TIME      // 'H:i:s'       - format for MySQL TIME columns
 ### Table Name Helpers
 
 ```php
+// with tablePrefix 'cms_':
 DB::getFullTable('users')                 // 'cms_users'
 DB::getBaseTable('cms_users')             // 'users'
 ```
@@ -545,9 +552,7 @@ DB::connect([
     'connectTimeout'       => 3,              // Seconds
     'readTimeout'          => 60,             // Seconds
     'encryptionKey'        => '',             // Encrypt/decrypt MEDIUMBLOB columns (see Encryption)
-    'queryLogger'          => null,           // fn(string $query, float $secs, ?Throwable $error)
     'sqlMode'              => 'STRICT_ALL_TABLES,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION',
-    'loadHandler'          => null,           // Custom result loading handler
 ]);
 ```
 
@@ -564,12 +569,17 @@ DB::disconnect()           // Close the default connection
 ```php
 use Itools\ZenDB\Connection;
 
-$analytics = new Connection([...config...]);
+$analytics = new Connection([
+    'hostname' => 'localhost',
+    'username' => 'dbuser',
+    'password' => 'secret',
+    'database' => 'analytics',
+]);
 $rows = $analytics->select('events', "created_at > NOW() - INTERVAL ? DAY", 1);
 ```
 
 Each Connection has the same methods as `DB::` (`select`, `selectOne`,
-`insert`, `update`, `delete`, `count`, `query`, `queryOne`).
+`insert`, `update`, `delete`, `count`, `query`, `queryOne`, `transaction`).
 
 ---
 
@@ -601,23 +611,23 @@ in joins.
 
 ## Template Safety Rules
 
-SQL templates are scanned before execution. The following are **rejected**:
+SQL templates are scanned before execution. The following are **rejected**.
 
-| Pattern                                        | Rejected                   |
-|------------------------------------------------|----------------------------|
-| Quotes (`'` or `"`)                            | Always -- use placeholders |
-| Standalone numbers                             | Always -- use placeholders |
+| Pattern                                         | Rejected                   |
+|-------------------------------------------------|----------------------------|
+| Quotes (`'` or `"`)                             | Always -- use placeholders |
+| Standalone numbers                              | Always -- use placeholders |
 | Hex/binary/scientific (`0x1F`, `0b101`, `1e10`) | Always -- count as numbers |
-| Backslashes (`\`)                              | Always                     |
-| NULL bytes (`\x00`)                            | Always                     |
-| CTRL-Z (`\x1a`)                                | Always                     |
+| Backslashes (`\`)                               | Always                     |
+| NULL bytes (`\x00`)                             | Always                     |
+| CTRL-Z (`\x1a`)                                 | Always                     |
 
-The following are **allowed** in templates:
+The following are **allowed** in templates.
 
-| Pattern            | Notes                                              |
-|--------------------|----------------------------------------------------|
-| `''` and `""`      | Empty string literals (no injection payload)       |
-| Trailing `LIMIT #` | Literal number kept in query, skipped by validator |
+| Pattern            | Notes                                                       |
+|--------------------|-------------------------------------------------------------|
+| `''` and `""`      | Empty string literals (no injection payload)                |
+| Trailing `LIMIT #` | Literal number kept in query, skipped by the template guard |
 
 Table and column names are validated against `/^[\w-]+$/` (alphanumeric,
 underscore, hyphen only).
@@ -626,18 +636,18 @@ underscore, hyphen only).
 
 ## Common Errors Quick Reference
 
-| Error                                               | Fix                                                        |
-|-----------------------------------------------------|------------------------------------------------------------|
-| "Quotes not allowed in template"                    | Use placeholder: `"name = ?", 'John'`                      |
-| "Standalone number in template"                     | Use placeholder: `"age > ?", 21`                           |
-| "Max 3 positional arguments allowed"                | Use named placeholders: `[':a' => 1, ':b' => 2, ...]`      |
-| "UPDATE/DELETE requires a WHERE condition"          | Add WHERE or use `"TRUE"` for all rows                     |
-| "Suspicious SET clause"                             | Check argument order: `update($table, $values, $whereEtc)` |
-| "Missing value for ? parameter at position N"       | Pass enough values for all `?` placeholders                |
-| "Missing value for ':name' parameter"               | Add missing key to params array                            |
-| "Arrays not allowed with positional ? placeholders" | Use named: `"IN (:ids)"`, `[':ids' => [1,2,3]]`            |
-| "This method doesn't support LIMIT or OFFSET"       | Use `select()` not `selectOne()` for custom LIMIT          |
-| "Invalid table/column name"                         | Only `a-z, A-Z, 0-9, _, -` allowed                         |
+| Error                                                                                   | Fix                                                        |
+|-----------------------------------------------------------------------------------------|------------------------------------------------------------|
+| "Quotes not allowed in template"                                                        | Use placeholder: `"name = ?", 'John'`                      |
+| "Standalone number in template"                                                         | Use placeholder: `"age > ?", 21`                           |
+| "Max 3 positional arguments allowed"                                                    | Use named placeholders: `[':a' => 1, ':b' => 2, ...]`      |
+| "UPDATE requires a WHERE condition to prevent accidental bulk UPDATE" (same for DELETE) | Add WHERE or use `"TRUE"` for all rows                     |
+| "Suspicious SET clause"                                                                 | Check argument order: `update($table, $values, $whereEtc)` |
+| "Missing value for ? parameter at position N"                                           | Pass enough values for all `?` placeholders                |
+| "Missing value for ':name' parameter"                                                   | Add missing key to params array                            |
+| "Arrays not allowed with positional ? placeholders"                                     | Use named: `"IN (:ids)"`, `[':ids' => [1,2,3]]`            |
+| "This method doesn't support LIMIT or OFFSET"                                           | Use `select()` not `selectOne()` for custom LIMIT          |
+| "Invalid table/column name"                                                             | Only `a-z, A-Z, 0-9, _, -` allowed                         |
 
 ## Gotchas
 
@@ -648,6 +658,7 @@ underscore, hyphen only).
 - **selectOne() auto-adds LIMIT 1.** Don't add your own LIMIT or OFFSET.
 - **count() rejects LIMIT/OFFSET** too. Use `select()` if you need them.
 - **Empty arrays in IN():** `[':ids' => []]` becomes `IN (NULL)`, matching nothing.
+  Expansion also skips `null` elements and removes duplicates: `[1, null, 1, 2]` → `IN (1,2)`.
 - **Boolean values:** `true`/`false` become SQL `TRUE`/`FALSE` keywords.
 - **Param forms:** up to 3 direct values for `?` placeholders, or one array of `:name` params. Never pass positional values as an array, e.g. `("a = ? AND b = ?", [1, 2])` -- that form is deprecated and will throw in a future version.
 
@@ -655,10 +666,10 @@ underscore, hyphen only).
 
 ## Further Reading
 
-- [SmartArray](https://github.com/interactivetools-com/SmartArray) -- Full ResultSet/Row method reference
+- [SmartArray](https://github.com/interactivetools-com/SmartArray) -- Full result-set/row method reference
 - [SmartString](https://github.com/interactivetools-com/SmartString) -- Full value method reference
 - [Detailed docs](README.md) -- Human-friendly tutorials and explanations
 
 ---
 
-[Documentation Index](README.md)
+[← Method Reference](method-reference.md) | [Documentation Index](README.md)

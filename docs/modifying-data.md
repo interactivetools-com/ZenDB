@@ -51,13 +51,16 @@ DB::update('users', ['newsletter' => 0], "TRUE");
 // UPDATE `users` SET `newsletter` = 0 WHERE TRUE
 ```
 
-Two details worth knowing:
+Three details worth knowing:
 
 - The count is MySQL's `affected_rows` value, returned as-is: rows *changed*,
   not rows matched, so rows that already held the new values aren't counted.
 - Values come before WHERE. If the arguments get reversed, ZenDB catches the
   most common form (a SET clause that only sets `id` or `num`) and throws
   with the correct signature in the message.
+- The WHERE string can carry `ORDER BY` and `LIMIT`, so batched or
+  oldest-first operations don't need raw SQL:
+  `DB::delete('logs', "createdAt < ? ORDER BY createdAt LIMIT 1000", '2026-01-01')`.
 
 ## Deleting Rows - `DB::delete()`
 
@@ -87,7 +90,12 @@ DB::insert('products', [
 ]);
 ```
 
-[Placeholders](placeholders.md) covers the full type handling rules.
+SmartString values unwrap to their underlying value automatically. Arrays
+throw: column assignment is single-valued, so serialize first
+(`json_encode()`, `implode()`).
+[Placeholders](placeholders.md) covers the full type handling rules. With
+`encryptionKey` set, `MEDIUMBLOB` columns encrypt automatically on
+`insert()`/`update()`; see [Encryption](encryption.md).
 
 ## SQL Expressions - `DB::rawSql()`
 

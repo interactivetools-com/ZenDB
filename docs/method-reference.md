@@ -2,8 +2,9 @@
 
 Every supported method, constant, and property in one place: signatures, return
 types, and a one-line description each. `DB::` is a static facade over a
-default connection; every method below also exists on `Connection` instances
-(`$db->select(...)`) with the same signature.
+default connection; methods below also exist on `Connection` instances
+(`$db->select(...)`) with the same signature, except the four marked `DB` only
+and connecting itself (`new Connection($config)` connects in the constructor).
 
 ## Connecting
 
@@ -19,13 +20,13 @@ See [Getting Started](getting-started.md) for the full list of `$config` keys.
 
 ## Reading Rows
 
-| Method                                                  | Returns          | Description                                                                                                        |
-|---------------------------------------------------------|------------------|--------------------------------------------------------------------------------------------------------------------|
-| `DB::select(string $table, $where = [], ...$params)`    | `SmartArrayHtml` | All matching rows                                                                                                  |
-| `DB::selectOne(string $table, $where = [], ...$params)` | `SmartArrayHtml` | First matching row (sends `LIMIT 1`); empty result object when no row matches, never `null`                        |
-| `DB::count(string $table, $where = [], ...$params)`     | `int`            | `SELECT COUNT(*)` of matching rows                                                                                 |
-| `DB::query(string $sqlTemplate, ...$params)`            | `SmartArrayHtml` | Run custom SQL with placeholders                                                                                   |
-| `DB::queryOne(string $sqlTemplate, ...$params)`         | `SmartArrayHtml` | First row of custom SQL (appends `LIMIT 1` to `SELECT`/`WITH` statements); empty result object when no row matches |
+| Method                                                         | Returns          | Description                                                                                                        |
+|----------------------------------------------------------------|------------------|--------------------------------------------------------------------------------------------------------------------|
+| `DB::select(string $baseTable, $whereEtc = [], ...$params)`    | `SmartArrayHtml` | All matching rows                                                                                                  |
+| `DB::selectOne(string $baseTable, $whereEtc = [], ...$params)` | `SmartArrayHtml` | First matching row (sends `LIMIT 1`); empty result object when no row matches, never `null`                        |
+| `DB::count(string $baseTable, $whereEtc = [], ...$params)`     | `int`            | `SELECT COUNT(*)` of matching rows                                                                                 |
+| `DB::query(string $sqlTemplate, ...$params)`                   | `SmartArrayHtml` | Run custom SQL with placeholders                                                                                   |
+| `DB::queryOne(string $sqlTemplate, ...$params)`                | `SmartArrayHtml` | First row of custom SQL (appends `LIMIT 1` to `SELECT`/`WITH` statements); empty result object when no row matches |
 
 Declared return type is `SmartArrayBase`; the object you get is a
 `SmartArrayHtml` of `SmartString` values by default, or a plain-value
@@ -39,12 +40,12 @@ the escape hatch is `DB::query(...)->first()`.
 
 ## Writing Rows
 
-| Method                                                         | Returns | Description                                                                                                                                          |
-|----------------------------------------------------------------|---------|------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `DB::insert(string $table, array $values)`                     | `int`   | Insert one row; returns the new auto-increment ID (0 when the table has no auto-increment column)                                                    |
-| `DB::update(string $table, array $values, $where, ...$params)` | `int`   | Update matching rows; returns rows actually changed (MySQL `affected_rows`), not rows matched                                                        |
-| `DB::delete(string $table, $where, ...$params)`                | `int`   | Delete matching rows; returns rows deleted                                                                                                           |
-| `DB::transaction(callable $fn)`                                | `mixed` | Run `$fn` in a transaction: commit on return, rollback and rethrow on exception; returns `$fn`'s return value. Throws `RuntimeException` when nested |
+| Method                                                                | Returns | Description                                                                                                                                          |
+|-----------------------------------------------------------------------|---------|------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `DB::insert(string $baseTable, array $values)`                        | `int`   | Insert one row; returns the new auto-increment ID (0 when the table has no auto-increment column)                                                    |
+| `DB::update(string $baseTable, array $values, $whereEtc, ...$params)` | `int`   | Update matching rows; returns rows actually changed (MySQL `affected_rows`), not rows matched                                                        |
+| `DB::delete(string $baseTable, $whereEtc, ...$params)`                | `int`   | Delete matching rows; returns rows deleted                                                                                                           |
+| `DB::transaction(callable $fn)`                                       | `mixed` | Run `$fn` in a transaction: commit on return, rollback and rethrow on exception; returns `$fn`'s return value. Throws `RuntimeException` when nested |
 
 `update()` and `delete()` require a WHERE condition; an empty one throws. To
 intentionally update every row, pass the literal string `"TRUE"`. Details in
@@ -59,14 +60,14 @@ intentionally update every row, pass the literal string `"TRUE"`. Details in
 
 ## Query Helpers
 
-| Method                                                                  | Returns  | Description                                                                                                                                                                             |
-|-------------------------------------------------------------------------|----------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `DB::rawSql(string\|int\|float\|null $value)`                           | `RawSql` | Mark a value as literal SQL, skipping escaping and quoting (e.g., `NOW()`); `null` becomes `NULL`                                                                                       |
-| `DB::pagingSql(mixed $pageNum, mixed $perPage = 10)`                    | `RawSql` | `LIMIT $perPage OFFSET ...` clause; zero, empty, or invalid input becomes page 1 / 10 per page                                                                                          |
-| `DB::likeContains($input)`                                              | `RawSql` | Escaped `LIKE` pattern `'%value%'`                                                                                                                                                      |
-| `DB::likeStartsWith($input)`                                            | `RawSql` | Escaped `LIKE` pattern `'value%'`                                                                                                                                                       |
-| `DB::likeEndsWith($input)`                                              | `RawSql` | Escaped `LIKE` pattern `'%value'`                                                                                                                                                       |
-| `DB::likeContainsTSV($input)`                                           | `RawSql` | Escaped `LIKE` pattern `'%\tvalue\t%'` for matching one value in a tab-separated column                                                                                                 |
+| Method                                               | Returns  | Description                                                                                                  |
+|------------------------------------------------------|----------|--------------------------------------------------------------------------------------------------------------|
+| `DB::rawSql(string\|int\|float\|null $value)`        | `RawSql` | `DB` only. Mark a value as literal SQL, skipping escaping and quoting (e.g., `NOW()`); `null` becomes `NULL` |
+| `DB::pagingSql(mixed $pageNum, mixed $perPage = 10)` | `RawSql` | `DB` only. `LIMIT $perPage OFFSET ...` clause; zero, empty, or invalid input becomes page 1 / 10 per page    |
+| `DB::likeContains($input)`                           | `RawSql` | Escaped `LIKE` pattern `'%value%'`                                                                           |
+| `DB::likeStartsWith($input)`                         | `RawSql` | Escaped `LIKE` pattern `'value%'`                                                                            |
+| `DB::likeEndsWith($input)`                           | `RawSql` | Escaped `LIKE` pattern `'%value'`                                                                            |
+| `DB::likeContainsTSV($input)`                        | `RawSql` | Escaped `LIKE` pattern `'%\tvalue\t%'` for matching one value in a tab-separated column                      |
 
 The `like*()` methods accept `string|int|float|null|SmartString` and escape
 `%` and `_` in the input, so a search for `"50%"` matches the literal text:
@@ -91,9 +92,9 @@ read. These helpers cover values that bypass those methods.
 | Method                                                    | Returns        | Description                                                                                                                                                                                         |
 |-----------------------------------------------------------|----------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `DB::encryptValue($value)`                                | `string\|null` | Encrypt a value in PHP, matching what `insert()`/`update()` produce; `null` in, `null` out. Throws `RuntimeException` when `encryptionKey` is not set                                               |
-| `DB::decryptExpr(string $column)`                         | `string`       | SQL expression to decrypt a column server-side: `decryptExpr('email')` → `` AES_DECRYPT(`email`, @ek) ``. The `{{column}}` template syntax generates this for you                                   |
+| `DB::decryptExpr(string $column)`                         | `string`       | `DB` only. SQL expression to decrypt a column server-side: `decryptExpr('email')` → `` AES_DECRYPT(`email`, @ek) ``. The `{{column}}` template syntax generates this for you                        |
 | `DB::decryptRows(array &$rows, array $keysOrFetchFields)` | `void`         | Decrypt raw mysqli rows in place; pass `$result->fetch_fields()` to auto-detect `MEDIUMBLOB` columns, or name the keys yourself (column names for associative rows, field indexes for numeric rows) |
-| `DB::getEncryptedColumns(array $fetchFields)`             | `array`        | The `MEDIUMBLOB` columns in a result, from `$result->fetch_fields()`, keyed by field index: `[2 => 'apiToken']`                                                                                     |
+| `DB::getEncryptedColumns(array $fetchFields)`             | `array`        | `DB` only. The `MEDIUMBLOB` columns in a result, from `$result->fetch_fields()`, keyed by field index: `[2 => 'apiToken']`                                                                          |
 
 `encryptValue()` accepts `string|int|float|null|SmartString`. Use it for exact
 matches on encrypted columns (the encryption is deterministic):
@@ -123,15 +124,18 @@ DB::insert('news', ['title' => 'Launch day', 'publishDate' => date(DB::DATETIME)
 
 ## Parameter Forms
 
-**`$table`** is the base table name without the prefix; `tablePrefix` is
+**`$baseTable`** is the table name without the prefix; `tablePrefix` is
 prepended automatically. Names may only contain `a-z`, `A-Z`, `0-9`, `_`,
 and `-`; anything else throws `InvalidArgumentException`.
 
-**`$where`** takes two forms, or can be omitted to match all rows (in
-`select()` and `count()`):
+**`$whereEtc`** takes two forms (array or SQL string; counting the string
+form's positional and named placeholder variants separately gives the three
+call forms in [Querying Data](querying-data.md)), or can be omitted to match
+all rows in `select()`, `selectOne()`, and `count()`:
 
 ```php
 // Array: column => value pairs, joined with AND
+// (null values become IS NULL, array values become IN (...))
 $users = DB::select('users', ['status' => 'active', 'city' => 'Vancouver']);
 // WHERE `status` = 'active' AND `city` = 'Vancouver'
 
@@ -166,7 +170,8 @@ Mixing `?` and `:name` in one query throws.
 and `:name` for values, `` `?` `` and `` `:name` `` for identifiers, `::?` and
 `:::name` for prefixed values, and `{{column}}` for encrypted-column reads.
 Quotes, inline numbers, and hex literals are rejected before the query runs
-(a trailing literal `LIMIT 10` is the one allowed exception). Full rules in
+(the allowed exceptions: a trailing literal `LIMIT 10`, and empty string
+literals like `!= ''`). Full rules in
 [Placeholders](placeholders.md) and
 [Joins and Custom SQL](joins-and-custom-sql.md).
 
@@ -180,4 +185,4 @@ DB::insert('news', ['title' => 'Launch day', 'createdDate' => DB::rawSql('NOW()'
 
 ---
 
-[← Troubleshooting](troubleshooting.md) | [Documentation Index](README.md)
+[← Troubleshooting](troubleshooting.md) | [Documentation Index](README.md) | [Next: AI Reference →](ai-reference.md)

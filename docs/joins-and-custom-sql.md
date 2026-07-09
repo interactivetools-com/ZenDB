@@ -24,7 +24,7 @@ echo $row->maxPrice;
 Differences from the table-based methods:
 
 - You write the whole statement; nothing is added for you, except that
-  `queryOne()` appends `LIMIT 1` to SELECT queries.
+  `queryOne()` appends `LIMIT 1` to `SELECT` and `WITH` queries.
 - Placeholders, escaping, and the template guard work exactly the same.
 - The returned objects are the same: `query()` returns a row collection,
   `queryOne()` a single row.
@@ -52,6 +52,7 @@ Table aliases don't take the prefix; only the real names after `FROM` and
 
 ```php
 $rows = DB::query("SELECT u.name, o.total FROM ::users u JOIN ::orders o ON o.userId = u.id");
+// with tablePrefix 'cms_' this runs:
 // SELECT u.name, o.total FROM cms_users u JOIN cms_orders o ON o.userId = u.id
 ```
 
@@ -114,7 +115,8 @@ identifying the source, so the aliases step in (below).
 Computed columns get only their alias: `YEAR(o.orderDate) AS orderYear`
 appears as `orderYear`, with no qualified key.
 
-Whenever you're unsure what keys a query produced, `print_r($row)` and look.
+Whenever you're unsure what keys a query produced, `print_r($row)` (or
+`showme($row)` in CMS Builder) and look.
 
 Smart Joins are on by default and only add keys to multi-table results;
 single-table queries are unchanged. Turning them off for a query or a whole
@@ -233,7 +235,7 @@ $rows    = DB::query("
   ORDER BY o.orderDate DESC
   :pagingSQL", [
     ':city'      => 'Vancouver',
-    ':pagingSQL' => DB::pagingSql($pageNum, 25),
+    ':pagingSQL' => DB::pagingSql($pageNum, 25),  // for page 1: LIMIT 25 OFFSET 0
 ]);
 
 foreach ($rows as $row) {

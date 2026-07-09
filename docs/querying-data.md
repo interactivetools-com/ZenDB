@@ -63,7 +63,8 @@ if ($user->isEmpty()) {
 
 ## Counting Rows - `DB::count()`
 
-`DB::count()` returns an `int` and accepts the same WHERE forms as `select()` does:
+`DB::count()` returns an `int` and accepts the same WHERE forms as `select()`
+does (though like `selectOne()`, it throws on `LIMIT` or `OFFSET`):
 
 ```php
 $total  = DB::count('users');
@@ -95,12 +96,16 @@ $books = DB::select('products', ['category' => 'books']);
 // SELECT * FROM `products` WHERE `category` = 'books'
 ```
 
-Two value types get special handling:
+Three value types get special handling:
 
 ```php
 // An array becomes an IN list
 $users = DB::select('users', ['status' => ['active', 'pending']]);
-// SELECT * FROM `users` WHERE `status` IN ('active', 'pending')
+// SELECT * FROM `users` WHERE `status` IN ('active','pending')
+
+// null becomes IS NULL (a literal "= NULL" would match no rows)
+$unverified = DB::select('users', ['verifiedAt' => null]);
+// SELECT * FROM `users` WHERE `verifiedAt` IS NULL
 
 // RawSql is inserted as-is
 $today = DB::select('orders', ['orderDate' => DB::rawSql('CURDATE()')]);
@@ -144,19 +149,27 @@ condition isn't required first:
 ```php
 // ORDER BY alone
 $users = DB::select('users', "ORDER BY name");
+// SELECT * FROM `users` ORDER BY name
 
 // Combined, with a placeholder for the limit
 $users = DB::select('users', "status = ? ORDER BY name DESC LIMIT ?", 'active', 10);
+// SELECT * FROM `users` WHERE status = 'active' ORDER BY name DESC LIMIT 10
 
 // Literal trailing LIMIT is allowed (the one number the template guard accepts)
 $users = DB::select('users', "ORDER BY name LIMIT 10");
+// SELECT * FROM `users` ORDER BY name LIMIT 10
 ```
+
+A value bound to a `LIMIT` placeholder must be an int: a string produces
+`LIMIT '10'`, a MySQL syntax error, and `$_GET` values arrive as strings, so
+cast first ([Placeholders](placeholders.md) covers type conversion).
 
 The template guard normally rejects inline numbers, with one carve-out: a
 literal number in a trailing `LIMIT` clause is recognized as safe and runs
 as-is. That covers only the exact trailing form `LIMIT 10`. For an offset, use
 placeholders or `DB::pagingSql()`, which builds the `LIMIT ... OFFSET ...`
-clause from a page number and page size:
+clause from a page number and page size (the full pagination recipe is in
+[Common Patterns](common-patterns.md)):
 
 ```php
 $pageNum = $_GET['page'] ?? 1;

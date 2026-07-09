@@ -1,7 +1,8 @@
 # Working with Results
 
-Every query returns result objects: collections you can loop like arrays, and
-values that HTML-encode themselves on output. This page covers the result
+Every query that reads rows returns result objects: collections you can loop
+like arrays, and values that HTML-encode themselves on output. (`insert()`,
+`update()`, and `delete()` return plain ints.) This page covers the result
 hierarchy, output encoding, and the methods available at each level.
 
 ## The Result Hierarchy
@@ -21,7 +22,7 @@ foreach ($users as $user) {     // row - one record
 
 Values HTML-encode themselves in string context, so `echo`, `print`, and
 string interpolation are XSS-safe with no extra effort. For other contexts,
-ask for the encoding you need:
+ask for the encoding you need.
 
 | Expression                  | Result                                             |
 |-----------------------------|----------------------------------------------------|
@@ -85,24 +86,28 @@ echo $article->body->textOnly()->maxChars(100);
 // Format a number and prepend a currency symbol (a blank price stays blank, no stray $)
 echo $product->price->numberFormat(2)->andPrefix('$');   // $1,234.56
 
-// Format a date; null, invalid, and 0000-00-00 dates all fall through to the or()
+// Format a date; null and invalid dates fall through to the or()
+// (a zero date like 0000-00-00 doesn't: it formats as 'Nov 30, -0001')
 echo $user->lastLogin->dateFormat('M j, Y')->or('Never');
 ```
 
-## Debugging with print_r()
+## Debugging with `print_r()`
 
-The result objects describe themselves when inspected. `print_r()` on a
-result shows the executed SQL, row count, and values; on a single value it
-shows the raw data and available methods:
+The result objects describe themselves when inspected. `print_r()` shows the
+data; `->debug()` adds the executed SQL and MySQL metadata, and `->help()`
+prints the available methods with examples:
 
 ```php
-print_r($users);        // the query, rows, and values
+print_r($users);        // rows and values
 print_r($user);         // one row's columns and values
-print_r($user->name);   // one value plus the methods you can call on it
+print_r($user->name);   // one value's raw data
+
+$users->debug();        // the executed SQL, rows, and MySQL metadata
+$users->help();         // available methods with examples
 ```
 
-CMS Builder users: `showme()` does the same thing, wrapped in `<xmp>` tags for
-readable browser output.
+CMS Builder users: `showme()` does the same thing as `print_r()`, wrapped in
+`<xmp>` tags for readable browser output.
 
 ## Query Metadata - `mysqli()`
 
@@ -130,7 +135,7 @@ everything.
 | Method                        | Description                                   |
 |-------------------------------|-----------------------------------------------|
 | `count($result)`              | Number of rows (`$result->count()` works too) |
-| `$result->first()`            | First row (or an empty row if none)           |
+| `$result->first()`            | First row (`SmartNull` when the result is empty; chaining still works) |
 | `$result->toArray()`          | Plain array of raw row arrays                 |
 | `$result->pluck('col')`       | One column as a new collection                |
 | `$result->sortBy('col')`      | Sort rows by column                           |
@@ -174,7 +179,7 @@ Each row in a collection, and the return value of `DB::selectOne()`.
 
 ## Value Methods (SmartString)
 
-Each column value is a SmartString. The most used methods:
+Each column value is a SmartString. These are the most used methods.
 
 **Text**
 
@@ -183,7 +188,7 @@ Each column value is a SmartString. The most used methods:
 | `->textOnly()`    | Remove HTML tags, decode entities, trim |
 | `->maxChars(100)` | Shorten to N characters with ellipsis   |
 | `->maxWords(20)`  | Shorten to N words with ellipsis        |
-| `->textToHtml()`  | HTML-encode, then newlines to `<br>`    |
+| `->textToHtml()`  | HTML-encode, then newlines to `<br>` (returns a plain string) |
 | `->trim()`        | Trim whitespace                         |
 
 **Formatting**

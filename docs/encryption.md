@@ -62,7 +62,7 @@ the results:
 
 ```php
 DB::insert('users', ['name' => 'Alice', 'apiToken' => 'secret-token-value']);
-// INSERT INTO `users` SET `name` = 'Alice', `apiToken` = '<16-byte ciphertext>'
+// INSERT INTO `users` SET `name` = 'Alice', `apiToken` = '<ciphertext>'
 
 DB::update('users', ['apiToken' => 'new-token'], ['id' => 1]);
 // UPDATE `users` SET `apiToken` = '<ciphertext>' WHERE `id` = 1
@@ -92,7 +92,7 @@ where auto-encryption doesn't apply:
 
 ```php
 DB::query("UPDATE ::users SET apiToken = ? WHERE id = ?", DB::encryptValue('new-token'), 1);
-// UPDATE `users` SET apiToken = '<ciphertext>' WHERE id = 1
+// UPDATE users SET apiToken = '<ciphertext>' WHERE id = 1
 ```
 
 `NULL` input returns `NULL`, and `SmartString` values unwrap automatically.
@@ -115,7 +115,12 @@ $users = DB::select('users', "{{apiToken}} LIKE ?", '%token%');
 // SELECT * FROM `users` WHERE AES_DECRYPT(`apiToken`, @ek) LIKE '%token%'
 ```
 
-`{{table.column}}` works too, for joins.
+The same expansion is available as a string from `DB::decryptExpr('apiToken')`,
+for SQL built outside a template.
+
+`{{table.column}}` works too, for joins. Use the stored table name:
+`{{...}}` doesn't apply `tablePrefix`, so with a `cms_` prefix write
+`{{cms_users.apiToken}}`, not `{{users.apiToken}}`.
 
 > **Internal detail, safe to ignore:** `@ek` is a MySQL session variable
 > holding the key. ZenDB sets it once per connection, before the first query
@@ -162,7 +167,7 @@ and re-encrypt, not ignore.
 ## How the Keys Line Up
 
 ZenDB uses AES-128-ECB because it's the strongest encryption that works on
-every database ZenDB supports: MySQL 5.7+ and MariaDB both implement it as
+every database ZenDB supports: MySQL 5.7.32+ and MariaDB both implement it as
 the `AES_ENCRYPT()` / `AES_DECRYPT()` default, and on most MariaDB versions
 it's the only mode those functions offer. Newer servers add CBC and 256-bit
 modes, but they aren't available everywhere, they need a per-value IV stored

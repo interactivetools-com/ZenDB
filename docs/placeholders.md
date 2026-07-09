@@ -6,7 +6,7 @@ query runs. This page covers every placeholder type, how PHP types convert to
 SQL, and the errors the guard produces.
 
 Three placeholders cover nearly all queries (generated SQL shown with
-`tablePrefix` set to `'cms_'`):
+`tablePrefix` set to `'cms_'`).
 
 | Placeholder | Example        | With value             | Generates           |
 |-------------|----------------|------------------------|---------------------|
@@ -18,7 +18,7 @@ The rest are for dynamic identifiers: table or column names that arrive as
 values, like a user-picked sort column. Most queries never need these.
 Identifiers can't be quoted like values, so the backtick forms accept only
 identifier characters (letters, numbers, `_`, `-`; anything else throws) and
-insert the value unquoted:
+insert the value unquoted.
 
 | Placeholder                  | Example               | With value | Generates             |
 |------------------------------|-----------------------|------------|-----------------------|
@@ -64,6 +64,7 @@ The same placeholder can appear more than once in a query:
 DB::query("SELECT * FROM ::users WHERE city = :city OR birthplace = :city", [
     ':city' => 'Vancouver',
 ]);
+// SELECT * FROM users WHERE city = 'Vancouver' OR birthplace = 'Vancouver'
 ```
 
 Use one style per query: mixing `?` and `:name` in the same call throws.
@@ -72,7 +73,8 @@ Use one style per query: mixing `?` and `:name` in the same call throws.
 
 `::` in front of a table name expands to the configured `tablePrefix`. With
 no prefix configured it expands to nothing, so `::users` is just `users`.
-The examples below assume `tablePrefix` is `'cms_'` throughout:
+Examples that show the prefix applied assume `tablePrefix` is `'cms_'`;
+the rest run with no prefix.
 
 ```php
 DB::query("SELECT * FROM ::users JOIN ::orders ON ::orders.userId = ::users.id");
@@ -84,8 +86,9 @@ prefix ever changes, every query keeps working.
 
 ## Identifier Placeholders (`` `?` `` and `` `:name` ``)
 
-Value placeholders quote their input, and `ORDER BY 'name'` isn't valid SQL,
-so identifiers need their own placeholder: wrap it in backticks.
+Value placeholders quote their input, and `ORDER BY 'name'` orders by a
+constant string, so nothing gets sorted and no error is raised. Identifiers
+need their own placeholder: wrap it in backticks.
 
 ```php
 $sort = $_GET['sort'] ?? 'name';
@@ -101,7 +104,7 @@ For a dynamic table name that needs the prefix, add `::` inside the
 backticks:
 
 ```php
-DB::query("SELECT * FROM `:::table` WHERE id = ?", [':table' => 'users'], 42);
+DB::query("SELECT * FROM `:::table` WHERE id = :id", [':table' => 'users', ':id' => 42]);
 // SELECT * FROM `cms_users` WHERE id = 42
 ```
 
@@ -119,7 +122,7 @@ $tables = DB::query("SHOW TABLES LIKE ::?", 'user%');
 ## Type Handling
 
 PHP types convert to SQL by actual type, so `10` and `"10"` produce different
-SQL:
+SQL.
 
 | PHP Type | SQL Output             | Example                         |
 |----------|------------------------|---------------------------------|
@@ -128,7 +131,7 @@ SQL:
 | `float`  | Unquoted number        | `9.5` → `9.5`                   |
 | `bool`   | TRUE / FALSE           | `true` → `TRUE`                 |
 | `null`   | NULL keyword           | `null` → `NULL`                 |
-| `array`  | Comma-separated values | `[1, 2, 3]` → `1, 2, 3`         |
+| `array`  | Comma-separated values | `[1, 2, 3]` → `1,2,3`           |
 | `RawSql` | As-is, no escaping     | `DB::rawSql('NOW()')` → `NOW()` |
 
 The string-vs-int difference matters most in `LIMIT`, where MySQL requires an
@@ -143,16 +146,17 @@ SmartString, SmartNull, and SmartArray parameters unwrap to their underlying
 values automatically, so passing `$row->name` as a parameter just works.
 
 Arrays expand to comma-separated values for `IN` lists, and require a named
-placeholder (`?` would be ambiguous):
+placeholder (`?` would be ambiguous). The expansion skips `null` elements and
+removes duplicates, so `[1, null, 1, 2]` becomes `IN (1,2)`:
 
 ```php
 DB::select('users', "id IN (:ids)", [':ids' => [1, 2, 3]]);
-// SELECT * FROM `users` WHERE id IN (1, 2, 3)
+// SELECT * FROM `users` WHERE id IN (1,2,3)
 ```
 
 ## What Happens If...
 
-The guard's error messages state the fix; here's the catalog:
+The guard's error messages state the fix; here are the common ones:
 
 ```php
 // Missing parameter
@@ -176,10 +180,12 @@ DB::select('users', "age > 18");
 // Throws: Standalone number in template. Replace 18 with :n18 and add: [ ':n18' => 18 ]
 ```
 
-Three non-errors worth knowing:
+Four non-errors worth knowing:
 
-- A literal number in a *trailing* `LIMIT` is the guard's one carve-out:
-  `"ORDER BY name LIMIT 10"` is recognized as safe and runs as-is.
+- A literal number in a *trailing* `LIMIT` is recognized as safe and runs
+  as-is: `"ORDER BY name LIMIT 10"`.
+- Empty string literals are allowed: `"email != ''"` runs as-is. The quote
+  check only rejects quotes with content between them.
 - An empty array in an `IN` list expands to `NULL`, and `IN (NULL)` matches
   nothing, which is usually what an empty list should do. Watch `NOT IN`
   though: `NOT IN (NULL)` *also* matches nothing (a NULL comparison rule in

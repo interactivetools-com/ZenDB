@@ -84,11 +84,12 @@ $rows = $raw->select('users', ['status' => 'active']);
 ```
 
 Shares the TCP connection; only the settings diverge. Calling `DB::connect()`
-again would open a whole new MySQL connection, which is not the same thing.
+again throws (already connected), and `new Connection()` opens a whole new
+MySQL connection, which is not the same thing.
 
 ---
 
-## Config storage - DECIDED: Keep typed properties + credential vault (2026-03)
+## Config Storage - DECIDED: Keep typed properties + credential vault (2026-03)
 
 A proposal to replace the typed config properties and WeakMap credential vault
 with a single `config()` get/set method was rejected: it trades type safety,
@@ -97,9 +98,11 @@ property copying on clone. Config stays as typed properties.
 
 Cleanups worth doing if this code is ever touched (still open as of 2026-07):
 
-1. Replace `property_exists()` constructor validation with an explicit allowlist;
-   the five credential properties exist only to satisfy it and are immediately
-   nulled by `sealSecrets()`.
+1. Replace `property_exists()` constructor validation with an explicit allowlist.
+   Note: the five credential properties never reach that check; `sealSecrets()`
+   consumes their config keys first. They exist so the `$this->$key = null`
+   write in `sealSecrets()` isn't a deprecated dynamic property on PHP 8.2+,
+   so an allowlist doesn't make them deletable.
 2. Add a `SENSITIVE_KEYS` constant so `__debugInfo` masking can't silently miss
    a newly added sensitive key.
 3. Simplify `sealSecrets()`'s two parameter-controlled code paths (construct vs
@@ -119,7 +122,7 @@ catch attempts to call `unsafe()`, `unescaped()`, `trusted()`, `trustedHtml()`,
 
 ---
 
-## Positional parameters - DECIDED: Allowlist, max 3 direct (2026-07)
+## Positional Parameters - DECIDED: Allowlist, max 3 direct (2026-07)
 
 Params are valid as (1) up to 3 direct non-array values for `?` placeholders,
 or (2) one array of `':name' => value` pairs. Positional values passed in a
@@ -130,7 +133,7 @@ forgotten goes unwarned.
 
 ---
 
-## Smart Join alias keys - DECIDED: Self-joins only (2026-07)
+## Smart Join Alias Keys - DECIDED: Self-joins only (2026-07)
 
 Row keys for aliased tables use the base table name (`get('accounts.name')`),
 not the alias (`get('a.name')`); alias keys exist only in self-joins, where
@@ -158,15 +161,16 @@ output.
 
 ---
 
-## Undocumented on purpose - DECIDED (2026-07)
+## Undocumented on Purpose - DECIDED (2026-07)
 
 The docs deliberately omit these; the omission is a decision, not a gap
 (method-reference says "every supported method" for this reason):
 
 - **`Server`, `Table`/`TableInfo`** - internal, may change; class headers say so.
 - **`DB::assertIdentifier()`** - `@internal`; the safe-identifier check every table
-  and column name passes through, kept callable for identifiers placeholders can't
-  cover (like a user-picked sort column).
+  and column name passes through, kept callable for code that builds SQL outside
+  templates (alongside `escape()`/`escapef()`), where backtick placeholders
+  aren't available.
 - **`queryLogger`, `loadHandler` config keys** - internal/advanced hooks
   (loadHandler is CMS Builder plumbing); undocumented keeps the signatures
   changeable. The PII note (logged SQL contains inlined user values) lives in
@@ -180,11 +184,13 @@ The docs deliberately omit these; the omission is a decision, not a gap
 
 ---
 
-## Other ideas rejected (2026-03)
+## Other Ideas Rejected (2026-03)
 
 - **Schema awareness** (cache table schemas, ignore non-column keys, fuzzy column
   suggestions, auto type-cast): silently ignoring non-column keys hides typos,
-  fuzzy suggestions are an IDE feature, auto type-casting masks bugs.
+  fuzzy suggestions are an IDE feature, auto type-casting masks bugs. (The
+  narrow encrypted-column type lookup that encryption uses is separate and
+  stands.)
 - **Query logging methods** (`DB::enableLog()` / `DB::getLog()`): the
   `queryLogger` config callback already handles this.
 - **Distributed system features** (connection pooling, caching): ZenDB targets

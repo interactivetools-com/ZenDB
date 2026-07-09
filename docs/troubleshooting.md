@@ -78,11 +78,13 @@ DB::select('users', "a = :a AND b = :b AND c = :c AND d = :d", [
 
 ### "Can't mix positional (?) and named (:param) placeholders. Use one style consistently."
 
-**What happened:** One query used both `?` and `:name` placeholders.
+**What happened:** One call was given both positional values and named
+parameters: a params array holding plain values for `?` alongside `:name`
+keys.
 
 ```php
-// Throws - two placeholder styles in one call
-DB::select('users', "status = ? AND city = :city", [':city' => 'Vancouver']);
+// Throws - positional value and named parameter in one call
+DB::select('users', "status = ? AND city = :city", ['active', ':city' => 'Vancouver']);
 ```
 
 **Fix:** Pick one style for the whole query:
@@ -274,9 +276,11 @@ support SSL, connecting fails with MySQL error 2006 and the message starts
 with `Try disabling 'requireSSL' in database configuration.` Do that, or
 enable SSL on the server.
 
-### "This program requires MySQL v5.7.32+ or compatible. This server has MySQL vX.Y.Z installed."
+### "This program requires MySQL v5.7.32+ or compatible. This server has ... vX.Y.Z installed."
 
-ZenDB requires MySQL 5.7.32 or newer by default (a compatible server like
+The message names the detected server product, so a MariaDB user sees
+`This server has MariaDB v10.4.34 installed.` ZenDB requires MySQL 5.7.32 or
+newer by default (a compatible server like
 MariaDB or Percona also passes, compared on its own version number). Upgrade
 the server, or lower the check with the `versionRequired` config setting if
 you've confirmed your older version works for your queries:
@@ -374,7 +378,7 @@ echo DB::$mysqli->lastQuery;
 This is the first thing to check when a query returns unexpected results:
 read the SQL that actually ran, then run it yourself in a MySQL client.
 
-### Inspecting Results - print_r()
+### Inspecting Results - `print_r()`
 
 Results are collections, but `print_r()` shows their contents like plain
 arrays:

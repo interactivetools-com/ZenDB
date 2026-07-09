@@ -5,7 +5,7 @@ code examples. This is a communication and tone guide first, a formatting guide
 second. It exists so every page sounds like the same person wrote it, no matter
 who (or what) actually did.
 
-The in-repo benchmark is [Security Gotchas](security-gotchas.md). When in
+The in-repo benchmark is [Security Gotchas](../security-gotchas.md). When in
 doubt about tone, read a section of that page and match it.
 
 ## Voice and Tone
@@ -37,7 +37,7 @@ happens to be a spec. "World-class security" with nothing attached is hype.
 
 **Be honest about limits.** Nothing builds trust faster than saying plainly
 where the protection ends, what the tradeoffs are, and what the library will
-not do for you. The encryption threat-model section in Security Footguns is the
+not do for you. The Encryption Threat Model section in Security Gotchas is the
 model: state the design choice, state what it costs, state what to do if you
 need more.
 
@@ -226,8 +226,10 @@ itself.
   or restructure the sentence.
 - The rightwards arrow `→` is allowed for transformations and navigation paths:
   `O'Brien → "O\'Brien"`.
-- Backticks for every identifier, method, config key, and SQL keyword in prose:
-  `DB::select()`, `tablePrefix`, `LIMIT`.
+- Backticks for every identifier, method, and config key in prose:
+  `DB::select()`, `tablePrefix`. Bare SQL keywords in running prose (SELECT,
+  WHERE, LIMIT) need no backticks; use them when quoting a literal SQL
+  fragment.
 - Tables for option and method references. Prose for concepts. Never a table
   where two sentences would do.
 - Headings in Title Case. Method names keep their real casing.
@@ -241,7 +243,7 @@ Each artifact serves one reader. Don't blend them.
 | Artifact                 | Reader                | Job                                                        |
 |--------------------------|-----------------------|------------------------------------------------------------|
 | `README.md`              | The evaluator         | What it is, why it's different, 30-second demo             |
-| `docs/01` onward         | The learner           | Task-oriented guides, tutorials, troubleshooting           |
+| `docs/` guide pages      | The learner           | Task-oriented guides, tutorials, troubleshooting           |
 | `docs/ai-reference.md`   | AI coding assistants  | Everything needed to write correct code, one dense file    |
 
 The AI reference gets no narrative, no encouragement, no progressive

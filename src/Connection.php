@@ -86,13 +86,13 @@ class Connection
      *     useSmartJoins?:        bool,      // Add table.column keys to JOIN results (default: true)
      *     useSmartStrings?:      bool,      // Return SmartString values (default: true)
      *     usePhpTimezone?:       bool,      // Sync MySQL timezone with PHP (default: true)
-     *     loadHandler?: callable, // Custom result loading handler
+     *     loadHandler?:          callable,  // @internal Custom result loading handler (CMS Builder plumbing); signature may change
      *     versionRequired?:      string,    // Minimum MySQL version or compatible (default: '5.7.32')
      *     requireSSL?:           bool,      // Require SSL connection (default: false)
      *     databaseAutoCreate?:   bool,      // Create database if missing (default: false)
      *     connectTimeout?:       int,       // Connection timeout in seconds (default: 3)
      *     readTimeout?:          int,       // Read timeout in seconds (default: 60)
-     *     queryLogger?:          callable,  // fn(string $query, float $secs, ?Throwable $exception) - $query is resolved SQL with values inlined, so logs can contain user data
+     *     queryLogger?:          callable,  // @internal fn(string $query, float $secs, ?Throwable $exception) - $query is resolved SQL with values inlined, so logs can contain user data; signature may change
      *     sqlMode?:              string,    // MySQL SQL mode
      *     encryptionKey?:        string,    // AES encryption key, sets MySQL @ek session variable on first use
      * } $config

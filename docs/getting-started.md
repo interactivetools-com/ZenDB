@@ -69,12 +69,12 @@ Three rules explain most of the library:
 $user = DB::selectOne('users', ['id' => 1]);
 // SELECT * FROM `users` WHERE `id` = 1 LIMIT 1
 
+if ($user->isEmpty()) {
+    die("No such user");
+}
+
 echo "Name: $user->name";
 echo "City: $user->city";
-
-if ($user->isEmpty()) {
-    echo "No such user";
-}
 ```
 
 Both select methods also accept SQL conditions with placeholders:
@@ -115,7 +115,7 @@ $affected = DB::update('users',
     ['city' => 'Montreal'],   // columns to set
     ['id'   => $newId],       // WHERE condition
 );
-// UPDATE `users` SET `city` = 'Montreal' WHERE `id` = 42
+// with $newId = 42 this runs: UPDATE `users` SET `city` = 'Montreal' WHERE `id` = 42
 
 // SQL conditions with placeholders work here too
 DB::update('users', ['status' => 'inactive'], "city = ? AND isAdmin = ?", 'Vancouver', 0);
@@ -128,7 +128,7 @@ Like `update()`, the WHERE condition is required.
 
 ```php
 $deleted = DB::delete('users', ['id' => $newId]);
-// DELETE FROM `users` WHERE `id` = 42
+// with $newId = 42 this runs: DELETE FROM `users` WHERE `id` = 42
 
 DB::delete('users', "status = ? AND city = ?", 'inactive', 'Vancouver');
 // DELETE FROM `users` WHERE status = 'inactive' AND city = 'Vancouver'
@@ -174,31 +174,31 @@ explanations.
 
 ## Configuration Options
 
-Everything `DB::connect()` accepts. Only the first four are required; an
+The supported `DB::connect()` options. Only the first four are required; an
 unknown key throws `InvalidArgumentException`, so typos fail at connect time
 rather than being silently ignored.
 
-| Option                 | Type   | Default      | Description                                                                           |
-|------------------------|--------|--------------|---------------------------------------------------------------------------------------|
-| **Connection**         |        |              |                                                                                       |
-| `hostname`             | string | *(required)* | Database server hostname                                                              |
-| `username`             | string | *(required)* | Database username                                                                     |
-| `password`             | string | *(required)* | Database password (use `''` for none)                                                 |
-| `database`             | string | *(required)* | Database name (use `''` for none)                                                     |
-| **Query Behavior**     |        |              |                                                                                       |
-| `tablePrefix`          | string | `''`         | Prefix prepended to all table names, e.g. `'app_'` makes `users` query `app_users`    |
-| `useSmartJoins`        | bool   | `true`       | Add table-prefixed keys to JOIN results for disambiguation                            |
-| `useSmartStrings`      | bool   | `true`       | Return values as SmartString objects with auto HTML-encoding                          |
-| **Connection Options** |        |              |                                                                                       |
-| `connectTimeout`       | int    | `3`          | Connection timeout in seconds                                                         |
-| `readTimeout`          | int    | `60`         | Read timeout in seconds                                                               |
-| `requireSSL`           | bool   | `false`      | Require SSL for the database connection                                               |
-| `versionRequired`      | string | `'5.7.32'`   | Minimum MySQL version or compatible; connecting to an older server throws             |
-| `usePhpTimezone`       | bool   | `true`       | Set the MySQL session timezone to PHP's timezone                                      |
-| `sqlMode`              | string | *see below*  | `STRICT_ALL_TABLES,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION` |
-| `databaseAutoCreate`   | bool   | `false`      | Create the database if it does not exist                                              |
-| **Advanced**           |        |              |                                                                                       |
-| `encryptionKey`        | string | *(none)*     | Encrypt `MEDIUMBLOB` columns with AES; see [Encryption](encryption.md)                |
+| Option                 | Type   | Default         | Description                                                                           |
+|------------------------|--------|-----------------|---------------------------------------------------------------------------------------|
+| **Connection**         |        |                 |                                                                                       |
+| `hostname`             | string | *(required)*    | Database server hostname                                                              |
+| `username`             | string | *(required)*    | Database username                                                                     |
+| `password`             | string | *(required)*    | Database password (use `''` for none)                                                 |
+| `database`             | string | *(required)*    | Database name (use `''` for none)                                                     |
+| **Query Behavior**     |        |                 |                                                                                       |
+| `tablePrefix`          | string | `''`            | Prefix prepended to all table names, e.g. `'app_'` makes `users` query `app_users`    |
+| `useSmartJoins`        | bool   | `true`          | Add qualified `table.column` keys to JOIN results for disambiguation                  |
+| `useSmartStrings`      | bool   | `true`          | Return values as SmartString objects with auto HTML-encoding                          |
+| **Connection Options** |        |                 |                                                                                       |
+| `connectTimeout`       | int    | `3`             | Connection timeout in seconds                                                         |
+| `readTimeout`          | int    | `60`            | Read timeout in seconds                                                               |
+| `requireSSL`           | bool   | `false`         | Require SSL for the database connection                                               |
+| `versionRequired`      | string | `'5.7.32'`      | Minimum MySQL version or compatible; connecting to an older server throws             |
+| `usePhpTimezone`       | bool   | `true`          | Set the MySQL session timezone to PHP's timezone                                      |
+| `sqlMode`              | string | *(shown right)* | `STRICT_ALL_TABLES,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION` |
+| `databaseAutoCreate`   | bool   | `false`         | Create the database if it does not exist                                              |
+| **Advanced**           |        |                 |                                                                                       |
+| `encryptionKey`        | string | *(none)*        | Encrypt `MEDIUMBLOB` columns with AES; see [Encryption](encryption.md)                |
 
 ---
 
