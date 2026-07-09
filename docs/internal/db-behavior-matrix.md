@@ -6,7 +6,7 @@ How every supported database server answers the same behavior probes, showing on
     gh run download --dir probes             # pick the latest DB Behavior Matrix run
     php .github/scripts/db-behavior-merge.php probes/*/probe-*.json > docs/internal/db-behavior-matrix.md
 
-Last generated: 2026-07-08 from 19 servers: mysql:5.7, mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, mariadb:10.2, mariadb:10.2.6, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8, mariadb:12.3, percona/percona-server:5.7, percona/percona-server:8.0, percona/percona-server:8.4
+Last generated: 2026-07-09 from 19 servers: mysql:5.7, mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, mariadb:10.2, mariadb:10.2.6, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8, mariadb:12.3, percona/percona-server:5.7, percona/percona-server:8.0, percona/percona-server:8.4
 
 Generated file - don't hand-edit. The "Key differences" summary below is maintained in the heredoc in .github/scripts/db-behavior-merge.php; edit it there.
 
@@ -717,13 +717,7 @@ Stock Docker images with default configs answered these probes. Install-dependen
 ### DEFAULTS SELECT DEFAULT(exprDefault)
 
 - `text: 0000-00-00 00:00:00` → all MySQL/Percona
-- `text: 2026-07-09 03:35:01` → mariadb:10.2
-- `text: 2026-07-09 03:34:59` → mariadb:10.2.6, mariadb:11.8
-- `text: 2026-07-09 03:34:58` → mariadb:10.2.7, mariadb:10.5, mariadb:10.11
-- `text: 2026-07-09 03:34:56` → mariadb:10.3
-- `text: 2026-07-09 03:35:09` → mariadb:10.4
-- `text: 2026-07-09 03:35:00` → mariadb:10.6, mariadb:12.3
-- `text: 2026-07-09 03:34:57` → mariadb:11.4
+- `text: <evaluated to current datetime>` → all MariaDB
 
 ### @@collation_connection after set_charset(utf8mb4)
 

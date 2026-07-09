@@ -696,7 +696,15 @@ try {
     // SELECT DEFAULT(col), the value form (errors are results: some servers reject it for some defaults)
     foreach ($columnNames as $column) {
         try {
-            $defaultProbes["DEFAULTS SELECT DEFAULT($column)"] = $fmtDefault($mysqli->query("SELECT DEFAULT($column) FROM zdb_probe_special")->fetch_row()[0]);
+            $value = $mysqli->query("SELECT DEFAULT($column) FROM zdb_probe_special")->fetch_row()[0];
+
+            // MariaDB evaluates DEFAULT(exprDefault) to the probe's wall-clock time, which
+            // would diff on every regeneration; the signal is that it evaluates at all, so
+            // normalize real datetimes to a token. MySQL's zero-date answer stays literal.
+            if (is_string($value) && preg_match('/^(?!0000)\d{4}-\d\d-\d\d \d\d:\d\d:\d\d$/', $value)) {
+                $value = '<evaluated to current datetime>';
+            }
+            $defaultProbes["DEFAULTS SELECT DEFAULT($column)"] = $fmtDefault($value);
         } catch (mysqli_sql_exception $e) {
             $defaultProbes["DEFAULTS SELECT DEFAULT($column)"] = 'error ' . $e->getCode();
         }
