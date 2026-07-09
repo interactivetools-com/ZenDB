@@ -83,6 +83,18 @@ nothing to warn about; the exception is the documentation. Spend the words on
 the narrow cases that pass silently, because those are the ones that reach
 production.
 
+**Write guide pages for regular use, not app plumbing.** Most readers run CMS
+Builder or a normal site: they query, insert, update, and display. Tasks
+outside that (schema changes, data migrations, mid-request timezone swaps)
+stay out of the guides even when the library supports them; `ai-reference.md`
+still gets complete coverage, and CMS Builder often does the task for the
+reader (say so where it does).
+
+**A troubleshooting entry must add something the error doesn't already say.**
+Only really common errors get entries. If the message alone puts the reader
+on the right track (deprecations that name their replacement, rare literals
+like `0x1F`), the message is the documentation; skip the entry.
+
 **Explain the mental model once, early.** One short section on how to think
 about the library ("method names are SQL statements", "values only enter
 through placeholders") makes the whole API predictable. Say it once, then let

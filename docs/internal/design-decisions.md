@@ -42,6 +42,10 @@ Would wrap MySQL's `INSERT ... ON DUPLICATE KEY UPDATE`.
    developer doesn't need to understand AES. Upsert still requires understanding
    unique indexes and conflict semantics; it only shortens the syntax.
 
+Also ruled out as a docs recipe (2026-07): CMS Builder has no easy way to
+create a multi-column unique index, so the main audience can't meet the
+precondition. The one-liner above stays here, not in common-patterns.
+
 ---
 
 ## DB::exists() - DECIDED: Not adding (2026-03)
