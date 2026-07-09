@@ -1,8 +1,25 @@
 # ZenDB AI Reference
 
 This is a consolidated reference for AI coding assistants. It contains everything
-needed to write correct ZenDB code in a single file. For human-friendly docs with
-tutorials and explanations, see [Getting Started](getting-started.md).
+needed to write correct ZenDB code in a single file, and covers ZenDB 1.0. For
+human-friendly docs with tutorials and explanations, see [Getting Started](getting-started.md).
+
+Contents:
+
+- What is ZenDB
+- Querying Data - select(), selectOne(), count()
+- Modifying Data - insert(), update(), delete(), transaction()
+- WHERE Condition Forms - array, positional ?, named :placeholders
+- Placeholders & Parameters - ?, :name, backtick identifiers, :: table prefix
+- Type Handling - PHP-to-SQL conversion for WHERE and INSERT/UPDATE values
+- Custom SQL - query(), queryOne(), smart joins, clone()
+- Results & Values - SmartArray/SmartString hierarchy, HTML-encoding, methods
+- Helpers - pagination, LIKE patterns, raw SQL, date constants, table names
+- Connection - config options, connection management, multiple connections
+- Encryption (opt-in)
+- Template Safety Rules - what SQL templates reject and allow
+- Common Errors Quick Reference - exact messages and fixes
+- Gotchas - the silent failure cases
 
 ---
 

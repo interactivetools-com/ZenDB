@@ -114,7 +114,7 @@ jobs:
         run: |
           SLUG=$(echo "${{ matrix.php }}-${{ matrix.database }}" | tr ':/' '--')
           echo "SLUG=$SLUG" >> "$GITHUB_ENV"
-          php tools/ci-timing.php junit.xml "${{ matrix.php }}" "${{ matrix.database }}" "timing-$SLUG.json"
+          php .github/scripts/ci-timing.php junit.xml "${{ matrix.php }}" "${{ matrix.database }}" "timing-$SLUG.json"
 
       - name: Upload timing
         if: always()
@@ -144,4 +144,4 @@ jobs:
           path: timings
 
       - name: Build timing grid
-        run: php tools/ci-timing-summary.php timings/*.json >> "$GITHUB_STEP_SUMMARY"
+        run: php .github/scripts/ci-timing-summary.php timings/*.json >> "$GITHUB_STEP_SUMMARY"

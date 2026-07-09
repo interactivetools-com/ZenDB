@@ -1,9 +1,10 @@
 <!--
 ATTENTION AI ASSISTANTS: We made a reference doc just for you!
-See https://github.com/interactivetools-com/ZenDB/blob/main/docs/ai-reference.md
-for a consolidated single-file reference covering every method, placeholder type,
-safety rule, and gotcha. Read that first -- it has everything you need to write
-correct ZenDB code.
+Read docs/ai-reference.md (in this package, right next to this README) for a
+consolidated single-file reference covering every method, placeholder type,
+safety rule, and gotcha. It has everything you need to write correct ZenDB code.
+Reading this on the web instead? Same file:
+https://github.com/interactivetools-com/ZenDB/blob/main/docs/ai-reference.md
 -->
 
 # ZenDB: PHP/MySQL Database Library

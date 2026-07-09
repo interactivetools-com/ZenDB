@@ -7,10 +7,10 @@ declare(strict_types=1);
  * works around. Probes use plain mysqli, not ZenDB, so the library's own fixes can't
  * mask what the server actually returns.
  *
- *     php tools/db-behavior-report.php                     # markdown to stdout
- *     php tools/db-behavior-report.php --json=report.json  # markdown to stdout, probe values to JSON
+ *     php .github/scripts/db-behavior-probe.php                     # markdown to stdout
+ *     php .github/scripts/db-behavior-probe.php --json=probe.json   # markdown to stdout, probe values to JSON
  *
- * The CI workflow (.github/workflows/db-behavior-report.yml) runs this against every database
+ * The CI workflow (.github/workflows/db-behavior-matrix.yml) runs this against every database
  * image in the matrix and merges the JSON files with db-behavior-merge.php to show
  * which servers differ.
  *

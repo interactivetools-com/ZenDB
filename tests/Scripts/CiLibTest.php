@@ -1,14 +1,14 @@
 <?php
 declare(strict_types=1);
 
-namespace Itools\ZenDB\Tests\Tools;
+namespace Itools\ZenDB\Tests\Scripts;
 
 use PHPUnit\Framework\TestCase;
 
-require_once __DIR__ . '/../../tools/ci-lib.php';
+require_once __DIR__ . '/../../.github/scripts/ci-lib.php';
 
 /**
- * Tests for the helpers shared by the CI reporting tools (tools/ci-lib.php).
+ * Tests for the helpers shared by the CI reporting scripts (.github/scripts/ci-lib.php).
  */
 class CiLibTest extends TestCase
 {

@@ -391,7 +391,7 @@ the calling line number.
 
 For version-by-version behavior across MySQL and MariaDB (type conversions,
 edge cases, driver differences), see the CI-generated
-[db-behavior-report.md](../tools/db-behavior-report.md).
+[db-behavior-matrix.md](internal/db-behavior-matrix.md).
 
 ---
 

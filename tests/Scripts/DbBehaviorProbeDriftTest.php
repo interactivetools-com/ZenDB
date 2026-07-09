@@ -1,21 +1,21 @@
 <?php
 declare(strict_types=1);
 
-namespace Itools\ZenDB\Tests\Tools;
+namespace Itools\ZenDB\Tests\Scripts;
 
 use Itools\ZenDB\Tests\BaseTestCase;
 use ReflectionMethod;
 
 /**
- * tools/db-behavior-report.php duplicates three ZenDB internals as literals so its
+ * .github/scripts/db-behavior-probe.php duplicates three ZenDB internals as literals so its
  * probes show what raw servers do with the exact values ZenDB uses. These tests fail
  * when either side changes, so the probe script can't silently drift from the library.
  */
-class DbBehaviorReportDriftTest extends BaseTestCase
+class DbBehaviorProbeDriftTest extends BaseTestCase
 {
     private static function toolSource(): string
     {
-        return file_get_contents(__DIR__ . '/../../tools/db-behavior-report.php');
+        return file_get_contents(__DIR__ . '/../../.github/scripts/db-behavior-probe.php');
     }
 
     public function testSqlModeProbeMatchesConnectionDefault(): void
@@ -25,14 +25,14 @@ class DbBehaviorReportDriftTest extends BaseTestCase
         preg_match("~SET sql_mode = '([^']+)'~", self::toolSource(), $toolMode);
 
         $this->assertNotEmpty($srcMode[1] ?? '', 'sqlMode default not found in ConnectionInternals.php');
-        $this->assertSame($srcMode[1], $toolMode[1] ?? null, 'db-behavior-report.php probes a different sql_mode than ZenDB sets');
+        $this->assertSame($srcMode[1], $toolMode[1] ?? null, 'db-behavior-probe.php probes a different sql_mode than ZenDB sets');
     }
 
     public function testVersionParseProbeMatchesServer(): void
     {
         $serverSource = file_get_contents(__DIR__ . '/../../src/Server.php');
         foreach (["preg_replace('/^5\\.5\\.5-(?=\\d)/'", "preg_match('/^[\\d.]+/'"] as $regexCall) {
-            $this->assertStringContainsString($regexCall, $serverSource, 'version parse changed in Server.php - update the probe in db-behavior-report.php');
+            $this->assertStringContainsString($regexCall, $serverSource, 'version parse changed in Server.php - update the probe in db-behavior-probe.php');
             $this->assertStringContainsString($regexCall, self::toolSource());
         }
     }

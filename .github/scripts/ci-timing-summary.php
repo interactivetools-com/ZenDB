@@ -8,13 +8,13 @@ declare(strict_types=1);
  * test-plan seconds in the cells, followed by the slowest individual tests. Cells at
  * or above 1.5x the median are bolded; jobs with no data show "-".
  *
- *     php tools/ci-timing-summary.php timings/*.json >> "$GITHUB_STEP_SUMMARY"
+ *     php .github/scripts/ci-timing-summary.php timings/*.json >> "$GITHUB_STEP_SUMMARY"
  */
 
 require __DIR__ . '/ci-lib.php';
 
 if ($argc < 2) {
-    fwrite(STDERR, "Usage: php tools/ci-timing-summary.php <timing.json> [timing2.json ...]\n");
+    fwrite(STDERR, "Usage: php .github/scripts/ci-timing-summary.php <timing.json> [timing2.json ...]\n");
     exit(1);
 }
 

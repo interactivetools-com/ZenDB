@@ -847,7 +847,7 @@ trait ConnectionInternals
      * MariaDB reports the alias, so a qualified key like 'viewname.col' only exists on MySQL and
      * 'alias.col' only on MariaDB (outside self-joins). Only the bare column name is portable for
      * aliased view columns; unaliased views agree everywhere. No code fix is possible - MariaDB's
-     * metadata never exposes the view name. See tools/db-behavior-report.md (2026-07).
+     * metadata never exposes the view name. See docs/internal/db-behavior-matrix.md (2026-07).
      *
      * @param array $fetchFields     Field objects from mysqli_result::fetch_fields()
      * @param array $aliasToTable    Map of table alias → orgtable, e.g. ['u' => 'users']
@@ -1044,7 +1044,7 @@ trait ConnectionInternals
      * Sets identically on every supported server (MySQL emits warnings, MariaDB doesn't).
      * NO_ZERO_DATE is deliberately omitted so '0000-00-00' inserts work; partial-zero dates
      * like '2024-00-15' still fail with error 1292 everywhere.
-     * See tools/db-behavior-report.md (2026-07).
+     * See docs/internal/db-behavior-matrix.md (2026-07).
      */
     private string $sqlMode = 'STRICT_ALL_TABLES,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION';
 

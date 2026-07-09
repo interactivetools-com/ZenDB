@@ -2,8 +2,8 @@
 declare(strict_types=1);
 
 /**
- * Shared helpers for the CI reporting tools: ci-timing-summary.php,
- * db-behavior-merge.php, and db-behavior-report.php load this with require and
+ * Shared helpers for the CI reporting scripts: ci-timing-summary.php,
+ * db-behavior-merge.php, and db-behavior-probe.php load this with require and
  * have no other dependencies.
  */
 

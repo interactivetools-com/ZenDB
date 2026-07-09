@@ -104,7 +104,7 @@ final class TableTest extends TestCase
         // the same VARCHAR(50) CHARSET utf8 column prints four ways across servers: the utf8mb3
         // rename, plus whether the charset's default collation is printed at all. All four must
         // normalize to one string. Column lines are real server output from
-        // tools/db-behavior-report.md (2026-07), 'SHOW CREATE: oldText'
+        // docs/internal/db-behavior-matrix.md (2026-07), 'SHOW CREATE: oldText'
         $serverVariants = [
             'mysql/percona 5.7, mariadb 10.2'   => "`oldText` varchar(50) CHARACTER SET utf8 NOT NULL DEFAULT ''",
             'mariadb 10.3-10.5'                 => "`oldText` varchar(50) CHARACTER SET utf8 COLLATE utf8_general_ci NOT NULL DEFAULT ''",
@@ -182,7 +182,7 @@ final class TableTest extends TestCase
     {
         // MySQL 8 drops these widths from its own output (year(4) → year, and tinyint(1) unsigned →
         // tinyint unsigned per MySQL bugs #100309/#105667); cropping makes MariaDB and 5.7 output
-        // read the same. Fixture strings come from tools/db-behavior-report.md probes.
+        // read the same. Fixture strings come from docs/internal/db-behavior-matrix.md probes.
         $definitions = self::parseDdl(<<<'SQL'
             CREATE TABLE `t` (
               `birthYear` year(4) NOT NULL,
@@ -366,7 +366,7 @@ final class TableTest extends TestCase
         // the same generated columns print three ways: MySQL/Percona wrap the expression in a
         // redundant outer paren pair, MariaDB doesn't, and display widths vary by era. All must
         // normalize to one string. Column lines are real server output from
-        // tools/db-behavior-report.md (2026-07), 'GENERATED: doubled/tripled INT'
+        // docs/internal/db-behavior-matrix.md (2026-07), 'GENERATED: doubled/tripled INT'
         $serverVariants = [
             'mysql/percona 5.7'  => ['`doubled` int(11) GENERATED ALWAYS AS ((`num` * 2)) VIRTUAL', '`tripled` int(11) GENERATED ALWAYS AS ((`num` * 3)) STORED'],
             'mysql/percona 8.0+' => ['`doubled` int GENERATED ALWAYS AS ((`num` * 2)) VIRTUAL',     '`tripled` int GENERATED ALWAYS AS ((`num` * 3)) STORED'],
@@ -401,7 +401,7 @@ final class TableTest extends TestCase
     #[Test]
     public function expressionDefaultsReadTheSameFromEveryServer(): void
     {
-        // the same DEFAULT (uuid()) column prints two ways (tools/db-behavior-report.md, 'SHOW
+        // the same DEFAULT (uuid()) column prints two ways (docs/internal/db-behavior-matrix.md, 'SHOW
         // CREATE: code VARCHAR(36) DEFAULT (uuid())'): MySQL 8.0+ prints the parens its DDL
         // grammar requires, MariaDB prints the call bare. Parenthesized is the one spelling
         // every server that supports expression defaults replays, so bare calls gain parens

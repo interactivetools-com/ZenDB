@@ -15,7 +15,7 @@ class ServerTest extends BaseTestCase
     public static function versionStringProvider(): array
     {
         return [
-            // server_info from every server in tools/db-behavior-report.md (2026-07-07 run)
+            // server_info from every server in docs/internal/db-behavior-matrix.md (2026-07-07 run)
             ['5.7.44',                                     '5.7.44'],   // mysql:5.7
             ['8.0.46',                                     '8.0.46'],   // mysql:8.0
             ['8.4.10',                                     '8.4.10'],   // mysql:8.4
@@ -77,7 +77,7 @@ class ServerTest extends BaseTestCase
     {
         return [
             // server_info, @@version_comment, @@basedir, @@datadir, expected name
-            // Docker values from tools/db-behavior-report.md; hosted values are representative, not CI-probed
+            // Docker values from docs/internal/db-behavior-matrix.md; hosted values are representative, not CI-probed
             ['8.0.46',                  'MySQL Community Server - GPL',                        '/usr/',                                             '/var/lib/mysql/', 'MySQL'],
             ['10.6.27-MariaDB-ubu2204', 'mariadb.org binary distribution',                     '/usr',                                              '/var/lib/mysql/', 'MariaDB'],
             ['8.0.46-37',               'Percona Server (GPL), Release 37, Revision 39e2b60e', '/usr/',                                             '/var/lib/mysql/', 'Percona'],

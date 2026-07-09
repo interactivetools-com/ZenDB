@@ -163,8 +163,10 @@ output.
 The docs deliberately omit these; the omission is a decision, not a gap
 (method-reference says "every supported method" for this reason):
 
-- **`Server`, `Table`/`TableInfo`** - internal, experimental, may change; class
-  headers say so.
+- **`Server`, `Table`/`TableInfo`** - internal, may change; class headers say so.
+- **`DB::assertIdentifier()`** - `@internal`; the safe-identifier check every table
+  and column name passes through, kept callable for identifiers placeholders can't
+  cover (like a user-picked sort column).
 - **`queryLogger`, `loadHandler` config keys** - internal/advanced hooks
   (loadHandler is CMS Builder plumbing); undocumented keeps the signatures
   changeable. The PII note (logged SQL contains inlined user values) lives in

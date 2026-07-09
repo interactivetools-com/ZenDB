@@ -8,14 +8,14 @@ declare(strict_types=1);
  * and the database wait are not included. ci-timing-summary.php merges these files
  * into the run-summary grid.
  *
- *     php tools/ci-timing.php junit.xml 8.1 mysql:5.7 timing-8.1-mysql-5.7.json
+ *     php .github/scripts/ci-timing.php junit.xml 8.1 mysql:5.7 timing-8.1-mysql-5.7.json
  *
  * A missing or unreadable junit.xml (job crashed before PHPUnit finished) still writes
  * a JSON file, with null seconds, so the summary grid shows the job as "no data".
  */
 
 if ($argc !== 5) {
-    fwrite(STDERR, "Usage: php tools/ci-timing.php <junit.xml> <php-version> <database> <output.json>\n");
+    fwrite(STDERR, "Usage: php .github/scripts/ci-timing.php <junit.xml> <php-version> <database> <output.json>\n");
     exit(1);
 }
 [, $junitPath, $phpVersion, $dbLabel, $outPath] = $argv;

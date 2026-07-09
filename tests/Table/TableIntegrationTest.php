@@ -128,7 +128,7 @@ class TableIntegrationTest extends BaseTestCase
     public function existsSeesViewsAndTemporaryTables(): void
     {
         // both exist to a live SELECT probe; information_schema would miss the temporary table
-        // everywhere except MariaDB 11.4+ (see tools/db-behavior-report.md, 2026-07)
+        // everywhere except MariaDB 11.4+ (see docs/internal/db-behavior-matrix.md, 2026-07)
         DB::$mysqli->query("CREATE VIEW `{$this->fullTable}_view` AS SELECT num FROM `$this->fullTable`");
         DB::$mysqli->query("CREATE TEMPORARY TABLE `{$this->fullTable}_temp` (num INT)");
 

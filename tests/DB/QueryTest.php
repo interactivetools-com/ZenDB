@@ -39,7 +39,7 @@ class QueryTest extends BaseTestCase
     {
         // the test fixtures are temporary tables, which SHOW TABLES hides on MySQL/Percona and
         // MariaDB thru 10.11 but lists on MariaDB 11.4+, so the result count is server-dependent
-        // and only the return type is asserted. See tools/db-behavior-report.md (2026-07)
+        // and only the return type is asserted. See docs/internal/db-behavior-matrix.md (2026-07)
         $result = DB::query("SHOW TABLES");
         $this->assertInstanceOf(\Itools\SmartArray\SmartArrayHtml::class, $result);
     }

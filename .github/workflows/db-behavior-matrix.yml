@@ -1,7 +1,7 @@
-name: DB Behavior Report
+name: DB Behavior Matrix
 
 # Manual-only: never runs on push. Dispatch from the Actions tab ("Run workflow") or
-# with: gh workflow run db-behavior-report.yml
+# with: gh workflow run db-behavior-matrix.yml
 on:
   workflow_dispatch:
     inputs:
@@ -102,14 +102,14 @@ jobs:
         run: |
           SLUG=$(echo "${{ matrix.database }}" | tr ':/' '--')
           echo "SLUG=$SLUG" >> "$GITHUB_ENV"
-          php tools/db-behavior-report.php --json="report-$SLUG.json" >> "$GITHUB_STEP_SUMMARY"
+          php .github/scripts/db-behavior-probe.php --json="probe-$SLUG.json" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload probe results
         if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: report-${{ env.SLUG }}
-          path: report-*.json
+          name: probe-${{ env.SLUG }}
+          path: probe-*.json
           if-no-files-found: ignore
 
   summary:
@@ -127,9 +127,9 @@ jobs:
       - name: Download probe results
         uses: actions/download-artifact@v7
         with:
-          pattern: report-*
+          pattern: probe-*
           merge-multiple: true
-          path: reports
+          path: probes
 
       - name: Build comparison
-        run: php tools/db-behavior-merge.php reports/*.json >> "$GITHUB_STEP_SUMMARY"
+        run: php .github/scripts/db-behavior-merge.php probes/*.json >> "$GITHUB_STEP_SUMMARY"
