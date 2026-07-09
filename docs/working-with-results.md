@@ -183,7 +183,7 @@ Each column value is a SmartString. The most used methods:
 | `->textOnly()`    | Remove HTML tags, decode entities, trim |
 | `->maxChars(100)` | Shorten to N characters with ellipsis   |
 | `->maxWords(20)`  | Shorten to N words with ellipsis        |
-| `->nl2br()`       | Newlines to `<br>`                      |
+| `->textToHtml()`  | HTML-encode, then newlines to `<br>`    |
 | `->trim()`        | Trim whitespace                         |
 
 **Formatting**
