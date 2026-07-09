@@ -102,8 +102,15 @@ class LifecycleTest extends BaseTestCase
 
     public function testConnectWithRequiredVersion(): void
     {
+        // connect once to learn what this server calls itself, so we can assert the
+        // failure message names the actual product (MariaDB, Percona) instead of "MySQL"
+        DB::connect(self::$configDefaults);
+        $vendorName = DB::$server->vendorName();
+        $version    = DB::$server->version();
+        DB::disconnect();
+
         $this->expectException(RuntimeException::class);
-        $this->expectExceptionMessage("requires MySQL v100.100.100 or newer");
+        $this->expectExceptionMessage("requires MySQL v100.100.100+ or compatible. This server has $vendorName v$version installed");
         $config = array_merge(self::$configDefaults, ['versionRequired' => '100.100.100']);
         DB::connect($config);
     }

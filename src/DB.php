@@ -75,7 +75,7 @@ class DB
      *     useSmartStrings?:       bool,        // Wrap values in SmartString objects (default: true)
      *     usePhpTimezone?:        bool,        // Sync MySQL timezone with PHP (default: true)
      *     loadHandler?: callable,    // Custom result loading handler
-     *     versionRequired?:       string,      // Minimum MySQL version (default: '5.7.32')
+     *     versionRequired?:       string,      // Minimum MySQL version or compatible (default: '5.7.32')
      *     requireSSL?:            bool,        // Require SSL connection (default: false)
      *     databaseAutoCreate?:    bool,        // Create database if missing (default: false)
      *     connectTimeout?:        int,         // Connection timeout in seconds (default: 3)

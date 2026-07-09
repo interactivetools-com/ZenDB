@@ -87,7 +87,7 @@ class Connection
      *     useSmartStrings?:      bool,      // Return SmartString values (default: true)
      *     usePhpTimezone?:       bool,      // Sync MySQL timezone with PHP (default: true)
      *     loadHandler?: callable, // Custom result loading handler
-     *     versionRequired?:      string,    // Minimum MySQL version (default: '5.7.32')
+     *     versionRequired?:      string,    // Minimum MySQL version or compatible (default: '5.7.32')
      *     requireSSL?:           bool,      // Require SSL connection (default: false)
      *     databaseAutoCreate?:   bool,      // Create database if missing (default: false)
      *     connectTimeout?:       int,       // Connection timeout in seconds (default: 3)
@@ -203,8 +203,8 @@ class Connection
         if ($this->versionRequired) {
             $currentVersion = $this->server->version();
             if (version_compare($this->versionRequired, $currentVersion, '>')) {
-                $error = "This program requires MySQL v$this->versionRequired or newer. This server has v$currentVersion installed.\n";
-                $error .= "Please ask your server administrator to install MySQL v$this->versionRequired or newer.\n";
+                $error = "This program requires MySQL v$this->versionRequired+ or compatible. This server has {$this->server->vendorName()} v$currentVersion installed.\n";
+                $error .= "Please ask your server administrator to upgrade.\n";
                 throw new RuntimeException($error);
             }
         }
