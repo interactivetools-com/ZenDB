@@ -831,6 +831,12 @@ trait ConnectionInternals
      * Starts with bare column names (first wins on duplicates). When SmartJoins is active, also adds
      * qualified names (e.g., 'users.name') and, for self-joins, alias names (e.g., 'a.name').
      *
+     * Aliased views split by vendor: MySQL/Percona report the view's real name in orgtable while
+     * MariaDB reports the alias, so a qualified key like 'viewname.col' only exists on MySQL and
+     * 'alias.col' only on MariaDB (outside self-joins). Only the bare column name is portable for
+     * aliased view columns; unaliased views agree everywhere. No code fix is possible - MariaDB's
+     * metadata never exposes the view name. See tools/db-behavior-report.md (2026-07).
+     *
      * @param array $fetchFields     Field objects from mysqli_result::fetch_fields()
      * @param array $aliasToTable    Map of table alias → orgtable, e.g. ['u' => 'users']
      * @param bool  $needsSmartJoins Whether to add qualified and self-join alias keys
@@ -1021,7 +1027,14 @@ trait ConnectionInternals
     private int    $connectTimeout     = 3;
     private int    $readTimeout        = 60;
     private mixed  $queryLogger        = null;   // e.g., fn(string $query, float $durationSecs, ?Throwable $error): void
-    private string $sqlMode            = 'STRICT_ALL_TABLES,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION';
+
+    /**
+     * Sets identically on every supported server (MySQL emits warnings, MariaDB doesn't).
+     * NO_ZERO_DATE is deliberately omitted so '0000-00-00' inserts work; partial-zero dates
+     * like '2024-00-15' still fail with error 1292 everywhere.
+     * See tools/db-behavior-report.md (2026-07).
+     */
+    private string $sqlMode = 'STRICT_ALL_TABLES,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION';
 
     //endregion
 }

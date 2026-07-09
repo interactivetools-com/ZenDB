@@ -127,15 +127,17 @@ class TableIntegrationTest extends BaseTestCase
     #[Test]
     public function existsSeesViewsAndTemporaryTables(): void
     {
-        // both exist to a live SELECT probe; an information_schema check would miss the temporary table
+        // both exist to a live SELECT probe; information_schema would miss the temporary table
+        // everywhere except MariaDB 11.4+ (see tools/db-behavior-report.md, 2026-07)
         DB::$mysqli->query("CREATE VIEW `{$this->fullTable}_view` AS SELECT num FROM `$this->fullTable`");
         DB::$mysqli->query("CREATE TEMPORARY TABLE `{$this->fullTable}_temp` (num INT)");
 
         $this->assertTrue(Table::exists($this->baseTable . '_view'), 'views count as existing');
         $this->assertTrue(Table::exists($this->baseTable . '_temp'), 'temporary tables count as existing');
 
-        // the view is swept by dropFixture(); the temporary table outlives it (information_schema
-        // can't list it), and this process's connection is shared, so drop it here
+        // the view is swept by dropFixture(); the temporary table needs an explicit drop here -
+        // dropFixture()'s information_schema sweep can't see it except on MariaDB 11.4+, and
+        // this process's connection is shared
         DB::$mysqli->query("DROP TEMPORARY TABLE `{$this->fullTable}_temp`");
     }
 

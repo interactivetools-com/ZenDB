@@ -296,7 +296,16 @@ class MysqliWrapper extends mysqli
     }
 
     /**
-     * Lazily SET the MySQL @ek session variable on first query that uses it.
+     * Lazily SET the MySQL @ek session variable on the first query that uses it.
+     *
+     * Sent as a prepared statement so the key travels as bound data, not query
+     * text: SHOW PROCESSLIST and performance_schema statement history only ever
+     * see "SET @ek = UNHEX(SHA2(?, 512))". The general query log is the known
+     * exception: its Execute lines inline bound values, so general_log=ON
+     * captures the key (along with every other query value on the server).
+     * Once set, the derived key is readable for the life of the connection by
+     * accounts with performance_schema access (user_variables_by_thread).
+     *
      * Uses parent::prepare() to bypass the logging wrapper and avoid recursion.
      */
     private function ensureEncryptionKey(string $sql): void

@@ -169,7 +169,9 @@ class GetTableNamesTest extends BaseTestCase
             // Views - excluded (BASE TABLE only)
             'view excluded'       => ['get_tables_view', false],
 
-            // Temp tables - excluded (not in INFORMATION_SCHEMA)
+            // Temp tables - excluded by the TABLE_TYPE='BASE TABLE' filter: MariaDB 11.4+ lists them
+            // in information_schema as TEMPORARY, every other supported server omits them entirely.
+            // See tools/db-behavior-report.md (2026-07)
             'temp table excluded' => ['get_tables_temp', false],
 
             // Wrong prefix - excluded

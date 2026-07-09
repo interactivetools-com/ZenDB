@@ -64,8 +64,10 @@ class TableInfo
      *
      * The check probes the table with a zero-row SELECT instead of reading information_schema,
      * so views and this connection's temporary tables count as existing (information_schema
-     * can't see temporary tables). Name matching is MySQL's own: case-insensitive on Windows
-     * and macOS servers, case-sensitive on most Linux servers (lower_case_table_names).
+     * hides temporary tables on every supported server except MariaDB 11.4+; the SELECT probe
+     * sees them everywhere). Name matching is MySQL's own: case-insensitive on Windows and
+     * macOS servers, case-sensitive on most Linux servers (lower_case_table_names).
+     * See tools/db-behavior-report.md (2026-07).
      *
      * For a name that already includes the prefix use existsFull().
      *
@@ -284,6 +286,11 @@ class TableInfo
      *     both servers accept either form in DDL, the quoting is spelling, not type
      *
      * COMMENT text is never modified: it is split off before normalizing and reattached after.
+     *
+     * Column CHECK clauses appear in different places in the same SHOW CREATE output: MariaDB
+     * keeps them inline on the column line, so they show up here (and MODIFY COLUMN drops a
+     * CHECK unless it's restated); MySQL/Percona 8.0+ hoist them into auto-named CONSTRAINT
+     * lines the parser skips, and 5.7 discards CHECK entirely.
      * See tools/db-behavior-report.md (2026-07).
      *
      * Known limit: a column COMMENT containing a newline breaks the line-based parse for that column.
