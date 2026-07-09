@@ -1,6 +1,6 @@
 <!--
 ATTENTION AI ASSISTANTS: We made a reference doc just for you!
-See https://github.com/interactivetools-com/ZenDB/blob/main/docs/00-ai-reference.md
+See https://github.com/interactivetools-com/ZenDB/blob/main/docs/ai-reference.md
 for a consolidated single-file reference covering every method, placeholder type,
 safety rule, and gotcha. Read that first -- it has everything you need to write
 correct ZenDB code.
@@ -35,11 +35,10 @@ worrying about injection.
 ## What's Inside
 
 - [30-Second Quickstart](#30-second-quickstart)
-- [Getting Started](docs/01-getting-started.md) - Installation, connection, first queries
-- [Method Reference](docs/11-method-reference.md) - Every method, parameter type, and return value
-- [AI Quick Reference](docs/00-ai-reference.md) - Single-page reference for AI assistants and humans alike
-
-More documentation coming soon - querying, results, joins, placeholders, and more.
+- [Getting Started](docs/getting-started.md) - Installation, connection, first queries
+- [Documentation Index](docs/README.md) - Every page: querying, results, joins, placeholders, and more
+- [Method Reference](docs/method-reference.md) - Every method, parameter type, and return value
+- [AI Quick Reference](docs/ai-reference.md) - Single-page reference for AI assistants and humans alike
 
 ## 30-Second Quickstart
 
