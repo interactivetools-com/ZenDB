@@ -37,11 +37,10 @@ class QueryTest extends BaseTestCase
 
     public function testQueryShowTables(): void
     {
-        // Note: TEMPORARY tables don't show in SHOW TABLES
-        // We need to either skip this test or create a permanent table
-        // For now, just verify the query works regardless of result count
+        // the test fixtures are temporary tables, which SHOW TABLES hides on MySQL/Percona and
+        // MariaDB thru 10.11 but lists on MariaDB 11.4+, so the result count is server-dependent
+        // and only the return type is asserted. See tools/db-behavior-report.md (2026-07)
         $result = DB::query("SHOW TABLES");
-        // Query should execute without error
         $this->assertInstanceOf(\Itools\SmartArray\SmartArrayHtml::class, $result);
     }
 
