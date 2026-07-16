@@ -124,6 +124,52 @@ jobs:
           path: timing-*.json
           if-no-files-found: ignore
 
+  # One job per extra platform at the PHP 8.1 floor, all on MySQL 8.0: OS/arch bugs
+  # (backslash paths, case-insensitive filenames, mysqli client builds) don't vary by
+  # PHP or database version, and the Linux x64 matrix above already covers both of
+  # those dimensions. Service containers are Linux-only, so actions-setup-mysql
+  # starts a native MySQL per OS. No Windows ARM job: php.net ships no ARM64
+  # Windows builds.
+  platform:
+    name: PHP 8.1 on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-24.04-arm, macos-latest, macos-15-intel]
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup PHP 8.1
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.1'
+          extensions: mysqli, openssl, mbstring
+          coverage: none
+
+      - name: Start MySQL 8.0
+        uses: shogo82148/actions-setup-mysql@v1
+        with:
+          mysql-version: '8.0'
+
+      - name: Install dependencies
+        run: composer install --no-interaction --prefer-dist
+
+      - name: Run tests
+        run: vendor/bin/phpunit --colors=always
+        env:
+          DB_HOSTNAME: 127.0.0.1
+          DB_USERNAME: root
+          DB_PASSWORD: ''
+          DB_DATABASE: phpunit_test_db
+
   summary:
     name: Timing summary
     runs-on: ubuntu-latest
