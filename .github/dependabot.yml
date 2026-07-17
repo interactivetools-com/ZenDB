@@ -1,0 +1,7 @@
+version: 2
+updates:
+  # Opens a PR when a pinned action has a new release (updates the SHA + version comment)
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
