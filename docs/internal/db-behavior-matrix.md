@@ -6,7 +6,7 @@ How every supported database server answers the same behavior probes, showing on
     gh run download --dir probes             # pick the latest DB Behavior Matrix run
     php .github/scripts/db-behavior-merge.php probes/*/probe-*.json > docs/internal/db-behavior-matrix.md
 
-Last generated: 2026-07-09 from 19 servers: mysql:5.7, mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, mariadb:10.2, mariadb:10.2.6, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8, mariadb:12.3, percona/percona-server:5.7, percona/percona-server:8.0, percona/percona-server:8.4
+Last generated: 2026-07-17 from 22 servers: mysql:5.7, mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, mariadb:10.2, mariadb:10.2.6, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3, percona/percona-server:5.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
 
 Generated file - don't hand-edit. The "Key differences" summary below is maintained in the heredoc in .github/scripts/db-behavior-merge.php; edit it there.
 
@@ -27,6 +27,9 @@ Stock Docker images with default configs answered these probes. Install-dependen
 - AES_ENCRYPT produces identical ciphertext on every server and matches PHP openssl aes-128-ecb, so encrypted data is fully portable
 - Result metadata through an aliased view: MySQL/Percona report the view's name in orgtable, MariaDB reports the query alias; neither reports the underlying base table
 - MEDIUMTEXT metadata charset varies by era (45 / 255 / 224) but is never binary (63), so MEDIUMBLOB encryption detection is safe everywhere
+- Consistent-snapshot backups: the SET TRANSACTION ISOLATION LEVEL REPEATABLE READ + START TRANSACTION WITH CONSISTENT SNAPSHOT pair holds a point-in-time snapshot on every server, survives statements between the SET and the START, needs no privileges, and reverts after COMMIT. A bare START at READ-COMMITTED never holds one: MySQL/Percona and MariaDB thru 10.5 warn (code 138), MariaDB 10.6+ says nothing, and with the RocksDB plugin loaded (no RocksDB table needed) MariaDB rejects it with error 4062 while Percona MyRocks only warns
+- SET TRANSACTION (next-transaction scope) throws error 1568 whenever a transaction is open, including autocommit=0 after any table read (autocommit=0 alone is fine); the SET SESSION form is accepted mid-transaction on every server
+- The isolation variable splits by vendor: @@transaction_isolation is missing on MariaDB thru 10.11 (added 11.1), @@tx_isolation is missing on MySQL/Percona 8.0+, and neither ever reports the pending one-shot level, so "did the snapshot take" is only observable behaviorally
 
 ## Probe results
 
@@ -46,19 +49,19 @@ Stock Docker images with default configs answered these probes. Install-dependen
 - `10.6.27-MariaDB-ubu2204` → mariadb:10.6
 - `10.11.18-MariaDB-ubu2204` → mariadb:10.11
 - `11.4.12-MariaDB-ubu2404` → mariadb:11.4
-- `11.8.8-MariaDB-ubu2404` → mariadb:11.8
-- `12.3.2-MariaDB-ubu2404` → mariadb:12.3
+- `11.8.8-MariaDB-ubu2404` → mariadb:11.8+rocksdb, mariadb:11.8
+- `12.3.2-MariaDB-ubu2404` → mariadb:12.3+rocksdb, mariadb:12.3
 - `5.7.44-48` → percona/percona-server:5.7
-- `8.0.46-37` → percona/percona-server:8.0
+- `8.0.46-37` → percona/percona-server:8.0+rocksdb, percona/percona-server:8.0
 - `8.4.10-10` → percona/percona-server:8.4
 
 ### @@version_comment
 
 - `MySQL Community Server (GPL)` → mysql:5.7
 - `MySQL Community Server - GPL` → mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7
-- `mariadb.org binary distribution` → all MariaDB
+- `mariadb.org binary distribution` → mariadb:10.2, mariadb:10.2.6, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3
 - `Percona Server (GPL), Release 48, Revision 497f936a373` → percona/percona-server:5.7
-- `Percona Server (GPL), Release 37, Revision 39e2b60e` → percona/percona-server:8.0
+- `Percona Server (GPL), Release 37, Revision 39e2b60e` → percona/percona-server:8.0+rocksdb, percona/percona-server:8.0
 - `Percona Server (GPL), Release 10, Revision d76e81f4` → percona/percona-server:8.4
 
 ### mysqli server_info
@@ -77,16 +80,16 @@ Stock Docker images with default configs answered these probes. Install-dependen
 - `10.6.27-MariaDB-ubu2204` → mariadb:10.6
 - `10.11.18-MariaDB-ubu2204` → mariadb:10.11
 - `11.4.12-MariaDB-ubu2404` → mariadb:11.4
-- `11.8.8-MariaDB-ubu2404` → mariadb:11.8
-- `12.3.2-MariaDB-ubu2404` → mariadb:12.3
+- `11.8.8-MariaDB-ubu2404` → mariadb:11.8+rocksdb, mariadb:11.8
+- `12.3.2-MariaDB-ubu2404` → mariadb:12.3+rocksdb, mariadb:12.3
 - `5.7.44-48` → percona/percona-server:5.7
-- `8.0.46-37` → percona/percona-server:8.0
+- `8.0.46-37` → percona/percona-server:8.0+rocksdb, percona/percona-server:8.0
 - `8.4.10-10` → percona/percona-server:8.4
 
 ### mysqli server_version
 
 - `50744` → MySQL/Percona 5.7
-- `80046` → mysql:8.0, percona/percona-server:8.0
+- `80046` → mysql:8.0, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0
 - `80410` → mysql:8.4, percona/percona-server:8.4
 - `90600` → mysql:9.6
 - `90701` → mysql:9.7
@@ -99,13 +102,13 @@ Stock Docker images with default configs answered these probes. Install-dependen
 - `100627` → mariadb:10.6
 - `101118` → mariadb:10.11
 - `110412` → mariadb:11.4
-- `110808` → mariadb:11.8
-- `120302` → mariadb:12.3
+- `110808` → mariadb:11.8+rocksdb, mariadb:11.8
+- `120302` → mariadb:12.3+rocksdb, mariadb:12.3
 
 ### server_info after Server::version() parse
 
 - `5.7.44` → MySQL/Percona 5.7
-- `8.0.46` → mysql:8.0, percona/percona-server:8.0
+- `8.0.46` → mysql:8.0, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0
 - `8.4.10` → mysql:8.4, percona/percona-server:8.4
 - `9.6.0` → mysql:9.6
 - `9.7.1` → mysql:9.7
@@ -118,13 +121,13 @@ Stock Docker images with default configs answered these probes. Install-dependen
 - `10.6.27` → mariadb:10.6
 - `10.11.18` → mariadb:10.11
 - `11.4.12` → mariadb:11.4
-- `11.8.8` → mariadb:11.8
-- `12.3.2` → mariadb:12.3
+- `11.8.8` → mariadb:11.8+rocksdb, mariadb:11.8
+- `12.3.2` → mariadb:12.3+rocksdb, mariadb:12.3
 
 ### @@basedir
 
-- `/usr/` → all MySQL/Percona
-- `/usr` → all MariaDB
+- `/usr/` → mysql:5.7, mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, percona/percona-server:5.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
+- `/usr` → mariadb:10.2, mariadb:10.2.6, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3
 
 ### @@datadir
 
@@ -133,8 +136,8 @@ Stock Docker images with default configs answered these probes. Install-dependen
 ### @@GLOBAL.sql_mode
 
 - `ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION` → MySQL/Percona 5.7
-- `ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION` → MySQL/Percona 8.0+
-- `STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION` → all MariaDB
+- `ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION` → mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
+- `STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION` → mariadb:10.2, mariadb:10.2.6, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3
 
 ### utf8mb4_unicode_ci collation
 
@@ -142,24 +145,24 @@ Stock Docker images with default configs answered these probes. Install-dependen
 
 ### @@have_ssl
 
-- `YES` → MySQL/Percona thru 8.0 and MariaDB 11.4+
+- `YES` → mysql:5.7, mysql:8.0, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3, percona/percona-server:5.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0
 - `error: Unknown system variable 'have_ssl'` → MySQL/Percona 8.4+
 - `DISABLED` → MariaDB thru 10.11
 
 ### @@have_openssl
 
-- `YES` → MySQL/Percona thru 8.0 and all MariaDB
+- `YES` → mysql:5.7, mysql:8.0, mariadb:10.2, mariadb:10.2.6, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3, percona/percona-server:5.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0
 - `error: Unknown system variable 'have_openssl'` → MySQL/Percona 8.4+
 
 ### @@tls_version
 
 - `TLSv1,TLSv1.1,TLSv1.2` → MySQL/Percona 5.7
-- `TLSv1.2,TLSv1.3` → MySQL/Percona 8.0+ and MariaDB 10.4+
+- `TLSv1.2,TLSv1.3` → mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
 - `error: Unknown system variable 'tls_version'` → MariaDB thru 10.3
 
 ### @@require_secure_transport
 
-- `0` → all MySQL/Percona and MariaDB 10.5+
+- `0` → mysql:5.7, mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3, percona/percona-server:5.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
 - `error: Unknown system variable 'require_secure_transport'` → MariaDB thru 10.4
 
 ### session status Ssl_cipher
@@ -172,35 +175,35 @@ Stock Docker images with default configs answered these probes. Install-dependen
 
 ### SHOW CREATE: num
 
-- `int(11) NOT NULL AUTO_INCREMENT` → MySQL/Percona 5.7 and all MariaDB
-- `int NOT NULL AUTO_INCREMENT` → MySQL/Percona 8.0+
+- `int(11) NOT NULL AUTO_INCREMENT` → mysql:5.7, mariadb:10.2, mariadb:10.2.6, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3, percona/percona-server:5.7
+- `int NOT NULL AUTO_INCREMENT` → mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
 
 ### SHOW CREATE: isAdmin
 
-- `tinyint(1) NOT NULL DEFAULT '0'` → all MySQL/Percona
-- `tinyint(1) NOT NULL DEFAULT 0` → all MariaDB
+- `tinyint(1) NOT NULL DEFAULT '0'` → mysql:5.7, mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, percona/percona-server:5.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
+- `tinyint(1) NOT NULL DEFAULT 0` → mariadb:10.2, mariadb:10.2.6, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3
 
 ### SHOW CREATE: flags
 
 - `tinyint(1) unsigned NOT NULL DEFAULT '0'` → MySQL/Percona 5.7
-- `tinyint unsigned NOT NULL DEFAULT '0'` → MySQL/Percona 8.0+
-- `tinyint(1) unsigned NOT NULL DEFAULT 0` → all MariaDB
+- `tinyint unsigned NOT NULL DEFAULT '0'` → mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
+- `tinyint(1) unsigned NOT NULL DEFAULT 0` → mariadb:10.2, mariadb:10.2.6, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3
 
 ### SHOW CREATE: counter
 
 - `int(11) NOT NULL DEFAULT '0'` → MySQL/Percona 5.7
-- `int NOT NULL DEFAULT '0'` → MySQL/Percona 8.0+
-- `int(11) NOT NULL DEFAULT 0` → all MariaDB
+- `int NOT NULL DEFAULT '0'` → mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
+- `int(11) NOT NULL DEFAULT 0` → mariadb:10.2, mariadb:10.2.6, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3
 
 ### SHOW CREATE: price
 
-- `decimal(10,2) NOT NULL DEFAULT '1.50'` → all MySQL/Percona
-- `decimal(10,2) NOT NULL DEFAULT 1.50` → all MariaDB
+- `decimal(10,2) NOT NULL DEFAULT '1.50'` → mysql:5.7, mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, percona/percona-server:5.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
+- `decimal(10,2) NOT NULL DEFAULT 1.50` → mariadb:10.2, mariadb:10.2.6, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3
 
 ### SHOW CREATE: birthYear
 
-- `year(4) NOT NULL` → MySQL/Percona 5.7 and all MariaDB
-- `year NOT NULL` → MySQL/Percona 8.0+
+- `year(4) NOT NULL` → mysql:5.7, mariadb:10.2, mariadb:10.2.6, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3, percona/percona-server:5.7
+- `year NOT NULL` → mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
 
 ### SHOW CREATE: title
 
@@ -209,17 +212,17 @@ Stock Docker images with default configs answered these probes. Install-dependen
 ### SHOW CREATE: legacyText
 
 - `varchar(100) CHARACTER SET latin1 NOT NULL DEFAULT ''` → MySQL/Percona 5.7 and MariaDB thru 10.2.7
-- `varchar(100) CHARACTER SET latin1 COLLATE latin1_swedish_ci NOT NULL DEFAULT ''` → MySQL/Percona 8.0+ and MariaDB 10.3+
+- `varchar(100) CHARACTER SET latin1 COLLATE latin1_swedish_ci NOT NULL DEFAULT ''` → mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
 
 ### SHOW CREATE: createdDate
 
-- `timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP` → all MySQL/Percona
-- `timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()` → all MariaDB
+- `timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP` → mysql:5.7, mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, percona/percona-server:5.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
+- `timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()` → mariadb:10.2, mariadb:10.2.6, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3
 
 ### SHOW CREATE: createdMs
 
-- `datetime(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)` → all MySQL/Percona
-- `datetime(3) NOT NULL DEFAULT current_timestamp(3) ON UPDATE current_timestamp(3)` → all MariaDB
+- `datetime(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)` → mysql:5.7, mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, percona/percona-server:5.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
+- `datetime(3) NOT NULL DEFAULT current_timestamp(3) ON UPDATE current_timestamp(3)` → mariadb:10.2, mariadb:10.2.6, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3
 
 ### SHOW CREATE: updatedDate
 
@@ -228,13 +231,13 @@ Stock Docker images with default configs answered these probes. Install-dependen
 ### SHOW CREATE: negDefault
 
 - `int(11) NOT NULL DEFAULT '-1'` → MySQL/Percona 5.7
-- `int NOT NULL DEFAULT '-1'` → MySQL/Percona 8.0+
-- `int(11) NOT NULL DEFAULT -1` → all MariaDB
+- `int NOT NULL DEFAULT '-1'` → mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
+- `int(11) NOT NULL DEFAULT -1` → mariadb:10.2, mariadb:10.2.6, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3
 
 ### SHOW CREATE: ratio
 
-- `double NOT NULL DEFAULT '0.00001'` → all MySQL/Percona
-- `double NOT NULL DEFAULT 0.00001` → all MariaDB
+- `double NOT NULL DEFAULT '0.00001'` → mysql:5.7, mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, percona/percona-server:5.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
+- `double NOT NULL DEFAULT 0.00001` → mariadb:10.2, mariadb:10.2.6, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3
 
 ### SHOW CREATE: dtLiteral
 
@@ -255,27 +258,27 @@ Stock Docker images with default configs answered these probes. Install-dependen
 ### SHOW CREATE: table options
 
 - `) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4` → MySQL/Percona 5.7 and MariaDB thru 10.2.7
-- `) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci` → MySQL/Percona 8.0+
+- `) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci` → mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
 - `) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci` → mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11
-- `) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci` → MariaDB 11.4+
+- `) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci` → mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3
 
 ### SHOW CREATE: oldText VARCHAR(50) CHARSET utf8
 
 - `varchar(50) CHARACTER SET utf8 NOT NULL DEFAULT ''` → MySQL/Percona 5.7 and MariaDB thru 10.2.7
-- `varchar(50) CHARACTER SET utf8mb3 COLLATE utf8mb3_general_ci NOT NULL DEFAULT ''` → mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, mariadb:10.6, mariadb:10.11, mariadb:11.4, percona/percona-server:8.0, percona/percona-server:8.4
+- `varchar(50) CHARACTER SET utf8mb3 COLLATE utf8mb3_general_ci NOT NULL DEFAULT ''` → mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, mariadb:10.6, mariadb:10.11, mariadb:11.4, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
 - `varchar(50) CHARACTER SET utf8 COLLATE utf8_general_ci NOT NULL DEFAULT ''` → mariadb:10.3, mariadb:10.4, mariadb:10.5
-- `varchar(50) CHARACTER SET utf8mb3 COLLATE utf8mb3_uca1400_ai_ci NOT NULL DEFAULT ''` → MariaDB 11.8+
+- `varchar(50) CHARACTER SET utf8mb3 COLLATE utf8mb3_uca1400_ai_ci NOT NULL DEFAULT ''` → mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3
 
 ### SHOW CREATE: code VARCHAR(36) DEFAULT (uuid())
 
 - `CREATE TABLE rejected: You have an error in your SQL syntax; check the manual that corresponds to your MySQL server version for the right syntax to use near '(uuid()))' at line 1` → MySQL/Percona 5.7
-- `varchar(36) NOT NULL DEFAULT (uuid())` → MySQL/Percona 8.0+
-- `varchar(36) NOT NULL DEFAULT uuid()` → all MariaDB
+- `varchar(36) NOT NULL DEFAULT (uuid())` → mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
+- `varchar(36) NOT NULL DEFAULT uuid()` → mariadb:10.2, mariadb:10.2.6, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3
 
 ### SHOW CREATE: padded INT(6) ZEROFILL
 
-- `int(6) unsigned zerofill NOT NULL DEFAULT '000000'` → all MySQL/Percona
-- `int(6) unsigned zerofill NOT NULL DEFAULT 000000` → all MariaDB
+- `int(6) unsigned zerofill NOT NULL DEFAULT '000000'` → mysql:5.7, mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, percona/percona-server:5.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
+- `int(6) unsigned zerofill NOT NULL DEFAULT 000000` → mariadb:10.2, mariadb:10.2.6, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3
 
 ### ZEROFILL: SELECT 42 via text protocol
 
@@ -292,14 +295,14 @@ Stock Docker images with default configs answered these probes. Install-dependen
 ### GENERATED: doubled INT AS (num * 2) VIRTUAL
 
 - `` int(11) GENERATED ALWAYS AS ((`num` * 2)) VIRTUAL `` → MySQL/Percona 5.7
-- `` int GENERATED ALWAYS AS ((`num` * 2)) VIRTUAL `` → MySQL/Percona 8.0+
-- `` int(11) GENERATED ALWAYS AS (`num` * 2) VIRTUAL `` → all MariaDB
+- `` int GENERATED ALWAYS AS ((`num` * 2)) VIRTUAL `` → mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
+- `` int(11) GENERATED ALWAYS AS (`num` * 2) VIRTUAL `` → mariadb:10.2, mariadb:10.2.6, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3
 
 ### GENERATED: tripled INT AS (num * 3) STORED
 
 - `` int(11) GENERATED ALWAYS AS ((`num` * 3)) STORED `` → MySQL/Percona 5.7
-- `` int GENERATED ALWAYS AS ((`num` * 3)) STORED `` → MySQL/Percona 8.0+
-- `` int(11) GENERATED ALWAYS AS (`num` * 3) STORED `` → all MariaDB
+- `` int GENERATED ALWAYS AS ((`num` * 3)) STORED `` → mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
+- `` int(11) GENERATED ALWAYS AS (`num` * 3) STORED `` → mariadb:10.2, mariadb:10.2.6, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3
 
 ### GENERATED: SELECT with num = 21
 
@@ -308,97 +311,97 @@ Stock Docker images with default configs answered these probes. Install-dependen
 ### CHECK: SHOW CREATE clauses
 
 - `none (CHECK dropped)` → MySQL/Percona 5.7
-- `` CONSTRAINT `zdb_age_max` CHECK ((`age` <= 150)); CONSTRAINT `zdb_probe_special_chk_1` CHECK ((`age` >= 0)) `` → MySQL/Percona 8.0+
-- `` `age` int(11) NOT NULL CHECK (`age` >= 0); CONSTRAINT `zdb_age_max` CHECK (`age` <= 150) `` → all MariaDB
+- `` CONSTRAINT `zdb_age_max` CHECK ((`age` <= 150)); CONSTRAINT `zdb_probe_special_chk_1` CHECK ((`age` >= 0)) `` → mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
+- `` `age` int(11) NOT NULL CHECK (`age` >= 0); CONSTRAINT `zdb_age_max` CHECK (`age` <= 150) `` → mariadb:10.2, mariadb:10.2.6, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3
 
 ### CHECK: INSERT -5 (violates column CHECK)
 
 - `accepted (not enforced)` → MySQL/Percona 5.7
-- `rejected (enforced, error 3819)` → MySQL/Percona 8.0+
-- `rejected (enforced, error 4025)` → all MariaDB
+- `rejected (enforced, error 3819)` → mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
+- `rejected (enforced, error 4025)` → mariadb:10.2, mariadb:10.2.6, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3
 
 ### CHECK: INSERT 200 (violates named constraint)
 
 - `accepted (not enforced)` → MySQL/Percona 5.7
-- `rejected (enforced, error 3819)` → MySQL/Percona 8.0+
-- `rejected (enforced, error 4025)` → all MariaDB
+- `rejected (enforced, error 3819)` → mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
+- `rejected (enforced, error 4025)` → mariadb:10.2, mariadb:10.2.6, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3
 
 ### CHECK add: CREATE with unnamed table CHECK (auto-name)
 
 - `accepted → no CHECK clauses` → MySQL/Percona 5.7
-- `` accepted → CONSTRAINT `zdb_probe_check_chk_1` CHECK ((`age` >= 0)) `` → MySQL/Percona 8.0+
-- `` accepted → CONSTRAINT `CONSTRAINT_1` CHECK (`age` >= 0) `` → all MariaDB
+- `` accepted → CONSTRAINT `zdb_probe_check_chk_1` CHECK ((`age` >= 0)) `` → mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
+- `` accepted → CONSTRAINT `CONSTRAINT_1` CHECK (`age` >= 0) `` → mariadb:10.2, mariadb:10.2.6, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3
 
 ### CHECK add: CREATE with named column CHECK
 
 - `rejected (error 1064): You have an error in your SQL syntax; check the manual that corresponds to your MySQL server version for the right syntax to use near 'CONSTRAINT zdb_age_min CHECK (age >= 0))' at line 1` → MySQL/Percona 5.7
-- `` accepted → CONSTRAINT `zdb_age_min` CHECK ((`age` >= 0)) `` → MySQL/Percona 8.0+
+- `` accepted → CONSTRAINT `zdb_age_min` CHECK ((`age` >= 0)) `` → mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
 - `rejected (error 1064): You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near 'CONSTRAINT zdb_age_min CHECK (age >= 0))' at line 1` → MariaDB thru 10.4
-- `rejected (error 1064): You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near 'CHECK (age >= 0))' at line 1` → MariaDB 10.5+
+- `rejected (error 1064): You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near 'CHECK (age >= 0))' at line 1` → mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3
 
 ### CHECK add: ALTER ADD CONSTRAINT named
 
 - `accepted → no CHECK clauses` → MySQL/Percona 5.7
-- `` accepted → CONSTRAINT `zdb_age_max` CHECK ((`age` <= 150)) `` → MySQL/Percona 8.0+
-- `` accepted → CONSTRAINT `zdb_age_max` CHECK (`age` <= 150) `` → all MariaDB
+- `` accepted → CONSTRAINT `zdb_age_max` CHECK ((`age` <= 150)) `` → mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
+- `` accepted → CONSTRAINT `zdb_age_max` CHECK (`age` <= 150) `` → mariadb:10.2, mariadb:10.2.6, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3
 
 ### CHECK add: ALTER ADD CHECK unnamed
 
 - `accepted → no CHECK clauses` → MySQL/Percona 5.7
-- `` accepted → CONSTRAINT `zdb_probe_check_chk_1` CHECK ((`age` >= 0)) `` → MySQL/Percona 8.0+
-- `` accepted → CONSTRAINT `CONSTRAINT_1` CHECK (`age` >= 0) `` → all MariaDB
+- `` accepted → CONSTRAINT `zdb_probe_check_chk_1` CHECK ((`age` >= 0)) `` → mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
+- `` accepted → CONSTRAINT `CONSTRAINT_1` CHECK (`age` >= 0) `` → mariadb:10.2, mariadb:10.2.6, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3
 
 ### CHECK add: MODIFY COLUMN with inline CHECK
 
 - `rejected (error 1064): You have an error in your SQL syntax; check the manual that corresponds to your MySQL server version for the right syntax to use near 'CHECK (age >= 0)' at line 1` → MySQL/Percona 5.7
-- `` accepted → CONSTRAINT `zdb_probe_check_chk_1` CHECK ((`age` >= 0)) `` → MySQL/Percona 8.0+
-- `` accepted → `age` int(11) NOT NULL CHECK (`age` >= 0) `` → all MariaDB
+- `` accepted → CONSTRAINT `zdb_probe_check_chk_1` CHECK ((`age` >= 0)) `` → mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
+- `` accepted → `age` int(11) NOT NULL CHECK (`age` >= 0) `` → mariadb:10.2, mariadb:10.2.6, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3
 
 ### CHECK add: second MODIFY with a different inline CHECK
 
 - `rejected (error 1064): You have an error in your SQL syntax; check the manual that corresponds to your MySQL server version for the right syntax to use near 'CHECK (age >= 1)' at line 1` → MySQL/Percona 5.7
-- `` accepted → CONSTRAINT `zdb_probe_check_chk_1` CHECK ((`age` >= 0)); CONSTRAINT `zdb_probe_check_chk_2` CHECK ((`age` >= 1)) `` → MySQL/Percona 8.0+
-- `` accepted → `age` int(11) NOT NULL CHECK (`age` >= 1) `` → all MariaDB
+- `` accepted → CONSTRAINT `zdb_probe_check_chk_1` CHECK ((`age` >= 0)); CONSTRAINT `zdb_probe_check_chk_2` CHECK ((`age` >= 1)) `` → mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
+- `` accepted → `age` int(11) NOT NULL CHECK (`age` >= 1) `` → mariadb:10.2, mariadb:10.2.6, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3
 
 ### CHECK modify: MODIFY COLUMN without restating its column CHECK
 
-- `accepted → no CHECK clauses` → MySQL/Percona 5.7 and all MariaDB
-- `` accepted → CONSTRAINT `zdb_probe_check_chk_1` CHECK ((`age` >= 0)) `` → MySQL/Percona 8.0+
+- `accepted → no CHECK clauses` → mysql:5.7, mariadb:10.2, mariadb:10.2.6, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3, percona/percona-server:5.7
+- `` accepted → CONSTRAINT `zdb_probe_check_chk_1` CHECK ((`age` >= 0)) `` → mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
 
 ### CHECK modify: MODIFY COLUMN with a table CHECK present
 
 - `accepted → no CHECK clauses` → MySQL/Percona 5.7
-- `` accepted → CONSTRAINT `zdb_age_max` CHECK ((`age` <= 150)) `` → MySQL/Percona 8.0+
-- `` accepted → CONSTRAINT `zdb_age_max` CHECK (`age` <= 150) `` → all MariaDB
+- `` accepted → CONSTRAINT `zdb_age_max` CHECK ((`age` <= 150)) `` → mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
+- `` accepted → CONSTRAINT `zdb_age_max` CHECK (`age` <= 150) `` → mariadb:10.2, mariadb:10.2.6, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3
 
 ### CHECK alter: ALTER CHECK name NOT ENFORCED
 
 - `rejected (error 1064): You have an error in your SQL syntax; check the manual that corresponds to your MySQL server version for the right syntax to use near 'CHECK zdb_age_max NOT ENFORCED' at line 1` → MySQL/Percona 5.7
-- `` accepted → CONSTRAINT `zdb_age_max` CHECK ((`age` <= 150)) /*!80016 NOT ENFORCED */ `` → MySQL/Percona 8.0+
-- `rejected (error 1064): You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near 'CHECK zdb_age_max NOT ENFORCED' at line 1` → all MariaDB
+- `` accepted → CONSTRAINT `zdb_age_max` CHECK ((`age` <= 150)) /*!80016 NOT ENFORCED */ `` → mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
+- `rejected (error 1064): You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near 'CHECK zdb_age_max NOT ENFORCED' at line 1` → mariadb:10.2, mariadb:10.2.6, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3
 
 ### CHECK alter: ALTER CONSTRAINT name NOT ENFORCED
 
 - `rejected (error 1064): You have an error in your SQL syntax; check the manual that corresponds to your MySQL server version for the right syntax to use near 'CONSTRAINT zdb_age_max NOT ENFORCED' at line 1` → MySQL/Percona 5.7
-- `` accepted → CONSTRAINT `zdb_age_max` CHECK ((`age` <= 150)) /*!80016 NOT ENFORCED */ `` → MySQL/Percona 8.0+
-- `rejected (error 1064): You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near 'CONSTRAINT zdb_age_max NOT ENFORCED' at line 1` → all MariaDB
+- `` accepted → CONSTRAINT `zdb_age_max` CHECK ((`age` <= 150)) /*!80016 NOT ENFORCED */ `` → mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
+- `rejected (error 1064): You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near 'CONSTRAINT zdb_age_max NOT ENFORCED' at line 1` → mariadb:10.2, mariadb:10.2.6, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3
 
 ### CHECK drop: DROP CONSTRAINT name
 
 - `rejected (error 1064): You have an error in your SQL syntax; check the manual that corresponds to your MySQL server version for the right syntax to use near 'CONSTRAINT zdb_age_max' at line 1` → MySQL/Percona 5.7
-- `accepted → no CHECK clauses` → MySQL/Percona 8.0+ and all MariaDB
+- `accepted → no CHECK clauses` → mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, mariadb:10.2, mariadb:10.2.6, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
 
 ### CHECK drop: DROP CHECK name
 
 - `rejected (error 1064): You have an error in your SQL syntax; check the manual that corresponds to your MySQL server version for the right syntax to use near 'CHECK zdb_age_max' at line 1` → MySQL/Percona 5.7
-- `accepted → no CHECK clauses` → MySQL/Percona 8.0+
-- `rejected (error 1064): You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near 'CHECK zdb_age_max' at line 1` → all MariaDB
+- `accepted → no CHECK clauses` → mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
+- `rejected (error 1064): You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near 'CHECK zdb_age_max' at line 1` → mariadb:10.2, mariadb:10.2.6, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3
 
 ### CHECK drop: column CHECK by its auto-name
 
 - `I_S lookup failed (error 1109): Unknown table 'CHECK_CONSTRAINTS' in information_schema` → mysql:5.7, mariadb:10.2.6, mariadb:10.2.7, percona/percona-server:5.7
-- `I_S names it 'zdb_probe_check_chk_1'; DROP CONSTRAINT: accepted → no CHECK clauses` → MySQL/Percona 8.0+
-- `` I_S names it 'age'; DROP CONSTRAINT: rejected (error 1091): Can't DROP CONSTRAINT `age`; check that it exists `` → mariadb:10.2, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8, mariadb:12.3
+- `I_S names it 'zdb_probe_check_chk_1'; DROP CONSTRAINT: accepted → no CHECK clauses` → mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
+- `` I_S names it 'age'; DROP CONSTRAINT: rejected (error 1091): Can't DROP CONSTRAINT `age`; check that it exists `` → mariadb:10.2, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3
 
 ### CHECK column: DROP COLUMN with its own column CHECK
 
@@ -406,37 +409,37 @@ Stock Docker images with default configs answered these probes. Install-dependen
 
 ### CHECK column: DROP COLUMN referenced by a table CHECK
 
-- `accepted → no CHECK clauses` → mysql:5.7, mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, mariadb:10.2, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8, mariadb:12.3, percona/percona-server:5.7, percona/percona-server:8.0, percona/percona-server:8.4
+- `accepted → no CHECK clauses` → mysql:5.7, mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, mariadb:10.2, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3, percona/percona-server:5.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
 - `rejected (error 1054): Unknown column 'age' in 'CHECK'` → mariadb:10.2.6, mariadb:10.2.7
 
 ### CHECK column: CHANGE rename with column CHECK restated under the new name
 
 - `rejected (error 1064): You have an error in your SQL syntax; check the manual that corresponds to your MySQL server version for the right syntax to use near 'CHECK (age2 >= 0)' at line 1` → MySQL/Percona 5.7
-- `rejected (error 3959): Check constraint 'zdb_probe_check_chk_1' uses column 'age', hence column cannot be dropped or renamed.` → MySQL/Percona 8.0+
-- `` accepted → `age2` int(11) NOT NULL CHECK (`age2` >= 0) `` → all MariaDB
+- `rejected (error 3959): Check constraint 'zdb_probe_check_chk_1' uses column 'age', hence column cannot be dropped or renamed.` → mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
+- `` accepted → `age2` int(11) NOT NULL CHECK (`age2` >= 0) `` → mariadb:10.2, mariadb:10.2.6, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3
 
 ### CHECK column: CHANGE rename of a column referenced by a table CHECK
 
 - `accepted → no CHECK clauses` → MySQL/Percona 5.7
-- `rejected (error 3959): Check constraint 'zdb_age_max' uses column 'age', hence column cannot be dropped or renamed.` → MySQL/Percona 8.0+
-- `` accepted → CONSTRAINT `zdb_age_max` CHECK (`age2` <= 150) `` → mariadb:10.2, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8, mariadb:12.3
+- `rejected (error 3959): Check constraint 'zdb_age_max' uses column 'age', hence column cannot be dropped or renamed.` → mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
+- `` accepted → CONSTRAINT `zdb_age_max` CHECK (`age2` <= 150) `` → mariadb:10.2, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3
 - `rejected (error 1054): Unknown column 'age' in 'CHECK'` → mariadb:10.2.6, mariadb:10.2.7
 
 ### CHECK list: I_S.CHECK_CONSTRAINTS rows
 
 - `failed (error 1109): Unknown table 'CHECK_CONSTRAINTS' in information_schema` → mysql:5.7, mariadb:10.2.6, mariadb:10.2.7, percona/percona-server:5.7
-- `` zdb_age_max: (`age` <= 150); zdb_probe_check_chk_1: (`age` >= 0) `` → MySQL/Percona 8.0+
-- `` age: `age` >= 0; zdb_age_max: `age` <= 150 `` → mariadb:10.2, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8, mariadb:12.3
+- `` zdb_age_max: (`age` <= 150); zdb_probe_check_chk_1: (`age` >= 0) `` → mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
+- `` age: `age` >= 0; zdb_age_max: `age` <= 150 `` → mariadb:10.2, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3
 
 ### CHECK list: I_S.TABLE_CONSTRAINTS type=CHECK rows
 
 - `no rows` → MySQL/Percona 5.7
-- `zdb_age_max, zdb_probe_check_chk_1` → MySQL/Percona 8.0+
-- `age, zdb_age_max` → all MariaDB
+- `zdb_age_max, zdb_probe_check_chk_1` → mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
+- `age, zdb_age_max` → mariadb:10.2, mariadb:10.2.6, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3
 
 ### @@block_encryption_mode
 
-- `aes-128-ecb` → all MySQL/Percona and MariaDB 11.4+
+- `aes-128-ecb` → mysql:5.7, mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3, percona/percona-server:5.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
 - `variable not supported` → MariaDB thru 10.11
 
 ### HEX(AES_ENCRYPT) with SHA2-512 key
@@ -458,8 +461,8 @@ Stock Docker images with default configs answered these probes. Install-dependen
 ### Field metadata: MEDIUMTEXT
 
 - `BLOB, charsetnr=45, length=67108860` → MySQL/Percona 5.7 and MariaDB thru 10.11
-- `BLOB, charsetnr=255, length=67108860` → MySQL/Percona 8.0+
-- `BLOB, charsetnr=224, length=67108860` → MariaDB 11.4+
+- `BLOB, charsetnr=255, length=67108860` → mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
+- `BLOB, charsetnr=224, length=67108860` → mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3
 
 ### Field metadata: VARBINARY(16)
 
@@ -479,8 +482,8 @@ Stock Docker images with default configs answered these probes. Install-dependen
 
 ### Field metadata: viewCol column
 
-- `table=v, orgtable=zdb_probe_view, orgname=num` → all MySQL/Percona
-- `table=v, orgtable=v, orgname=num` → all MariaDB
+- `table=v, orgtable=zdb_probe_view, orgname=num` → mysql:5.7, mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, percona/percona-server:5.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
+- `table=v, orgtable=v, orgname=num` → mariadb:10.2, mariadb:10.2.6, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3
 
 ### Field metadata: expr column
 
@@ -492,13 +495,13 @@ Stock Docker images with default configs answered these probes. Install-dependen
 
 ### SHOW TABLES: temp table
 
-- `not listed` → all MySQL/Percona and MariaDB thru 10.11
-- `listed` → MariaDB 11.4+
+- `not listed` → mysql:5.7, mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, mariadb:10.2, mariadb:10.2.6, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, percona/percona-server:5.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
+- `listed` → mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3
 
 ### SHOW FULL TABLES: temp table Table_type
 
-- `not listed` → all MySQL/Percona and MariaDB thru 10.11
-- `TEMPORARY TABLE` → MariaDB 11.4+
+- `not listed` → mysql:5.7, mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, mariadb:10.2, mariadb:10.2.6, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, percona/percona-server:5.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
+- `TEMPORARY TABLE` → mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3
 
 ### SHOW FULL TABLES: view Table_type
 
@@ -506,8 +509,8 @@ Stock Docker images with default configs answered these probes. Install-dependen
 
 ### INFORMATION_SCHEMA.TABLES: temp table TABLE_TYPE
 
-- `not listed` → all MySQL/Percona and MariaDB thru 10.11
-- `TEMPORARY` → MariaDB 11.4+
+- `not listed` → mysql:5.7, mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, mariadb:10.2, mariadb:10.2.6, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, percona/percona-server:5.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
+- `TEMPORARY` → mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3
 
 ### INFORMATION_SCHEMA.TABLES: real table TABLE_TYPE
 
@@ -547,13 +550,13 @@ Stock Docker images with default configs answered these probes. Install-dependen
 
 ### SHOW VARIABLES 'have_ssl'
 
-- `YES` → MySQL/Percona thru 8.0 and MariaDB 11.4+
+- `YES` → mysql:5.7, mysql:8.0, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3, percona/percona-server:5.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0
 - `no rows (variable removed)` → MySQL/Percona 8.4+
 - `DISABLED` → MariaDB thru 10.11
 
 ### SHOW VARIABLES 'require_secure_transport'
 
-- `OFF` → all MySQL/Percona and MariaDB 10.5+
+- `OFF` → mysql:5.7, mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3, percona/percona-server:5.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
 - `no rows (variable not present)` → MariaDB thru 10.4
 
 ### SHOW STATUS Ssl_cipher/Ssl_version (plain connection)
@@ -571,33 +574,33 @@ Stock Docker images with default configs answered these probes. Install-dependen
 ### explicit_defaults_for_timestamp
 
 - `OFF` → MySQL/Percona 5.7 and MariaDB thru 10.6
-- `ON` → MySQL/Percona 8.0+ and MariaDB 10.11+
+- `ON` → mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, mariadb:10.11, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
 
 ### SHOW CREATE: ts TIMESTAMP (bare)
 
 - `timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP` → MySQL/Percona 5.7
-- `timestamp NULL DEFAULT NULL` → MySQL/Percona 8.0+ and MariaDB 10.11+
+- `timestamp NULL DEFAULT NULL` → mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, mariadb:10.11, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
 - `timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()` → MariaDB thru 10.6
 
 ### DEFAULTS I_S COLUMN_DEFAULT: noDefault
 
-- `SQL NULL` → mysql:5.7, mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, mariadb:10.2.6, percona/percona-server:5.7, percona/percona-server:8.0, percona/percona-server:8.4
-- `text: NULL` → mariadb:10.2, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8, mariadb:12.3
+- `SQL NULL` → mysql:5.7, mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, mariadb:10.2.6, percona/percona-server:5.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
+- `text: NULL` → mariadb:10.2, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3
 
 ### DEFAULTS I_S COLUMN_DEFAULT: explicitNull
 
-- `SQL NULL` → mysql:5.7, mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, mariadb:10.2.6, percona/percona-server:5.7, percona/percona-server:8.0, percona/percona-server:8.4
-- `text: NULL` → mariadb:10.2, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8, mariadb:12.3
+- `SQL NULL` → mysql:5.7, mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, mariadb:10.2.6, percona/percona-server:5.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
+- `text: NULL` → mariadb:10.2, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3
 
 ### DEFAULTS I_S COLUMN_DEFAULT: nullString
 
-- `text: NULL` → mysql:5.7, mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, mariadb:10.2.6, percona/percona-server:5.7, percona/percona-server:8.0, percona/percona-server:8.4
-- `text: 'NULL'` → mariadb:10.2, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8, mariadb:12.3
+- `text: NULL` → mysql:5.7, mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, mariadb:10.2.6, percona/percona-server:5.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
+- `text: 'NULL'` → mariadb:10.2, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3
 
 ### DEFAULTS I_S COLUMN_DEFAULT: strDefault
 
-- `text: abc` → mysql:5.7, mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, mariadb:10.2.6, percona/percona-server:5.7, percona/percona-server:8.0, percona/percona-server:8.4
-- `text: 'abc'` → mariadb:10.2, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8, mariadb:12.3
+- `text: abc` → mysql:5.7, mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, mariadb:10.2.6, percona/percona-server:5.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
+- `text: 'abc'` → mariadb:10.2, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3
 
 ### DEFAULTS I_S COLUMN_DEFAULT: numDefault
 
@@ -605,28 +608,28 @@ Stock Docker images with default configs answered these probes. Install-dependen
 
 ### DEFAULTS I_S COLUMN_DEFAULT: exprDefault
 
-- `text: CURRENT_TIMESTAMP` → all MySQL/Percona
-- `text: current_timestamp()` → all MariaDB
+- `text: CURRENT_TIMESTAMP` → mysql:5.7, mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, percona/percona-server:5.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
+- `text: current_timestamp()` → mariadb:10.2, mariadb:10.2.6, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3
 
 ### DEFAULTS I_S via view: noDefault
 
-- `SQL NULL` → mysql:5.7, mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, mariadb:10.2.6, percona/percona-server:5.7, percona/percona-server:8.0, percona/percona-server:8.4
-- `text: NULL` → mariadb:10.2, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8, mariadb:12.3
+- `SQL NULL` → mysql:5.7, mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, mariadb:10.2.6, percona/percona-server:5.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
+- `text: NULL` → mariadb:10.2, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3
 
 ### DEFAULTS I_S via view: explicitNull
 
-- `SQL NULL` → mysql:5.7, mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, mariadb:10.2.6, percona/percona-server:5.7, percona/percona-server:8.0, percona/percona-server:8.4
-- `text: NULL` → mariadb:10.2, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8, mariadb:12.3
+- `SQL NULL` → mysql:5.7, mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, mariadb:10.2.6, percona/percona-server:5.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
+- `text: NULL` → mariadb:10.2, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3
 
 ### DEFAULTS I_S via view: nullString
 
-- `text: NULL` → mysql:5.7, mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, mariadb:10.2.6, percona/percona-server:5.7, percona/percona-server:8.0, percona/percona-server:8.4
-- `text: 'NULL'` → mariadb:10.2, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8, mariadb:12.3
+- `text: NULL` → mysql:5.7, mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, mariadb:10.2.6, percona/percona-server:5.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
+- `text: 'NULL'` → mariadb:10.2, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3
 
 ### DEFAULTS I_S via view: strDefault
 
-- `text: abc` → mysql:5.7, mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, mariadb:10.2.6, percona/percona-server:5.7, percona/percona-server:8.0, percona/percona-server:8.4
-- `text: 'abc'` → mariadb:10.2, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8, mariadb:12.3
+- `text: abc` → mysql:5.7, mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, mariadb:10.2.6, percona/percona-server:5.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
+- `text: 'abc'` → mariadb:10.2, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3
 
 ### DEFAULTS I_S via view: numDefault
 
@@ -635,8 +638,8 @@ Stock Docker images with default configs answered these probes. Install-dependen
 ### DEFAULTS I_S via view: exprDefault
 
 - `text: 0000-00-00 00:00:00` → MySQL/Percona 5.7
-- `text: CURRENT_TIMESTAMP` → MySQL/Percona 8.0+
-- `text: current_timestamp()` → all MariaDB
+- `text: CURRENT_TIMESTAMP` → mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
+- `text: current_timestamp()` → mariadb:10.2, mariadb:10.2.6, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3
 
 ### DEFAULTS SHOW COLUMNS: noDefault
 
@@ -660,8 +663,8 @@ Stock Docker images with default configs answered these probes. Install-dependen
 
 ### DEFAULTS SHOW COLUMNS: exprDefault
 
-- `text: CURRENT_TIMESTAMP` → all MySQL/Percona
-- `text: current_timestamp()` → all MariaDB
+- `text: CURRENT_TIMESTAMP` → mysql:5.7, mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, percona/percona-server:5.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
+- `text: current_timestamp()` → mariadb:10.2, mariadb:10.2.6, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3
 
 ### DEFAULTS SHOW FULL COLUMNS matches SHOW COLUMNS
 
@@ -686,13 +689,13 @@ Stock Docker images with default configs answered these probes. Install-dependen
 ### DEFAULTS SHOW CREATE: numDefault
 
 - `int(11) DEFAULT '5'` → MySQL/Percona 5.7
-- `int DEFAULT '5'` → MySQL/Percona 8.0+
-- `int(11) DEFAULT 5` → all MariaDB
+- `int DEFAULT '5'` → mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
+- `int(11) DEFAULT 5` → mariadb:10.2, mariadb:10.2.6, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3
 
 ### DEFAULTS SHOW CREATE: exprDefault
 
-- `timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP` → all MySQL/Percona
-- `timestamp NOT NULL DEFAULT current_timestamp()` → all MariaDB
+- `timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP` → mysql:5.7, mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, percona/percona-server:5.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
+- `timestamp NOT NULL DEFAULT current_timestamp()` → mariadb:10.2, mariadb:10.2.6, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3
 
 ### DEFAULTS SELECT DEFAULT(noDefault)
 
@@ -716,14 +719,14 @@ Stock Docker images with default configs answered these probes. Install-dependen
 
 ### DEFAULTS SELECT DEFAULT(exprDefault)
 
-- `text: 0000-00-00 00:00:00` → all MySQL/Percona
-- `text: <evaluated to current datetime>` → all MariaDB
+- `text: 0000-00-00 00:00:00` → mysql:5.7, mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, percona/percona-server:5.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
+- `text: <evaluated to current datetime>` → mariadb:10.2, mariadb:10.2.6, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3
 
 ### @@collation_connection after set_charset(utf8mb4)
 
 - `utf8mb4_general_ci` → MySQL/Percona 5.7 and MariaDB thru 10.11
-- `utf8mb4_0900_ai_ci` → MySQL/Percona 8.0+
-- `utf8mb4_uca1400_ai_ci` → MariaDB 11.4+
+- `utf8mb4_0900_ai_ci` → mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
+- `utf8mb4_uca1400_ai_ci` → mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3
 
 ### @@character_set_results
 
@@ -732,8 +735,8 @@ Stock Docker images with default configs answered these probes. Install-dependen
 ### utf8mb4 table: implicit column collation
 
 - `utf8mb4_general_ci` → MySQL/Percona 5.7 and MariaDB thru 10.11
-- `utf8mb4_0900_ai_ci` → MySQL/Percona 8.0+
-- `utf8mb4_uca1400_ai_ci` → MariaDB 11.4+
+- `utf8mb4_0900_ai_ci` → mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
+- `utf8mb4_uca1400_ai_ci` → mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3
 
 ### compare implicit vs utf8mb4_unicode_ci column
 
@@ -742,7 +745,7 @@ Stock Docker images with default configs answered these probes. Install-dependen
 ### utf8mb4_0900_ai_ci collation
 
 - `missing` → MySQL/Percona 5.7 and MariaDB thru 10.11
-- `available` → MySQL/Percona 8.0+ and MariaDB 11.4+
+- `available` → mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
 
 ### error code: USE unknown database
 
@@ -759,12 +762,12 @@ Stock Docker images with default configs answered these probes. Install-dependen
 ### PARTITIONED: SHOW CREATE from table options on
 
 - `) ENGINE=InnoDB DEFAULT CHARSET=latin1\n/*!50100 PARTITION BY RANGE (num)\n(PARTITION p0 VALUES LESS THAN (10) ENGINE = InnoDB,\n PARTITION p1 VALUES LESS THAN MAXVALUE ENGINE = InnoDB) */` → MySQL/Percona 5.7
-- `` ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci\n/*!50100 PARTITION BY RANGE (`num`)\n(PARTITION p0 VALUES LESS THAN (10) ENGINE = InnoDB,\n PARTITION p1 VALUES LESS THAN MAXVALUE ENGINE = InnoDB) */ `` → MySQL/Percona 8.0+
+- `` ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci\n/*!50100 PARTITION BY RANGE (`num`)\n(PARTITION p0 VALUES LESS THAN (10) ENGINE = InnoDB,\n PARTITION p1 VALUES LESS THAN MAXVALUE ENGINE = InnoDB) */ `` → mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
 - `` ) ENGINE=InnoDB DEFAULT CHARSET=latin1\n PARTITION BY RANGE (`num`)\n(PARTITION `p0` VALUES LESS THAN (10) ENGINE = InnoDB,\n PARTITION `p1` VALUES LESS THAN MAXVALUE ENGINE = InnoDB) `` → mariadb:10.2, mariadb:10.2.7
 - `) ENGINE=InnoDB DEFAULT CHARSET=latin1\n PARTITION BY RANGE (num)\n(PARTITION p0 VALUES LESS THAN (10) ENGINE = InnoDB,\n PARTITION p1 VALUES LESS THAN MAXVALUE ENGINE = InnoDB)` → mariadb:10.2.6
 - `` ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci\n PARTITION BY RANGE (`num`)\n(PARTITION `p0` VALUES LESS THAN (10) ENGINE = InnoDB,\n PARTITION `p1` VALUES LESS THAN MAXVALUE ENGINE = InnoDB) `` → mariadb:10.3, mariadb:10.4
 - `` ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci\n PARTITION BY RANGE (`num`)\n(PARTITION `p0` VALUES LESS THAN (10) ENGINE = InnoDB,\n PARTITION `p1` VALUES LESS THAN MAXVALUE ENGINE = InnoDB) `` → mariadb:10.5, mariadb:10.6, mariadb:10.11
-- `` ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci\n PARTITION BY RANGE (`num`)\n(PARTITION `p0` VALUES LESS THAN (10) ENGINE = InnoDB,\n PARTITION `p1` VALUES LESS THAN MAXVALUE ENGINE = InnoDB) `` → MariaDB 11.4+
+- `` ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci\n PARTITION BY RANGE (`num`)\n(PARTITION `p0` VALUES LESS THAN (10) ENGINE = InnoDB,\n PARTITION `p1` VALUES LESS THAN MAXVALUE ENGINE = InnoDB) `` → mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3
 
 ### INT_AND_FLOAT_NATIVE: num
 
@@ -804,13 +807,13 @@ Stock Docker images with default configs answered these probes. Install-dependen
 
 ### SET time_zone = '-13:00'
 
-- `rejected: error 1298` → MySQL/Percona 5.7 and all MariaDB
-- `accepted` → MySQL/Percona 8.0+
+- `rejected: error 1298` → mysql:5.7, mariadb:10.2, mariadb:10.2.6, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3, percona/percona-server:5.7
+- `accepted` → mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
 
 ### SET time_zone = '+14:00'
 
-- `rejected: error 1298` → MySQL/Percona 5.7 and all MariaDB
-- `accepted` → MySQL/Percona 8.0+
+- `rejected: error 1298` → mysql:5.7, mariadb:10.2, mariadb:10.2.6, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3, percona/percona-server:5.7
+- `accepted` → mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
 
 ### SET time_zone = 'Etc/GMT-14'
 
@@ -827,19 +830,84 @@ Stock Docker images with default configs answered these probes. Install-dependen
 ### mysql.time_zone_name row count
 
 - `1789` → MySQL/Percona 5.7
-- `1795` → MySQL/Percona 8.0+
+- `1795` → mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
 - `1823` → mariadb:10.2
 - `1820` → mariadb:10.2.6, mariadb:10.2.7
 - `1829` → mariadb:10.3, mariadb:10.4
 - `1832` → mariadb:10.5
 - `1793` → mariadb:10.6, mariadb:10.11
-- `498` → MariaDB 11.4+
+- `498` → mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3
+
+### SNAPSHOT: @@transaction_isolation server default
+
+- `REPEATABLE-READ` → mysql:5.7, mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3, percona/percona-server:5.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
+- `error 1193` → MariaDB thru 10.11
+
+### SNAPSHOT: @@tx_isolation server default
+
+- `REPEATABLE-READ` → mysql:5.7, mariadb:10.2, mariadb:10.2.6, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3, percona/percona-server:5.7
+- `error 1193` → mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
+
+### SNAPSHOT: bare START at READ-COMMITTED
+
+- `138: InnoDB: WITH CONSISTENT SNAPSHOT was ignored because this phrase can only be used with REPEATABLE READ isolation level.; concurrent INSERT visible (no snapshot)` → all MySQL/Percona and MariaDB thru 10.5
+- `accepted; concurrent INSERT visible (no snapshot)` → MariaDB 10.6+
+- `error 4062: Only REPEATABLE READ isolation level is supported for START TRANSACTION WITH CONSISTENT SNAPSHOT in RocksDB Storage Engine.` → mariadb:11.8+rocksdb, mariadb:12.3+rocksdb
+- `138: RocksDB: Only REPEATABLE READ isolation level is supported for START TRANSACTION WITH CONSISTENT SNAPSHOT in RocksDB Storage Engine. Snapshot has not been taken.; concurrent INSERT visible (no snapshot)` → percona/percona-server:8.0+rocksdb
+
+### SNAPSHOT: SET+START pair at READ-COMMITTED
+
+- all servers: `accepted; concurrent INSERT invisible (snapshot held)`
+
+### SNAPSHOT: pair with SELECT 1 between SET and START
+
+- all servers: `accepted; concurrent INSERT invisible (snapshot held)`
+
+### SNAPSHOT: pair with isolation variable read between
+
+- all servers: `accepted; concurrent INSERT invisible (snapshot held)`
+
+### SNAPSHOT: @@transaction_isolation inside pair transaction
+
+- `READ-COMMITTED` → mysql:5.7, mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3, percona/percona-server:5.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
+- (no data) → MariaDB thru 10.11
+
+### SNAPSHOT: @@transaction_isolation after COMMIT
+
+- `READ-COMMITTED` → mysql:5.7, mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3, percona/percona-server:5.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
+- (no data) → MariaDB thru 10.11
+
+### SNAPSHOT: SET TRANSACTION inside open transaction
+
+- `error 1568: Transaction characteristics can't be changed while a transaction is in progress` → mysql:5.7, mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, mariadb:10.2, mariadb:10.2.6, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, percona/percona-server:5.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
+- `error 1568: TRANSACTION ISOLATION can't be set while a transaction is in progress` → mariadb:12.3+rocksdb, mariadb:12.3
+
+### SNAPSHOT: SET SESSION TRANSACTION inside open transaction
+
+- all servers: `accepted`
+
+### SNAPSHOT: SET TRANSACTION at autocommit=0, no prior query
+
+- all servers: `accepted`
+
+### SNAPSHOT: SET TRANSACTION at autocommit=0 after a table read
+
+- all servers: `error 1568`
+
+### SNAPSHOT: pair as SELECT-only user
+
+- all servers: `accepted, no warnings`
+
+### SNAPSHOT: ROCKSDB in SHOW ENGINES
+
+- `not present` → all MySQL/Percona and all MariaDB
+- `YES` → mariadb:11.8+rocksdb, mariadb:12.3+rocksdb, percona/percona-server:8.0+rocksdb
 
 ### SET ZenDB default sql_mode
 
 - `accepted with 2 warning(s)` → MySQL/Percona 5.7
-- `accepted with 1 warning(s)` → MySQL/Percona 8.0+
-- `accepted` → all MariaDB
+- `accepted with 1 warning(s)` → mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
+- `accepted` → mariadb:10.2, mariadb:10.2.6, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3
 
 ### @@SESSION.sql_mode after SET
 
@@ -859,8 +927,45 @@ Stock Docker images with default configs answered these probes. Install-dependen
 
 ### CHECK list: I_S.CHECK_CONSTRAINTS columns
 
-- `CONSTRAINT_CATALOG, CONSTRAINT_SCHEMA, CONSTRAINT_NAME, CHECK_CLAUSE` → MySQL/Percona 8.0+
+- `CONSTRAINT_CATALOG, CONSTRAINT_SCHEMA, CONSTRAINT_NAME, CHECK_CLAUSE` → mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
 - `CONSTRAINT_CATALOG, CONSTRAINT_SCHEMA, TABLE_NAME, CONSTRAINT_NAME, CHECK_CLAUSE` → mariadb:10.2, mariadb:10.3, mariadb:10.4
-- `CONSTRAINT_CATALOG, CONSTRAINT_SCHEMA, TABLE_NAME, CONSTRAINT_NAME, LEVEL, CHECK_CLAUSE` → MariaDB 10.5+
+- `CONSTRAINT_CATALOG, CONSTRAINT_SCHEMA, TABLE_NAME, CONSTRAINT_NAME, LEVEL, CHECK_CLAUSE` → mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3
 - (no data) → mysql:5.7, mariadb:10.2.6, mariadb:10.2.7, percona/percona-server:5.7
+
+### SNAPSHOT: @@tx_isolation inside pair transaction
+
+- `READ-COMMITTED` → MariaDB thru 10.11
+- (no data) → mysql:5.7, mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3, percona/percona-server:5.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
+
+### SNAPSHOT: @@tx_isolation after COMMIT
+
+- `READ-COMMITTED` → MariaDB thru 10.11
+- (no data) → mysql:5.7, mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3, percona/percona-server:5.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
+
+### SNAPSHOT rocksdb loaded, no rocksdb table: bare START at READ-COMMITTED
+
+- `error 4062: Only REPEATABLE READ isolation level is supported for START TRANSACTION WITH CONSISTENT SNAPSHOT in RocksDB Storage Engine.` → mariadb:11.8+rocksdb, mariadb:12.3+rocksdb
+- `138: RocksDB: Only REPEATABLE READ isolation level is supported for START TRANSACTION WITH CONSISTENT SNAPSHOT in RocksDB Storage Engine. Snapshot has not been taken.; concurrent INSERT visible (no snapshot)` → percona/percona-server:8.0+rocksdb
+- (no data) → all MySQL/Percona and all MariaDB
+
+### SNAPSHOT rocksdb loaded, no rocksdb table: pair at READ-COMMITTED
+
+- `accepted; concurrent INSERT invisible (snapshot held)` → mariadb:11.8+rocksdb, mariadb:12.3+rocksdb, percona/percona-server:8.0+rocksdb
+- (no data) → all MySQL/Percona and all MariaDB
+
+### SNAPSHOT rocksdb loaded, no rocksdb table: bare START at REPEATABLE-READ
+
+- `accepted; concurrent INSERT invisible (snapshot held)` → mariadb:11.8+rocksdb, mariadb:12.3+rocksdb, percona/percona-server:8.0+rocksdb
+- (no data) → all MySQL/Percona and all MariaDB
+
+### SNAPSHOT rocksdb table exists: bare START at READ-COMMITTED
+
+- `error 4062: Only REPEATABLE READ isolation level is supported for START TRANSACTION WITH CONSISTENT SNAPSHOT in RocksDB Storage Engine.` → mariadb:11.8+rocksdb, mariadb:12.3+rocksdb
+- `138: RocksDB: Only REPEATABLE READ isolation level is supported for START TRANSACTION WITH CONSISTENT SNAPSHOT in RocksDB Storage Engine. Snapshot has not been taken.; concurrent INSERT visible (no snapshot)` → percona/percona-server:8.0+rocksdb
+- (no data) → all MySQL/Percona and all MariaDB
+
+### SNAPSHOT rocksdb table exists: pair at READ-COMMITTED
+
+- `accepted; concurrent INSERT invisible (snapshot held)` → mariadb:11.8+rocksdb, mariadb:12.3+rocksdb, percona/percona-server:8.0+rocksdb
+- (no data) → all MySQL/Percona and all MariaDB
 

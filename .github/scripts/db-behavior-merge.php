@@ -68,6 +68,9 @@ echo <<<__SUMMARY__
     - AES_ENCRYPT produces identical ciphertext on every server and matches PHP openssl aes-128-ecb, so encrypted data is fully portable
     - Result metadata through an aliased view: MySQL/Percona report the view's name in orgtable, MariaDB reports the query alias; neither reports the underlying base table
     - MEDIUMTEXT metadata charset varies by era (45 / 255 / 224) but is never binary (63), so MEDIUMBLOB encryption detection is safe everywhere
+    - Consistent-snapshot backups: the SET TRANSACTION ISOLATION LEVEL REPEATABLE READ + START TRANSACTION WITH CONSISTENT SNAPSHOT pair holds a point-in-time snapshot on every server, survives statements between the SET and the START, needs no privileges, and reverts after COMMIT. A bare START at READ-COMMITTED never holds one: MySQL/Percona and MariaDB thru 10.5 warn (code 138), MariaDB 10.6+ says nothing, and with the RocksDB plugin loaded (no RocksDB table needed) MariaDB rejects it with error 4062 while Percona MyRocks only warns
+    - SET TRANSACTION (next-transaction scope) throws error 1568 whenever a transaction is open, including autocommit=0 after any table read (autocommit=0 alone is fine); the SET SESSION form is accepted mid-transaction on every server
+    - The isolation variable splits by vendor: @@transaction_isolation is missing on MariaDB thru 10.11 (added 11.1), @@tx_isolation is missing on MySQL/Percona 8.0+, and neither ever reports the pending one-shot level, so "did the snapshot take" is only observable behaviorally
 
     ## Probe results
 
