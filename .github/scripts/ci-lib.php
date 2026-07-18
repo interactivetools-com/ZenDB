@@ -19,6 +19,7 @@ declare(strict_types=1);
  */
 function databaseSortKey(string $database): array
 {
+    $database = explode('+', $database, 2)[0]; // engine variants ("mariadb:11.8+rocksdb") sort with their base image
     [$vendor, $version] = explode(':', $database, 2) + [1 => '0'];
     $vendorRank = match ($vendor) {
         'mysql'                  => 1,
@@ -55,6 +56,9 @@ function serverFamilies(array $servers): array
 {
     $versionsByFamily = [];
     foreach ($servers as $server) {
+        if (str_contains($server, '+')) {
+            continue; // engine variants ("mariadb:11.8+rocksdb") never join version families
+        }
         [$vendor, $version] = explode(':', $server, 2) + [1 => ''];
         $family = match ($vendor) {
             'mysql', 'percona/percona-server' => 'MySQL/Percona',

@@ -15,7 +15,11 @@
   "mariadb:11.4",
   "mariadb:11.8",
   "mariadb:12.3",
+  "mariadb:10.11+rocksdb",
+  "mariadb:11.8+rocksdb",
+  "mariadb:12.3+rocksdb",
   "percona/percona-server:5.7",
   "percona/percona-server:8.0",
-  "percona/percona-server:8.4"
+  "percona/percona-server:8.4",
+  "percona/percona-server:8.0+rocksdb"
 ]

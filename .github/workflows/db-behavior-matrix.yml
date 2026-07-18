@@ -26,9 +26,13 @@ on:
           - mariadb:11.4
           - mariadb:11.8
           - mariadb:12.3
+          - mariadb:10.11+rocksdb
+          - mariadb:11.8+rocksdb
+          - mariadb:12.3+rocksdb
           - percona/percona-server:5.7
           - percona/percona-server:8.0
           - percona/percona-server:8.4
+          - percona/percona-server:8.0+rocksdb
 
 jobs:
   db-matrix:
@@ -40,23 +44,32 @@ jobs:
       - name: Checkout
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
 
+      # A "+rocksdb" suffix means: same image, but load the RocksDB plugin before
+      # probing. Split into {label, image, rocksdb} here because service containers
+      # need the bare image name and expressions can't do string surgery
       - name: Read .github/db-matrix.json
         id: load
-        run: echo "databases=$(jq -c . .github/db-matrix.json)" >> "$GITHUB_OUTPUT"
+        run: |
+          if [ -n "${{ inputs.database }}" ]; then
+            LIST='["${{ inputs.database }}"]'
+          else
+            LIST=$(jq -c . .github/db-matrix.json)
+          fi
+          echo "databases=$(echo "$LIST" | jq -c 'map({label: ., image: (split("+")[0]), rocksdb: endswith("+rocksdb")})')" >> "$GITHUB_OUTPUT"
 
   probe:
-    name: ${{ matrix.database }}
+    name: ${{ matrix.entry.label }}
     runs-on: ubuntu-latest
     needs: db-matrix
 
     strategy:
       fail-fast: false
       matrix:
-        database: ${{ inputs.database && fromJSON(format('["{0}"]', inputs.database)) || fromJSON(needs.db-matrix.outputs.databases) }}
+        entry: ${{ fromJSON(needs.db-matrix.outputs.databases) }}
 
     services:
       database:
-        image: ${{ matrix.database }}
+        image: ${{ matrix.entry.image }}
         env:
           MYSQL_ALLOW_EMPTY_PASSWORD: yes
           MYSQL_ROOT_HOST: '%'
@@ -92,15 +105,33 @@ jobs:
             sleep 1
           done
 
+      # MariaDB images need the plugin package from the MariaDB apt repo; Percona
+      # ships ha_rocksdb.so in the image. INSTALL SONAME/PLUGIN loads it without a
+      # restart. The trailing SHOW ENGINES grep fails the job if the engine isn't
+      # actually there, so a broken install can't silently probe as a stock server
+      - name: Load RocksDB plugin
+        if: ${{ matrix.entry.rocksdb }}
+        run: |
+          case "${{ matrix.entry.image }}" in
+            mariadb:*)
+              docker exec ${{ job.services.database.id }} sh -c "apt-get update -qq && apt-get install -y -qq mariadb-plugin-rocksdb"
+              mysql -h 127.0.0.1 -u root -e "INSTALL SONAME 'ha_rocksdb'"
+              ;;
+            *)
+              mysql -h 127.0.0.1 -u root -e "INSTALL PLUGIN ROCKSDB SONAME 'ha_rocksdb.so'"
+              ;;
+          esac
+          mysql -h 127.0.0.1 -u root -e "SHOW ENGINES" | grep -i rocksdb
+
       - name: Run probes
         env:
           DB_HOSTNAME: 127.0.0.1
           DB_USERNAME: root
           DB_PASSWORD: ''
           DB_DATABASE: phpunit_test_db
-          DB_LABEL: ${{ matrix.database }}
+          DB_LABEL: ${{ matrix.entry.label }}
         run: |
-          SLUG=$(echo "${{ matrix.database }}" | tr ':/' '--')
+          SLUG=$(echo "${{ matrix.entry.label }}" | tr ':/+' '---')
           echo "SLUG=$SLUG" >> "$GITHUB_ENV"
           php .github/scripts/db-behavior-probe.php --json="probe-$SLUG.json" >> "$GITHUB_STEP_SUMMARY"
 

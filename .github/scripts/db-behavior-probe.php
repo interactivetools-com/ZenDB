@@ -888,6 +888,159 @@ echo "### Time zone offsets\n\n";
 echo mdTable($timeZoneProbes);
 
 //
+// Consistent-snapshot backups - CMS Builder's backupDatabase() opens its dump with
+// SET TRANSACTION ISOLATION LEVEL REPEATABLE READ then START TRANSACTION WITH
+// CONSISTENT SNAPSHOT, the pair mysqldump --single-transaction sends. Two server
+// behaviors motivated the pair: hosts that default to READ-COMMITTED make a bare
+// START silently skip the snapshot (warning 138), and a loaded RocksDB plugin turns
+// it into a hard error (MariaDB 4062) even when no table uses RocksDB, because every
+// transactional engine is asked to open the snapshot. Probes run on a dedicated
+// connection pinned to READ-COMMITTED to mirror those hosts. "Snapshot held" is
+// observed behavior - the main connection commits an INSERT mid-transaction and the
+// probe checks whether it shows up - not a reading of @@transaction_isolation, which
+// MariaDB reports at session scope even inside the transaction
+//
+$snapshotProbes = [];
+try {
+    $snap = new mysqli($hostname, $username, $password, $database);
+    $snap->set_charset('utf8mb4');
+
+    // which spelling of the isolation variable each server has (MySQL 5.7 has both,
+    // 8.0 dropped tx_isolation, MariaDB only added transaction_isolation in 11.1.1);
+    // read before pinning the session so the values show the server default
+    $isolationVariable = null;
+    foreach (['@@transaction_isolation', '@@tx_isolation'] as $variableName) {
+        try {
+            $snapshotProbes["SNAPSHOT: $variableName server default"] = $snap->query("SELECT $variableName")->fetch_row()[0];
+            $isolationVariable ??= $variableName;
+        } catch (mysqli_sql_exception $e) {
+            $snapshotProbes["SNAPSHOT: $variableName server default"] = 'error ' . $e->getCode();
+        }
+    }
+
+    $snap->query("SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED");
+
+    $snapshotProbes['SNAPSHOT: bare START at READ-COMMITTED']  = snapshotVisibility($snap, $mysqli, withSetPair: false);
+    $snapshotProbes['SNAPSHOT: SET+START pair at READ-COMMITTED'] = snapshotVisibility($snap, $mysqli, withSetPair: true);
+
+    // does the one-shot level survive an intervening statement? backupDatabase() must
+    // not run anything between the SET and the START on servers where this says no
+    $snapshotProbes['SNAPSHOT: pair with SELECT 1 between SET and START'] = snapshotVisibility($snap, $mysqli, withSetPair: true, betweenSql: 'SELECT 1');
+    $snapshotProbes['SNAPSHOT: pair with isolation variable read between'] = $isolationVariable === null
+        ? 'skipped (no isolation variable)'
+        : snapshotVisibility($snap, $mysqli, withSetPair: true, betweenSql: "SELECT $isolationVariable");
+
+    // what the variable reports while the one-shot level is active, and that the
+    // session level comes back after COMMIT
+    if ($isolationVariable !== null) {
+        $snap->query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ");
+        $snap->query("START TRANSACTION WITH CONSISTENT SNAPSHOT");
+        $snapshotProbes["SNAPSHOT: $isolationVariable inside pair transaction"] = $snap->query("SELECT $isolationVariable")->fetch_row()[0];
+        $snap->query("COMMIT");
+        $snapshotProbes["SNAPSHOT: $isolationVariable after COMMIT"] = $snap->query("SELECT $isolationVariable")->fetch_row()[0];
+    }
+
+    // SET TRANSACTION with a transaction already open - the error backupDatabase()
+    // would hit if it ever opened its dump inside one. The SESSION form is documented
+    // as allowed mid-transaction (it's what mysqldump sends), probed here to confirm
+    $snap->query("START TRANSACTION");
+    try {
+        $snap->query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ");
+        $snapshotProbes['SNAPSHOT: SET TRANSACTION inside open transaction'] = 'accepted';
+    } catch (mysqli_sql_exception $e) {
+        $snapshotProbes['SNAPSHOT: SET TRANSACTION inside open transaction'] = 'error ' . $e->getCode() . ': ' . $e->getMessage();
+    }
+    try {
+        $snap->query("SET SESSION TRANSACTION ISOLATION LEVEL REPEATABLE READ");
+        $snapshotProbes['SNAPSHOT: SET SESSION TRANSACTION inside open transaction'] = 'accepted';
+    } catch (mysqli_sql_exception $e) {
+        $snapshotProbes['SNAPSHOT: SET SESSION TRANSACTION inside open transaction'] = 'error ' . $e->getCode();
+    }
+    $snap->query("ROLLBACK");
+    $snap->query("SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED"); // undo if the SESSION form took effect mid-transaction
+
+    // autocommit=0 alone vs autocommit=0 plus a table read - which one counts as "a
+    // transaction in progress" for that error (the read must touch a real InnoDB
+    // table; SELECT 1 opens no transaction)
+    $mysqli->query("DROP TABLE IF EXISTS zdb_probe_snap");
+    $mysqli->query("CREATE TABLE zdb_probe_snap (num INT NOT NULL) ENGINE=InnoDB");
+    $snap->query("SET autocommit = 0");
+    try {
+        $snap->query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ");
+        $snapshotProbes['SNAPSHOT: SET TRANSACTION at autocommit=0, no prior query'] = 'accepted';
+    } catch (mysqli_sql_exception $e) {
+        $snapshotProbes['SNAPSHOT: SET TRANSACTION at autocommit=0, no prior query'] = 'error ' . $e->getCode();
+    }
+    $snap->query("ROLLBACK");
+    $snap->query("SELECT COUNT(*) FROM zdb_probe_snap");
+    try {
+        $snap->query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ");
+        $snapshotProbes['SNAPSHOT: SET TRANSACTION at autocommit=0 after a table read'] = 'accepted';
+    } catch (mysqli_sql_exception $e) {
+        $snapshotProbes['SNAPSHOT: SET TRANSACTION at autocommit=0 after a table read'] = 'error ' . $e->getCode();
+    }
+    $snap->query("ROLLBACK");
+    $snap->query("SET autocommit = 1");
+    $mysqli->query("DROP TABLE zdb_probe_snap");
+
+    // the pair as a user with only SELECT - the docs say only SET GLOBAL needs
+    // privileges, and shared-host backup users are never SUPER
+    try {
+        $mysqli->query("DROP USER IF EXISTS 'zdb_probe_min'@'%'");
+        $mysqli->query("CREATE USER 'zdb_probe_min'@'%' IDENTIFIED BY 'zdb_probe_pw'");
+        $mysqli->query("GRANT SELECT ON `$database`.* TO 'zdb_probe_min'@'%'");
+        $minUser = new mysqli($hostname, 'zdb_probe_min', 'zdb_probe_pw', $database);
+        $minUser->query("SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED");
+        $minUser->query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ");
+        $minUser->query("START TRANSACTION WITH CONSISTENT SNAPSHOT");
+        $warningCount = $minUser->warning_count;
+        $minUser->query("ROLLBACK");
+        $minUser->close();
+        $snapshotProbes['SNAPSHOT: pair as SELECT-only user'] = $warningCount ? "accepted with $warningCount warning(s)" : 'accepted, no warnings';
+    } catch (mysqli_sql_exception $e) {
+        $snapshotProbes['SNAPSHOT: pair as SELECT-only user'] = 'error ' . $e->getCode() . ': ' . $e->getMessage();
+    }
+    $mysqli->query("DROP USER IF EXISTS 'zdb_probe_min'@'%'");
+
+    // RocksDB veto - probes only run where the engine is loaded (the +rocksdb matrix
+    // entries install the plugin before probing); everywhere else the merge report
+    // shows them as (no data)
+    $rocksdbSupport = null;
+    foreach ($snap->query("SHOW ENGINES")->fetch_all() as $engine) {
+        if (strcasecmp($engine[0], 'ROCKSDB') === 0) {
+            $rocksdbSupport = $engine[1];
+        }
+    }
+    $snapshotProbes['SNAPSHOT: ROCKSDB in SHOW ENGINES'] = $rocksdbSupport ?? 'not present';
+    if ($rocksdbSupport !== null) {
+        $snapshotProbes['SNAPSHOT rocksdb loaded, no rocksdb table: bare START at READ-COMMITTED'] = snapshotVisibility($snap, $mysqli, withSetPair: false);
+        $snapshotProbes['SNAPSHOT rocksdb loaded, no rocksdb table: pair at READ-COMMITTED']       = snapshotVisibility($snap, $mysqli, withSetPair: true);
+
+        $snap->query("SET SESSION TRANSACTION ISOLATION LEVEL REPEATABLE READ");
+        $snapshotProbes['SNAPSHOT rocksdb loaded, no rocksdb table: bare START at REPEATABLE-READ'] = snapshotVisibility($snap, $mysqli, withSetPair: false);
+        $snap->query("SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED");
+
+        try {
+            $mysqli->query("DROP TABLE IF EXISTS zdb_probe_rocks");
+            $mysqli->query("CREATE TABLE zdb_probe_rocks (num INT NOT NULL PRIMARY KEY) ENGINE=ROCKSDB");
+            $snapshotProbes['SNAPSHOT rocksdb table exists: bare START at READ-COMMITTED'] = snapshotVisibility($snap, $mysqli, withSetPair: false);
+            $snapshotProbes['SNAPSHOT rocksdb table exists: pair at READ-COMMITTED']       = snapshotVisibility($snap, $mysqli, withSetPair: true);
+            $mysqli->query("DROP TABLE zdb_probe_rocks");
+        } catch (mysqli_sql_exception $e) {
+            $snapshotProbes['SNAPSHOT rocksdb table exists: bare START at READ-COMMITTED'] = 'CREATE TABLE ENGINE=ROCKSDB rejected: ' . $e->getMessage();
+        }
+    }
+
+    $snap->close();
+} catch (mysqli_sql_exception $e) {
+    $snapshotProbes['SNAPSHOT probes'] = 'probe failed: ' . $e->getMessage();
+}
+$probes += $snapshotProbes;
+
+echo "### Consistent-snapshot backups\n\n";
+echo mdTable($snapshotProbes);
+
+//
 // Session sql_mode - connect() applies ZenDB's default modes in one SET, and one
 // unrecognized name aborts the whole statement. Runs after the neutral probes since
 // it changes this session's mode; the date probes below depend on it
@@ -985,6 +1138,46 @@ function probeColumnDefinition(mysqli $mysqli, string $column, string $createSql
     }
 }
 
+
+/**
+ * Open a snapshot transaction on $snap the way backupDatabase() does and report what
+ * the server did: the START's warning or error, then whether a row committed by
+ * $writer mid-transaction stays invisible (snapshot held) or shows up (no snapshot).
+ * $withSetPair prepends SET TRANSACTION ISOLATION LEVEL REPEATABLE READ; $betweenSql
+ * runs between the SET and the START to see whether it consumes the one-shot level.
+ *
+ *     snapshotVisibility($snap, $mysqli, withSetPair: true);
+ *     // 'accepted; concurrent INSERT invisible (snapshot held)'
+ */
+function snapshotVisibility(mysqli $snap, mysqli $writer, bool $withSetPair, ?string $betweenSql = null): string
+{
+    $writer->query("DROP TABLE IF EXISTS zdb_probe_snap");
+    $writer->query("CREATE TABLE zdb_probe_snap (num INT NOT NULL) ENGINE=InnoDB");
+    $writer->query("INSERT INTO zdb_probe_snap VALUES (1)");
+    try {
+        try {
+            if ($withSetPair) {
+                $snap->query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ");
+            }
+            if ($betweenSql !== null) {
+                $snap->query($betweenSql);
+            }
+            $snap->query("START TRANSACTION WITH CONSISTENT SNAPSHOT");
+            $status = $snap->warning_count
+                ? implode(': ', array_slice($snap->query("SHOW WARNINGS")->fetch_row(), 1)) // "138: InnoDB: WITH CONSISTENT SNAPSHOT was ignored..."
+                : 'accepted';
+        } catch (mysqli_sql_exception $e) {
+            return "error {$e->getCode()}: {$e->getMessage()}";
+        }
+        $snap->query("SELECT COUNT(*) FROM zdb_probe_snap"); // the dump is already reading when the concurrent write lands
+        $writer->query("INSERT INTO zdb_probe_snap VALUES (2)");
+        $rowsSeen = (int)$snap->query("SELECT COUNT(*) FROM zdb_probe_snap")->fetch_row()[0];
+        return "$status; " . ($rowsSeen === 1 ? 'concurrent INSERT invisible (snapshot held)' : 'concurrent INSERT visible (no snapshot)');
+    } finally {
+        $snap->query("ROLLBACK");
+        $writer->query("DROP TABLE IF EXISTS zdb_probe_snap");
+    }
+}
 
 /**
  * Format a raw result value for display: SQL NULL as the word NULL, strings with
