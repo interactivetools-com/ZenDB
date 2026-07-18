@@ -35,6 +35,8 @@ worrying about injection.
 
 ## What's Inside
 
+Guides and references ([browse on GitHub](https://github.com/interactivetools-com/ZenDB)):
+
 - [30-Second Quickstart](#30-second-quickstart)
 - [Getting Started](docs/getting-started.md) - Installation, connection, first queries
 - [Documentation Index](docs/README.md) - Every page: querying, results, joins, placeholders, and more
