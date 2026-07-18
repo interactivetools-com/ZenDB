@@ -44,15 +44,18 @@ jobs:
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
 
       # A "+rocksdb" suffix means: same image, but load the RocksDB plugin before
-      # probing. Split into {label, image, rocksdb} here because service containers
-      # need the bare image name and expressions can't do string surgery
+      # probing. The rocksdb variants are appended here instead of listed in
+      # db-matrix.json because tests.yml passes entries straight to its service
+      # container and Docker rejects "+" in image tags. Split into {label, image,
+      # rocksdb} because service containers need the bare image name and
+      # expressions can't do string surgery
       - name: Read .github/db-matrix.json
         id: load
         run: |
           if [ -n "${{ inputs.database }}" ]; then
             LIST='["${{ inputs.database }}"]'
           else
-            LIST=$(jq -c . .github/db-matrix.json)
+            LIST=$(jq -c '. + ["mariadb:11.8+rocksdb", "mariadb:12.3+rocksdb", "percona/percona-server:8.0+rocksdb"]' .github/db-matrix.json)
           fi
           echo "databases=$(echo "$LIST" | jq -c 'map({label: ., image: (split("+")[0]), rocksdb: endswith("+rocksdb")})')" >> "$GITHUB_OUTPUT"
 
