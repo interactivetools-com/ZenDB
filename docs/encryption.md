@@ -6,6 +6,17 @@ no changes to your queries. This page covers setup, searching encrypted
 columns, the `{{column}}` syntax for decrypting in MySQL, and exactly what this
 encryption does and does not protect against.
 
+Contents:
+
+- [Turning Encryption On](#turning-encryption-on)
+- [Writing and Reading Encrypted Data](#writing-and-reading-encrypted-data)
+- [Searching Encrypted Columns - `DB::encryptValue()`](#searching-encrypted-columns---dbencryptvalue)
+- [Decrypting in MySQL with `{{column}}`](#decrypting-in-mysql-with-column)
+- [Decrypting Raw mysqli Results - `DB::decryptRows()`](#decrypting-raw-mysqli-results---dbdecryptrows)
+- [When Decryption Fails](#when-decryption-fails)
+- [How the Keys Line Up](#how-the-keys-line-up)
+- [What This Protects](#what-this-protects)
+
 ## Turning Encryption On
 
 Using CMS Builder? Encryption is already integrated: set the key in

@@ -5,6 +5,27 @@ queries, search with pagination, lookup maps, and turning result sets into
 HTML. Each example combines features covered on earlier pages and is ready
 to adapt.
 
+Contents:
+
+- [Record Detail with 404 - `or404()`](#record-detail-with-404---or404)
+- [Missing Row or Empty Column - `orThrow()`](#missing-row-or-empty-column---orthrow)
+- [Checking a Row Exists - `DB::count()`](#checking-a-row-exists---dbcount)
+- [One Value from a Query - `DB::queryOne()`](#one-value-from-a-query---dbqueryone)
+- [Insert, Then Load the New Row - `DB::insert()`](#insert-then-load-the-new-row---dbinsert)
+- [Search, Sort, and Paginate - `DB::likeContains()` and `DB::pagingSql()`](#search-sort-and-paginate---dblikecontains-and-dbpagingsql)
+- [HTML Table from Query Results](#html-table-from-query-results)
+- [An HTML Table from Any Query - `sprintf()` and `implode()`](#an-html-table-from-any-query---sprintf-and-implode)
+- [Select Dropdown from Query Results](#select-dropdown-from-query-results)
+- [Grouped Display - `groupBy()`](#grouped-display---groupby)
+- [Lookup Maps - `pluck()` and `indexBy()`](#lookup-maps---pluck-and-indexby)
+- [Checking a Column for a Value - `contains()`](#checking-a-column-for-a-value---contains)
+- [Default Missing Numbers to Zero - `or()`](#default-missing-numbers-to-zero---or)
+- [Calculations in Templates - `divide()`, `subtract()`, and `percentOf()`](#calculations-in-templates---divide-subtract-and-percentof)
+- [Address Lines That Skip Empty Fields - `and()`](#address-lines-that-skip-empty-fields---and)
+- [Values in URLs and JavaScript - `urlEncode()` and `jsonEncode()`](#values-in-urls-and-javascript---urlencode-and-jsonencode)
+- [Click-to-Call Phone Links - `pregReplace()`](#click-to-call-phone-links---pregreplace)
+- [Displaying Trusted HTML - `rawHtml()`](#displaying-trusted-html---rawhtml)
+
 ## Record Detail with 404 - `or404()`
 
 Load a single record, or send a `404 Not Found` response and exit if it

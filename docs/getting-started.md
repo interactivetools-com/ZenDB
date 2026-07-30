@@ -3,6 +3,19 @@
 Install ZenDB, connect to a database, and run your first queries. By the end of
 this page you will have selected, inserted, updated, and deleted rows.
 
+Contents:
+
+- [Installation](#installation)
+- [Connect and Fetch Your First Rows](#connect-and-fetch-your-first-rows)
+- [The Mental Model](#the-mental-model)
+- [Fetching One Row - `DB::selectOne()`](#fetching-one-row---dbselectone)
+- [Inserting Rows - `DB::insert()`](#inserting-rows---dbinsert)
+- [Updating Rows - `DB::update()`](#updating-rows---dbupdate)
+- [Deleting Rows - `DB::delete()`](#deleting-rows---dbdelete)
+- [Getting Raw Values](#getting-raw-values)
+- [Catching Errors](#catching-errors)
+- [Configuration Options](#configuration-options)
+
 ## Installation
 
 Using CMS Builder? ZenDB is already installed and connected; skip ahead to

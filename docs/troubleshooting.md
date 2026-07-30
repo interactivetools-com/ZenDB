@@ -5,6 +5,14 @@ deprecation warnings, connection problems, behavioral gotchas, and how to see
 the SQL a call actually ran. Headings quote the error text so you can find
 them by search.
 
+Contents:
+
+- [Error Messages](#error-messages)
+- [Deprecation Warnings](#deprecation-warnings)
+- [Connection Problems](#connection-problems)
+- [Gotchas](#gotchas)
+- [Debugging](#debugging)
+
 ## Error Messages
 
 ### "Quotes not allowed in template"

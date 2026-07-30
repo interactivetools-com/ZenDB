@@ -4,6 +4,15 @@ Inserting, updating, and deleting rows: how column values map to SQL types,
 how to use SQL expressions like `NOW()`, and how to group related writes
 with transactions.
 
+Contents:
+
+- [Inserting Rows - `DB::insert()`](#inserting-rows---dbinsert)
+- [Updating Rows - `DB::update()`](#updating-rows---dbupdate)
+- [Deleting Rows - `DB::delete()`](#deleting-rows---dbdelete)
+- [Column Values and Types](#column-values-and-types)
+- [SQL Expressions - `DB::rawSql()`](#sql-expressions---dbrawsql)
+- [Transactions - `DB::transaction()`](#transactions---dbtransaction)
+
 ## Inserting Rows - `DB::insert()`
 
 `DB::insert()` takes a table name and column-value pairs, and returns the new

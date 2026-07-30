@@ -3,6 +3,15 @@
 Fetching data from the database: selecting rows, fetching a single row,
 counting, WHERE conditions, sorting, and pagination.
 
+Contents:
+
+- [Selecting Rows - `DB::select()`](#selecting-rows---dbselect)
+- [Fetching One Row - `DB::selectOne()`](#fetching-one-row---dbselectone)
+- [Counting Rows - `DB::count()`](#counting-rows---dbcount)
+- [The Three WHERE Forms](#the-three-where-forms)
+- [ORDER BY, LIMIT, and Pagination](#order-by-limit-and-pagination)
+- [Custom SQL - `DB::query()` and `DB::queryOne()`](#custom-sql---dbquery-and-dbqueryone)
+
 ## Selecting Rows - `DB::select()`
 
 `DB::select()` returns all matching rows as a `SmartArrayHtml`. The WHERE

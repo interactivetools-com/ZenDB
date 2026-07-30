@@ -6,20 +6,20 @@ human-friendly docs with tutorials and explanations, see [Getting Started](getti
 
 Contents:
 
-- What is ZenDB
-- Querying Data - select(), selectOne(), count()
-- Modifying Data - insert(), update(), delete(), transaction()
-- WHERE Condition Forms - array, positional ?, named :placeholders
-- Placeholders & Parameters - ?, :name, backtick identifiers, :: table prefix
-- Type Handling - PHP-to-SQL conversion for WHERE and INSERT/UPDATE values
-- Custom SQL - query(), queryOne(), smart joins, clone()
-- Results & Values - SmartArray/SmartString hierarchy, HTML-encoding, methods
-- Helpers - pagination, LIKE patterns, raw SQL, date constants, table names
-- Connection - config options, connection management, raw mysqli access, multiple connections
-- Encryption (opt-in)
-- Template Safety Rules - what SQL templates reject and allow
-- Common Errors Quick Reference - exact messages and fixes
-- Gotchas - the silent failure cases
+- [What is ZenDB](#what-is-zendb)
+- [Querying Data](#querying-data) - select(), selectOne(), count()
+- [Modifying Data](#modifying-data) - insert(), update(), delete(), transaction()
+- [WHERE Condition Forms](#where-condition-forms) - array, positional ?, named :placeholders
+- [Placeholders & Parameters](#placeholders--parameters) - ?, :name, backtick identifiers, :: table prefix
+- [Type Handling](#type-handling) - PHP-to-SQL conversion for WHERE and INSERT/UPDATE values
+- [Custom SQL](#dbquery--dbqueryone----custom-sql) - query(), queryOne(), smart joins, clone()
+- [Results & Values](#results--values) - SmartArray/SmartString hierarchy, HTML-encoding, methods
+- [Helpers](#helpers) - pagination, LIKE patterns, raw SQL, date constants, table names
+- [Connection](#connection) - config options, connection management, raw mysqli access, multiple connections
+- [Encryption (opt-in)](#encryption-opt-in)
+- [Template Safety Rules](#template-safety-rules) - what SQL templates reject and allow
+- [Common Errors Quick Reference](#common-errors-quick-reference) - exact messages and fixes
+- [Gotchas](#gotchas) - the silent failure cases
 
 ---
 

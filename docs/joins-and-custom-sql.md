@@ -4,6 +4,16 @@ Queries that outgrow the table-based methods: writing full SQL with
 `DB::query()` and `DB::queryOne()`, table prefixes in raw SQL, and Smart
 Joins, the table-qualified keys ZenDB adds to multi-table results.
 
+Contents:
+
+- [Custom SQL - `DB::query()` and `DB::queryOne()`](#custom-sql---dbquery-and-dbqueryone)
+- [Table Prefixes in Raw SQL with `::`](#table-prefixes-in-raw-sql-with-)
+- [Smart Joins](#smart-joins)
+- [Self-Joins](#self-joins)
+- [Turning Smart Joins Off - `DB::clone()`](#turning-smart-joins-off---dbclone)
+- [SQL Expressions as Values - `DB::rawSql()`](#sql-expressions-as-values---dbrawsql)
+- [Putting It Together](#putting-it-together)
+
 ## Custom SQL - `DB::query()` and `DB::queryOne()`
 
 `DB::query()` runs SQL you write yourself, with the same protections as
