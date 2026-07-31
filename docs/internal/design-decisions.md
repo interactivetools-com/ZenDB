@@ -18,7 +18,7 @@ not from scratch.
 - **Thin layer over MySQL** - developers write SQL when they need SQL, the library handles
   escaping, prefixing, and result wrapping
 - **Not an ORM** - no query builders, no relationship mapping, no fluent chaining.
-  Query builders were rejected unanimously; raw SQL with safe parameterization is
+  Query builders were rejected unanimously; raw SQL with safe placeholders is
   the abstraction level ZenDB wants.
 
 ---

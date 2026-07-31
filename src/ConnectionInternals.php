@@ -717,7 +717,7 @@ trait ConnectionInternals
      * returns the SQL literal NULL, so IN (NULL) matches nothing.
      *
      * Tip: You probably don't need this! Named placeholders handle arrays
-     * automatically, which is simpler and keeps your values parameterized:
+     * automatically, which is simpler and keeps your values in placeholders:
      *
      *     // Instead of this:
      *     DB::select('users', "id IN (?)", DB::escapeCSV([1, 2, 3]));

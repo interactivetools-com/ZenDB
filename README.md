@@ -11,9 +11,9 @@ https://github.com/interactivetools-com/ZenDB/blob/main/docs/ai-reference.md
 
 A PHP/MySQL database layer that's easy to use and hard to misuse.
 
-- **SQL injection is impossible:** ZenDB rejects any query with inline
-  values. Every dynamic value goes through placeholders, not because you
-  remembered, but because there's no other way.
+- **SQL injection is designed out:** Quotes and numbers written into a
+  query are rejected before it runs. Values go through placeholders, not
+  because you remembered, but because there's no other way.
 - **XSS is prevented by default:** Every value from the database
   HTML-encodes itself on output. You don't call `htmlspecialchars()`.
   Neither does the next developer.
@@ -29,8 +29,8 @@ powerful. ZenDB takes the opposite approach: **don't teach people a
 complicated thing that replaces SQL. Just use SQL and make it safe.**
 
 `SELECT`, `WHERE`, `JOIN`, `ORDER BY` - that's all you need to query with
-ZenDB. The library handles the security (parameterization,
-escaping, validation) so you can write the SQL you already know without
+ZenDB. The library handles the security (placeholders, escaping,
+validation) so you can write the SQL you already know without
 worrying about injection.
 
 ## What's Inside

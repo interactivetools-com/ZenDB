@@ -25,11 +25,13 @@ Contents:
 
 ## What is ZenDB
 
-ZenDB is a PHP/MySQL database library where **SQL injection is impossible by
-design**. All dynamic values go through parameterized queries. SQL templates are
-scanned before execution -- quotes, standalone numbers, backslashes, NULL bytes,
-and CTRL-Z are rejected outright. Every value returned from queries is a
-SmartString that auto-HTML-encodes in string context, preventing XSS by default.
+ZenDB is a PHP/MySQL database library where **SQL injection is designed out**:
+values can only enter a query through placeholders, which escape and quote them
+before it runs. SQL templates are scanned before execution -- quotes, standalone
+numbers, backslashes, NULL bytes, and CTRL-Z are rejected outright. The one gap
+is an identifier interpolated into a template by hand (see Gotchas). Every value
+returned from queries is a SmartString that auto-HTML-encodes in string context,
+preventing XSS by default.
 
 ```php
 use Itools\ZenDB\DB;
@@ -663,8 +665,10 @@ The following are **allowed** in templates.
 | `''` and `""`      | Empty string literals (no injection payload)                |
 | Trailing `LIMIT #` | Literal number kept in query, skipped by the template guard |
 
-Table and column names are validated against `/^[\w-]+$/` (alphanumeric,
-underscore, hyphen only).
+Table and column names that ZenDB inserts -- table arguments, WHERE-array and
+`$values` keys, and backtick placeholders -- are validated against `/^[\w-]+$/`
+(alphanumeric, underscore, hyphen only). Identifiers interpolated into a
+template by hand are not; the guard has no schema to check them against.
 
 ---
 
@@ -698,6 +702,13 @@ underscore, hyphen only).
   Expansion also skips `null` elements and removes duplicates: `[1, null, 1, 2]` → `IN (1,2)`.
 - **Boolean values:** `true`/`false` become SQL `TRUE`/`FALSE` keywords.
 - **Param forms:** up to 3 direct values for `?` placeholders, or one array of `:name` params. Never pass positional values as an array, e.g. `("a = ? AND b = ?", [1, 2])` -- that form is deprecated and will throw in a future version.
+- **Interpolated identifiers are the one injection path.** The guard flags quotes and
+  numbers, which every real *value* carries, so `"WHERE city = $city"` throws on the
+  first real value. An identifier carries neither, so `"ORDER BY $sort"` passes the
+  guard and is injection when `$sort` is user input. Use a backtick placeholder --
+  `` "ORDER BY `:sort`", [':sort' => $sort] `` -- or map the input to a known-good
+  column in PHP first. A value placeholder won't work: `ORDER BY 'name'` sorts by a
+  constant string and silently does nothing.
 
 ---
 
