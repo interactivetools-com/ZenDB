@@ -55,16 +55,16 @@ foreach ($users as $user) {
 
 All four config keys are required; a missing one throws `RuntimeException`
 with the key name, and a failed connection throws with the MySQL error.
-Those four are enough for most apps; for everything else `DB::connect()`
-accepts (timeouts, `tablePrefix`, SSL, encryption), see
+Those four are enough for most apps; for all `DB::connect()`
+arguments (timeouts, `tablePrefix`, SSL, encryption), see
 [Configuration Options](#configuration-options) at the bottom of this page.
 
 ## The Mental Model
 
 Three rules explain most of the library:
 
-1. **Method names are SQL statements.** `select()` runs a SELECT, `insert()`
-   runs an INSERT. If you know MySQL, you already know what each method does,
+1. **Methods are named after the SQL they run.** `select()` runs a SELECT, `insert()`
+   runs an INSERT. If you know MySQL, you already know what these methods do,
    and each example below shows the exact SQL it generates.
 2. **Values only enter through placeholders.** Never quote or escape a value
    yourself. SQL templates containing inline quotes or numbers are rejected
