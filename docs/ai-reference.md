@@ -30,8 +30,9 @@ values can only enter a query through placeholders, which escape and quote them
 before it runs. SQL templates are scanned before execution -- quotes, standalone
 numbers, backslashes, NULL bytes, and CTRL-Z are rejected outright. The one gap
 is an identifier interpolated into a template by hand (see Gotchas). Every value
-returned from queries is a SmartString that auto-HTML-encodes in string context,
-preventing XSS by default.
+returned from queries is a
+[SmartString](https://github.com/interactivetools-com/SmartString) that
+auto-HTML-encodes in string context, preventing XSS by default.
 
 ```php
 use Itools\ZenDB\DB;

@@ -252,8 +252,9 @@ foreach ($byCategory as $category => $items) {
 ```
 
 One encoding note: group keys are PHP array keys, so `$category` is a plain
-string, not a SmartString, and doesn't HTML-encode itself. Encode it yourself
-on output, as above.
+string, not a
+[SmartString](https://github.com/interactivetools-com/SmartString), and doesn't
+HTML-encode itself. Encode it yourself on output, as above.
 
 ## Lookup Maps - `pluck()` and `indexBy()`
 

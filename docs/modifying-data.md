@@ -100,9 +100,10 @@ DB::insert('products', [
 ]);
 ```
 
-SmartString values unwrap to their underlying value automatically. Arrays
-throw: column assignment is single-valued, so serialize first
-(`json_encode()`, `implode()`).
+[SmartString](https://github.com/interactivetools-com/SmartString) values
+unwrap to their underlying value automatically. Arrays throw: column
+assignment is single-valued, so serialize first (`json_encode()`,
+`implode()`).
 [Placeholders](placeholders.md) covers the full type handling rules. With
 `encryptionKey` set, `MEDIUMBLOB` columns encrypt automatically on
 `insert()`/`update()`; see [Encryption](encryption.md).

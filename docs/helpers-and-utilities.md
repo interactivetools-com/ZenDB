@@ -133,7 +133,8 @@ $featured = DB::select('products', "tags LIKE ?", DB::likeContainsTSV('featured'
 // tags LIKE '%\tfeatured\t%' - matches "featured" but not "unfeatured"
 ```
 
-The helpers accept strings, ints, floats, `null`, and SmartString values.
+The helpers accept strings, ints, floats, `null`, and
+[SmartString](https://github.com/interactivetools-com/SmartString) values.
 
 ## Table Prefix Conversion - `DB::getFullTable()` and `DB::getBaseTable()`
 

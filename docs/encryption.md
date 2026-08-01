@@ -107,7 +107,9 @@ DB::query("UPDATE ::users SET apiToken = ? WHERE id = ?", DB::encryptValue('new-
 // UPDATE users SET apiToken = '<ciphertext>' WHERE id = 1
 ```
 
-`NULL` input returns `NULL`, and `SmartString` values unwrap automatically.
+`NULL` input returns `NULL`, and
+[`SmartString`](https://github.com/interactivetools-com/SmartString) values
+unwrap automatically.
 Calling it on a connection without `encryptionKey` throws `RuntimeException`.
 
 Determinism is also the tradeoff: anyone who can read the table can see which

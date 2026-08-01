@@ -163,8 +163,10 @@ DB::select('users', "LIMIT ?", 10);     // LIMIT 10       - works
 DB::select('users', "LIMIT ?", "10");   // LIMIT '10'     - MySQL syntax error
 ```
 
-SmartString, SmartNull, and SmartArray parameters unwrap to their underlying
-values automatically, so passing `$row->name` as a parameter just works.
+[SmartString](https://github.com/interactivetools-com/SmartString), SmartNull,
+and [SmartArray](https://github.com/interactivetools-com/SmartArray)
+parameters unwrap to their underlying values automatically, so passing
+`$row->name` as a parameter just works.
 
 Arrays expand to comma-separated values for `IN` lists, and require a named
 placeholder (`?` would be ambiguous). The expansion skips `null` elements and

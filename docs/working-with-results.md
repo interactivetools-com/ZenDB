@@ -91,7 +91,9 @@ $rows = DB::select('users')->toArray();   // array of plain row arrays
 
 ## Chaining Value Methods
 
-Value methods return a new SmartString, so transformations chain:
+Value methods return a new
+[SmartString](https://github.com/interactivetools-com/SmartString), so
+transformations chain:
 
 ```php
 // Strip HTML tags, then shorten to 100 characters with an ellipsis

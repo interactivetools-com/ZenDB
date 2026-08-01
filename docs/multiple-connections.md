@@ -35,7 +35,9 @@ also exists on every `Connection` instance, not just `DB::`.
 ### Getting Raw Values - `useSmartStrings`
 
 A clone with `useSmartStrings` off returns plain PHP values instead of
-HTML-encoding `SmartString` objects, useful when the output isn't HTML:
+HTML-encoding
+[`SmartString`](https://github.com/interactivetools-com/SmartString) objects,
+useful when the output isn't HTML:
 
 ```php
 $raw   = DB::clone(['useSmartStrings' => false]);
