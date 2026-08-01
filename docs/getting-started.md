@@ -8,6 +8,7 @@ Contents:
 - [Installation](#installation)
 - [Connect and Fetch Your First Rows](#connect-and-fetch-your-first-rows)
 - [The Mental Model](#the-mental-model)
+- [What Queries Return](#what-queries-return)
 - [Fetching One Row - `DB::selectOne()`](#fetching-one-row---dbselectone)
 - [Inserting Rows - `DB::insert()`](#inserting-rows---dbinsert)
 - [Updating Rows - `DB::update()`](#updating-rows---dbupdate)
@@ -73,6 +74,28 @@ Three rules explain most of the library:
 3. **Output is HTML-encoded by default.** Every value from the database
    encodes itself when echoed, so XSS protection doesn't depend on anyone
    remembering `htmlspecialchars()`.
+
+## What Queries Return
+
+Results are SmartArrays and the values inside them are SmartStrings, both
+installed alongside ZenDB. They behave like ordinary arrays and strings -
+`foreach`, `echo`, and string interpolation all work as you'd expect - with
+more methods available when you want them.
+
+```php
+$users = DB::select('users', "status = ?", 'active');
+// SELECT * FROM `users` WHERE status = 'active'
+
+echo count($users);                          // row count
+echo $users->pluck('email')->implode(', ');  // one column, joined
+
+$user = $users->first();
+echo $user->joinDate->dateFormat('M j, Y');  // Mar 16, 2026
+echo $user->bio->maxChars(100, '...');       // truncated
+echo $user->nickname->or('(none)');          // fallback when empty
+```
+
+[Working with Results](working-with-results.md) has the full method lists.
 
 ## Fetching One Row - `DB::selectOne()`
 
@@ -149,9 +172,8 @@ DB::delete('users', "status = ? AND city = ?", 'inactive', 'Vancouver');
 
 ## Getting Raw Values
 
-Results are `SmartArrayHtml` collections of `SmartString` values, which is what
-makes output HTML-encode itself. When you need the underlying data instead,
-ask for it:
+Encoded output is the default: every value is a `SmartString` that HTML-encodes
+itself when echoed. When you need the underlying data instead, ask for it:
 
 ```php
 // One field's raw value
