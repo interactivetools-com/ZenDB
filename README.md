@@ -98,10 +98,14 @@ $rows = DB::query("SELECT name, city FROM ::users WHERE status = :status AND cit
 - You need async or non-blocking database queries
 - You prefer writing raw SQL without any abstraction
 
-## Related Libraries
+## Companion Libraries
 
-- [SmartArray](https://github.com/interactivetools-com/SmartArray) - Enhanced arrays with chainable methods
-- [SmartString](https://github.com/interactivetools-com/SmartString) - Secure string handling with auto HTML-encoding
+Read queries return SmartArrays, and the values inside them are SmartStrings.
+Both are installed with ZenDB. Documentation for those libraries is in their
+own GitHub repos:
+
+- [SmartArray](https://github.com/interactivetools-com/SmartArray)
+- [SmartString](https://github.com/interactivetools-com/SmartString)
 
 ## Questions?
 
