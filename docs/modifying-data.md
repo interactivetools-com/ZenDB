@@ -52,6 +52,10 @@ DB::update('users', ['status' => 'inactive'], "lastLogin < ?", '2025-01-01');
 // UPDATE `users` SET `status` = 'inactive' WHERE lastLogin < '2025-01-01'
 ```
 
+The WHERE condition takes the same three forms as it does for reads: an array,
+positional `?` placeholders, or named `:name` placeholders. See
+[The Three WHERE Forms](querying-data.md#the-three-where-forms).
+
 **The WHERE condition is required.** Updating without one throws, so a typo
 can't silently rewrite the whole table. To genuinely update every row, say so
 with an always-true condition:
