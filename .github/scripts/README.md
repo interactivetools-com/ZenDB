@@ -30,6 +30,9 @@ research live in the repo root `__escape-benchmark-plan.md` (untracked).
   ZenDB-shaped query-compile cells; one JSON per OS x PHP cell
 - `escape-e2e-probe.php` - end-to-end family: interpolation vs prepared vs PDO
   vs hex per DB server, round-trip census, reuse crossover, bulk grid
+- `escape-zendb-probe.php` - ZenDB vs raw mysqli (`escape-zendb-matrix.yml`):
+  DB::select/selectOne/query vs hand-written mysqli, whole-query wall time plus
+  per-row wrapping cost; the only escape script that needs composer install
 - `escape-merge.php` - merge probe JSONs from either family into one grid
 - `escape-results.md` - committed verdict grid from full CI runs (citable source)
 

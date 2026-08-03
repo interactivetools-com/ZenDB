@@ -278,11 +278,23 @@ function build_pools(): array
         $pools['clean1k'][]  = build_clean(1024, 3000 + $i);
 
         // prose1k: typed-prose escapable density - one quoted phrase plus two
-        // apostrophes per KB (~0.4%, corpus-measured in SmartString's pools);
-        // the realistic "has escapables" long field
+        // apostrophes per KB (~0.4%, corpus-measured in SmartString's pools;
+        // apostrophe dominates real text, & < > " are rare); the realistic
+        // "has escapables" long field
         $prose = build_clean(1020, 4000 + $i);
         $pools['prose1k'][] = substr($prose, 0, 250) . '"' . substr($prose, 250, 50) . '"'
             . substr($prose, 300, 300) . "'" . substr($prose, 600, 250) . "'" . substr($prose, 850);
+
+        // Real DB value sizes: most string values are short. clean32 = typical
+        // varchar (name, city, slug); prose100 = short sentence with one
+        // apostrophe (O'Brien-density short text)
+        $pools['clean32'][] = build_clean(32, 13000 + $i);
+        $p100 = build_clean(100, 14000 + $i);
+        $pools['prose100'][] = substr($p100, 0, 40) . "'" . substr($p100, 41);
+
+        // text10k: a long article-shaped field at prose density (the 10KB body
+        // row from SmartString's performance table)
+        $pools['text10k'][] = str_repeat($pools['prose1k'][count($pools['prose1k']) - 1], 10);
 
         // dirty1k: dense escapables (5%+), the strtr-favoring bound
         $pools['dirty1k'][] = str_replace(['a', 'e', 'o'], ["'", '"', "\\"], build_clean(1024, 5000 + $i));
@@ -445,6 +457,9 @@ function build_tests(array $pools, mysqli $mysqli, ?PDO $pdo): array
 
         // --- Headline: real_escape_string vs inline 7-pair str_replace, per pool ---
         ['esc-clean10', 'short', 'quoted', 'real_escape_string', 'inline str_replace', looped($quotedReal, $pools['clean10']), looped($quotedFast, $pools['clean10']), ['esc_str_replace']],
+        ['esc-clean32', 'short', 'quoted', 'real_escape_string', 'inline str_replace', looped($quotedReal, $pools['clean32']), looped($quotedFast, $pools['clean32']), ['esc_str_replace']],
+        ['esc-prose100', 'short', 'quoted', 'real_escape_string', 'inline str_replace', looped($quotedReal, $pools['prose100']), looped($quotedFast, $pools['prose100']), ['esc_str_replace']],
+        ['esc-text10k', 'bulk', 'quoted', 'real_escape_string', 'inline str_replace', looped($quotedReal, $pools['text10k']), looped($quotedFast, $pools['text10k']), ['esc_str_replace']],
         ['esc-datetime', 'short', 'quoted', 'real_escape_string', 'inline str_replace', looped($quotedReal, $pools['datetime']), looped($quotedFast, $pools['datetime']), ['esc_str_replace']],
         ['esc-clean1k', 'long', 'quoted', 'real_escape_string', 'inline str_replace', looped($quotedReal, $pools['clean1k']), looped($quotedFast, $pools['clean1k']), ['esc_str_replace']],
         ['esc-prose1k', 'long', 'quoted', 'real_escape_string', 'inline str_replace', looped($quotedReal, $pools['prose1k']), looped($quotedFast, $pools['prose1k']), ['esc_str_replace']],
@@ -471,6 +486,12 @@ function build_tests(array $pools, mysqli $mysqli, ?PDO $pdo): array
         ['alt-addsl-short', 'short', 'quoted', 'str_replace', 'addslashes + 3-pair tail',
             looped($quotedFast, $pools['clean10']),
             looped(static fn(string $v): int => strlen("'" . esc_addslashes_tail($v) . "'"), $pools['clean10']), ['esc_str_replace', 'esc_addslashes_tail']],
+        ['alt-addsl-prose100', 'short', 'quoted', 'str_replace', 'addslashes + 3-pair tail',
+            looped(static fn(string $v): int => strlen("'" . str_replace(ZENDB_ESCAPE_FROM, ZENDB_ESCAPE_TO, $v) . "'"), $pools['prose100']),
+            looped(static fn(string $v): int => strlen("'" . esc_addslashes_tail($v) . "'"), $pools['prose100']), ['esc_str_replace', 'esc_addslashes_tail']],
+        ['alt-addsl-text10k', 'bulk', 'quoted', 'str_replace', 'addslashes + 3-pair tail',
+            looped(static fn(string $v): int => strlen("'" . str_replace(ZENDB_ESCAPE_FROM, ZENDB_ESCAPE_TO, $v) . "'"), $pools['text10k']),
+            looped(static fn(string $v): int => strlen("'" . esc_addslashes_tail($v) . "'"), $pools['text10k']), ['esc_str_replace', 'esc_addslashes_tail']],
         ['alt-addcsl-prose1k', 'long', 'quoted', 'addslashes + 3-pair tail', 'addcslashes-5 + 2-pair tail',
             looped(static fn(string $v): int => strlen("'" . esc_addslashes_tail($v) . "'"), $pools['prose1k']),
             looped(static fn(string $v): int => strlen("'" . esc_addcslashes_tail($v) . "'"), $pools['prose1k']), ['esc_addslashes_tail', 'esc_addcslashes_tail']],
@@ -542,6 +563,11 @@ function build_tests(array $pools, mysqli $mysqli, ?PDO $pdo): array
         ['ref-int-cast', 'short', 'expr', 'escape stringified int', 'native int branch (no escape)',
             looped(static fn(int $v): int => strlen("'" . str_replace(ZENDB_ESCAPE_FROM, ZENDB_ESCAPE_TO, (string)$v) . "'"), $pools['ints']),
             looped(static fn(int $v): int => strlen((string)$v), $pools['ints']), []],
+        // Explicit (string) cast vs letting concatenation coerce: same C conversion
+        // either way, expected exact tie - the cell exists to prove it
+        ['ref-int-coerce', 'short', 'expr', 'concat with (string) cast', 'concat with implicit coercion',
+            looped(static fn(int $v): int => strlen('v = ' . (string)$v), $pools['ints']),
+            looped(static fn(int $v): int => strlen('v = ' . $v), $pools['ints']), []],
 
         // --- Call-dispatch ladder: A always the inlined expression, B one convention ---
         ['call-named', 'short', 'strlen', 'inline str_replace', 'named function',
