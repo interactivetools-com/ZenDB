@@ -96,7 +96,9 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       # No xdebug (coverage: none), opcache enabled for CLI to match production
-      # opcode optimization; JIT only when requested via the jit input
+      # opcode optimization. JIT is set explicitly both ways: the runner images
+      # ship a non-zero opcache.jit_buffer_size, so leaving the jit input alone
+      # would silently benchmark with JIT on and label the run "off"
       - name: Setup PHP ${{ matrix.php }}
         uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2.37.2
         with:
@@ -104,7 +106,8 @@ jobs:
           extensions: mysqli, pdo_mysql
           coverage: none
           ini-values: >-
-            opcache.enable_cli=1${{ inputs.jit == 'tracing' && ', opcache.jit=tracing, opcache.jit_buffer_size=64M' || '' }}
+            opcache.enable_cli=1,
+            ${{ inputs.jit == 'tracing' && 'opcache.jit=tracing, opcache.jit_buffer_size=64M' || 'opcache.jit=off, opcache.jit_buffer_size=0' }}
 
       - name: Start MySQL 8.0
         uses: shogo82148/actions-setup-mysql@076e636c45996ec8cb1a455c65f9f5364aeebd8a # v1.52.1

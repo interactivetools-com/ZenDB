@@ -101,9 +101,11 @@ jobs:
           php-version: '8.1'
           extensions: mysqli, pdo_mysql
           coverage: none
-          # allow_local_infile is PHP_INI_SYSTEM: the LOAD DATA channel needs it
-          # here, runtime options() alone can't enable it
-          ini-values: opcache.enable_cli=1, mysqli.allow_local_infile=1
+          # JIT set explicitly: runner images ship a non-zero jit_buffer_size, so
+          # leaving it alone benchmarks with JIT on. allow_local_infile is
+          # PHP_INI_SYSTEM: the LOAD DATA channel needs it here, runtime
+          # options() alone can't enable it
+          ini-values: opcache.enable_cli=1, opcache.jit=off, opcache.jit_buffer_size=0, mysqli.allow_local_infile=1
 
       - name: Wait for database
         run: |

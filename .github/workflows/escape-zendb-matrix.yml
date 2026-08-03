@@ -76,7 +76,8 @@ jobs:
           php-version: ${{ matrix.php }}
           extensions: mysqli, mbstring
           coverage: none
-          ini-values: opcache.enable_cli=1
+          # JIT set explicitly: runner images ship a non-zero jit_buffer_size
+          ini-values: opcache.enable_cli=1, opcache.jit=off, opcache.jit_buffer_size=0
 
       - name: Install dependencies
         run: composer install --no-interaction --prefer-dist
