@@ -1,10 +1,10 @@
 # Multiple Connections
 
 The `DB::` methods operate on the single default connection created by
-`DB::connect()`, and for most applications that is all you need. This page
-covers the two tools for going beyond it: `DB::clone()` reuses the live MySQL
-connection with different settings, and `new Connection()` opens a genuinely
-separate connection to another server, database, or set of credentials.
+`DB::connect()`. This page covers two tools for applications that require
+more than that: `DB::clone()` reuses the live MySQL connection with different
+settings, and `new Connection()` opens a genuinely separate connection to
+another server, database, or set of credentials.
 
 Contents:
 
@@ -14,9 +14,10 @@ Contents:
 ## Same Connection, Different Settings - `DB::clone()`
 
 `DB::clone()` returns a new `Connection` object that shares the default
-connection's live mysqli link but has its own settings. No second connection
-is opened, and the original `DB::` connection is unaffected. Three settings
-can be overridden: `tablePrefix`, `useSmartJoins`, and `useSmartStrings`.
+connection's live mysqli link but can override three settings:
+`tablePrefix`, `useSmartJoins`, and `useSmartStrings`.
+No second connection is opened, and the original `DB::` connection
+is unaffected.
 
 The most common use is reaching tables with a different prefix in the same
 database. With `tablePrefix` set to `'cms_'` on the default connection:
@@ -32,12 +33,12 @@ The clone is a normal `Connection` object: call the same query methods on it
 that you call on `DB::`, and keep it around as long as you need it. `clone()`
 also exists on every `Connection` instance, not just `DB::`.
 
-### Getting Raw Values - `useSmartStrings`
+### Getting Raw Values - `'useSmartStrings' => false`
 
 A clone with `useSmartStrings` off returns plain PHP values instead of
 HTML-encoding
 [`SmartString`](https://github.com/interactivetools-com/SmartString) objects,
-useful when the output isn't HTML:
+useful when not planning to output as HTML:
 
 ```php
 $raw   = DB::clone(['useSmartStrings' => false]);
@@ -54,7 +55,7 @@ For one-off raw values on the default connection, `->value()` and
 whole section of code (a CSV export, an API endpoint) wants raw values
 throughout.
 
-### Turning Off Smart Joins - `useSmartJoins`
+### Turning Off Smart Joins - `'useSmartJoins' => false`
 
 A clone with `useSmartJoins` off skips the extra `table.column` keys that
 JOIN results normally include, which avoids that bookkeeping on large result

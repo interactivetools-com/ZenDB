@@ -88,7 +88,7 @@ $recent = DB::count('orders', "orderDate > ?", '2026-06-01');
 
 ## The Three WHERE Forms
 
-Every method that takes a WHERE condition accepts it in three forms:
+Every method that takes a WHERE condition accepts it in three forms.
 Pick by complexity:
 
 - **Array** - equality matches, the common case. Most readable.
