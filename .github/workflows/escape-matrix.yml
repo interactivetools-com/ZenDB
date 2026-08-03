@@ -37,11 +37,11 @@ on:
         type: choice
         options: ['', '8.1', '8.2', '8.3', '8.4', '8.5', '8.6']
       jit:
-        description: 'opcache JIT'
+        description: 'opcache JIT (1235 = the flag combo runner images shipped by default; miscompiled the corpus gate on ARM PHP 8.1-8.3)'
         required: false
         default: 'off'
         type: choice
-        options: ['off', 'tracing']
+        options: ['off', 'tracing', '1235']
       scale:
         description: 'Iteration scale (1.0 = full, 0.3 = quick)'
         required: false
@@ -107,7 +107,7 @@ jobs:
           coverage: none
           ini-values: >-
             opcache.enable_cli=1,
-            ${{ inputs.jit == 'tracing' && 'opcache.jit=tracing, opcache.jit_buffer_size=64M' || 'opcache.jit=off, opcache.jit_buffer_size=0' }}
+            ${{ inputs.jit == 'off' && 'opcache.jit=off, opcache.jit_buffer_size=0' || format('opcache.jit={0}, opcache.jit_buffer_size=64M', inputs.jit) }}
 
       - name: Start MySQL 8.0
         uses: shogo82148/actions-setup-mysql@076e636c45996ec8cb1a455c65f9f5364aeebd8a # v1.52.1
@@ -121,7 +121,7 @@ jobs:
           DB_PASSWORD: ''
           DB_DATABASE: phpunit_test_db
         run: |
-          SLUG="${{ matrix.os }}-php${{ matrix.php }}${{ inputs.jit == 'tracing' && '-jit' || '' }}"
+          SLUG="${{ matrix.os }}-php${{ matrix.php }}${{ inputs.jit != 'off' && format('-jit-{0}', inputs.jit) || '' }}"
           echo "SLUG=$SLUG" >> "$GITHUB_ENV"
           php .github/scripts/escape-probe.php \
             --json="probe-$SLUG.json" \
