@@ -23,7 +23,7 @@ class SelectTest extends BaseTestCase
     {
         DB::disconnect();
         DB::connect(self::$configDefaults);
-        self::resetTempTestTables();
+        self::resetTestTables();
     }
 
     //region DB::select() Tests

@@ -21,7 +21,7 @@ class EncryptionKeyTest extends BaseTestCase
     public static function setUpBeforeClass(): void
     {
         self::$conn = self::createDefaultConnection(['encryptionKey' => 'test-secret-key']);
-        self::resetTempTestTables();
+        self::resetTestTables();
     }
 
     /**

@@ -26,7 +26,7 @@ class UnusedPositionalDeprecationTest extends BaseTestCase
     public static function setUpBeforeClass(): void
     {
         self::createDefaultConnection();
-        self::resetTempTestTables();
+        self::resetTestTables();
 
         // Capture deprecation warnings
         set_error_handler(function ($errno, $errstr) {

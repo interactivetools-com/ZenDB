@@ -45,7 +45,7 @@ class DocsExamplesTest extends BaseTestCase
     {
         // Every test starts from the same rows and auto-increment values, so
         // examples that insert or delete can pin exact IDs and row counts.
-        self::resetTempTestTables();
+        self::resetTestTables();
     }
 
     //region docs/getting-started.md

@@ -20,7 +20,7 @@ class DeprecationLoggerTest extends BaseTestCase
     public static function setUpBeforeClass(): void
     {
         self::createDefaultConnection();
-        self::resetTempTestTables();
+        self::resetTestTables();
 
         // Capture deprecation warnings
         self::$originalHandler = set_error_handler(function($errno, $errstr) {

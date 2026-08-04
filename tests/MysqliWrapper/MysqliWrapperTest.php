@@ -23,7 +23,7 @@ class MysqliWrapperTest extends BaseTestCase
     public static function setUpBeforeClass(): void
     {
         self::createDefaultConnection();
-        self::resetTempTestTables();
+        self::resetTestTables();
     }
 
     //region lastQuery
@@ -61,7 +61,7 @@ class MysqliWrapperTest extends BaseTestCase
 
     public function testLastQueryOnUpdate(): void
     {
-        self::resetTempTestTables();
+        self::resetTestTables();
 
         DB::update('users', ['city' => 'Query Test City'], ['num' => 1]);
 

@@ -42,9 +42,35 @@ abstract class BaseTestCase extends TestCase
         return DB::clone();
     }
 
-    public static function resetTempTestTables(): void {
+    /**
+     * Recreate the test tables with fresh data. Most are TEMPORARY (cheap to create,
+     * gone on disconnect), but test_employees and test_products are regular tables:
+     * MySQL can't reference a TEMPORARY table twice in one query, and the docs examples
+     * self-join employees and subquery products. Regular tables are dropped when the
+     * run ends. If a new example needs to reference another table twice, move that
+     * table to the regular list here and in the cleanup below.
+     */
+    public static function resetTestTables(): void {
 
-        // create temporary tables with test data
+        // drop the regular tables when the run ends
+        static $cleanupRegistered = false;
+        if (!$cleanupRegistered) {
+            $cleanupRegistered = true;
+            register_shutdown_function(static function (): void {
+                mysqli_report(MYSQLI_REPORT_OFF); // cleanup is best-effort; the server may already be gone
+                $c  = self::$configDefaults;
+                $db = @new \mysqli($c['hostname'], $c['username'], $c['password'], $c['database']);
+                if ($db->connect_errno) {
+                    return;
+                }
+                foreach (['test_employees', 'test_products'] as $table) {
+                    $db->query("DROP TABLE IF EXISTS `$table`");
+                }
+                $db->close();
+            });
+        }
+
+        // create tables with test data
         $sql = <<<__SQL__
 DROP TEMPORARY TABLE IF EXISTS test_users;
 CREATE TEMPORARY TABLE test_users (num INT PRIMARY KEY AUTO_INCREMENT,
@@ -78,7 +104,7 @@ INSERT INTO test_users (num, name, isAdmin, status, city, dob, age) VALUES
     (19, 'Quentin Adams', NULL, 'Active', 'Charlottetown', '1991-03-31', 32),
     (20, 'Rachel Carter', 0, 'Suspended', 'Yellowknife', '1979-07-04', 44);
 
--- Create temporary table for test_orders
+-- Create table for test_orders
 DROP TEMPORARY TABLE IF EXISTS test_orders;
 CREATE TEMPORARY TABLE test_orders (
     order_id INT PRIMARY KEY AUTO_INCREMENT,
@@ -100,9 +126,9 @@ INSERT INTO test_orders (user_id, order_date, total_amount) VALUES
     (14, '2024-02-12', 30.25),
     (15, '2024-03-08', 95.75);
 
--- Create temporary table for products
-DROP TEMPORARY TABLE IF EXISTS test_products;
-CREATE TEMPORARY TABLE test_products (
+-- Create table for products (regular, not TEMPORARY: subquery examples reference it twice in one query)
+DROP TABLE IF EXISTS test_products;
+CREATE TABLE test_products (
     product_id INT PRIMARY KEY AUTO_INCREMENT,
     product_name VARCHAR(255),
     price DECIMAL(8, 2)
@@ -116,7 +142,7 @@ INSERT INTO test_products (product_name, price) VALUES
     ('Product D', 8.25),
     ('Product E', 15.99);
 
--- Create temporary table for order details
+-- Create table for order details
 DROP TEMPORARY TABLE IF EXISTS test_order_details;
 CREATE TEMPORARY TABLE test_order_details (
     order_detail_id INT PRIMARY KEY AUTO_INCREMENT,
@@ -158,9 +184,9 @@ INSERT INTO test_order_details (order_id, product_id, quantity) VALUES
     (29, 4, 3),
     (30, 5, 2);
 
--- Table for self-join tests (employees with managers)
-DROP TEMPORARY TABLE IF EXISTS test_employees;
-CREATE TEMPORARY TABLE test_employees (
+-- Table for self-join tests (employees with managers; regular, not TEMPORARY, so it can appear twice in one query)
+DROP TABLE IF EXISTS test_employees;
+CREATE TABLE test_employees (
     id INT PRIMARY KEY AUTO_INCREMENT,
     name VARCHAR(255),
     manager_id INT NULL,

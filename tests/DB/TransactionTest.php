@@ -20,12 +20,12 @@ class TransactionTest extends BaseTestCase
     {
         DB::disconnect();
         DB::connect(self::$configDefaults);
-        self::resetTempTestTables();
+        self::resetTestTables();
     }
 
     public function testCommitsOnSuccess(): void
     {
-        self::resetTempTestTables();
+        self::resetTestTables();
 
         $insertId = DB::transaction(function () {
             return DB::insert('users', [
@@ -137,7 +137,7 @@ class TransactionTest extends BaseTestCase
             // The killed connection is unusable; reconnect for the remaining tests
             DB::disconnect();
             DB::connect(self::$configDefaults);
-            self::resetTempTestTables();
+            self::resetTestTables();
         }
     }
 

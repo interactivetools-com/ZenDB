@@ -19,12 +19,12 @@ class QueryMethodsTest extends BaseTestCase
     public static function setUpBeforeClass(): void
     {
         self::$conn = self::createDefaultConnection();
-        self::resetTempTestTables();
+        self::resetTestTables();
     }
 
     protected function setUp(): void
     {
-        self::resetTempTestTables();
+        self::resetTestTables();
     }
 
     //region Instance select() and selectOne()

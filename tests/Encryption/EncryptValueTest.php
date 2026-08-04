@@ -22,7 +22,7 @@ class EncryptValueTest extends BaseTestCase
     public static function setUpBeforeClass(): void
     {
         self::$conn = self::createDefaultConnection(['encryptionKey' => 'test-encrypt-value-key']);
-        self::resetTempTestTables();
+        self::resetTestTables();
 
         // Create a table with MEDIUMBLOB columns for encryption testing
         self::$conn->mysqli->query("DROP TEMPORARY TABLE IF EXISTS test_enc_users");

@@ -21,7 +21,7 @@ class SelfJoinsTest extends BaseTestCase
     public static function setUpBeforeClass(): void
     {
         self::createDefaultConnection();
-        self::resetTempTestTables();
+        self::resetTestTables();
 
         // MySQL doesn't allow self-joins on TEMPORARY tables ("Can't reopen table" error)
         // So we need to use a permanent table for self-join tests

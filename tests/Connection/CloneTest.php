@@ -20,7 +20,7 @@ class CloneTest extends BaseTestCase
     public static function setUpBeforeClass(): void
     {
         self::$conn = self::createDefaultConnection();
-        self::resetTempTestTables();
+        self::resetTestTables();
     }
 
     protected function tearDown(): void

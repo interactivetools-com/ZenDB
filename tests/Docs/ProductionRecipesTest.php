@@ -19,7 +19,7 @@ use RuntimeException;
  * to end with its exact output. If these chains still produce the same output
  * after a refactor, real sites survive it.
  *
- * Every test starts from the fixture data in resetTempTestTables(), so the
+ * Every test starts from the fixture data in resetTestTables(), so the
  * pinned ids and totals hold no matter what order the tests run in.
  */
 class ProductionRecipesTest extends BaseTestCase
@@ -28,12 +28,12 @@ class ProductionRecipesTest extends BaseTestCase
     {
         DB::disconnect();
         DB::connect(self::$configDefaults);
-        self::resetTempTestTables();
+        self::resetTestTables();
     }
 
     protected function setUp(): void
     {
-        self::resetTempTestTables();
+        self::resetTestTables();
     }
 
     //region Template Output

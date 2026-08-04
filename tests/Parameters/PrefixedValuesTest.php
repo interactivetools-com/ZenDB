@@ -23,7 +23,7 @@ class PrefixedValuesTest extends BaseTestCase
     public static function setUpBeforeClass(): void
     {
         self::createDefaultConnection();
-        self::resetTempTestTables();
+        self::resetTestTables();
     }
 
     //region Basic Substitution
@@ -268,7 +268,7 @@ class PrefixedValuesTest extends BaseTestCase
         } finally {
             // Reconnecting dropped the temp tables, restore both for any tests that run after
             self::createDefaultConnection();
-            self::resetTempTestTables();
+            self::resetTestTables();
         }
     }
 

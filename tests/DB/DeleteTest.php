@@ -22,7 +22,7 @@ class DeleteTest extends BaseTestCase
 
     protected function setUp(): void
     {
-        self::resetTempTestTables();
+        self::resetTestTables();
     }
 
     public function testDeleteSingleRow(): void

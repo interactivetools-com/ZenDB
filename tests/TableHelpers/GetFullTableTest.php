@@ -20,7 +20,7 @@ class GetFullTableTest extends BaseTestCase
     public static function setUpBeforeClass(): void
     {
         self::createDefaultConnection();
-        self::resetTempTestTables();
+        self::resetTestTables();
 
         // Create permanent table for checkDb-mode tests
         DB::$mysqli->query("DROP TABLE IF EXISTS test_verify_full");

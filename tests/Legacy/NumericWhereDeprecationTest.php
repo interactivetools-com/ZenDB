@@ -22,7 +22,7 @@ class NumericWhereDeprecationTest extends BaseTestCase
     public static function setUpBeforeClass(): void
     {
         self::createDefaultConnection();
-        self::resetTempTestTables();
+        self::resetTestTables();
 
         // Capture deprecation warnings
         set_error_handler(function($errno, $errstr) {
@@ -73,7 +73,7 @@ class NumericWhereDeprecationTest extends BaseTestCase
 
     public function testIntegerWhereInUpdate(): void
     {
-        self::resetTempTestTables();
+        self::resetTestTables();
 
         @DB::update('users', ['city' => 'Int Where City'], 1);
 
