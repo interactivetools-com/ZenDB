@@ -238,6 +238,7 @@ trait DBInternals
      * Log a deprecation warning with caller location.
      *
      * @param string $message Deprecation message (caller file:line will be appended)
+     * @internal
      */
     public static function logDeprecation(string $message): void
     {

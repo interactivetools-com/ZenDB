@@ -100,8 +100,8 @@ $rows = DB::query("SELECT name, city FROM ::users WHERE status = :status AND cit
 
 ## Related Libraries
 
-- [SmartArray](https://github.com/interactivetools-com/SmartArray) - Enhanced arrays with chainable methods
-- [SmartString](https://github.com/interactivetools-com/SmartString) - Secure string handling with auto HTML-encoding
+- [SmartArray](https://github.com/interactivetools-com/SmartArray) - database rows as chainable collections, with fields that HTML-encode themselves on output.
+- [SmartString](https://github.com/interactivetools-com/SmartString) - PHP strings that HTML-encode themselves on echo, with chainable methods for formatting, dates, and numbers.
 
 ## Questions?
 

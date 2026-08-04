@@ -94,8 +94,7 @@ echo $user->lastLogin->dateFormat('M j, Y')->or('Never');
 ## Debugging with `print_r()`
 
 The result objects describe themselves when inspected. `print_r()` shows the
-data; `->debug()` adds the executed SQL and MySQL metadata, and `->help()`
-prints the available methods with examples:
+data, and `->debug()` adds the executed SQL and MySQL metadata:
 
 ```php
 print_r($users);        // rows and values
@@ -103,7 +102,6 @@ print_r($user);         // one row's columns and values
 print_r($user->name);   // one value's raw data
 
 $users->debug();        // the executed SQL, rows, and MySQL metadata
-$users->help();         // available methods with examples
 ```
 
 CMS Builder users: `showme()` does the same thing as `print_r()`, wrapped in

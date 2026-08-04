@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+> **Bundled with CMS Builder v3.85**
+
 ### Added
 - `::` works inside `{{}}` - Encrypted-column reads take the table prefix the same way the rest of the query does: `{{::users.apiToken}}` expands to `` AES_DECRYPT(`cms_users`.`apiToken`, @ek) ``, matching `FROM ::users`. Write the column reference as you would unencrypted, wrapped in braces; alias qualifiers pass through as written (`{{u.apiToken}}`). Previously the prefix had to be hardcoded (`{{cms_users.apiToken}}`), which broke if `tablePrefix` changed; that form still works
 
