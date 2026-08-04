@@ -25,7 +25,7 @@ abstract class BaseTestCase extends TestCase
         'versionRequired'    => '5.7.32',
         'requireSSL'         => false,
         'databaseAutoCreate' => true,
-        'connectTimeout'     => 1,
+        'connectTimeout'     => 10, // local MySQL can take over a second to accept a connection under load; short timeouts fail good runs
         'readTimeout'        => 60,
     ];
 
@@ -54,7 +54,7 @@ CREATE TEMPORARY TABLE test_users (num INT PRIMARY KEY AUTO_INCREMENT,
   city VARCHAR(255),
   dob DATE,
   age INT
-);
+) ENGINE=InnoDB;
 
 INSERT INTO test_users (num, name, isAdmin, status, city, dob, age) VALUES
     (1, 'John Doe', 1, 'Active', 'Vancouver', '1985-04-10', 38),
@@ -85,7 +85,7 @@ CREATE TEMPORARY TABLE test_orders (
     user_id INT,
     order_date DATE,
     total_amount DECIMAL(10, 2)
-);
+) ENGINE=InnoDB;
 
 -- Insert additional sample data into test_orders
 INSERT INTO test_orders (user_id, order_date, total_amount) VALUES
@@ -106,7 +106,7 @@ CREATE TEMPORARY TABLE test_products (
     product_id INT PRIMARY KEY AUTO_INCREMENT,
     product_name VARCHAR(255),
     price DECIMAL(8, 2)
-);
+) ENGINE=InnoDB;
 
 -- Insert sample data into test_products
 INSERT INTO test_products (product_name, price) VALUES
@@ -123,7 +123,7 @@ CREATE TEMPORARY TABLE test_order_details (
     order_id INT,
     product_id INT,
     quantity INT
-);
+) ENGINE=InnoDB;
 
 -- Insert sample data into test_order_details with 30 records
 INSERT INTO test_order_details (order_id, product_id, quantity) VALUES
@@ -165,7 +165,7 @@ CREATE TEMPORARY TABLE test_employees (
     name VARCHAR(255),
     manager_id INT NULL,
     department VARCHAR(100)
-);
+) ENGINE=InnoDB;
 
 INSERT INTO test_employees (id, name, manager_id, department) VALUES
     (1, 'CEO', NULL, 'Executive'),
@@ -181,7 +181,7 @@ CREATE TEMPORARY TABLE test_special_chars (
     id INT PRIMARY KEY AUTO_INCREMENT,
     content TEXT,
     html_content TEXT
-);
+) ENGINE=InnoDB;
 
 INSERT INTO test_special_chars (content, html_content) VALUES
     ('O''Reilly', '<script>alert("xss")</script>'),

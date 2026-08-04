@@ -137,10 +137,9 @@ class SmartArrayIntegrationTest extends BaseTestCase
     {
         $row = DB::selectOne('users', ['num' => 1]);
 
-        // Use isset() or array key exists via offsetExists
-        $this->assertTrue(isset($row['name']));
-        $this->assertTrue(isset($row['num']));
-        $this->assertFalse(isset($row['nonexistent']));
+        $this->assertTrue(isset($row->name));
+        $this->assertTrue(isset($row->num));
+        $this->assertFalse(isset($row->nonexistent));
     }
 
     //endregion
