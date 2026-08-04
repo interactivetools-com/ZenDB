@@ -5,9 +5,12 @@
   "type": "library",
   "homepage": "https://github.com/interactivetools-com/ZenDB",
   "license": "MIT",
+  "readme": "README.md",
   "config": {
     "platform": {"php": "8.1.0"}
   },
+  "minimum-stability": "dev",
+  "prefer-stable": true,
   "support": {
     "issues": "https://github.com/interactivetools-com/ZenDB/issues",
     "source": "https://github.com/interactivetools-com/ZenDB"
@@ -17,6 +20,10 @@
       "name": "interactivetools.com",
       "homepage": "https://interactivetools.com/"
     }
+  ],
+  "repositories": [
+    {"type": "path", "url": "../SmartString", "options": {"symlink": true}},
+    {"type": "path", "url": "../SmartArray", "options": {"symlink": true}}
   ],
   "autoload": {
     "psr-4": {
@@ -32,10 +39,22 @@
     "php": "^8.1",
     "ext-mysqli": "*",
     "ext-openssl": "*",
-    "itools/smartarray": "^2.6.6",
-    "itools/smartstring": "^2.6.2"
+    "itools/smartarray": "^3.0",
+    "itools/smartstring": "^3.0"
   },
   "require-dev": {
+    "jetbrains/phpstorm-attributes": "^1.2",
     "phpunit/phpunit": "^10.5"
+  },
+  "scripts": {
+    "test": "phpunit",
+    "coverage": [
+      "@putenv XDEBUG_MODE=coverage",
+      "phpunit --coverage-text"
+    ]
+  },
+  "scripts-descriptions": {
+    "test": "Run the test suite",
+    "coverage": "Run the test suite with a line-coverage report (requires Xdebug)"
   }
 }
