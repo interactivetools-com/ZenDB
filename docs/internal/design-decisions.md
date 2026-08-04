@@ -5,6 +5,9 @@ a rename, or a refactor: if it has a heading below, it was already debated.
 Decisions can be reopened, but reopen them against the reasons recorded here,
 not from scratch.
 
+Only the road-not-taken half lives here; current behavior is self-documenting
+in signatures, docblocks, the changelog, and tests.
+
 ---
 
 ## Design Philosophy
@@ -146,22 +149,6 @@ readable template code. Memory cost was measured and ruled out as a factor
 (extra keys share value zvals via copy-on-write, ~36 bytes/row per key); the
 deciding factors were template readability and `print_r()` noise (a 3-table
 `SELECT *` join already yields ~79 keys).
-
----
-
-## SmartString selectedIf()/checkedIf() - DECIDED: Parked (2026-07)
-
-Nothing in the existing `if()`/`ifBlank()` family fits the selected/checked
-shape (their false branch keeps the original value). A template-local closure
-covers the need:
-
-```php
-$selectedIf = fn($v) => (string)$v === (string)$sel ? ' selected' : '';
-```
-
-Revisit only if real demand shows up. If ever built: string-cast strict
-compare (like CMS Builder's html_functions.php) and bare HTML5 `selected`
-output.
 
 ---
 

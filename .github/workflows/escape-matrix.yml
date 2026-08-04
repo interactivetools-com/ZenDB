@@ -1,0 +1,166 @@
+name: Escape Matrix
+
+# Manual-only: never runs on push. Dispatch from the Actions tab ("Run workflow") or
+# with: gh workflow run escape-matrix.yml
+#
+# CPU family of the escape benchmark suite: every escaper candidate and calling
+# convention as paired A/B comparisons across PHP versions and platforms. Numbers
+# are B-vs-A ratios measured interleaved in one process; treat anything within
+# +/-5% as a tie (the selftie rows verify that band per cell). Every cell starts
+# one MySQL 8.0 via actions-setup-mysql: the real_escape_string baseline needs a
+# live handle and the corpus gate verifies candidates against it, but escaping is
+# client-side mysqlnd CPU - the server version doesn't move these numbers, so one
+# fixed server serves all cells on every OS (service containers are Linux-only).
+# See .github/scripts/escape-probe.php for tests and design rules, and
+# .github/scripts/escape-results.md for the latest full-run grid and verdicts.
+#
+# PHP 8.6 cells run pre-release builds (adds mysqli::quote_string) until GA
+# ~Nov 2026 and are continue-on-error while setup-php resolves 8.6 to nightly.
+# No Windows ARM cell: php.net ships no ARM64 Windows builds.
+on:
+  workflow_dispatch:
+    inputs:
+      os:
+        description: 'Runner (blank = all)'
+        required: false
+        type: choice
+        options:
+          - ''
+          - ubuntu-latest
+          - ubuntu-24.04-arm
+          - windows-latest
+          - macos-15-intel
+          - macos-latest
+      php:
+        description: 'PHP version (blank = all)'
+        required: false
+        type: choice
+        options: ['', '8.1', '8.2', '8.3', '8.4', '8.5', '8.6']
+      jit:
+        description: 'opcache JIT (1235 = the flag combo runner images shipped by default; miscompiled the corpus gate on ARM PHP 8.1-8.3)'
+        required: false
+        default: 'off'
+        type: choice
+        options: ['off', 'tracing', '1235']
+      scale:
+        description: 'Iteration scale (1.0 = full, 0.3 = quick)'
+        required: false
+        default: '1.0'
+      filter:
+        description: 'Comma-separated test ids (blank = all)'
+        required: false
+        default: ''
+
+jobs:
+  matrix:
+    name: Load matrix
+    runs-on: ubuntu-latest
+    outputs:
+      os: ${{ steps.load.outputs.os }}
+      php: ${{ steps.load.outputs.php }}
+    steps:
+      - name: Build matrix from inputs
+        id: load
+        run: |
+          if [ -n "${{ inputs.os }}" ]; then
+            echo 'os=["${{ inputs.os }}"]' >> "$GITHUB_OUTPUT"
+          else
+            echo 'os=["ubuntu-latest", "ubuntu-24.04-arm", "windows-latest", "macos-15-intel", "macos-latest"]' >> "$GITHUB_OUTPUT"
+          fi
+          if [ -n "${{ inputs.php }}" ]; then
+            echo 'php=["${{ inputs.php }}"]' >> "$GITHUB_OUTPUT"
+          else
+            echo 'php=["8.1", "8.2", "8.3", "8.4", "8.5", "8.6"]' >> "$GITHUB_OUTPUT"
+          fi
+
+  probe:
+    name: PHP ${{ matrix.php }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    needs: matrix
+    timeout-minutes: 20
+    # 8.6 is pre-release until ~Nov 2026: nightly builds can be missing or broken
+    continue-on-error: ${{ matrix.php == '8.6' }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJSON(needs.matrix.outputs.os) }}
+        php: ${{ fromJSON(needs.matrix.outputs.php) }}
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      # No xdebug (coverage: none), opcache enabled for CLI to match production
+      # opcode optimization. JIT is set explicitly both ways: the runner images
+      # ship a non-zero opcache.jit_buffer_size, so leaving the jit input alone
+      # would silently benchmark with JIT on and label the run "off"
+      - name: Setup PHP ${{ matrix.php }}
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2.37.2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: mysqli, pdo_mysql
+          coverage: none
+          ini-values: >-
+            opcache.enable_cli=1,
+            ${{ inputs.jit == 'off' && 'opcache.jit=off, opcache.jit_buffer_size=0' || format('opcache.jit={0}, opcache.jit_buffer_size=64M', inputs.jit) }}
+
+      - name: Start MySQL 8.0
+        uses: shogo82148/actions-setup-mysql@076e636c45996ec8cb1a455c65f9f5364aeebd8a # v1.52.1
+        with:
+          mysql-version: '8.0'
+
+      - name: Run probe
+        env:
+          DB_HOSTNAME: 127.0.0.1
+          DB_USERNAME: root
+          DB_PASSWORD: ''
+          DB_DATABASE: phpunit_test_db
+        run: |
+          SLUG="${{ matrix.os }}-php${{ matrix.php }}${{ inputs.jit != 'off' && format('-jit-{0}', inputs.jit) || '' }}"
+          echo "SLUG=$SLUG" >> "$GITHUB_ENV"
+          php .github/scripts/escape-probe.php \
+            --json="probe-$SLUG.json" \
+            --scale="${{ inputs.scale }}" \
+            ${{ inputs.filter != '' && format('--filter="{0}"', inputs.filter) || '' }} \
+            >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload probe results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: probe-${{ env.SLUG }}
+          path: probe-*.json
+          if-no-files-found: ignore
+
+  summary:
+    name: Merge comparison grid
+    runs-on: ubuntu-latest
+    needs: probe
+    # Aggregates every matrix job and runs even when some fail, so partial grids
+    # still get built; !cancelled() keeps it out of manual cancellations only
+    if: ${{ !cancelled() }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2.37.2
+        with:
+          php-version: '8.1'
+          coverage: none
+
+      - name: Download probe results
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: probe-*
+          merge-multiple: true
+          path: probes
+
+      - name: Build comparison grid
+        run: php .github/scripts/escape-merge.php probes/*.json >> "$GITHUB_STEP_SUMMARY"
