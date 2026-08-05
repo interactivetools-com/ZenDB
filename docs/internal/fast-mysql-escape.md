@@ -364,27 +364,21 @@ Shipped and built:
   script, and the `escape-matrix.yml`, `escape-e2e-matrix.yml`, and
   `escape-zendb-matrix.yml` workflows.
 
+- First full CI run recorded 2026-08-05 (`escape-matrix` run 30964178143,
+  all 30 cells including the 8.6 nightlies; `escape-e2e-matrix` run
+  30964179764, 5 servers): every gate green, grids and the
+  Adopted / Rejected / Reference verdicts committed in
+  [escape-results.md](../../.github/scripts/escape-results.md). It confirms
+  the version story from the 2026-08-02 partial dispatches: the 7-pair fast
+  path pays 1.8-3.5x on realistic mixed data on PHP 8.1-8.3 and 1.1-1.7x on
+  8.4+ (the 8.4 mysqlnd rewrite), real_escape_string beats the 7-pair on
+  escape-dense text on 8.4+, binary stays ~5-15x on every version,
+  addslashes + 3-pair tail is the strongest successor candidate, and the
+  verdict for ZenDB's per-query site is to leave `real_escape_string` alone
+  (whole-query tie, `rt-fast-vs-real` 0.96-1.03x on every server).
+
 Remaining:
 
-- **Full CI dispatch.**
-  [escape-results.md](../../.github/scripts/escape-results.md) is still a stub
-  holding local direction-check numbers only. Dispatch `escape-matrix.yml` and
-  `escape-e2e-matrix.yml`, paste the merged grids with run IDs, and write the
-  Adopted / Rejected / Reference verdict sections. Early partial dispatches
-  (2026-08-02, runs 30787047934 / 30787049337 / 30787243403) had every gate
-  green (including the 95-job tests.yml re-run) and confirmed the version
-  story: on clean 1KB pools the str_replace-vs-real_escape ratio collapsed
-  26x (PHP 8.1) → 3.8x (8.4) → 2.4x (8.6); on dense pools real_escape_string
-  is 2x FASTER than the 7-pair on 8.4+; addslashes + 3-pair tail flips to the
-  winner on 8.4+ (1.28-1.35x over str_replace, all pools); binary pools stay
-  ~8-10x on every version; practical 8.6 wins are guard-on-mix 1.15x,
-  query-compile 1.19x, bulk 1.24x (vs 3.0x/2.7x/3.5x on 8.1). PHP 8.6's
-  `quote_string()` was identity-verified over the full corpus. E2E rankings
-  were identical on all 7 servers: interpolation beats fresh-prepared
-  1.6-1.8x, statement-reuse crossover N=10-100, and for bulk LOAD DATA beats
-  multi-row beats prepared. Any adoption decision is therefore
-  version-dependent: the 7-pair fast path pays on 8.1-8.3 and on binary data,
-  while 8.4+ narrows or reverses it on text.
 - **Exhaustive sweep workflow** (never built): all strings up to 4 bytes
   against a live handle; lengths 1-3 run in seconds, length 4 sharded by first
   byte (~minutes per cell with xargs -P), manual dispatch only. Valid inputs
@@ -400,17 +394,16 @@ Remaining:
   on localhost); the consistent-snapshot 7x observation from the Platform Note
   above (interleaved A/B, isolation-level and STORE/USE_RESULT axes, confirm
   or debunk).
-- **ZenDB adoption proposal** (chat first): connect-time probe plus charset
-  assertion setting a `$fastEscapeOk` flag; NO_BACKSLASH_ESCAPES rejection at
-  connect with an error message naming both sources (sql_mode and charset);
-  inline guarded fast escape at `ConnectionInternals.php:789` in shape A
-  (`$fastEscapeOk ? str_replace(FROM, TO, $v) : real_escape_string($v)`
-  inline; local ladder runs predict inline beats a private method beats a
-  stored closure, retaining ~91% of the inline win); possibly an array-batch
-  escape for a future export API; a type-confusion test (no non-string zval
-  reaches the fast path; Stringable cast happens before the escape decision);
-  a cross-run drift detector diffing fresh grids against the committed
-  results.
+- **ZenDB adoption proposal** (chat first). The 2026-08-05 run settled the
+  headline question: the `ConnectionInternals.php:789` swap is rejected
+  (whole-query tie; see escape-results.md). Still open: rejecting
+  NO_BACKSLASH_ESCAPES at connect with an error message naming both sources
+  (sql_mode and charset) - a correctness hardening independent of speed;
+  an array-batch escape if an export API ever ships (`bulk-array-subject`
+  1.06-1.41x, plus the fast path where it does pay); a type-confusion test
+  (no non-string zval reaches a fast path; Stringable cast happens before
+  the escape decision); a cross-run drift detector diffing fresh grids
+  against the committed results.
 - **A public `docs/performance.md`** (the end deliverable), following
   SmartString's pattern: headline multiplier with platform variants,
   one-command local reproduction, How It Works, a generated numbers table,

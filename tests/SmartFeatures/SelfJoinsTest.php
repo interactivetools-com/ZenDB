@@ -16,50 +16,18 @@ use Itools\ZenDB\Tests\BaseTestCase;
  */
 class SelfJoinsTest extends BaseTestCase
 {
-    private static bool $permanentTablesCreated = false;
-
     public static function setUpBeforeClass(): void
     {
         self::createDefaultConnection();
-        self::resetTestTables();
-
-        // MySQL doesn't allow self-joins on TEMPORARY tables ("Can't reopen table" error)
-        // So we need to use a permanent table for self-join tests
-        // Use raw mysqli to bypass template validation for DDL with numbers
-        if (!self::$permanentTablesCreated) {
-            $mysqli = DB::$mysqli;
-            $mysqli->query("DROP TABLE IF EXISTS test_employees_perm");
-            $mysqli->query("CREATE TABLE test_employees_perm (
-                id INT PRIMARY KEY AUTO_INCREMENT,
-                name VARCHAR(100),
-                manager_id INT NULL,
-                department VARCHAR(50)
-            )");
-            DB::insert('employees_perm', ['id' => 1, 'name' => 'CEO', 'manager_id' => null, 'department' => 'Executive']);
-            DB::insert('employees_perm', ['id' => 2, 'name' => 'VP Engineering', 'manager_id' => 1, 'department' => 'Engineering']);
-            DB::insert('employees_perm', ['id' => 3, 'name' => 'VP Sales', 'manager_id' => 1, 'department' => 'Sales']);
-            DB::insert('employees_perm', ['id' => 4, 'name' => 'Developer 1', 'manager_id' => 2, 'department' => 'Engineering']);
-            DB::insert('employees_perm', ['id' => 5, 'name' => 'Developer 2', 'manager_id' => 2, 'department' => 'Engineering']);
-            DB::insert('employees_perm', ['id' => 6, 'name' => 'Sales Rep 1', 'manager_id' => 3, 'department' => 'Sales']);
-            self::$permanentTablesCreated = true;
-        }
-    }
-
-    public static function tearDownAfterClass(): void
-    {
-        try {
-            DB::$mysqli->query("DROP TABLE IF EXISTS test_employees_perm");
-        } catch (\Exception) {
-            // Ignore cleanup errors
-        }
+        self::resetTestTables();  // test_employees is a regular table, so it can appear twice in one query
     }
 
     public function testSelfJoinBasic(): void
     {
         $result = DB::query(
             "SELECT e.name as employee_name, m.name as manager_name
-             FROM ::employees_perm e
-             LEFT JOIN ::employees_perm m ON e.manager_id = m.id
+             FROM ::employees e
+             LEFT JOIN ::employees m ON e.manager_id = m.id
              WHERE e.id = ?",
             2
         );
@@ -74,8 +42,8 @@ class SelfJoinsTest extends BaseTestCase
         // In self-joins, alias-based names (e.g., 'e.name', 'm.name') are important
         $result = DB::query(
             "SELECT e.id, e.name, m.id as manager_id_check, m.name as manager_name
-             FROM ::employees_perm e
-             LEFT JOIN ::employees_perm m ON e.manager_id = m.id
+             FROM ::employees e
+             LEFT JOIN ::employees m ON e.manager_id = m.id
              WHERE e.id = ?",
             4
         );
@@ -99,9 +67,9 @@ class SelfJoinsTest extends BaseTestCase
                 emp.name as emp_name,
                 mgr.name as mgr_name,
                 ceo.name as ceo_name
-             FROM ::employees_perm emp
-             LEFT JOIN ::employees_perm mgr ON emp.manager_id = mgr.id
-             LEFT JOIN ::employees_perm ceo ON mgr.manager_id = ceo.id
+             FROM ::employees emp
+             LEFT JOIN ::employees mgr ON emp.manager_id = mgr.id
+             LEFT JOIN ::employees ceo ON mgr.manager_id = ceo.id
              WHERE emp.id = ?",
             4
         );
@@ -118,8 +86,8 @@ class SelfJoinsTest extends BaseTestCase
     {
         $result = DB::query(
             "SELECT e.id, e.name, e.department, m.name as manager_name
-             FROM ::employees_perm e
-             LEFT JOIN ::employees_perm m ON e.manager_id = m.id
+             FROM ::employees e
+             LEFT JOIN ::employees m ON e.manager_id = m.id
              ORDER BY e.id"
         );
 
@@ -141,8 +109,8 @@ class SelfJoinsTest extends BaseTestCase
         // Count employees per manager
         $result = DB::query(
             "SELECT m.name as manager_name, COUNT(e.id) as direct_reports
-             FROM ::employees_perm e
-             JOIN ::employees_perm m ON e.manager_id = m.id
+             FROM ::employees e
+             JOIN ::employees m ON e.manager_id = m.id
              GROUP BY m.id, m.name
              ORDER BY direct_reports DESC, m.id ASC"
         );
@@ -162,8 +130,8 @@ class SelfJoinsTest extends BaseTestCase
         // Find all employees in Engineering and their managers
         $result = DB::query(
             "SELECT e.name as employee, m.name as manager
-             FROM ::employees_perm e
-             LEFT JOIN ::employees_perm m ON e.manager_id = m.id
+             FROM ::employees e
+             LEFT JOIN ::employees m ON e.manager_id = m.id
              WHERE e.department = ?
              ORDER BY e.id",
             'Engineering'
@@ -180,8 +148,8 @@ class SelfJoinsTest extends BaseTestCase
         // CEO has no manager
         $result = DB::query(
             "SELECT e.name, m.name as manager_name
-             FROM ::employees_perm e
-             LEFT JOIN ::employees_perm m ON e.manager_id = m.id
+             FROM ::employees e
+             LEFT JOIN ::employees m ON e.manager_id = m.id
              WHERE e.manager_id IS NULL"
         );
 
@@ -195,8 +163,8 @@ class SelfJoinsTest extends BaseTestCase
         // This is tricky - both e.* and m.* will have same column names
         $result = DB::query(
             "SELECT e.*, m.name as manager_name
-             FROM ::employees_perm e
-             LEFT JOIN ::employees_perm m ON e.manager_id = m.id
+             FROM ::employees e
+             LEFT JOIN ::employees m ON e.manager_id = m.id
              WHERE e.id = ?",
             4
         );
