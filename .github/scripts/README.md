@@ -21,8 +21,9 @@ server returns) and merges the results into
 **Escape benchmark suite** (`escape-matrix.yml`, `escape-e2e-matrix.yml`) -
 measures every MySQL escaping candidate and every way values get into queries,
 gated by a byte-identity corpus against a live `real_escape_string()` before any
-timing. Results land in [escape-results.md](escape-results.md); the plan and
-research live in the repo root `__escape-benchmark-plan.md` (untracked).
+timing. Results land in [escape-results.md](escape-results.md); the research,
+suite methodology, and remaining work live in
+[docs/internal/fast-mysql-escape.md](../../docs/internal/fast-mysql-escape.md).
 
 - `escape-corpus.php` - corpus builder, equivalence gates, escape-set canary,
   probe self-check; shared with `tests/Escaping/EscapeEquivalenceTest.php`
