@@ -1,8 +1,11 @@
 # ZenDB Documentation
 
-Guides and reference for ZenDB, a PHP/MySQL database library that's easy to use
-and hard to misuse. New to ZenDB? Read the first six pages in order; each builds
-on the one before. The rest are standalone: open whichever matches your task.
+Welcome to the ZenDB docs. ZenDB is a PHP/MySQL database layer that's easy to
+use and hard to misuse: every dynamic value goes through placeholders, and
+query results HTML-encode themselves on output.
+
+New to ZenDB? Read the first six pages in order; each builds on the one before.
+The rest are standalone: open whichever matches your task.
 
 ## The Basics (read in order)
 

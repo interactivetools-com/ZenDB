@@ -20,3 +20,8 @@ ZenDB-specific additions only.
   punctuation-around-inline-code rules bite hardest here: never `` `code`: ``
   mid-sentence, and headings never end with a dash and a bare syntax token
   (write `` ## Table Prefixes in Raw SQL with `::` ``).
+- **The root README carries the full docs index** (all of docs/README.md's
+  groups, links, and descriptions), not a link to it - every page is one
+  click from landing. docs/README.md keeps the same list for folder
+  browsing. When a page is added, renamed, or re-described, update both;
+  the release cross-artifact check catches drift.

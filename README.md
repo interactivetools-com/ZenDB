@@ -33,16 +33,6 @@ ZenDB. The library handles the security (parameterization,
 escaping, validation) so you can write the SQL you already know without
 worrying about injection.
 
-## What's Inside
-
-Guides and references ([browse on GitHub](https://github.com/interactivetools-com/ZenDB)):
-
-- [30-Second Quickstart](#30-second-quickstart)
-- [Getting Started](docs/getting-started.md) - Installation, connection, first queries
-- [Documentation Index](docs/README.md) - Every page: querying, results, joins, placeholders, and more
-- [Method Reference](docs/method-reference.md) - Every method, parameter type, and return value
-- [AI Quick Reference](docs/ai-reference.md) - Single-page reference for AI assistants and humans alike
-
 ## 30-Second Quickstart
 
 ```bash
@@ -90,6 +80,29 @@ $rows = DB::query("SELECT name, city FROM ::users WHERE status = :status AND cit
     ':city'   => 'Vancouver',
 ]);
 ```
+
+## Documentation
+
+Full guides and references ([browse on GitHub](https://github.com/interactivetools-com/ZenDB)):
+
+- **The Basics** (read in order)
+    - [Getting Started](docs/getting-started.md) - install, connect, and fetch your first rows
+    - [Querying Data](docs/querying-data.md) - WHERE conditions, sorting, and pagination with `select()`, `selectOne()`, and `count()`
+    - [Working with Results](docs/working-with-results.md) - result sets, rows, and values: HTML-safe output by default, raw access when you need it
+    - [Modifying Data](docs/modifying-data.md) - `insert()`, `update()`, and `delete()`, plus transactions and SQL expressions like `NOW()`
+    - [Placeholders](docs/placeholders.md) - every placeholder type and when to use each
+    - [Joins and Custom SQL](docs/joins-and-custom-sql.md) - full SQL with `query()` and `queryOne()`, keeping the same safety guarantees
+- **Everyday Use**
+    - [Common Patterns](docs/common-patterns.md) - copy-paste recipes: record-or-404, search filters, paginated lists
+    - [Helpers and Utilities](docs/helpers-and-utilities.md) - raw SQL expressions, pagination SQL, LIKE pattern builders, table prefix conversion
+- **Advanced Setup**
+    - [Multiple Connections](docs/multiple-connections.md) - connecting to more than one database, or one database with different settings
+    - [Encryption](docs/encryption.md) - automatic column encryption with `encryptionKey`
+- **Lookup**
+    - [Security Gotchas](docs/security-gotchas.md) - the narrow cases that still let you write an unsafe query, and the safe form for each
+    - [Troubleshooting](docs/troubleshooting.md) - exception messages explained, connection problems, behavior gotchas, debugging
+    - [Method Reference](docs/method-reference.md) - every method, parameter, and return type in one place
+    - [AI Reference](docs/ai-reference.md) - the complete API in one dense file, written for AI coding assistants
 
 ## When you might NOT want ZenDB
 
