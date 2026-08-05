@@ -70,6 +70,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
+      # composer.json path repositories point at ../SmartString and ../SmartArray
+      - name: Checkout SmartString and SmartArray
+        run: |
+          git clone --depth 1 https://github.com/interactivetools-com/SmartString.git ../SmartString
+          git clone --depth 1 https://github.com/interactivetools-com/SmartArray.git ../SmartArray
+
       - name: Setup PHP ${{ matrix.php }}
         uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2.37.2
         with:
