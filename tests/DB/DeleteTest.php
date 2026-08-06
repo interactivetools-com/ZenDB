@@ -58,6 +58,14 @@ class DeleteTest extends BaseTestCase
         DB::delete('users', '');
     }
 
+    public function testDeleteWithLeadingGroupByIsNotACondition(): void
+    {
+        // clause keywords starting the string mean no condition was given
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage("DELETE requires a WHERE condition");
+        DB::delete('users', 'GROUP BY city');
+    }
+
     public function testDeleteNonExistentRowReturnsZero(): void
     {
         $affected = DB::delete('users', ['num' => 9999]);

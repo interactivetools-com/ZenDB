@@ -313,8 +313,8 @@ trait ConnectionInternals
      * Reject empty WHERE clause - prevents accidental bulk updates/deletes.
      *
      * Conditions like "num = ?" or "id = :id" are valid (WHERE gets prepended).
-     * We reject empty input or strings starting with ORDER/LIMIT/OFFSET/FOR
-     * which indicate no WHERE condition was provided.
+     * We reject empty input or strings starting with a clause keyword
+     * (ORDER, GROUP, LIMIT, ...) which indicate no WHERE condition was provided.
      *
      * @throws InvalidArgumentException
      */
@@ -328,10 +328,11 @@ trait ConnectionInternals
             return;
         }
 
-        // string - valid if where has content and doesn't start with ORDER/LIMIT/OFFSET/FOR
-        // These clauses without WHERE would affect all rows: "DELETE FROM t ORDER BY id LIMIT 1"
-        // Conditions like "id = ?" are valid because whereFromString() prepends "WHERE "
-        if (is_string($where) && trim($where) && !preg_match('/^\s*(ORDER|LIMIT|OFFSET|FOR)\b/i', $where)) {
+        // string - valid if where has content and doesn't start with a non-condition clause
+        // like ORDER/GROUP/LIMIT: those without WHERE would affect all rows, e.g.
+        // "DELETE FROM t ORDER BY id LIMIT 1". Conditions like "id = ?" are valid
+        // because whereFromString() prepends "WHERE "
+        if (is_string($where) && trim($where) && !preg_match('/^\s*(ORDER|GROUP|HAVING|LIMIT|OFFSET|FOR)\b/i', $where)) {
             return;
         }
 
@@ -414,7 +415,7 @@ trait ConnectionInternals
         }
 
         // Prepend WHERE if not already present
-        $hasLeadingKeyword = preg_match('/^\s*(WHERE|FOR|ORDER|LIMIT|OFFSET)\b/i', $where);
+        $hasLeadingKeyword = preg_match('/^\s*(WHERE|FOR|ORDER|GROUP|HAVING|LIMIT|OFFSET)\b/i', $where);
         if (!$hasLeadingKeyword) {
             $where = "WHERE $where";
         }
