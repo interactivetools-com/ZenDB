@@ -2,10 +2,11 @@
 
 Committed, citable results of the escape benchmark suite. First full run
 2026-08-05: `escape-matrix.yml` run 30964178143 (CPU family, all 30 cells:
-5 OS x PHP 8.1-8.6, JIT off, scale 1.0; the 8.6 cells ran 8.6.0-dev nightly)
-and `escape-e2e-matrix.yml` run 30964179764 (5-server family). Every escaper
-passed its correctness gate on every cell in both families, and both grids
-are below in full.
+5 OS x PHP 8.1-8.6, JIT off, scale 1.0; the 8.6 cells ran 8.6.0-dev nightly),
+`escape-e2e-matrix.yml` run 30964179764 (5-server family), and
+`escape-zendb-matrix.yml` run 30968096535 (ZenDB-vs-raw family, PHP 8.1 and
+8.4 against MySQL 8.0). Every escaper passed its correctness gate on every
+cell in every family, and all three grids are below in full.
 
 Ratios are B-vs-A measured interleaved in one process; >1.00x means the
 candidate is faster. The selftie rows calibrate the noise band: ties within
@@ -17,6 +18,7 @@ Regenerate:
 
     gh workflow run escape-matrix.yml
     gh workflow run escape-e2e-matrix.yml
+    gh workflow run escape-zendb-matrix.yml
 
 ## Adopted
 
@@ -90,6 +92,18 @@ Regenerate:
   like mysqli prepared (`rt-pdo-emulated-vs-native` 0.56-0.61x); reusing a
   prepared statement beats re-preparing 1.80-1.87x
   (`rt-prepared-fresh-vs-reused`).
+- **ZenDB vs hand-written mysqli** (`zvr-*`, loopback, where round trips are
+  cheapest and library cost is most visible): a raw point query with
+  hand-written escaping runs 1.2x a `DB::select()` doing identical work
+  (`zvr-select-string` 0.80-0.83x, `zvr-query-raw-sql` 0.85-0.86x) and 2x a
+  `DB::selectOne()` by id (`zvr-select-int` 0.41-0.51x); fetching 1000 rows
+  costs about 2x raw `fetch_all` (`zvr-fetch-1000` 0.51-0.61x), holding
+  steady when both sides HTML-encode their output (`zvr-fetch-touch-1000`
+  0.51-0.59x). Local decomposition puts the absolute cost at tens of
+  microseconds per query plus roughly a microsecond per row for
+  SmartArray/SmartString wrapping - what parameterized compilation,
+  validation, and XSS-safe output cost, and the ratio shrinks as real
+  network latency replaces loopback.
 
 ## CPU Family Grid (run 30964178143)
 
@@ -262,5 +276,30 @@ Correctness: every escaper passes its gate on every cell.
 - **rt-prepared-fresh-vs-reused**: mysqli prepared (fresh) vs mysqli prepared (reused) [wall sink]
 - **rt-interp-vs-pdo-emulated**: mysqli interpolate str_replace vs PDO emulated prepare (fresh) [wall sink]
 - **rt-pdo-emulated-vs-native**: PDO emulated prepare vs PDO native prepare [wall sink]
+
+</details>
+
+## ZenDB-vs-Raw Family Grid (run 30968096535)
+
+
+Correctness: every escaper passes its gate on every cell.
+
+| test | zendb-vs-raw php8.1 | zendb-vs-raw php8.4 |
+|---|---|---|
+| zvr-selftie | 1.00x | 0.97x |
+| zvr-select-string | 0.83x (slower) | 0.80x (slower) |
+| zvr-select-int | 0.51x (slower) | 0.41x (slower) |
+| zvr-query-raw-sql | 0.85x (slower) | 0.86x (slower) |
+| zvr-fetch-1000 | 0.61x (slower) | 0.52x (slower) |
+| zvr-fetch-touch-1000 | 0.59x (slower) | 0.51x (slower) |
+
+<details><summary>Test legend (A vs B, sink)</summary>
+
+- **zvr-selftie**: raw select by string vs raw select by string (same) [wall sink]
+- **zvr-select-string**: raw mysqli + real_escape + fetch_all vs DB::select(kv, a = ?) [wall sink]
+- **zvr-select-int**: raw mysqli WHERE id = int vs DB::selectOne(kv, id) [wall sink]
+- **zvr-query-raw-sql**: raw mysqli hand-escaped SQL vs DB::query with placeholders [wall sink]
+- **zvr-fetch-1000**: raw fetch_all assoc (no encoding) vs DB::select full table [wall sink]
+- **zvr-fetch-touch-1000**: raw fetch_all + htmlspecialchars per row vs DB::select + SmartString output per row [wall sink]
 
 </details>
