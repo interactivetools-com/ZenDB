@@ -988,8 +988,13 @@ class Connection
     {
         try {
             return $this->table->columnDefinitions($baseTable);
-        } catch (mysqli_sql_exception|InvalidArgumentException) {
-            return []; // legacy contract: unknown table or invalid name returns no definitions
+        } catch (mysqli_sql_exception $e) {
+            if (2000 <= $e->getCode() && $e->getCode() <= 2999) {
+                throw $e; // connection failure: no answer to report (see TableInfo::existsFull)
+            }
+            return []; // server answered: unknown table, invalid name, or no access means no definitions
+        } catch (InvalidArgumentException) {
+            return []; // invalid name can't have definitions
         }
     }
 

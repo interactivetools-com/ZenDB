@@ -37,6 +37,13 @@ class HasTableTest extends BaseTestCase
         DB::$mysqli->query("DROP VIEW IF EXISTS test_exists_view");
         DB::$mysqli->query("CREATE VIEW test_exists_view AS SELECT 1 AS val");
 
+        // Create a view, then drop its base table so querying it throws error 1356
+        DB::$mysqli->query("DROP VIEW IF EXISTS test_exists_broken_view");
+        DB::$mysqli->query("DROP TABLE IF EXISTS test_exists_doomed");
+        DB::$mysqli->query("CREATE TABLE test_exists_doomed (id INT)");
+        DB::$mysqli->query("CREATE VIEW test_exists_broken_view AS SELECT id FROM test_exists_doomed");
+        DB::$mysqli->query("DROP TABLE test_exists_doomed");
+
         // Create a temp table
         DB::$mysqli->query("CREATE TEMPORARY TABLE _temp_exists_check (id INT)");
 
@@ -54,6 +61,7 @@ class HasTableTest extends BaseTestCase
             DB::$mysqli->query("DROP TABLE IF EXISTS test_exists_shadowed");
             DB::$mysqli->query("DROP TABLE IF EXISTS test_exists_check");
             DB::$mysqli->query("DROP VIEW IF EXISTS test_exists_view");
+            DB::$mysqli->query("DROP VIEW IF EXISTS test_exists_broken_view");
         } catch (Exception) {
             // Ignore cleanup errors
         }
@@ -86,6 +94,12 @@ class HasTableTest extends BaseTestCase
 
         $result = $conn->hasTable('test_exists_check');
         $this->assertTrue($result);
+    }
+
+    public function testBrokenViewIsFalseOnNewApi(): void
+    {
+        // server answered "you can't use that table" - a "no", not an error
+        $this->assertFalse(self::$conn->table->exists('exists_broken_view'));
     }
 
     public function testDeprecatedDbShimsMatchInstanceHasTable(): void
@@ -125,6 +139,10 @@ class HasTableTest extends BaseTestCase
 
             // Temp shadowing real table - real table still detected
             'shadowed table still found'    => ['exists_shadowed',     false, true],
+
+            // View whose base table was dropped - unusable counts as "no"
+            'broken view returns false'     => ['exists_broken_view',  false, false],
+            'broken view full name false'   => ['test_exists_broken_view', true, false],
 
             // Wildcards treated as literals (not LIKE patterns)
             'percent is literal'            => ['nonexistent%table',   false, false],

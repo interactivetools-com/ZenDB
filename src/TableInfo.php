@@ -54,9 +54,10 @@ class TableInfo
     //region Tables
 
     /**
-     * Check whether a table exists. Any name is a fair question, including one MySQL wouldn't
-     * accept as an identifier: "no such table" answers false. Failures that aren't about the
-     * table (dead connection, missing privilege) throw instead of passing as false.
+     * Check whether a table exists and can be queried. Any name is a fair question,
+     * including one MySQL wouldn't accept as an identifier: missing table, broken view,
+     * or missing privilege all answer false. The one thing that throws is a connection
+     * failure - there's no answer to report, and every query behaves the same way there.
      *
      *     Table::exists('articles');       // true
      *     Table::exists('no_such_table');  // false
@@ -99,10 +100,13 @@ class TableInfo
         } catch (InvalidArgumentException) {
             return false; // a name MySQL wouldn't accept can't exist
         } catch (mysqli_sql_exception $e) {
-            if ($e->getCode() === 1146) { // ER_NO_SUCH_TABLE
-                return false;
+            // Codes 2000-2999 are the client library's: the exchange with the server never
+            // completed, so there's no answer to report. Everything else is the server
+            // answering "you can't use that table", which is a "no".
+            if (2000 <= $e->getCode() && $e->getCode() <= 2999) {
+                throw $e;
             }
-            throw $e; // anything else (dead connection, missing privilege) is an error, not a "no"
+            return false;
         }
     }
 

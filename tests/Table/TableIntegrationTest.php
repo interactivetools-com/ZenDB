@@ -184,17 +184,16 @@ class TableIntegrationTest extends BaseTestCase
     }
 
     #[Test]
-    public function existsThrowsForErrorsOtherThanNoSuchTable(): void
+    public function existsAnswersFalseWhenTheServerRejectsTheTable(): void
     {
-        // a view whose base table was dropped still exists, but probing it fails with error 1356,
-        // not 1146; only "no such table" answers false, every other error surfaces to the caller
+        // a view whose base table was dropped fails with error 1356, not 1146; the server
+        // answered "you can't use that table", so exists() reports false instead of throwing
         // (dropFixture() sweeps the broken view: information_schema still lists it as a VIEW)
         $this->createSideTable('_vbase', 'num INT');
         DB::$mysqli->query("CREATE VIEW `{$this->fullTable}_vbroken` AS SELECT num FROM `{$this->fullTable}_vbase`");
         DB::$mysqli->query("DROP TABLE `{$this->fullTable}_vbase`");
 
-        $this->expectException(mysqli_sql_exception::class);
-        Table::exists($this->baseTable . '_vbroken');
+        $this->assertFalse(Table::exists($this->baseTable . '_vbroken'));
     }
 
     //endregion
