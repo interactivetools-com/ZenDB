@@ -95,9 +95,9 @@ Regenerate:
 - **ZenDB vs hand-written mysqli** (`zvr-*`, loopback, where round trips are
   cheapest and library cost is most visible): a raw point query with
   hand-written escaping runs 1.2x a `DB::select()` doing identical work
-  (`zvr-select-string` 0.80-0.83x, `zvr-query-raw-sql` 0.85-0.86x) and 2x a
-  `DB::selectOne()` by id (`zvr-select-int` 0.41-0.51x); fetching 1000 rows
-  costs about 2x raw `fetch_all` (`zvr-fetch-1000` 0.51-0.61x), holding
+  (`zvr-select-string` 0.80-0.83x, `zvr-query-raw-sql` 0.85-0.86x) and
+  2-2.4x a `DB::selectOne()` by id (`zvr-select-int` 0.41-0.51x); fetching
+  1000 rows costs about 2x raw `fetch_all` (`zvr-fetch-1000` 0.52-0.61x), holding
   steady when both sides HTML-encode their output (`zvr-fetch-touch-1000`
   0.51-0.59x). Local decomposition puts the absolute cost at tens of
   microseconds per query plus roughly a microsecond per row for
