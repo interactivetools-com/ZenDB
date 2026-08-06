@@ -175,7 +175,7 @@ $rawSelectById = static function (int $iters) use ($mysqli): void {
 $zenSelectById = static function (int $iters): void {
     $acc = 0;
     for ($i = 0; $i < $iters; $i++) {
-        $row = DB::selectOne('kv', $i % 1000 + 1);
+        $row = DB::selectOne('kv', ['id' => $i % 1000 + 1]);
         $acc += count($row) > 0 ? 1 : 0;
     }
     $GLOBALS['sink'] += $acc;

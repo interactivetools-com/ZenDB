@@ -96,7 +96,8 @@ Regenerate:
   cheapest and library cost is most visible): a raw point query with
   hand-written escaping runs 1.2x a `DB::select()` doing identical work
   (`zvr-select-string` 0.80-0.83x, `zvr-query-raw-sql` 0.85-0.86x) and
-  2-2.4x a `DB::selectOne()` by id (`zvr-select-int` 0.41-0.51x); fetching
+  2-2.4x a `DB::selectOne()` by id (`zvr-select-int` 0.41-0.51x, overstated -
+  see note below); fetching
   1000 rows costs about 2x raw `fetch_all` (`zvr-fetch-1000` 0.52-0.61x), holding
   steady when both sides HTML-encode their output (`zvr-fetch-touch-1000`
   0.51-0.59x). Local decomposition puts the absolute cost at tens of
@@ -104,6 +105,13 @@ Regenerate:
   SmartArray/SmartString wrapping - what parameterized compilation,
   validation, and XSS-safe output cost, and the ratio shrinks as real
   network latency replaces loopback.
+- **`zvr-select-int` note**: run 30968096535 predates the probe fix that
+  passes the id as `['id' => $n]`. Before it, the bare int took the
+  deprecated int-WHERE path (`WHERE num = $n`), and `num` is unindexed in
+  the probe table, so the ZenDB side paid a 1000-row scan while the raw
+  side did an indexed id lookup. The published 0.41-0.51x includes that
+  scan and overstates ZenDB's cost; rerun `escape-zendb-matrix.yml` for
+  honest numbers.
 
 ## CPU Family Grid (run 30964178143)
 
