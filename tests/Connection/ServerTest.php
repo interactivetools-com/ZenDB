@@ -153,19 +153,22 @@ class ServerTest extends BaseTestCase
     public static function generalQueryLogProvider(): array
     {
         return [
+            // @@GLOBAL.general_log arrives as int (mysqlnd native types) or string (libmysql)
             // @@GLOBAL.general_log, @@GLOBAL.log_output, expected
-            ['0', 'FILE',       false],  // stock default on every supported server
-            ['1', 'FILE',       true],
-            ['1', 'TABLE',      true],
-            ['1', 'FILE,TABLE', true],
-            ['1', 'NONE',       false],  // log on but discarding everything
-            ['1', 'FILE,NONE',  false],  // NONE takes precedence over other destinations
-            ['0', 'NONE',       false],
+            [0,   'FILE',       false],  // stock default on every supported server
+            [1,   'FILE',       true],
+            [1,   'TABLE',      true],
+            [1,   'FILE,TABLE', true],
+            [1,   'NONE',       false],  // log on but discarding everything
+            [1,   'FILE,NONE',  false],  // NONE takes precedence over other destinations
+            [0,   'NONE',       false],
+            ['1', 'FILE',       true],   // string arrival on non-mysqlnd builds
+            ['0', 'FILE',       false],
         ];
     }
 
     #[DataProvider('generalQueryLogProvider')]
-    public function testIsGeneralQueryLogActive(string $generalLog, string $logOutput, bool $expected): void
+    public function testIsGeneralQueryLogActive(string|int $generalLog, string $logOutput, bool $expected): void
     {
         $server = new Server(new FakeMysqli('8.0.46', generalLog: $generalLog, logOutput: $logOutput));
 
@@ -174,7 +177,7 @@ class ServerTest extends BaseTestCase
 
     public function testGeneralQueryLogAnswerIsCachedAfterFirstQuery(): void
     {
-        $fakeMysqli = new FakeMysqli('8.0.46', generalLog: '1', logOutput: 'FILE');
+        $fakeMysqli = new FakeMysqli('8.0.46', generalLog: 1, logOutput: 'FILE');
         $server     = new Server($fakeMysqli);
 
         $server->isGeneralQueryLogActive();
@@ -215,7 +218,7 @@ class FakeMysqli extends stdClass
         private string $datadir = '/var/lib/mysql/',
         private string $sslCipher = '',
         private ?string $haveSSL = null,
-        private string $generalLog = '0',
+        private string|int $generalLog = 0,
         private string $logOutput = 'FILE',
     ) {
     }

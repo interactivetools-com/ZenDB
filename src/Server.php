@@ -224,7 +224,7 @@ class Server
     {
         if ($this->isGeneralQueryLogActive === null) {
             [$generalLog, $logOutput]      = $this->mysqli->query("SELECT @@GLOBAL.general_log, @@GLOBAL.log_output")->fetch_row();
-            $this->isGeneralQueryLogActive = $generalLog === '1' && !str_contains($logOutput, 'NONE');
+            $this->isGeneralQueryLogActive = (int)$generalLog === 1 && !str_contains($logOutput, 'NONE');
         }
         return $this->isGeneralQueryLogActive;
     }
