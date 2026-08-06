@@ -66,6 +66,13 @@ class LikePatternTest extends BaseTestCase
         $this->assertSame("'%3.14%'", (string) $result);
     }
 
+    public function testLikeStartsWithFloatIsExact(): void
+    {
+        // exact digits match what MySQL prints for a stored double; '0.3%' would rely on rounding
+        $result = DB::likeStartsWith(0.1 + 0.2);
+        $this->assertSame("'0.30000000000000004%'", (string) $result);
+    }
+
     //endregion
     //region likeContainsTSV
 

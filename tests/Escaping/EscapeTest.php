@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Itools\ZenDB\Tests\Escaping;
 
+use InvalidArgumentException;
 use Itools\SmartString\SmartString;
 use Itools\ZenDB\DB;
 use Itools\ZenDB\Tests\BaseTestCase;
@@ -38,6 +39,25 @@ class EscapeTest extends BaseTestCase
     {
         $result = DB::escape(123.45);
         $this->assertSame('123.45', $result);
+    }
+
+    public function testEscapeFloatIsExact(): void
+    {
+        // same literal a placeholder writes: exact digits, no precision-ini rounding
+        $this->assertSame('0.30000000000000004', DB::escape(0.1 + 0.2));
+        $this->assertSame('12345678901234568.0', DB::escape(12345678901234567.0)); // ...567 is not representable
+    }
+
+    public function testEscapeWholeFloatKeepsDecimalPoint(): void
+    {
+        $this->assertSame('2.0', DB::escape(2.0));
+    }
+
+    public function testEscapeNanThrows(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('NAN and INF have no SQL literal');
+        DB::escape(NAN);
     }
 
     public function testEscapeNull(): void
