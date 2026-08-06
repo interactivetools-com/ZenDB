@@ -315,8 +315,7 @@ class TableInfo
      */
     private static function parseCreateTableColumns(string $createTableSql): array
     {
-        $createTableSql      = self::stripRedundantCharsetCollate($createTableSql);
-        $defaultCollationsRx = '(?:' . implode('|', self::DEFAULT_COLLATIONS) . ')';
+        $createTableSql = self::stripRedundantCharsetCollate($createTableSql);
 
         // column lines start with a backtick-quoted name; PRIMARY KEY, KEY, and CONSTRAINT lines don't
         $definitions = [];
@@ -327,30 +326,7 @@ class TableInfo
             [, $columnName, $definition] = $match;
             [$definition, $literals]     = self::maskStringLiterals($definition);
 
-            $definition = self::rewriteUtf8mb3ToUtf8($definition);
-
-            // server-default collations are noise: servers disagree on whether they're printed at
-            // all and on which collation is the default, so on replay each server applies its own
-            $definition = preg_replace("/ COLLATE $defaultCollationsRx\\b/", '', $definition);
-
-            $definition = self::cropIntDisplayWidth($definition);
-
-            // MariaDB 10.2+ spells defaults current_timestamp(); MySQL spells them CURRENT_TIMESTAMP
-            $definition = preg_replace('/\b(DEFAULT|ON UPDATE) current_timestamp(?:\(\))?(\(\d+\))?/i', '$1 CURRENT_TIMESTAMP$2', $definition);
-
-            // vendors disagree on expression parens both ways: MySQL wraps generated-column
-            // expressions in a redundant extra pair, and MariaDB prints expression defaults
-            // without the parens MySQL's DDL grammar requires
-            $definition = self::stripRedundantGeneratedParens($definition);
-            $definition = self::parenthesizeExpressionDefault($definition);
-
-            // MariaDB prints numeric-typed defaults bare (DEFAULT 0); MySQL prints them quoted (DEFAULT '0').
-            // Quote bare numeric literals to match MySQL. Numbers only: other bare tokens are keywords (NULL)
-            // or expressions (CURRENT_TIMESTAMP, uuid()) and must stay bare to keep their meaning, and string
-            // defaults are quoted, so they're masked above and can never match
-            $definition = preg_replace("/\bDEFAULT (-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)(?=,| |$)/", "DEFAULT '$1'", $definition);
-
-            $definitions[$columnName] = strtr($definition, $literals);
+            $definitions[$columnName] = strtr(self::normalizeColumnDefinition($definition), $literals);
         }
 
         return $definitions;
@@ -417,7 +393,13 @@ class TableInfo
      *     ('AS ((`num` * 2))' → 'AS (`num` * 2)'): both vendors accept the single pair
      *   - bare expression defaults gain parens ('DEFAULT uuid()' → 'DEFAULT (uuid())'): MariaDB
      *     prints them bare but MySQL's DDL grammar rejects that form, so the bare spelling
-     *     doesn't replay there; current_timestamp defaults keep their printed form
+     *     doesn't replay there; current_timestamp defaults never gain parens (the parenthesized
+     *     form is a syntax error on MySQL 5.7)
+     *   - timestamp defaults are spelled 'CURRENT_TIMESTAMP' ('DEFAULT current_timestamp()' →
+     *     'DEFAULT CURRENT_TIMESTAMP'): MariaDB prints the lowercase call form, MySQL the bare
+     *     keyword, and every supported server accepts the keyword
+     *   - bare numeric defaults are quoted ('DEFAULT 0' → "DEFAULT '0'"): MariaDB prints them
+     *     bare, MySQL prints them quoted, and every supported server accepts the quoted form
      *
      * Engine, charset, and everything else replay as-is: this removes server-version noise,
      * it doesn't upgrade schemas. See docs/internal/db-behavior-matrix.md (2026-07).
@@ -430,8 +412,9 @@ class TableInfo
         // COLUMN CHARSET/COLLATE NOISE - drop clauses that just restate the table's own defaults
         $createTableSql = self::stripRedundantCharsetCollate($createTableSql);
 
-        // SERVER-DEFAULT COLLATIONS - stripped everywhere below, so each server applies its own
-        // default on replay and a statement never names a collation the target doesn't have
+        // SERVER-DEFAULT COLLATIONS - stripped from the table options here (columns strip theirs
+        // in normalizeColumnDefinition()), so each server applies its own default on replay and
+        // a statement never names a collation the target doesn't have
         $defaultCollationsRx = '(?:' . implode('|', self::DEFAULT_COLLATIONS) . ')';
 
         $lines = explode("\n", $createTableSql);
@@ -451,20 +434,49 @@ class TableInfo
             [, $namePart, $definition] = $match;
             [$definition, $literals]   = self::maskStringLiterals($definition); // COMMENT/DEFAULT/enum text stays byte-identical
 
-            $definition = self::rewriteUtf8mb3ToUtf8($definition);
-            $definition = preg_replace("/ COLLATE $defaultCollationsRx\\b/", '', $definition);
-            $definition = self::cropIntDisplayWidth($definition);
-
-            // vendors disagree on expression parens both ways: MySQL's redundant pair on generated
-            // columns is noise, and MariaDB's bare expression defaults don't replay on MySQL
-            $definition = self::stripRedundantGeneratedParens($definition);
-            $definition = self::parenthesizeExpressionDefault($definition);
-
-            $line = $namePart . strtr($definition, $literals);
+            $line = $namePart . strtr(self::normalizeColumnDefinition($definition), $literals);
         }
         unset($line);
 
         return implode("\n", $lines);
+    }
+
+    /**
+     * Normalize one column definition so it reads the same from every supported server and
+     * replays on every supported server. The single pipeline behind columnDefinitions() and
+     * normalizeCreateTable(): both call it, so they always agree on what a column looks like.
+     *
+     * Callers mask string literals first, so quoted text (COMMENT, DEFAULT, enum values) can
+     * never match a rewrite here.
+     *
+     * @param string $maskedDefinition Column definition with string literals already masked
+     * @return string The normalized definition, literals still masked
+     */
+    private static function normalizeColumnDefinition(string $maskedDefinition): string
+    {
+        $definition = self::rewriteUtf8mb3ToUtf8($maskedDefinition);
+
+        // server-default collations are noise: servers disagree on whether they're printed at
+        // all and on which collation is the default, so on replay each server applies its own
+        $defaultCollationsRx = '(?:' . implode('|', self::DEFAULT_COLLATIONS) . ')';
+        $definition          = preg_replace("/ COLLATE $defaultCollationsRx\\b/", '', $definition);
+
+        $definition = self::cropIntDisplayWidth($definition);
+
+        // MariaDB 10.2+ spells defaults current_timestamp(); MySQL spells them CURRENT_TIMESTAMP
+        $definition = preg_replace('/\b(DEFAULT|ON UPDATE) current_timestamp(?:\(\))?(\(\d+\))?/i', '$1 CURRENT_TIMESTAMP$2', $definition);
+
+        // vendors disagree on expression parens both ways: MySQL wraps generated-column
+        // expressions in a redundant extra pair, and MariaDB prints expression defaults
+        // without the parens MySQL's DDL grammar requires
+        $definition = self::stripRedundantGeneratedParens($definition);
+        $definition = self::parenthesizeExpressionDefault($definition);
+
+        // MariaDB prints numeric-typed defaults bare (DEFAULT 0); MySQL prints them quoted (DEFAULT '0').
+        // Quote bare numeric literals to match MySQL. Numbers only: other bare tokens are keywords (NULL)
+        // or expressions (CURRENT_TIMESTAMP, uuid()) and must stay bare to keep their meaning, and string
+        // defaults are quoted, so they're masked by the caller and can never match
+        return preg_replace("/\bDEFAULT (-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)(?=,| |$)/", "DEFAULT '$1'", $definition);
     }
 
     /**
