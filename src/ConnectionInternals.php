@@ -1031,7 +1031,7 @@ trait ConnectionInternals
      *
      * @param self|null $source Source connection to copy secrets from (for clones)
      * @param array     $config Config array; credential keys are consumed (construct path only)
-     * @throws RuntimeException If any required credential is missing
+     * @throws RuntimeException If a required credential is missing, or any credential isn't a string
      */
     private function sealSecrets(?self $source = null, array &$config = []): void
     {
@@ -1047,6 +1047,9 @@ trait ConnectionInternals
 
             if ($value === null && !in_array($key, $optional, true)) {
                 throw new RuntimeException("Missing required config: '$key'");
+            }
+            if ($value !== null && !is_string($value)) {
+                throw new RuntimeException("Config '$key' must be a string, got " . get_debug_type($value));
             }
             self::$secrets[$this][$key] = $value;
             $this->$key                 = null;            // clear property to prevent leakage

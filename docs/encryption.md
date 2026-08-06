@@ -21,7 +21,7 @@ DB::connect([
     'username'      => 'dbuser',
     'password'      => 'secret',
     'database'      => 'my_app',
-    'encryptionKey' => getenv('DB_ENCRYPTION_KEY'),
+    'encryptionKey' => $encryptionKey, // from an env variable or secrets manager, not hardcoded
 ]);
 ```
 

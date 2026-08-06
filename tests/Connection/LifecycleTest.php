@@ -88,6 +88,16 @@ class LifecycleTest extends BaseTestCase
         new Connection();
     }
 
+    public function testConnectWithNonStringEncryptionKey(): void
+    {
+        // getenv() returns false when the env var is unset; fail with the config key's
+        // name instead of a TypeError from the vault that mentions neither
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage("Config 'encryptionKey' must be a string, got bool");
+        $config = array_merge(self::$configDefaults, ['encryptionKey' => false]);
+        DB::connect($config);
+    }
+
     public function testConnectWithAutoCreateDatabase(): void
     {
         $database = "testplan_test_auto_create_database";
