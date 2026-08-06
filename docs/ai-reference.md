@@ -259,15 +259,16 @@ DB::query("SELECT * FROM `:::table`", [':table' => 'users']); // same
 
 ## Type Handling
 
-| PHP Type | SQL Output             | Example  |
-|----------|------------------------|----------|
-| `string` | Quoted and escaped     | `'John'` |
-| `int`    | Unquoted               | `42`     |
-| `float`  | Unquoted               | `9.5`    |
-| `null`   | `NULL`                 | `NULL`   |
-| `bool`   | `TRUE` / `FALSE`       | `TRUE`   |
-| `array`  | Comma-separated values | `1,2,3`  |
-| `RawSql` | As-is (no escaping)    | `NOW()`  |
+| PHP Type                    | SQL Output              | Example                           |
+|-----------------------------|-------------------------|-----------------------------------|
+| `string`                    | Quoted and escaped      | `'John'`                          |
+| `int`                       | Unquoted                | `42`                              |
+| `float`                     | Unquoted                | `9.5`                             |
+| `null`                      | `NULL`                  | `NULL`                            |
+| `bool`                      | `TRUE` / `FALSE`        | `TRUE`                            |
+| `array` in WHERE or `:name` | Comma-separated IN list | `1,2,3`                           |
+| `array` anywhere else       | Throws                  | `implode()`/`json_encode()` first |
+| `RawSql`                    | As-is (no escaping)     | `NOW()`                           |
 
 **Critical:** String `"10"` becomes `'10'` (quoted). Integer `10` becomes `10`
 (unquoted). This matters for LIMIT -- always use int, not string.
@@ -670,21 +671,21 @@ underscore, hyphen only).
 
 ## Common Errors Quick Reference
 
-| Error                                                                                   | Fix                                                        |
-|-----------------------------------------------------------------------------------------|------------------------------------------------------------|
-| "Quotes not allowed in template"                                                        | Use placeholder: `"name = ?", 'John'`                      |
-| "Standalone number in template"                                                         | Use placeholder: `"age > ?", 21`                           |
-| "Max 3 positional arguments allowed"                                                    | Use named placeholders: `[':a' => 1, ':b' => 2, ...]`      |
-| "UPDATE requires a WHERE condition to prevent accidental bulk UPDATE" (same for DELETE) | Add WHERE or use `"TRUE"` for all rows                     |
-| "Suspicious SET clause"                                                                 | Check argument order: `update($table, $values, $whereEtc)` |
-| "Missing value for ? parameter at position N"                                           | Pass enough values for all `?` placeholders                |
-| "Missing value for ':name' parameter"                                                   | Add missing key to params array                            |
-| "Arrays not allowed with positional ? placeholders"                                     | Use named: `"IN (:ids)"`, `[':ids' => [1,2,3]]`            |
-| "Can't mix positional (?) and named (:param) placeholders"                              | Use one placeholder style for the whole query              |
-| "This method doesn't support LIMIT or OFFSET"                                           | Use `select()` not `selectOne()` for custom LIMIT          |
+| Error                                                                                   | Fix                                                                              |
+|-----------------------------------------------------------------------------------------|----------------------------------------------------------------------------------|
+| "Quotes not allowed in template"                                                        | Use placeholder: `"name = ?", 'John'`                                            |
+| "Standalone number in template"                                                         | Use placeholder: `"age > ?", 21`                                                 |
+| "Max 3 positional arguments allowed"                                                    | Use named placeholders: `[':a' => 1, ':b' => 2, ...]`                            |
+| "UPDATE requires a WHERE condition to prevent accidental bulk UPDATE" (same for DELETE) | Add WHERE or use `"TRUE"` for all rows                                           |
+| "Suspicious SET clause"                                                                 | Check argument order: `update($table, $values, $whereEtc)`                       |
+| "Missing value for ? parameter at position N"                                           | Pass enough values for all `?` placeholders                                      |
+| "Missing value for ':name' parameter"                                                   | Add missing key to params array                                                  |
+| "Arrays not allowed with positional ? placeholders"                                     | Use named: `"IN (:ids)"`, `[':ids' => [1,2,3]]`                                  |
+| "Can't mix positional (?) and named (:param) placeholders"                              | Use one placeholder style for the whole query                                    |
+| "This method doesn't support LIMIT or OFFSET"                                           | Use `select()` not `selectOne()` for custom LIMIT                                |
 | "This method doesn't support FOR UPDATE" (also FOR SHARE, LOCK IN SHARE MODE)           | Use `query(...)->first()`; queryOne()'s LIMIT 1 must come before locking clauses |
-| "This method appends LIMIT 1 automatically"                                             | Remove the trailing `--`/`#` comment or `;`, or use `query(...)->first()` |
-| "Invalid table/column name"                                                             | Only `a-z, A-Z, 0-9, _, -` allowed                         |
+| "This method appends LIMIT 1 automatically"                                             | Remove the trailing `--`/`#` comment or `;`, or use `query(...)->first()`        |
+| "Invalid table/column name"                                                             | Only `a-z, A-Z, 0-9, _, -` allowed                                               |
 
 ## Gotchas
 
