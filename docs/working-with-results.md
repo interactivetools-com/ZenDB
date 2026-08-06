@@ -86,8 +86,8 @@ echo $article->body->textOnly()->maxChars(100);
 // Format a number and prepend a currency symbol (a blank price stays blank, no stray $)
 echo $product->price->numberFormat(2)->andPrefix('$');   // $1,234.56
 
-// Format a date; null and invalid dates fall through to the or()
-// (a zero date like 0000-00-00 doesn't: it formats as 'Nov 30, -0001')
+// Format a date; supports years 1000-9999, anything else
+// (null, invalid, zero dates like 0000-00-00) falls through to the or()
 echo $user->lastLogin->dateFormat('M j, Y')->or('Never');
 ```
 
