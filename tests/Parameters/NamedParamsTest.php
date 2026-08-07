@@ -153,6 +153,15 @@ class NamedParamsTest extends BaseTestCase
         DB::query("SELECT * FROM ::users WHERE num = :num", [':user-name' => 'test']);
     }
 
+    public function testPhpNamedArgumentsThrow(): void
+    {
+        // Legal PHP syntax collects unknown named args into ...$params as string keys
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage("can't be passed as PHP named arguments");
+
+        DB::query("SELECT * FROM ::users WHERE name = :name", name: 'John Doe');
+    }
+
     public function testParamNameWithSpaceThrows(): void
     {
         $this->expectException(InvalidArgumentException::class);

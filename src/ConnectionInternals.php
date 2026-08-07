@@ -33,6 +33,7 @@ trait ConnectionInternals
      */
     private array $paramValues = [];
     private bool  $paramsFromPositionalArray = false;  // set by parseParams(), read by the unused-positional check in replacePlaceholders()
+    private int   $positionalParamCount      = 0;      // set by parseParams(): count of :N keys in paramValues, read by replacePlaceholders()
 
     /**
      * Parse variadic query args into a parameter map.
@@ -46,18 +47,87 @@ trait ConnectionInternals
      *   - query($sql, [':name' => 'Bob', ':age' => 45]) // Named params in array
      *   - query($sql, ['a', 'b', 'c'])                  // Deprecated: positional values in an array (use named placeholders)
      *
+     * The two common shapes (positional values, named array) are handled with plain
+     * typed loops. PHP named arguments (query($sql, name: 'Bob')) are rejected outright;
+     * every other odd shape - arrays mixing int and string keys, the deprecated
+     * positional array, invalid input - goes to parseParamsGeneral(), which owns the
+     * remaining error and deprecation messages.
+     *
      * @param array $args Variadic args from query method
      * @return array Parameter map, e.g. [':1' => 'a', ':2' => 'b'] or [':name' => 'Bob']
      * @throws InvalidArgumentException
      */
     private function parseParams(array $args): array
     {
-        $this->paramsFromPositionalArray = false;  // reset per call; the no-args return below skips the assignment further down
+        $this->paramsFromPositionalArray = false;
+        $this->positionalParamCount      = 0;
 
         if (!$args) {
             return [];
         }
 
+        // PHP collects named arguments (query($sql, name: 'Bob')) into ...$params as
+        // string keys - legal syntax, but not a supported way to pass query params
+        if (!array_is_list($args)) {
+            throw new InvalidArgumentException("Query params can't be passed as PHP named arguments");
+        }
+
+        // Named params: single array of ':name' => value pairs
+        if (count($args) === 1 && is_array($args[0])) {
+            $params = $args[0];
+            if (!$params) {
+                return [];
+            }
+            $values          = [];
+            $positionalCount = 0;
+            foreach ($params as $key => $value) {
+                // Int keys (deprecated positional array, or mixed with named) and invalid
+                // names take the general path, which logs or throws the canonical message
+                if (!is_string($key) || !preg_match('/^:(?!_|zdb_)\w+\z/', $key)) {
+                    return $this->parseParamsGeneral($args);
+                }
+                if ($key[1] <= '9' && strspn($key, '0123456789', 1) === strlen($key) - 1) {
+                    $positionalCount++;   // ':12'-style keys count as positional for the unused-positional check
+                }
+                $values[$key] = !is_object($value) ? $value : $this->unwrapParamObject($value);
+            }
+            $this->positionalParamCount = $positionalCount;
+            return $values;
+        }
+
+        // 2+ direct values: over the cap or arrays mixed in take the general path (throws)
+        if (count($args) > 1) {
+            if (count($args) > 3) {
+                return $this->parseParamsGeneral($args);
+            }
+            foreach ($args as $value) {
+                if (is_array($value)) {
+                    return $this->parseParamsGeneral($args);
+                }
+            }
+        }
+
+        // Positional values become [':1' => v1, ':2' => v2, ...]
+        $values          = [];
+        $positionalCount = 0;
+        foreach ($args as $value) {
+            $values[':' . ++$positionalCount] = !is_object($value) ? $value : $this->unwrapParamObject($value);
+        }
+        $this->positionalParamCount = $positionalCount;
+        return $values;
+    }
+
+    /**
+     * Parser for the shapes parseParams() doesn't fast-path, and the single owner of
+     * every param-shape error and deprecation message. parseParams() has already
+     * handled empty args and reset the per-call state when this runs.
+     *
+     * @param array $args Variadic args from query method
+     * @return array Parameter map, e.g. [':1' => 'a', ':2' => 'b'] or [':name' => 'Bob']
+     * @throws InvalidArgumentException
+     */
+    private function parseParamsGeneral(array $args): array
+    {
         // Valid forms: up to 3 direct values (for ? placeholders), or one array of ':name' => value pairs.
         // Positional values in an array are deprecated and will throw in a future version.
         $passedAsArray     = count($args) === 1 && is_array($args[0]);
@@ -99,15 +169,7 @@ trait ConnectionInternals
                 throw new InvalidArgumentException("Duplicate param name '$name'");
             }
 
-            // Unwrap SmartString/SmartNull/SmartArray, validate type
-            $values[$name] = match (true) {
-                !is_object($value)               => $value,
-                $value instanceof RawSql         => $value,
-                $value instanceof SmartString    => $value->value(),
-                $value instanceof SmartNull      => null,
-                $value instanceof SmartArrayBase => $value->toArray(),
-                default                          => throw new InvalidArgumentException("Parameters cannot be " . get_debug_type($value)),
-            };
+            $values[$name] = !is_object($value) ? $value : $this->unwrapParamObject($value);
         }
 
         // Enforce consistent placeholder style
@@ -115,7 +177,23 @@ trait ConnectionInternals
             throw new InvalidArgumentException("Can't mix positional (?) and named (:param) placeholders. Use one style consistently.");
         }
 
+        $this->positionalParamCount = count(preg_grep('/^:\d+$/', array_keys($values)));
         return $values;
+    }
+
+    /**
+     * Unwrap an object parameter value: RawSql passes through, SmartString/SmartNull/
+     * SmartArray unwrap to their raw values, anything else throws.
+     */
+    private function unwrapParamObject(object $value): mixed
+    {
+        return match (true) {
+            $value instanceof RawSql         => $value,
+            $value instanceof SmartString    => $value->value(),
+            $value instanceof SmartNull      => null,
+            $value instanceof SmartArrayBase => $value->toArray(),
+            default                          => throw new InvalidArgumentException("Parameters cannot be " . get_debug_type($value)),
+        };
     }
 
     //endregion
@@ -557,7 +635,7 @@ trait ConnectionInternals
         // Unused positional values almost always mean a bug, e.g. "IN (?)" with [1, 2, 3] only uses the 1.
         // Skipped when parseParams() already logged the positional-array deprecation for this call.
         // Unused named values stay allowed: passing a shared param array with extras is legitimate.
-        $positionalProvided = count(preg_grep('/^:\d+$/', array_keys($this->paramValues)));
+        $positionalProvided = $this->positionalParamCount;   // recorded by parseParams(); paramValues only ever holds its return value
         if ($positionalCount < $positionalProvided && !$this->paramsFromPositionalArray) {
             DB::logDeprecation("Query has $positionalCount positional (?) placeholder(s) but $positionalProvided values were passed. Unused positional values are deprecated and will throw in a future version. For IN() lists use a named placeholder: ':ids' => [...]");
         }
