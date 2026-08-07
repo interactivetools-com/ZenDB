@@ -944,20 +944,23 @@ trait ConnectionInternals
      *
      * False negatives just take the metadata path; false positives would silently
      * drop SmartJoins keys, so anything that could involve a second table answers
-     * no: JOIN, UNION, or a comma anywhere after the first FROM (comma-joins, and
+     * no: JOIN, or a comma anywhere after the first FROM (comma-joins, and
      * conservatively multi-column ORDER BY). RawSql fragments can land anywhere in
      * the SQL, so they also reject FROM and bare commas; pagingSql's
-     * 'LIMIT x OFFSET y' passes.
+     * 'LIMIT x OFFSET y' passes. UNIONs are single-table-equivalent: no server
+     * attributes union result columns in fetch_fields() (table/orgtable empty on
+     * all 22 matrix servers), so SmartJoins can't trigger and duplicate columns
+     * are still caught structurally. See docs/internal/db-behavior-matrix.md.
      */
     private function isSingleTableQuery(string $template): bool
     {
-        if (preg_match('/join|union|from.*,/is', $template)) {
+        if (preg_match('/join|from.*,/is', $template)) {
             return false;
         }
 
         foreach ($this->paramValues as $param) {
             foreach (is_array($param) ? $param : [$param] as $value) {
-                if ($value instanceof RawSql && preg_match('/join|union|from|,/i', (string)$value)) {
+                if ($value instanceof RawSql && preg_match('/join|from|,/i', (string)$value)) {
                     return false;
                 }
             }

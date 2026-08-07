@@ -49,7 +49,7 @@ class SingleTableFastPathTest extends BaseTestCase
             'comma in SELECT list'     => ['Commas before FROM are column lists, not joins', 'SELECT num, name FROM users WHERE num = ?', [':1' => 5], true],
             'no FROM at all'           => ['Expression-only query', 'SELECT DATABASE() AS db', [], true],
             'join in template'         => ['JOIN needs SmartJoins metadata', 'SELECT * FROM users u JOIN orders o ON u.num = o.user_id', [], false],
-            'union in template'        => ['UNION merges two tables', 'SELECT num FROM users UNION SELECT num FROM orders', [], false],
+            'union in template'        => ['UNION columns are never table-attributed (behavior matrix), so no metadata needed', 'SELECT num FROM users UNION SELECT num FROM orders', [], true],
             'comma join'               => ['Comma after FROM could be a comma-join', 'SELECT * FROM users, orders WHERE users.num = orders.user_id', [], false],
             'multi-column ORDER BY'    => ['Conservative: any comma after FROM says no', 'SELECT * FROM users ORDER BY name, num', [], false],
             'join substring in name'   => ['Conservative: JOIN as substring says no', 'SELECT num, title AS joined_at FROM users', [], false],
@@ -102,6 +102,30 @@ class SingleTableFastPathTest extends BaseTestCase
         $result = DB::query("SELECT * FROM ::users WHERE num = ?", -1);
 
         $this->assertCount(0, $result);
+    }
+
+    public function testUnionReturnsMergedRows(): void
+    {
+        // UNIONs take the fast path (no server table-attributes union columns);
+        // rows from both arms must come through with the first arm's column names
+        $result = DB::query(
+            "SELECT num FROM ::users WHERE num = :a UNION SELECT user_id FROM ::orders WHERE user_id = :b ORDER BY num",
+            [':a' => 1, ':b' => 6]
+        );
+
+        $this->assertSame([1, 6], $result->pluck('num')->toArray());
+    }
+
+    public function testUnionWithDuplicateColumnsFallsBack(): void
+    {
+        // Duplicate columns in the first arm collapse on assoc fetch, which the
+        // structural check catches: refetch through the metadata path, first wins
+        $row = DB::query(
+            "SELECT num, name AS num FROM ::users WHERE num = :a UNION SELECT num, city FROM ::users WHERE num = :b",
+            [':a' => 1, ':b' => -1]
+        )->first();
+
+        $this->assertSame(1, $row->get('num')->value());
     }
 
     //endregion

@@ -6,7 +6,7 @@ How every supported database server answers the same behavior probes, showing on
     gh run download --dir probes             # pick the latest DB Behavior Matrix run
     php .github/scripts/db-behavior-merge.php probes/*/probe-*.json > docs/internal/db-behavior-matrix.md
 
-Last generated: 2026-07-17 from 22 servers: mysql:5.7, mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, mariadb:10.2, mariadb:10.2.6, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3, percona/percona-server:5.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
+Last generated: 2026-08-07 from 22 servers: mysql:5.7, mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, mariadb:10.2, mariadb:10.2.6, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3, percona/percona-server:5.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
 
 Generated file - don't hand-edit. The "Key differences" summary below is maintained in the heredoc in .github/scripts/db-behavior-merge.php; edit it there.
 
@@ -37,9 +37,9 @@ Stock Docker images with default configs answered these probes. Install-dependen
 
 - `5.7.44` → mysql:5.7
 - `8.0.46` → mysql:8.0
-- `8.4.10` → mysql:8.4
+- `8.4.11` → mysql:8.4
 - `9.6.0` → mysql:9.6
-- `9.7.1` → mysql:9.7
+- `9.7.2` → mysql:9.7
 - `10.2.44-MariaDB-1:10.2.44+maria~bionic` → mariadb:10.2
 - `10.2.6-MariaDB-10.2.6+maria~jessie` → mariadb:10.2.6
 - `10.2.7-MariaDB-10.2.7+maria~jessie` → mariadb:10.2.7
@@ -68,9 +68,9 @@ Stock Docker images with default configs answered these probes. Install-dependen
 
 - `5.7.44` → mysql:5.7
 - `8.0.46` → mysql:8.0
-- `8.4.10` → mysql:8.4
+- `8.4.11` → mysql:8.4
 - `9.6.0` → mysql:9.6
-- `9.7.1` → mysql:9.7
+- `9.7.2` → mysql:9.7
 - `10.2.44-MariaDB-1:10.2.44+maria~bionic` → mariadb:10.2
 - `10.2.6-MariaDB-10.2.6+maria~jessie` → mariadb:10.2.6
 - `10.2.7-MariaDB-10.2.7+maria~jessie` → mariadb:10.2.7
@@ -90,9 +90,9 @@ Stock Docker images with default configs answered these probes. Install-dependen
 
 - `50744` → MySQL/Percona 5.7
 - `80046` → mysql:8.0, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0
-- `80410` → mysql:8.4, percona/percona-server:8.4
+- `80411` → mysql:8.4
 - `90600` → mysql:9.6
-- `90701` → mysql:9.7
+- `90702` → mysql:9.7
 - `100244` → mariadb:10.2
 - `100206` → mariadb:10.2.6
 - `100207` → mariadb:10.2.7
@@ -104,14 +104,15 @@ Stock Docker images with default configs answered these probes. Install-dependen
 - `110412` → mariadb:11.4
 - `110808` → mariadb:11.8+rocksdb, mariadb:11.8
 - `120302` → mariadb:12.3+rocksdb, mariadb:12.3
+- `80410` → percona/percona-server:8.4
 
 ### server_info after Server::version() parse
 
 - `5.7.44` → MySQL/Percona 5.7
 - `8.0.46` → mysql:8.0, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0
-- `8.4.10` → mysql:8.4, percona/percona-server:8.4
+- `8.4.11` → mysql:8.4
 - `9.6.0` → mysql:9.6
-- `9.7.1` → mysql:9.7
+- `9.7.2` → mysql:9.7
 - `10.2.44` → mariadb:10.2
 - `10.2.6` → mariadb:10.2.6
 - `10.2.7` → mariadb:10.2.7
@@ -123,6 +124,7 @@ Stock Docker images with default configs answered these probes. Install-dependen
 - `11.4.12` → mariadb:11.4
 - `11.8.8` → mariadb:11.8+rocksdb, mariadb:11.8
 - `12.3.2` → mariadb:12.3+rocksdb, mariadb:12.3
+- `8.4.10` → percona/percona-server:8.4
 
 ### @@basedir
 
@@ -924,6 +926,85 @@ Stock Docker images with default configs answered these probes. Install-dependen
 ### INSERT DATE '2024-01-00' under ZenDB sql_mode
 
 - all servers: `rejected: error 1292`
+
+### HANDSHAKE CHARSET: client character_set_name()
+
+- all servers: `utf8mb4`
+
+### HANDSHAKE CHARSET: session charsets
+
+- all servers: `utf8mb4 / utf8mb4 / utf8mb4`
+
+### HANDSHAKE CHARSET: @@collation_connection
+
+- `utf8mb4_general_ci` → mysql:5.7, mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, mariadb:10.2, mariadb:10.2.6, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, percona/percona-server:5.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
+- `utf8mb4_uca1400_ai_ci` → mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3
+
+### HANDSHAKE CHARSET: same state as set_charset route
+
+- `identical` → mysql:5.7, mariadb:10.2, mariadb:10.2.6, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3, percona/percona-server:5.7
+- `DIFFERS: handshake utf8mb4/utf8mb4/utf8mb4/utf8mb4_general_ci vs set_charset utf8mb4/utf8mb4/utf8mb4/utf8mb4_0900_ai_ci` → mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
+
+### HANDSHAKE CHARSET: collation after SET character_set_* over utf8mb4_bin
+
+- `utf8mb4_general_ci` → mysql:5.7, mariadb:10.2, mariadb:10.2.6, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3, percona/percona-server:5.7
+- `utf8mb4_0900_ai_ci` → mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
+
+### PERSISTENT: ini mysqli.allow_persistent
+
+- all servers: `1`
+
+### PERSISTENT: ini mysqli.rollback_on_cached_plink
+
+- all servers: `0`
+
+### PERSISTENT: pool reuse
+
+- all servers: `reused (same server thread)`
+
+### PERSISTENT: user variable after reuse
+
+- all servers: `cleared (lazy @ek SET re-arms)`
+
+### PERSISTENT: session sql_mode after reuse
+
+- all servers: `reset to server default`
+
+### PERSISTENT: charset after reuse
+
+- all servers: `latin1 / @@character_set_client latin1`
+
+### PERSISTENT: temporary table after reuse
+
+- all servers: `dropped (error 1146)`
+
+### PERSISTENT: uncommitted INSERT after reuse
+
+- all servers: `rolled back`
+
+### UNION FIELDS: single SELECT control
+
+- all servers: `id(table='zdb_probe_u1' orgtable='zdb_probe_u1'), name(table='zdb_probe_u1' orgtable='zdb_probe_u1')`
+
+### UNION FIELDS: two-table UNION
+
+- all servers: `id(table='' orgtable=''), name(table='' orgtable='')`
+
+### UNION FIELDS: two-table UNION ALL
+
+- all servers: `id(table='' orgtable=''), name(table='' orgtable='')`
+
+### UNION FIELDS: aliased tables
+
+- all servers: `id(table='' orgtable=''), name(table='' orgtable='')`
+
+### UNION FIELDS: SELECT * both sides
+
+- all servers: `id(table='' orgtable=''), name(table='' orgtable='')`
+
+### UNION FIELDS: any union column attributed
+
+- all servers: `no - all empty`
 
 ### CHECK list: I_S.CHECK_CONSTRAINTS columns
 
