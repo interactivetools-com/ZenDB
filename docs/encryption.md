@@ -30,6 +30,16 @@ Like your database password, it's kept in the connection's credential vault, so
 it doesn't show up in `var_dump()` output or stack traces, and it's masked as
 `********` in logged SQL.
 
+If the connection to MySQL crosses the public internet or any network
+shared with people you don't trust, also set `requireSSL` so the
+connection is encrypted. ZenDB sends `encryptionKey` to MySQL once per
+connection (as a query parameter, so it stays out of SQL text and logs),
+and on an unencrypted connection anyone who can watch that traffic can
+read it, along with every query and result. On `localhost`, or a database
+server on your own or your hosting provider's internal network, anyone
+positioned to watch the traffic already has access to the servers
+themselves, so `requireSSL` adds nothing there.
+
 ZenDB decides which columns to encrypt by column type: every `MEDIUMBLOB` is
 encrypted, everything else is left alone (including `TINYBLOB`, `BLOB`, and
 `LONGBLOB`):
@@ -201,7 +211,9 @@ clear about where that ends:
   the table can tell which rows share a value and can spot repeated 16-byte
   blocks inside a value.
 - **No integrity check.** ECB is unauthenticated; nothing detects ciphertext
-  that was modified in place.
+  that was modified in place or copied from another row. An attacker with
+  write access can swap two rows' encrypted values and both still decrypt
+  cleanly.
 - **One key for everything.** Every `MEDIUMBLOB` on the connection uses the
   same key; there's no per-column opt-out.
 

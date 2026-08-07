@@ -164,7 +164,7 @@ try {
     $user = DB::selectOne('users', ['id' => 1]);
     echo "Hello, $user->name!";
 } catch (\Exception $e) {
-    echo "Database error: " . $e->getMessage();
+    echo "Database error: " . htmlspecialchars($e->getMessage()); // exception text is a plain string, not a SmartString, so encode it yourself
 }
 ```
 

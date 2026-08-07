@@ -1,45 +1,126 @@
 # ZenDB Changelog
 
-## [Unreleased]
+> **Upgrading?** See [UPGRADING.md](UPGRADING.md) for the checks that matter,
+> per version - tagged releases roll up every change since the previous tag.
+> Versions bundled with CMS Builder are marked on their sections.
+
+## [1.0.0] - [UNRELEASED]
 
 > **Bundled with CMS Builder v3.85**
 
+First stable release, and the first with a complete manual: task-oriented
+guides in `docs/` covering everything from your first query to joins,
+encryption, security, and troubleshooting, plus
+[ai-reference.md](docs/ai-reference.md), the whole API in one file for AI
+coding assistants.
+
 ### Added
-- `::` works inside `{{}}` - Encrypted-column reads take the table prefix the same way the rest of the query does: `{{::users.apiToken}}` expands to `` AES_DECRYPT(`cms_users`.`apiToken`, @ek) ``, matching `FROM ::users`. Write the column reference as you would unencrypted, wrapped in braces; alias qualifiers pass through as written (`{{u.apiToken}}`). Previously the prefix had to be hardcoded (`{{cms_users.apiToken}}`), which broke if `tablePrefix` changed; that form still works
 
-## [1.0.0] - 2026-07-08
-
-First stable release, and the first with a complete manual: task-oriented guides in `docs/` covering everything from your first query to joins, encryption, security, and troubleshooting, plus [ai-reference.md](docs/ai-reference.md), the whole API in one file for AI coding assistants.
-
-### Added
-- Documentation - guides organized by task ([start at the index](docs/README.md)): getting started, querying, results, modifying data, placeholders, joins and custom SQL, common patterns, helpers, multiple connections, encryption, security gotchas, and troubleshooting with exact error messages. Every example verified against the current source
-- Prefixed value placeholders - `::?` and `:::name` (no backticks) prepend the table prefix inside the quoted value, for matching table names as strings:
+- Documentation - guides organized by task
+  ([start at the index](docs/README.md)): getting started, querying,
+  results, modifying data, placeholders, joins and custom SQL, common
+  patterns, helpers, multiple connections, encryption, security gotchas,
+  and troubleshooting with exact error messages. Every example verified
+  against the current source
+- Prefixed value placeholders - `::?` and `:::name` (no backticks) prepend
+  the table prefix inside the quoted value, for matching table names as
+  strings:
   - `SHOW TABLES LIKE ::?` with `user%` → `SHOW TABLES LIKE 'cms_user%'`
   - `WHERE TABLE_NAME = :::table` with `users` → `WHERE TABLE_NAME = 'cms_users'`
   - `IN (:::tables)` with `['users', 'orders']` → `IN ('cms_users', 'cms_orders')`
   - Strings only (or arrays of strings); anything else throws `InvalidArgumentException`
-- `Table` and `Server` - Internal classes for reading table facts (exists, columns, CREATE TABLE, primary key, indexes, foreign keys) and server facts (version, vendor, SSL). Internal API that may change between releases; the old table helpers are deprecated in their favor (below)
+- `::` works inside `{{}}` - Encrypted-column reads take the table prefix
+  the same way the rest of the query does: `{{::users.apiToken}}` expands
+  to `` AES_DECRYPT(`cms_users`.`apiToken`, @ek) ``, matching
+  `FROM ::users`. Write the column reference as you would unencrypted,
+  wrapped in braces; alias qualifiers pass through as written
+  (`{{u.apiToken}}`). Previously the prefix had to be hardcoded
+  (`{{cms_users.apiToken}}`), which broke if `tablePrefix` changed; that
+  form still works
+- `Table` and `Server` - Internal classes for reading table facts (exists,
+  columns, CREATE TABLE, primary key, indexes, foreign keys) and server
+  facts (version, vendor, SSL). Internal API that may change between
+  releases; the old table helpers are deprecated in their favor (below)
 
 ### Changed
-- `escape()`, `escapef()`, and `escapeCSV()` - Marked `@internal`; they exist so ZenDB and CMS Builder can build their own SQL. Placeholders are the supported API
+
+- `escape()`, `escapef()`, and `escapeCSV()` - Marked `@internal`; they
+  exist so ZenDB and CMS Builder can build their own SQL. Placeholders are
+  the supported API
 
 ### Deprecated
-- Positional values as a single array - `"id IN (?)"` with `[1, 2, 3]` was silently running as `IN (1)`; it is now deprecated and will throw in a future release. Use a named placeholder (`"id IN (:ids)"` with `[':ids' => [1, 2, 3]]`) or up to 3 direct values (`DB::select('users', 'id = ?', $id)`). Extra positional values a query doesn't use are also deprecated (usually a missing `?`); unused named params stay allowed
-- `DB::hasTable()`, `DB::getTableNames()`, `DB::getColumnDefinitions()` - Use `Table::exists()`, `Table::names()`, and `Table::columnDefinitions()` instead; the old forms still work but are deprecated. Same for the `Connection` equivalents (IDE-only, no runtime warning). Note: `Table::columnDefinitions()` throws for unknown tables where `getColumnDefinitions()` returned `[]`
+
+- Positional values as a single array - `"id IN (?)"` with `[1, 2, 3]` was
+  silently running as `IN (1)`; it is now deprecated and will throw in a
+  future release. Use a named placeholder (`"id IN (:ids)"` with
+  `[':ids' => [1, 2, 3]]`) or up to 3 direct values
+  (`DB::select('users', 'id = ?', $id)`). Extra positional values a query
+  doesn't use are also deprecated (usually a missing `?`); unused named
+  params stay allowed
+- `DB::hasTable()`, `DB::getTableNames()`, `DB::getColumnDefinitions()` -
+  Use `Table::exists()`, `Table::names()`, and `Table::columnDefinitions()`
+  instead; the old forms still work but are deprecated. Same for the
+  `Connection` equivalents (IDE-only, no runtime warning). Note:
+  `Table::columnDefinitions()` throws for unknown tables where
+  `getColumnDefinitions()` returned `[]`
 
 ### Fixed
-- `useSmartStrings => false` - Connections and clones with SmartStrings disabled now return plain `SmartArray` results with raw values; previously every query on them threw `InvalidArgumentException`. `query()`/`queryOne()`/`select()`/`selectOne()` return types widened from `SmartArrayHtml` to their shared parent `SmartArrayBase`
-- Time zones past +13:00 - With `usePhpTimezone`, PHP zones Pacific/Kiritimati (+14:00) and Chatham DST (+13:45) failed to connect on MariaDB and MySQL before 8.0.19; those two offsets now map to time zone names every supported server accepts
-- `versionRequired` - The version parser misread most real server strings (`10.5.29-MariaDB-ubu2004` parsed as `10.5.292004`); it now handles distro suffixes, MariaDB's handshake prefix, and Aurora's format. The error message also names the actual server product instead of calling everything MySQL
-- `DB::transaction()` - When the connection dies mid-transaction, the closure's exception now reaches the caller; previously the failing `ROLLBACK` threw a second "server has gone away" that replaced the real cause
-- Float values - Now written to SQL with exact round-trip precision; PHP's string cast rounds to 14 significant digits, so very large floats could silently match the wrong rows. `NAN` and `INF` now throw `InvalidArgumentException`
-- SmartString values - Now escape by their original type everywhere: a wrapped `int`/`float`/`bool` becomes a typed SQL literal (`5`, `TRUE`) instead of a quoted string (`'5'`, `'1'`), and a wrapped `null` means SQL `NULL`: it writes `NULL` in SET clauses (was `''`), matches with `IS NULL` in WHERE arrays (was `= ''`), and is skipped in IN lists
-- IN lists - `null` values are now skipped instead of emitting `NULL`, which never matches in `IN (...)` and makes a `NOT IN (...)` return zero rows; use `IS NULL` to match NULL rows
-- Encrypted reads - A MEDIUMBLOB value that fails to decrypt (wrong `encryptionKey`, or the column holds unencrypted data) still passes through as raw bytes, but now triggers one `E_USER_WARNING` per connection naming the column (was silent)
-- Table existence checks - Now answer false only for "no such table"; other failures like a dead connection or missing privilege throw instead of reading as a missing table
-- Stricter input validation - Each of these previously produced wrong SQL or a confusing MySQL error, now they throw or reject up front: hex/binary/scientific literals (`0x1AF`, `0b1010`, `1e10`) in query templates (use placeholders), empty strings in backtick identifier placeholders, param names starting with `:_` (the deprecated prefix token, the value silently never bound), and table/column names with a trailing newline
-- Result polyfill (PHP 8.1 without mysqlnd) - Fixed emulation gaps in raw-handle `execute_query()` / `prepare()->get_result()` results: JOINs selecting two same-named columns return both, writes return `true`, invalid `fetch_array()` mode throws `ValueError`, added `data_seek()`. ZenDB's own API doesn't use these paths
-- Cross-server consistency - `Table::columnDefinitions()` and `Table::normalizeCreateTable()` return identical output for identical schemas on every supported server (display widths, default spellings, charset/collation noise normalized; quoted text never touched), verified by a behavior-probe matrix of 19 MySQL, MariaDB, and Percona versions ([docs/internal/db-behavior-matrix.md](docs/internal/db-behavior-matrix.md))
+
+- `useSmartStrings => false` - Connections and clones with SmartStrings
+  disabled now return plain `SmartArray` results with raw values;
+  previously every query on them threw `InvalidArgumentException`.
+  `query()`/`queryOne()`/`select()`/`selectOne()` return types widened
+  from `SmartArrayHtml` to their shared parent `SmartArrayBase`
+- Time zones past +13:00 - With `usePhpTimezone`, PHP zones
+  Pacific/Kiritimati (+14:00) and Chatham DST (+13:45) failed to connect
+  on MariaDB and MySQL before 8.0.19; those two offsets now map to time
+  zone names every supported server accepts
+- `versionRequired` - The version parser misread most real server strings
+  (`10.5.29-MariaDB-ubu2004` parsed as `10.5.292004`); it now handles
+  distro suffixes, MariaDB's handshake prefix, and Aurora's format. The
+  error message also names the actual server product instead of calling
+  everything MySQL
+- `DB::transaction()` - When the connection dies mid-transaction, the
+  closure's exception now reaches the caller; previously the failing
+  `ROLLBACK` threw a second "server has gone away" that replaced the real
+  cause
+- Float values - Now written to SQL with exact round-trip precision; PHP's
+  string cast rounds to 14 significant digits, so very large floats could
+  silently match the wrong rows. `NAN` and `INF` now throw
+  `InvalidArgumentException`
+- SmartString values - Now escape by their original type everywhere: a
+  wrapped `int`/`float`/`bool` becomes a typed SQL literal (`5`, `TRUE`)
+  instead of a quoted string (`'5'`, `'1'`), and a wrapped `null` means
+  SQL `NULL`: it writes `NULL` in SET clauses (was `''`), matches with
+  `IS NULL` in WHERE arrays (was `= ''`), and is skipped in IN lists
+- IN lists - `null` values are now skipped instead of emitting `NULL`,
+  which never matches in `IN (...)` and makes a `NOT IN (...)` return zero
+  rows; use `IS NULL` to match NULL rows
+- Encrypted reads - A MEDIUMBLOB value that fails to decrypt (wrong
+  `encryptionKey`, or the column holds unencrypted data) still passes
+  through as raw bytes, but now triggers one `E_USER_WARNING` per
+  connection naming the column (was silent)
+- Table existence checks - A dead connection now throws (there's no answer
+  to report); a missing table, broken view, or missing privilege answer
+  false
+- Stricter input validation - Each of these previously produced wrong SQL
+  or a confusing MySQL error, now they throw or reject up front:
+  hex/binary/scientific literals (`0x1AF`, `0b1010`, `1e10`) in query
+  templates (use placeholders), empty strings in backtick identifier
+  placeholders, param names starting with `:_` (the deprecated prefix
+  token, the value silently never bound), and table/column names with a
+  trailing newline
+- Result polyfill (PHP 8.1 without mysqlnd) - Fixed emulation gaps in
+  raw-handle `execute_query()` / `prepare()->get_result()` results: JOINs
+  selecting two same-named columns return both, writes return `true`,
+  invalid `fetch_array()` mode throws `ValueError`, added `data_seek()`.
+  ZenDB's own API doesn't use these paths
+- Cross-server consistency - `Table::columnDefinitions()` and
+  `Table::normalizeCreateTable()` return identical output for identical
+  schemas on every supported server (display widths, default spellings,
+  charset/collation noise normalized; quoted text never touched), verified
+  by a behavior-probe matrix of 19 MySQL, MariaDB, and Percona versions
+  ([docs/internal/db-behavior-matrix.md](docs/internal/db-behavior-matrix.md))
 - Misc code and other minor improvements
 
 ## [0.9.1] - 2026-04-22
