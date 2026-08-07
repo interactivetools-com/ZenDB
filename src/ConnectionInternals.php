@@ -968,7 +968,13 @@ trait ConnectionInternals
                 'insert_id'     => $this->mysqli->insert_id,
             ],
         ];
-        return $this->useSmartStrings ? new SmartArrayHtml($rows, $properties) : new SmartArray($rows, $properties);
+
+        // fromDatabaseRows() trusts the rows are flat scalar/null arrays - guaranteed here,
+        // every fetchMappedRows() path returns mysqli-shaped rows - and skips the
+        // constructor's per-field scan; toArray() then returns the same rows without rebuilding
+        return $this->useSmartStrings
+            ? SmartArrayHtml::fromDatabaseRows($rows, $properties)
+            : SmartArray::fromDatabaseRows($rows, $properties);
     }
 
     //endregion
