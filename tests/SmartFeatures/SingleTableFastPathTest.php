@@ -119,9 +119,11 @@ class SingleTableFastPathTest extends BaseTestCase
     public function testUnionWithDuplicateColumnsFallsBack(): void
     {
         // Duplicate columns in the first arm collapse on assoc fetch, which the
-        // structural check catches: refetch through the metadata path, first wins
+        // structural check catches: refetch through the metadata path, first wins.
+        // Second arm reads a different table: TEMPORARY tables (the CI test tables)
+        // can't be opened twice in one query
         $row = DB::query(
-            "SELECT num, name AS num FROM ::users WHERE num = :a UNION SELECT num, city FROM ::users WHERE num = :b",
+            "SELECT num, name AS num FROM ::users WHERE num = :a UNION SELECT user_id, order_id FROM ::orders WHERE user_id = :b",
             [':a' => 1, ':b' => -1]
         )->first();
 
