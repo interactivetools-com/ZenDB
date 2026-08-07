@@ -89,7 +89,7 @@ class MysqliWrapper extends mysqli
         int                            $flags = 0,
     ): bool {
         // connect
-        $startTime = microtime(true);
+        $startTime = $this->queryLogger ? microtime(true) : 0.0;   // only needed for logger
         $result    = @parent::real_connect($hostname, $username, $password, $database, $port, $socket, $flags); // hide php hostname lookup warnings (catch block will show them)
 
         // log connection
@@ -112,7 +112,7 @@ class MysqliWrapper extends mysqli
     {
         $this->lastQuery = $query;
         $this->ensureEncryptionKey($query);
-        $startTime = microtime(true);
+        $startTime = $this->queryLogger ? microtime(true) : 0.0;   // only needed for logger
 
         // execute query
         try {
@@ -142,7 +142,7 @@ class MysqliWrapper extends mysqli
     {
         $this->lastQuery = $query;
         $this->ensureEncryptionKey($query);
-        $startTime = microtime(true);
+        $startTime = $this->queryLogger ? microtime(true) : 0.0;   // only needed for logger
 
         try {
             $result = parent::real_query($query);
@@ -172,7 +172,7 @@ class MysqliWrapper extends mysqli
     {
         $this->lastQuery = $query;
         $this->ensureEncryptionKey($query);
-        $startTime = microtime(true);
+        $startTime = $this->queryLogger ? microtime(true) : 0.0;   // only needed for logger
 
         try {
             $result = parent::multi_query($query);
@@ -201,7 +201,7 @@ class MysqliWrapper extends mysqli
     {
         $this->lastQuery = $query;
         $this->ensureEncryptionKey($query);
-        $startTime = microtime(true);
+        $startTime = $this->queryLogger ? microtime(true) : 0.0;   // only needed for logger
 
         try {
             $result = new MysqliStmtWrapper($this, $query, $startTime);
@@ -232,7 +232,7 @@ class MysqliWrapper extends mysqli
         if (PHP_VERSION_ID >= 80200 && !self::$forceExecuteQueryPolyfill) {
             $this->lastQuery = $query;
             $this->ensureEncryptionKey($query);
-            $startTime = microtime(true);
+            $startTime = $this->queryLogger ? microtime(true) : 0.0;   // only needed for logger
 
             try {
                 $result = parent::execute_query($query, $params);
@@ -316,7 +316,7 @@ class MysqliWrapper extends mysqli
             return;
         }
 
-        $startTime = microtime(true);
+        $startTime = $this->queryLogger ? microtime(true) : 0.0;   // only needed for logger
         $stmt      = parent::prepare("SET @ek = UNHEX(SHA2(?, 512))");
         $stmt->execute([($this->getEncryptionKey)()]);
         $stmt->close();

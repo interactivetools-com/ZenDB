@@ -4,11 +4,18 @@ Committed, citable results of the escape benchmark suite. First full run
 2026-08-05: `escape-matrix.yml` run 30964178143 (CPU family, all 30 cells:
 5 OS x PHP 8.1-8.6, JIT off, scale 1.0; the 8.6 cells ran 8.6.0-dev nightly),
 `escape-e2e-matrix.yml` run 30964179764 (5-server family), and
-`escape-zendb-matrix.yml` run 31080722165 (2026-08-06, ZenDB-vs-raw family,
-PHP 8.1 and 8.4 against MySQL 8.0; replaces run 30968096535, whose
-zvr-select-int cell measured the deprecated int-WHERE path - an unindexed
-`num` scan - instead of an id lookup). Every escaper passed its correctness
-gate on every cell in every family, and all three grids are below in full.
+`escape-zendb-matrix.yml` run 31214556312 (2026-08-07, ZenDB-vs-raw family,
+PHP 8.1 and 8.4 against MySQL 8.0; suite built around real-world page
+scenarios - detail/widget/list pages against raw and fresh-prepared mysqli
+on news-corpus content - replacing the earlier synthetic cells, last
+recorded in run 31190847410). The zendb family's first run was 31192294387
+the same day; 31214556312 re-measured after the 2026-08 pipeline
+optimizations landed, and cell-to-cell deltas between the two runs sit
+inside runner variance (the per-query savings are nanoseconds to a few
+microseconds against 120-140us loopback pages, and the largest one, the
+encrypted-column cache, needs a keyed connection while this suite connects
+keyless). Every escaper passed its correctness gate on every cell in every
+family, and all three grids are below in full.
 
 Ratios are B-vs-A measured interleaved in one process; >1.00x means the
 candidate is faster. The selftie rows calibrate the noise band: ties within
@@ -94,17 +101,21 @@ Regenerate:
   like mysqli prepared (`rt-pdo-emulated-vs-native` 0.56-0.61x); reusing a
   prepared statement beats re-preparing 1.80-1.87x
   (`rt-prepared-fresh-vs-reused`).
-- **ZenDB vs hand-written mysqli** (`zvr-*`, loopback, where round trips are
-  cheapest and library cost is most visible): a raw point query with
-  hand-written escaping runs 1.1-1.3x the ZenDB equivalent doing identical
-  work (`zvr-select-int` 0.85-0.89x, `zvr-select-string` 0.79-0.81x,
-  `zvr-query-raw-sql` 0.82-0.87x); fetching 1000 rows costs about 1.9x raw
-  `fetch_all` (`zvr-fetch-1000` 0.52-0.53x), and about 2x when both sides
-  HTML-encode their output (`zvr-fetch-touch-1000` 0.47-0.50x). In absolute
-  terms ZenDB adds 14-30us per point query (PHP 8.4 vs 8.1) plus roughly a
-  microsecond per row for SmartArray/SmartString wrapping - what
-  parameterized compilation, validation, and XSS-safe output cost, and the
-  ratio shrinks as real network latency replaces loopback.
+- **ZenDB vs hand-written mysqli vs fresh-prepared mysqli** (`zvr-*`,
+  loopback, news-corpus content; each cell is a whole page: query plus
+  HTML-encoded output or raw arrays): the HTML detail page ties raw mysqli
+  (`zvr-detail-html-zendb` 0.94-1.04x - the 8.1 cell measured ZenDB ahead);
+  the other scenarios cost 7-18% (`zvr-detail-raw-zendb` 0.85-0.91x,
+  `zvr-widget5-html-zendb` 0.82-0.86x, `zvr-list25-html-zendb` 0.88-0.93x,
+  `zvr-list25-raw-zendb` 0.87-0.88x, `zvr-list100-html-zendb` 0.90-0.92x).
+  Fresh-prepared mysqli (prepare/bind/execute per query - the PHP-FPM
+  reality) costs 1.2-1.8x raw on identical work (`zvr-*-prepared`
+  0.57-0.87x, worst on point queries where prepare() is an extra round
+  trip), so ZenDB with SmartString output beats prepared mysqli with
+  htmlspecialchars in every scenario. Absolute ZenDB cost per page: within
+  +/-14us of raw on the HTML detail page, 21-31us detail-raw, 38-64us on
+  25-row pages, ~115-120us at 100 rows - and the ratios shrink further as
+  real network latency replaces loopback.
 
 ## CPU Family Grid (run 30964178143)
 
@@ -280,27 +291,39 @@ Correctness: every escaper passes its gate on every cell.
 
 </details>
 
-## ZenDB-vs-Raw Family Grid (run 31080722165)
+## ZenDB-vs-Raw Family Grid (run 31214556312)
 
 
-Correctness: every escaper passes its gate on every cell.
+Correctness: ZenDB HTML output byte-identical to full-flag htmlspecialchars() on every cell.
 
 | test | zendb-vs-raw php8.1 | zendb-vs-raw php8.4 |
 |---|---|---|
-| zvr-selftie | 1.01x | 1.04x |
-| zvr-select-string | 0.79x (slower) | 0.81x (slower) |
-| zvr-select-int | 0.85x (slower) | 0.89x (slower) |
-| zvr-query-raw-sql | 0.82x (slower) | 0.87x (slower) |
-| zvr-fetch-1000 | 0.52x (slower) | 0.53x (slower) |
-| zvr-fetch-touch-1000 | 0.47x (slower) | 0.50x (slower) |
+| zvr-selftie | 1.02x | 0.99x |
+| zvr-detail-html-zendb | 1.04x | 0.94x (slower) |
+| zvr-detail-html-prepared | 0.57x (slower) | 0.62x (slower) |
+| zvr-detail-raw-zendb | 0.91x (slower) | 0.85x (slower) |
+| zvr-detail-raw-prepared | 0.59x (slower) | 0.57x (slower) |
+| zvr-widget5-html-zendb | 0.82x (slower) | 0.86x (slower) |
+| zvr-widget5-html-prepared | 0.62x (slower) | 0.68x (slower) |
+| zvr-list25-html-zendb | 0.93x (slower) | 0.88x (slower) |
+| zvr-list25-html-prepared | 0.75x (slower) | 0.75x (slower) |
+| zvr-list25-raw-zendb | 0.87x (slower) | 0.88x (slower) |
+| zvr-list25-raw-prepared | 0.71x (slower) | 0.74x (slower) |
+| zvr-list100-html-zendb | 0.92x (slower) | 0.90x (slower) |
+| zvr-list100-html-prepared | 0.86x (slower) | 0.87x (slower) |
 
 <details><summary>Test legend (A vs B, sink)</summary>
 
-- **zvr-selftie**: raw select by string vs raw select by string (same) [wall sink]
-- **zvr-select-string**: raw mysqli + real_escape + fetch_all vs DB::select(kv, a = ?) [wall sink]
-- **zvr-select-int**: raw mysqli WHERE id = int vs DB::selectOne(kv, id) [wall sink]
-- **zvr-query-raw-sql**: raw mysqli hand-escaped SQL vs DB::query with placeholders [wall sink]
-- **zvr-fetch-1000**: raw fetch_all assoc (no encoding) vs DB::select full table [wall sink]
-- **zvr-fetch-touch-1000**: raw fetch_all + htmlspecialchars per row vs DB::select + SmartString output per row [wall sink]
+Scenarios (news-corpus rows: 60 B title, 300 B summary, 5 KB content):
+
+- **detail**: one record by id; html = output title + content encoded, raw = array out
+- **widget5**: 5 newest in a category, output title per row
+- **list25 / list100**: 25 or 100 newest in a category; html = output title + summary per row, raw = arrays out
+
+Candidates (A is always raw mysqli: interpolated SQL + real_escape_string, htmlspecialchars on output):
+
+- **\*-zendb**: DB::selectOne()/select() with SmartString output, or ->toArray() in raw cells
+- **\*-prepared**: fresh mysqli prepare/bind/execute per query, same output work as raw
+- **zvr-selftie**: raw list25 vs itself (noise calibration)
 
 </details>
