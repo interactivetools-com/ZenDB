@@ -588,27 +588,20 @@ trait ConnectionInternals
             );
         }
 
-        // Placeholder types
-        $placeholderRegex = '/' . implode("|", [
-                // Values - quoted and escaped
-                "\?",                   // ?         O'Brien → "O\'Brien"
-                ":[a-zA-Z]\w*\b",       // :name     O'Brien → "O\'Brien"
-
-                // `Identifiers` - table/column names (unquoted, unescaped, throws if unsafe chars)
-                "`\?`",                 // `?`       users → `users`
-                "`:[a-zA-Z]\w*\b`",     // `:name`   users → `users`
-
-                // `::Identifiers` - with table prefix (unquoted, unescaped, throws if unsafe chars)
-                "`::\?`",               // `::?`     users → `cms_users`
-                "`:::[a-zA-Z]\w*\b`",   // `:::name` users → `cms_users`
-
-                // ::Values - with table prefix (quoted and escaped)
-                "::\?",                 // ::?       user% → 'cms_user%'
-                ":::[a-zA-Z]\w*\b",     // :::name   user% → 'cms_user%'
-
-                // Table prefix alone (must come after the ::placeholder patterns above)
-                "::",                   // e.g., SELECT * FROM ::users → SELECT * FROM cms_users
-            ]) . '/';
+        /*
+         * Placeholder types, one regex alternative each (in match-priority order):
+         *
+         *   \?                    ?         O'Brien → "O\'Brien"        - value, quoted and escaped
+         *   :[a-zA-Z]\w*\b        :name     O'Brien → "O\'Brien"        - value, quoted and escaped
+         *   `\?`                  `?`       users → `users`             - identifier, unquoted, throws if unsafe chars
+         *   `:[a-zA-Z]\w*\b`      `:name`   users → `users`             - identifier, unquoted, throws if unsafe chars
+         *   `::\?`                `::?`     users → `cms_users`         - identifier with table prefix
+         *   `:::[a-zA-Z]\w*\b`    `:::name` users → `cms_users`         - identifier with table prefix
+         *   ::\?                  ::?       user% → 'cms_user%'         - value with table prefix, quoted and escaped
+         *   :::[a-zA-Z]\w*\b      :::name   user% → 'cms_user%'         - value with table prefix, quoted and escaped
+         *   ::                    ::        cms_                        - table prefix alone (after the ::placeholders above)
+         */
+        $placeholderRegex = '/\?|:[a-zA-Z]\w*\b|`\?`|`:[a-zA-Z]\w*\b`|`::\?`|`:::[a-zA-Z]\w*\b`|::\?|:::[a-zA-Z]\w*\b|::/';
 
         // Find and replace all placeholders with their escaped/formatted values
         $positionalCount = 0;
@@ -616,6 +609,31 @@ trait ConnectionInternals
             pattern : $placeholderRegex,
             callback: function ($matches) use (&$positionalCount) {
                 $match = $matches[0]; // e.g., ?, :name, `?`, etc
+
+                // Fast arms for the dominant shapes: bare ? and :name with int/string values.
+                // Output matches escapeValue() exactly; anything else falls through to the generic path.
+                if ($match === '?') {
+                    $value = $this->paramValues[':' . ($positionalCount + 1)] ?? null;
+                    if (is_int($value)) {
+                        $positionalCount++;
+                        return (string)$value;
+                    }
+                    if (is_string($value)) {
+                        $positionalCount++;
+                        return "'" . $this->mysqli->real_escape_string($value) . "'";
+                    }
+                } elseif ($match[0] === ':' && $match[1] !== ':') {  // :name (not :: or :::name)
+                    $value = $this->paramValues[$match] ?? null;
+                    if (is_int($value)) {
+                        return (string)$value;
+                    }
+                    if (is_string($value)) {
+                        return "'" . $this->mysqli->real_escape_string($value) . "'";
+                    }
+                } elseif ($match === '::') {
+                    return $this->tablePrefix;  // bare table prefix
+                }
+
                 $value = $this->getPlaceholderValue($match, $positionalCount);
 
                 // Backtick placeholders: insert safe identifiers (table/column names) unquoted (or throw if unsafe)
