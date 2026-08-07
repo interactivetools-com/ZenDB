@@ -375,7 +375,7 @@ class Connection
 
         // Execute
         $result = $this->mysqli->query($sql);
-        $rows   = $this->fetchMappedRows($result);
+        $rows   = $this->fetchMappedRows($result, singleTable: true);
 
         return $this->toSmartArray($rows, $sql, $baseTable);
     }
@@ -409,7 +409,7 @@ class Connection
         $sql               = "SELECT * FROM `$fullTable` {$this->whereFromArgs($whereEtc)} LIMIT 1";
 
         $result    = $this->mysqli->query($sql);
-        $rows      = $this->fetchMappedRows($result);
+        $rows      = $this->fetchMappedRows($result, singleTable: true);
         $resultSet = $this->toSmartArray($rows, $sql, $baseTable);
 
         // asHtml()/asRaw() ensure SmartNull from empty results becomes a SmartArray matching the connection

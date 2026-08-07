@@ -4,9 +4,11 @@ Committed, citable results of the escape benchmark suite. First full run
 2026-08-05: `escape-matrix.yml` run 30964178143 (CPU family, all 30 cells:
 5 OS x PHP 8.1-8.6, JIT off, scale 1.0; the 8.6 cells ran 8.6.0-dev nightly),
 `escape-e2e-matrix.yml` run 30964179764 (5-server family), and
-`escape-zendb-matrix.yml` run 30968096535 (ZenDB-vs-raw family, PHP 8.1 and
-8.4 against MySQL 8.0). Every escaper passed its correctness gate on every
-cell in every family, and all three grids are below in full.
+`escape-zendb-matrix.yml` run 31080722165 (2026-08-06, ZenDB-vs-raw family,
+PHP 8.1 and 8.4 against MySQL 8.0; replaces run 30968096535, whose
+zvr-select-int cell measured the deprecated int-WHERE path - an unindexed
+`num` scan - instead of an id lookup). Every escaper passed its correctness
+gate on every cell in every family, and all three grids are below in full.
 
 Ratios are B-vs-A measured interleaved in one process; >1.00x means the
 candidate is faster. The selftie rows calibrate the noise band: ties within
@@ -94,24 +96,15 @@ Regenerate:
   (`rt-prepared-fresh-vs-reused`).
 - **ZenDB vs hand-written mysqli** (`zvr-*`, loopback, where round trips are
   cheapest and library cost is most visible): a raw point query with
-  hand-written escaping runs 1.2x a `DB::select()` doing identical work
-  (`zvr-select-string` 0.80-0.83x, `zvr-query-raw-sql` 0.85-0.86x) and
-  2-2.4x a `DB::selectOne()` by id (`zvr-select-int` 0.41-0.51x, overstated -
-  see note below); fetching
-  1000 rows costs about 2x raw `fetch_all` (`zvr-fetch-1000` 0.52-0.61x), holding
-  steady when both sides HTML-encode their output (`zvr-fetch-touch-1000`
-  0.51-0.59x). Local decomposition puts the absolute cost at tens of
-  microseconds per query plus roughly a microsecond per row for
-  SmartArray/SmartString wrapping - what parameterized compilation,
-  validation, and XSS-safe output cost, and the ratio shrinks as real
-  network latency replaces loopback.
-- **`zvr-select-int` note**: run 30968096535 predates the probe fix that
-  passes the id as `['id' => $n]`. Before it, the bare int took the
-  deprecated int-WHERE path (`WHERE num = $n`), and `num` is unindexed in
-  the probe table, so the ZenDB side paid a 1000-row scan while the raw
-  side did an indexed id lookup. The published 0.41-0.51x includes that
-  scan and overstates ZenDB's cost; rerun `escape-zendb-matrix.yml` for
-  honest numbers.
+  hand-written escaping runs 1.1-1.3x the ZenDB equivalent doing identical
+  work (`zvr-select-int` 0.85-0.89x, `zvr-select-string` 0.79-0.81x,
+  `zvr-query-raw-sql` 0.82-0.87x); fetching 1000 rows costs about 1.9x raw
+  `fetch_all` (`zvr-fetch-1000` 0.52-0.53x), and about 2x when both sides
+  HTML-encode their output (`zvr-fetch-touch-1000` 0.47-0.50x). In absolute
+  terms ZenDB adds 14-30us per point query (PHP 8.4 vs 8.1) plus roughly a
+  microsecond per row for SmartArray/SmartString wrapping - what
+  parameterized compilation, validation, and XSS-safe output cost, and the
+  ratio shrinks as real network latency replaces loopback.
 
 ## CPU Family Grid (run 30964178143)
 
@@ -287,19 +280,19 @@ Correctness: every escaper passes its gate on every cell.
 
 </details>
 
-## ZenDB-vs-Raw Family Grid (run 30968096535)
+## ZenDB-vs-Raw Family Grid (run 31080722165)
 
 
 Correctness: every escaper passes its gate on every cell.
 
 | test | zendb-vs-raw php8.1 | zendb-vs-raw php8.4 |
 |---|---|---|
-| zvr-selftie | 1.00x | 0.97x |
-| zvr-select-string | 0.83x (slower) | 0.80x (slower) |
-| zvr-select-int | 0.51x (slower) | 0.41x (slower) |
-| zvr-query-raw-sql | 0.85x (slower) | 0.86x (slower) |
-| zvr-fetch-1000 | 0.61x (slower) | 0.52x (slower) |
-| zvr-fetch-touch-1000 | 0.59x (slower) | 0.51x (slower) |
+| zvr-selftie | 1.01x | 1.04x |
+| zvr-select-string | 0.79x (slower) | 0.81x (slower) |
+| zvr-select-int | 0.85x (slower) | 0.89x (slower) |
+| zvr-query-raw-sql | 0.82x (slower) | 0.87x (slower) |
+| zvr-fetch-1000 | 0.52x (slower) | 0.53x (slower) |
+| zvr-fetch-touch-1000 | 0.47x (slower) | 0.50x (slower) |
 
 <details><summary>Test legend (A vs B, sink)</summary>
 

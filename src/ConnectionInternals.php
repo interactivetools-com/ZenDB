@@ -835,23 +835,38 @@ trait ConnectionInternals
     /**
      * Fetch result rows with column mapping, smart joins, and auto-decryption.
      *
+     * - $singleTable: caller guarantees a single-table `SELECT *` (no duplicate columns or
+     *   SmartJoins possible), skipping metadata checks entirely unless `encryptionKey` is set
      * - Fast path: direct C-level MYSQLI_ASSOC fetch when no remapping is needed
      * - "First wins": duplicate column names use the first occurrence
      * - SmartJoins: multi-table queries add qualified names (e.g., 'users.name')
      * - Self-joins: adds alias-based names (e.g., 'a.name', 'b.name')
      * - Auto-decryption: MEDIUMBLOB columns are decrypted when an encryption key is configured
      */
-    private function fetchMappedRows(mysqli_result|bool $mysqliResult): array
+    private function fetchMappedRows(mysqli_result|bool $mysqliResult, bool $singleTable = false): array
     {
         if (is_bool($mysqliResult)) {
             return [];  // INSERT/UPDATE/DELETE return true, not a result set
         }
 
+        // Field metadata finds encrypted columns (when a key is set) and, for arbitrary
+        // query() SQL, duplicate columns and SmartJoins. Single-table keyless queries need none of it.
+        $hasEncryptionKey = (bool)$this->secret('encryptionKey');
+        $fetchFields      = $singleTable && !$hasEncryptionKey ? [] : $mysqliResult->fetch_fields();
+        $encryptedMap     = $hasEncryptionKey ? DB::getEncryptedColumns($fetchFields) : [];   // [fieldIndex => colName] for MEDIUMBLOB cols
+
+        // Single-table `SELECT *` (select/selectOne build that SQL themselves) can't have
+        // duplicate columns or joined tables, so rows need no remapping
+        if ($singleTable) {
+            $rows = $mysqliResult->fetch_all(MYSQLI_ASSOC);
+            $mysqliResult->free();
+            $this->decryptRows($rows, array_values($encryptedMap));
+            return $rows;
+        }
+
         // Extract field metadata from result
-        $fetchFields  = $mysqliResult->fetch_fields();
         $names        = array_column($fetchFields, 'name');
         $aliasToTable = array_filter(array_column($fetchFields, 'orgtable', 'table'));      // e.g., ['u' => 'users']
-        $encryptedMap = DB::getEncryptedColumns($fetchFields);                              // [fieldIndex => colName] for MEDIUMBLOB cols
 
         // Fast path: no duplicate columns and no SmartJoins needed - use C-level associative fetch
         $hasDuplicateCols = count($names) !== count(array_flip($names));
