@@ -933,18 +933,54 @@ trait ConnectionInternals
     //region Result Processing
 
     /**
+     * Whether a query() can only produce columns from one table, so field metadata
+     * isn't needed: no SmartJoins possible, and duplicate columns are detectable
+     * structurally (assoc fetch collapses them).
+     *
+     * Sniffs the template BEFORE placeholder expansion, so escaped string values
+     * (which can legally contain 'join' or commas) can't affect the answer. RawSql
+     * params are the one way SQL text enters after expansion, so their text is
+     * checked too (paramValues is set by the caller, bare or inside IN-list arrays).
+     *
+     * False negatives just take the metadata path; false positives would silently
+     * drop SmartJoins keys, so anything that could involve a second table answers
+     * no: JOIN, UNION, or a comma anywhere after the first FROM (comma-joins, and
+     * conservatively multi-column ORDER BY). RawSql fragments can land anywhere in
+     * the SQL, so they also reject FROM and bare commas; pagingSql's
+     * 'LIMIT x OFFSET y' passes.
+     */
+    private function isSingleTableQuery(string $template): bool
+    {
+        if (preg_match('/join|union|from.*,/is', $template)) {
+            return false;
+        }
+
+        foreach ($this->paramValues as $param) {
+            foreach (is_array($param) ? $param : [$param] as $value) {
+                if ($value instanceof RawSql && preg_match('/join|union|from|,/i', (string)$value)) {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
+    /**
      * Fetch result rows with column mapping, smart joins, and auto-decryption.
      *
      * - $singleTable: caller guarantees a single-table `SELECT *` (no duplicate columns or
      *   SmartJoins possible), skipping metadata checks entirely; $fullTable names the table
      *   so keyed connections can cache its encrypted-column list
+     * - $sqlTemplate: query()'s pre-expansion template; when it (and any RawSql params)
+     *   can only produce single-table columns, metadata is skipped the same way
      * - Fast path: direct C-level MYSQLI_ASSOC fetch when no remapping is needed
      * - "First wins": duplicate column names use the first occurrence
      * - SmartJoins: multi-table queries add qualified names (e.g., 'users.name')
      * - Self-joins: adds alias-based names (e.g., 'a.name', 'b.name')
      * - Auto-decryption: MEDIUMBLOB columns are decrypted when an encryption key is configured
      */
-    private function fetchMappedRows(mysqli_result|bool $mysqliResult, bool $singleTable = false, string $fullTable = ''): array
+    private function fetchMappedRows(mysqli_result|bool $mysqliResult, bool $singleTable = false, string $fullTable = '', string $sqlTemplate = ''): array
     {
         if (is_bool($mysqliResult)) {
             return [];  // INSERT/UPDATE/DELETE return true, not a result set
@@ -969,6 +1005,18 @@ trait ConnectionInternals
             $mysqliResult->free();
             $this->decryptRows($rows, $encryptedCols);
             return $rows;
+        }
+
+        // query() fast path: single-table template on an unkeyed connection. The only
+        // remap trigger left is duplicate SELECT-list columns, and those show up
+        // structurally: assoc fetch collapses them, leaving fewer keys than field_count.
+        if ($sqlTemplate !== '' && !$this->hasEncryptionKey && $this->isSingleTableQuery($sqlTemplate)) {
+            $rows = $mysqliResult->fetch_all(MYSQLI_ASSOC);
+            if (!$rows || count($rows[0]) === $mysqliResult->field_count) {
+                $mysqliResult->free();
+                return $rows;
+            }
+            $mysqliResult->data_seek(0);  // duplicate columns: refetch through the metadata path
         }
 
         // Field metadata finds encrypted columns (when a key is set) plus, for arbitrary

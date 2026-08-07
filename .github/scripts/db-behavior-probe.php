@@ -1210,6 +1210,56 @@ $probes += $persistentProbes;
 echo "### Persistent connection reuse\n\n";
 echo mdTable($persistentProbes);
 
+//
+// UNION column attribution - query()'s single-table fast path conservatively rejects
+// UNION templates. The fast path would be safe for UNIONs only if fetch_fields()
+// never attributes union result columns to tables (empty table/orgtable on every
+// server): then the metadata path can't add SmartJoins keys, and duplicate columns
+// are still caught structurally. The single-SELECT control proves the probe reads
+// attribution correctly; the verdict row is the ship/no-ship answer
+//
+try {
+    $mysqli->query("DROP TABLE IF EXISTS zdb_probe_u1, zdb_probe_u2");
+    $mysqli->query("CREATE TABLE zdb_probe_u1 (id INT NOT NULL, name VARCHAR(10)) ENGINE=InnoDB");
+    $mysqli->query("CREATE TABLE zdb_probe_u2 (id INT NOT NULL, name VARCHAR(10)) ENGINE=InnoDB");
+    $mysqli->query("INSERT INTO zdb_probe_u1 VALUES (1, 'a')");
+    $mysqli->query("INSERT INTO zdb_probe_u2 VALUES (2, 'b')");
+
+    // [per-column description, whether any column carries table/orgtable attribution]
+    $fieldMeta = function (string $sql) use ($mysqli): array {
+        $result = $mysqli->query($sql);
+        $fields = $result->fetch_fields();
+        $result->free();
+        $desc       = implode(', ', array_map(fn($f) => "$f->name(table='$f->table' orgtable='$f->orgtable')", $fields));
+        $attributed = (bool)array_filter($fields, fn($f) => $f->table !== '' || $f->orgtable !== '');
+        return [$desc, $attributed];
+    };
+
+    $unionCases = [
+        'UNION FIELDS: two-table UNION'     => "SELECT id, name FROM zdb_probe_u1 UNION SELECT id, name FROM zdb_probe_u2",
+        'UNION FIELDS: two-table UNION ALL' => "SELECT id, name FROM zdb_probe_u1 UNION ALL SELECT id, name FROM zdb_probe_u2",
+        'UNION FIELDS: aliased tables'      => "SELECT a.id, a.name FROM zdb_probe_u1 a UNION SELECT b.id, b.name FROM zdb_probe_u2 b",
+        'UNION FIELDS: SELECT * both sides' => "SELECT * FROM zdb_probe_u1 UNION SELECT * FROM zdb_probe_u2",
+    ];
+
+    $unionProbes   = ['UNION FIELDS: single SELECT control' => $fieldMeta("SELECT id, name FROM zdb_probe_u1")[0]];
+    $anyAttributed = false;
+    foreach ($unionCases as $label => $sql) {
+        [$desc, $attributed] = $fieldMeta($sql);
+        $unionProbes[$label] = $desc;
+        $anyAttributed       = $anyAttributed || $attributed;
+    }
+    $unionProbes['UNION FIELDS: any union column attributed'] = $anyAttributed ? 'YES - fast path unsafe for UNION' : 'no - all empty';
+
+    $mysqli->query("DROP TABLE zdb_probe_u1, zdb_probe_u2");
+} catch (mysqli_sql_exception $e) {
+    $unionProbes = ['UNION FIELDS probes' => 'probe failed: ' . $e->getMessage()];
+}
+$probes += $unionProbes;
+
+echo "### UNION column attribution\n\n";
+echo mdTable($unionProbes);
+
 $mysqli->close();
 
 /**

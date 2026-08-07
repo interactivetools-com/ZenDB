@@ -314,7 +314,7 @@ class Connection
 
         // Execute
         $result = $this->mysqli->query($sql);
-        $rows   = $this->fetchMappedRows($result);
+        $rows   = $this->fetchMappedRows($result, sqlTemplate: $sqlTemplate);
 
         return $this->toSmartArray($rows, $sql);
     }
