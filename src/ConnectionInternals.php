@@ -492,19 +492,23 @@ trait ConnectionInternals
     private function replacePlaceholders(string $template): string
     {
         // Normalize :_ to :: (deprecated syntax) - but not ::_ (prefix + underscore table)
-        $template = preg_replace('/(?<!:):_/', '::', $template, -1, $count);
-        if ($count > 0) {
-            DB::logDeprecation(":_ syntax is deprecated, use :: instead");
+        if (str_contains($template, ':_')) {
+            $template = preg_replace('/(?<!:):_/', '::', $template, -1, $count);
+            if ($count > 0) {
+                DB::logDeprecation(":_ syntax is deprecated, use :: instead");
+            }
         }
 
         // {{column}} or {{table.column}} - expand encrypted column references, see decryptExpr().
         // A leading :: applies the table prefix, same as outside the braces: write the column
         // reference as you would unencrypted ({{::users.token}}, {{u.token}}), wrapped in braces.
-        $template = preg_replace_callback(
-            '/\{\{(::)?([\w.-]+)}}/',
-            fn($m) => DB::decryptExpr(($m[1] ? $this->tablePrefix : '') . $m[2]),
-            $template,
-        );
+        if (str_contains($template, '{{')) {
+            $template = preg_replace_callback(
+                '/\{\{(::)?([\w.-]+)}}/',
+                fn($m) => DB::decryptExpr(($m[1] ? $this->tablePrefix : '') . $m[2]),
+                $template,
+            );
+        }
 
         // Placeholder types
         $placeholderRegex = '/' . implode("|", [
