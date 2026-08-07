@@ -159,9 +159,6 @@ $users = DB::select('users', "city = :city AND status = :status AND age BETWEEN 
     ':min'    => 18,
     ':max'    => 65,
 ]);
-
-// Deprecated - positional values in an array log E_USER_DEPRECATED
-$users = DB::select('users', "status = ? AND age > ?", ['active', 25]);
 ```
 
 Mixing `?` and `:name` in one query throws.

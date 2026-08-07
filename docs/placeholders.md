@@ -175,11 +175,11 @@ DB::select('users', "name = ? AND city = ?", 'John');
 
 // Positional values in an array (deprecated form)
 DB::select('users', "id IN (?)", [1, 2, 3]);
-// Runs as IN (1) and logs a deprecation; arrays need a named placeholder: ':ids' => [1, 2, 3]
+// Runs as IN (1) but is deprecated; arrays need a named placeholder: ':ids' => [1, 2, 3]
 
 // More direct values than ? placeholders
 DB::select('users', "num = ?", 1, 999);
-// Runs as num = 1 and logs a deprecation; an extra value usually means a missing ?
+// Runs as num = 1 but is deprecated; an extra value usually means a missing ?
 
 // Quotes in the template
 DB::select('users', "name = 'John'");

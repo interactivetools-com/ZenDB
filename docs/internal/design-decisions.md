@@ -133,7 +133,7 @@ catch attempts to call `unsafe()`, `unescaped()`, `trusted()`, `trustedHtml()`,
 
 Params are valid as (1) up to 3 direct non-array values for `?` placeholders,
 or (2) one array of `':name' => value` pairs. Positional values passed in a
-single array log `E_USER_DEPRECATED`; the max-3 error text points to named
+single array raise `E_USER_DEPRECATED`; the max-3 error text points to named
 placeholders. Unused NAMED params stay allowed so param arrays can be shared
 across queries; known accepted cost: a named value whose SQL half was
 forgotten goes unwarned.

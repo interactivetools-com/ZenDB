@@ -219,16 +219,18 @@ DB::update('users', ['status' => 'active'], ['num' => 5]);
 
 ## Deprecation Warnings
 
-These log `E_USER_DEPRECATED` (with the calling file and line appended) and
-keep working for now, but will throw in a future version. Fix them when they
-show up in your error log.
+These keep working for now but will throw in a future version. Deprecated
+calls raise `E_USER_DEPRECATED` (with the calling file and line appended)
+quietly: PHP's error log stays clean, but a `set_error_handler` callback
+receives them - CMS Builder records them in its Developer Log - and your
+IDE and static analysis flag deprecated calls in code.
 
 ### "Positional values in an array are deprecated. Pass up to 3 values directly for ? placeholders, or use named placeholders: [':name' => $value]"
 
 **What happened:** Values for `?` placeholders were wrapped in an array.
 
 ```php
-// Deprecated - logs a warning, still runs
+// Deprecated - still runs, will throw in a future version
 DB::select('users', "name = ? AND city = ?", ['Alice', 'Vancouver']);
 ```
 
