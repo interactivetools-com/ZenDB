@@ -47,6 +47,8 @@ class DB
      * Identity facts about the connected database server. Set at connect, null when disconnected.
      *
      *     DB::$server->version();  // "10.6.27"
+     *
+     * @internal API may change between releases
      */
     public static ?Server $server = null;
 

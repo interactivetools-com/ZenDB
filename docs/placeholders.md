@@ -154,6 +154,11 @@ DB::select('users', "LIMIT ?", "10");   // LIMIT '10'     - MySQL syntax error
 
 SmartString, SmartNull, and SmartArray parameters unwrap to their underlying
 values automatically, so passing `$row->name` as a parameter just works.
+One exception: a SmartNull as a WHERE-array value throws "Unsupported type
+for column '...'". A field read from a row that wasn't found is a SmartNull,
+so `DB::select('orders', ['userId' => $user->id])` works while the `$user`
+lookup succeeds and throws when it missed - check the lookup first, or pass
+the value as a placeholder parameter instead.
 
 Arrays expand to comma-separated values for `IN` lists, and require a named
 placeholder (`?` would be ambiguous). The expansion skips `null` elements and

@@ -70,13 +70,13 @@ $rows = DB::query("SELECT * FROM ::users JOIN ::orders ON ::orders.userId = ::us
 
 foreach ($rows as $row) {
     echo $row->name;               // plain key
-    echo $row->get('users.id');    // always the users table's id
-    echo $row->get('orders.id');   // always the orders table's id
+    echo $row->{'users.id'};       // always the users table's id
+    echo $row->{'orders.id'};      // always the orders table's id
 }
 ```
 
-Qualified keys contain a dot, which PHP object syntax can't type, so read
-them with `get()`, covered in [Working with Results](working-with-results.md).
+Qualified keys contain a dot, which plain property syntax can't type, so read
+them with `->{'...'}`, covered in [Working with Results](working-with-results.md).
 
 Here is every key one joined row contains. Plain keys come first, one per
 column name in SELECT order; the qualified keys follow:
@@ -134,7 +134,7 @@ the first table wins:
 $row = DB::queryOne("SELECT * FROM ::users JOIN ::orders ON ::orders.userId = ::users.id");
 
 echo $row->id;                // 1    - users comes first, so this is the users id
-echo $row->get('orders.id');  // 7001 - the orders id is still there, under its qualified key
+echo $row->{'orders.id'};     // 7001 - the orders id is still there, under its qualified key
 ```
 
 This is deliberate: your main table comes first in the query, so joining
@@ -151,10 +151,10 @@ that table:
 $rows = DB::query("SELECT * FROM ::employees a JOIN ::employees b ON a.managerId = b.id");
 
 foreach ($rows as $row) {
-    echo $row->get('a.name');   // the employee
-    echo $row->get('b.name');   // their manager
+    echo $row->{'a.name'};      // the employee
+    echo $row->{'b.name'};      // their manager
 }
-// $row->get('employees.name') also exists and holds the first occurrence (alias a)
+// $row->{'employees.name'} also exists and holds the first occurrence (alias a)
 ```
 
 ## Turning Smart Joins Off - `DB::clone()`

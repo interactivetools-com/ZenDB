@@ -94,9 +94,9 @@ trait DBInternals
     /**
      * @see Connection::decryptRows()
      */
-    public static function decryptRows(array &$rows, array $fetchFields): void
+    public static function decryptRows(array &$rows, array $keysOrFetchFields): void
     {
-        self::connection()->decryptRows($rows, $fetchFields);
+        self::connection()->decryptRows($rows, $keysOrFetchFields);
     }
 
     /**

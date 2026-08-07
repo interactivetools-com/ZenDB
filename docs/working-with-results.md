@@ -84,7 +84,7 @@ Value methods return a new SmartString, so transformations chain:
 echo $article->body->textOnly()->maxChars(100);
 
 // Format a number and prepend a currency symbol (a blank price stays blank, no stray $)
-echo $product->price->numberFormat(2)->andPrefix('$');   // $1,234.56
+echo $product->price->numberFormat(2)->prepend('$');     // $1,234.56
 
 // Format a date; supports years 1000-9999, anything else
 // (null, invalid, zero dates like 0000-00-00) falls through to the or()
@@ -138,7 +138,7 @@ everything.
 | `count($result)`              | Number of rows (`$result->count()` works too) |
 | `$result->first()`            | First row (`SmartNull` when the result is empty; chaining still works) |
 | `$result->toArray()`          | Plain array of raw row arrays                 |
-| `$result->pluck('col')`       | One column as a new collection                |
+| `$result->column('col')`      | One column as a new collection                |
 | `$result->sortBy('col')`      | Sort rows by column                           |
 | `$result->filter(fn)`         | Keep rows where the callback returns true     |
 | `$result->where('col', $val)` | Keep rows where the column matches a value    |
@@ -152,11 +152,11 @@ $users = DB::select('users', ['status' => 'active']);
 echo count($users) . " active users";
 
 // One column
-$names = $users->pluck('name');   // collection: ['Alice', 'Bob', 'Charlie', ...]
+$names = $users->column('name');  // collection: ['Alice', 'Bob', 'Charlie', ...]
 
-// Lookup by primary key - get() reads keys PHP object syntax can't, like numbers
+// Lookup by primary key - the ->{'...'} syntax reads keys plain property syntax can't, like numbers
 $byId = $users->indexBy('id');
-echo $byId->get(42)->name;
+echo $byId->{'42'}->name;
 
 // Group rows by a column value
 $byCity = $users->groupBy('city');
@@ -172,7 +172,7 @@ Each row in a collection, and the return value of `DB::selectOne()`.
 | Method                    | Description                                                              |
 |---------------------------|--------------------------------------------------------------------------|
 | `$row->columnName`        | Column value as SmartString                                              |
-| `$row->get('users.name')` | Column whose key PHP syntax can't type: Smart Join keys, numeric indexes |
+| `$row->{'users.name'}`    | Column whose key plain syntax can't type: Smart Join keys, numeric indexes |
 | `$row->keys()`            | Column names                                                             |
 | `$row->values()`          | Column values                                                            |
 | `$row->toArray()`         | Raw associative array                                                    |
@@ -189,7 +189,7 @@ Each column value is a SmartString. These are the most used methods.
 | `->textOnly()`    | Remove HTML tags, decode entities, trim |
 | `->maxChars(100)` | Shorten to N characters with ellipsis   |
 | `->maxWords(20)`  | Shorten to N words with ellipsis        |
-| `->textToHtml()`  | HTML-encode, then newlines to `<br>` (returns a plain string) |
+| `->nl2br()`       | HTML-encode, then newlines to `<br>` (returns a plain string) |
 | `->trim()`        | Trim whitespace                         |
 
 **Formatting**
@@ -205,11 +205,10 @@ Each column value is a SmartString. These are the most used methods.
 | Method               | Applies when                                    |
 |----------------------|-------------------------------------------------|
 | `->or('N/A')`        | Value is null or `''` (zero stays)              |
-| `->ifBlank('Empty')` | Value is `''`                                   |
 | `->ifNull('N/A')`    | Value is null                                   |
 | `->ifZero('Free')`   | Value is numeric zero                           |
-| `->and(' items')`    | Appends when value is present (including zero)  |
-| `->andPrefix('$')`   | Prepends when value is present (including zero) |
+| `->append(' items')` | Appends when value is present (including zero)  |
+| `->prepend('$')`     | Prepends when value is present (including zero) |
 
 ## Full References
 

@@ -31,7 +31,7 @@ See [Getting Started](getting-started.md) for the full list of `$config` keys.
 Declared return type is `SmartArrayBase`; the object you get is a
 `SmartArrayHtml` of `SmartString` values by default, or a plain-value
 `SmartArray` when `useSmartStrings` is false. On Smart Join queries,
-`->get('table.column')` reads the dotted keys.
+`->{'table.column'}` reads the dotted keys.
 [Working with Results](working-with-results.md) covers both.
 
 `selectOne()`, `queryOne()`, and `count()` throw if `$where` or the template
@@ -91,7 +91,7 @@ read. These helpers cover values that bypass those methods.
 
 | Method                                                    | Returns        | Description                                                                                                                                                                                         |
 |-----------------------------------------------------------|----------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `DB::encryptValue($value)`                                | `string\|null` | Encrypt a value in PHP, matching what `insert()`/`update()` produce; `null` in, `null` out. Throws `RuntimeException` when `encryptionKey` is not set                                               |
+| `DB::encryptValue($value)`                                | `string\|null` | Encrypt a value in PHP, matching what `insert()`/`update()` produce; `null` in, `null` out (before any key check). Anything else throws `RuntimeException` when `encryptionKey` is not set          |
 | `DB::decryptExpr(string $column)`                         | `string`       | `DB` only. SQL expression to decrypt a column server-side: `decryptExpr('email')` → `` AES_DECRYPT(`email`, @ek) ``. The `{{column}}` template syntax generates this for you                        |
 | `DB::decryptRows(array &$rows, array $keysOrFetchFields)` | `void`         | Decrypt raw mysqli rows in place; pass `$result->fetch_fields()` to auto-detect `MEDIUMBLOB` columns, or name the keys yourself (column names for associative rows, field indexes for numeric rows) |
 | `DB::getEncryptedColumns(array $fetchFields)`             | `array`        | `DB` only. The `MEDIUMBLOB` columns in a result, from `$result->fetch_fields()`, keyed by field index: `[2 => 'apiToken']`                                                                          |
@@ -119,7 +119,7 @@ DB::insert('news', ['title' => 'Launch day', 'publishDate' => date(DB::DATETIME)
 
 | Property           | Type             | Description                                                                                                                                       |
 |--------------------|------------------|---------------------------------------------------------------------------------------------------------------------------------------------------|
-| `DB::$mysqli`      | `?MysqliWrapper` | The underlying connection (a `mysqli` subclass) for direct access: `DB::$mysqli->insert_id`, `DB::$mysqli->query($ddl)`. `null` when disconnected |
+| `DB::$mysqli`      | `?MysqliWrapper` | The underlying connection (a `mysqli` subclass) for direct access: `DB::$mysqli->insert_id`, `DB::$mysqli->query($ddl)`, and `DB::$mysqli->lastQuery` (last SQL sent, for debugging). `null` when disconnected |
 | `DB::$tablePrefix` | `string`         | The prefix prepended to table names, as set at connect (`''` by default)                                                                          |
 
 ## Parameter Forms

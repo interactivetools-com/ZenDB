@@ -18,7 +18,8 @@ server returns) and merges the results into
 - `db-behavior-probe.php` - probe one server, print markdown (and optional JSON)
 - `db-behavior-merge.php` - merge per-server JSONs into one "who differs" report
 
-**Escape benchmark suite** (`escape-matrix.yml`, `escape-e2e-matrix.yml`) -
+**Escape benchmark suite** (`escape-matrix.yml`, `escape-e2e-matrix.yml`,
+`escape-zendb-matrix.yml`) -
 measures every MySQL escaping candidate and every way values get into queries,
 gated by a byte-identity corpus against a live `real_escape_string()` before any
 timing. Results land in [escape-results.md](escape-results.md); the research,

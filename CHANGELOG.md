@@ -17,7 +17,8 @@ coding assistants.
 ### Added
 
 - Documentation - guides organized by task
-  ([start at the index](docs/README.md)): getting started, querying,
+  ([start at the index](https://github.com/interactivetools-com/ZenDB/blob/main/docs/README.md)):
+  getting started, querying,
   results, modifying data, placeholders, joins and custom SQL, common
   patterns, helpers, multiple connections, encryption, security gotchas,
   and troubleshooting with exact error messages. Every example verified
@@ -91,7 +92,7 @@ coding assistants.
 - SmartString values - Now escape by their original type everywhere: a
   wrapped `int`/`float`/`bool` becomes a typed SQL literal (`5`, `TRUE`)
   instead of a quoted string (`'5'`, `'1'`), and a wrapped `null` means
-  SQL `NULL`: it writes `NULL` in SET clauses (was `''`), matches with
+  SQL NULL: it writes `NULL` in SET clauses (was `''`), matches with
   `IS NULL` in WHERE arrays (was `= ''`), and is skipped in IN lists
 - IN lists - `null` values are now skipped instead of emitting `NULL`,
   which never matches in `IN (...)` and makes a `NOT IN (...)` return zero
@@ -120,7 +121,7 @@ coding assistants.
   schemas on every supported server (display widths, default spellings,
   charset/collation noise normalized; quoted text never touched), verified
   by a behavior-probe matrix of 19 MySQL, MariaDB, and Percona versions
-  ([docs/internal/db-behavior-matrix.md](docs/internal/db-behavior-matrix.md))
+  ([docs/internal/db-behavior-matrix.md](https://github.com/interactivetools-com/ZenDB/blob/main/docs/internal/db-behavior-matrix.md))
 - Misc code and other minor improvements
 
 ## [0.9.1] - 2026-04-22

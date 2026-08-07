@@ -50,6 +50,8 @@ class Connection
      * class wraps this: Table::exists() and $db->table->exists() are the same call.
      *
      *     $db->table->exists('users');  // true/false
+     *
+     * @internal API may change between releases
      */
     public ?TableInfo $table = null;
 

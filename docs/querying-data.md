@@ -1,3 +1,5 @@
+<!-- Example output like &apos; includes a zero-width space (U+200B) after the "&" so PHPStorm's Markdown preview displays it correctly instead of decoding it. -->
+
 # Querying Data
 
 Fetching data from the database: selecting rows, fetching a single row,
@@ -39,7 +41,7 @@ they HTML-encode themselves:
 
 ```php
 foreach ($users as $user) {
-    echo "<li>$user->name - $user->city</li>";  // O'Brien & Sons → O&apos;Brien &amp; Sons
+    echo "<li>$user->name - $user->city</li>";  // O'Brien & Sons → O&​apos;Brien &​amp; Sons
 }
 ```
 

@@ -472,7 +472,7 @@ class DocsExamplesTest extends BaseTestCase
         $this->assertSame('Bold ...', (string)$row->html_content->textOnly()->maxChars(10));
 
         // Format a number and prepend a currency symbol
-        $this->assertSame('$25.75', (string)$product->price->numberFormat(2)->andPrefix('$'));
+        $this->assertSame('$25.75', (string)$product->price->numberFormat(2)->prepend('$'));
 
         // Format a date; null falls through to the or()
         $this->assertSame('Jul 22, 1992', (string)$user->dob->dateFormat('M j, Y')->or('Never'));
@@ -519,13 +519,13 @@ class DocsExamplesTest extends BaseTestCase
         $this->assertSame(10, $users->count());
 
         // One column
-        $names = $users->pluck('name');
+        $names = $users->column('name');
         $this->assertSame('John Doe', $names->first()->value());
         $this->assertSame(10, count($names));
 
         // Lookup by primary key
         $byNum = $users->indexBy('num');
-        $this->assertSame('George Wilson', (string)$byNum->get(9)->name);
+        $this->assertSame('George Wilson', (string)$byNum->{'9'}->name);
 
         // Group rows by a column value
         $byCity  = DB::select('users', ['status' => 'Suspended'])->groupBy('city');
@@ -569,9 +569,9 @@ class DocsExamplesTest extends BaseTestCase
         $this->assertFalse($row->isEmpty());
         $this->assertTrue(DB::selectOne('users', ['num' => 9999])->isEmpty());
 
-        // Smart Join keys can't be typed with object syntax, so get() reads them
+        // Smart Join keys can't be typed with plain property syntax, so ->{'...'} reads them
         $joined = DB::query("SELECT * FROM ::users u JOIN ::orders o ON o.user_id = u.num ORDER BY o.order_id LIMIT 1")->first();
-        $this->assertSame('Dave Williams', (string)$joined->get('users.name'));
+        $this->assertSame('Dave Williams', (string)$joined->{'users.name'});
     }
 
     public function testResultsValueMethodsText(): void
@@ -582,7 +582,7 @@ class DocsExamplesTest extends BaseTestCase
         $this->assertSame('Frank Miller', (string)$user->name->textOnly());
         $this->assertSame('Frank...', (string)$user->name->textOnly()->maxChars(10));
         $this->assertSame('Jane Janey...', (string)DB::selectOne('users', ['num' => 2])->name->maxWords(2));
-        $this->assertSame("Line1<br>\nLine2", (string)$multiline->content->textToHtml());
+        $this->assertSame("Line1<br>\nLine2", (string)$multiline->content->nl2br());
         $this->assertSame('John Doe', (string)DB::selectOne('users', ['num' => 1])->name->trim());
     }
 
@@ -606,9 +606,9 @@ class DocsExamplesTest extends BaseTestCase
         $this->assertSame('0', (string)$nonAdmin->isAdmin->or('N/A'));   // zero stays
         $this->assertSame('N/A', (string)$nullish->isAdmin->ifNull('N/A'));
         $this->assertSame('Free', (string)$nonAdmin->isAdmin->ifZero('Free'));
-        $this->assertSame('1 items', (string)$admin->isAdmin->and(' items'));
-        $this->assertSame('$0', (string)$nonAdmin->isAdmin->andPrefix('$'));
-        $this->assertSame('', (string)$nullish->isAdmin->andPrefix('$'));
+        $this->assertSame('1 items', (string)$admin->isAdmin->append(' items'));
+        $this->assertSame('$0', (string)$nonAdmin->isAdmin->prepend('$'));
+        $this->assertSame('', (string)$nullish->isAdmin->prepend('$'));
     }
 
     //endregion
@@ -1117,9 +1117,9 @@ class DocsExamplesTest extends BaseTestCase
         ], array_keys($row->toArray()));
 
         $this->assertSame('Dave Williams', $row->name->value());
-        $this->assertSame('Dave Williams', $row->get('users.name')->value());
-        $this->assertSame(1, $row->get('orders.order_id')->value());
-        $this->assertSame('2023-06-25', $row->get('orders.order_date')->value());
+        $this->assertSame('Dave Williams', $row->{'users.name'}->value());
+        $this->assertSame(1, $row->{'orders.order_id'}->value());
+        $this->assertSame('2023-06-25', $row->{'orders.order_date'}->value());
         $this->assertSame(2023, $row->orderYear->value());
     }
 
@@ -1128,8 +1128,8 @@ class DocsExamplesTest extends BaseTestCase
         $row = DB::queryOne("SELECT * FROM ::users JOIN ::employees ON ::employees.id = ::users.num WHERE ::users.num = ?", 1);
 
         $this->assertSame('John Doe', $row->name->value());
-        $this->assertSame('John Doe', $row->get('users.name')->value());
-        $this->assertSame('CEO', $row->get('employees.name')->value());
+        $this->assertSame('John Doe', $row->{'users.name'}->value());
+        $this->assertSame('CEO', $row->{'employees.name'}->value());
     }
 
     public function testJoinsSelfJoinAliasKeys(): void
@@ -1138,9 +1138,9 @@ class DocsExamplesTest extends BaseTestCase
         $row  = $rows->first();
 
         $this->assertCount(5, $rows);
-        $this->assertSame('VP Engineering', $row->get('a.name')->value());
-        $this->assertSame('CEO', $row->get('b.name')->value());
-        $this->assertSame('VP Engineering', $row->get('employees.name')->value());
+        $this->assertSame('VP Engineering', $row->{'a.name'}->value());
+        $this->assertSame('CEO', $row->{'b.name'}->value());
+        $this->assertSame('VP Engineering', $row->{'employees.name'}->value());
     }
 
     public function testJoinsTurningSmartJoinsOff(): void
@@ -1306,23 +1306,23 @@ class DocsExamplesTest extends BaseTestCase
     public function testCommonPatternsReadingAColumnByPosition(): void
     {
         $row       = DB::queryOne("SHOW CREATE TABLE ::users");
-        $createSql = $row->nth(1)->value();
+        $createSql = $row->at(1)->value();
 
         $this->assertSame(['Table', 'Create Table'], array_keys($row->toArray()));
         $this->assertStringStartsWith('CREATE TEMPORARY TABLE `test_users`', $createSql);
-        $this->assertSame($createSql, $row->get('Create Table')->value());
+        $this->assertSame($createSql, $row->{'Create Table'}->value());
     }
 
-    public function testCommonPatternsPluckNth(): void
+    public function testCommonPatternsColumnAt(): void
     {
-        $columns = DB::query("SHOW COLUMNS FROM ::users")->pluckNth(0)->toArray();
+        $columns = DB::query("SHOW COLUMNS FROM ::users")->columnAt(0)->toArray();
 
         $this->assertSame(['num', 'name', 'isAdmin', 'status', 'city', 'dob', 'age'], $columns);
 
         $tables = DB::query("SHOW TABLES");
 
         $this->assertSame(['Tables_in_phpunit_test_db'], array_keys($tables->first()->toArray()));
-        $this->assertSame($tables->pluck('Tables_in_phpunit_test_db')->toArray(), $tables->pluckNth(0)->toArray());
+        $this->assertSame($tables->column('Tables_in_phpunit_test_db')->toArray(), $tables->columnAt(0)->toArray());
     }
 
     public function testCommonPatternsInsertThenLoadTheNewRow(): void
@@ -1417,13 +1417,22 @@ class DocsExamplesTest extends BaseTestCase
     {
         $rows = DB::select('users', "num = ? LIMIT 1", 8);
 
+        $thead = '';
+        foreach ($rows->first()->keys() as $name) {
+            $thead .= "<th>$name</th>";
+        }
         $this->assertSame(
-            "<th>num</th>\n<th>name</th>\n<th>isAdmin</th>\n<th>status</th>\n<th>city</th>\n<th>dob</th>\n<th>age</th>",
-            (string) $rows->first()->keys()->sprintf("<th>{value}</th>")->implode("\n")
+            "<th>num</th><th>name</th><th>isAdmin</th><th>status</th><th>city</th><th>dob</th><th>age</th>",
+            $thead
         );
+
+        $tbody = '';
+        foreach ($rows->first() as $value) {
+            $tbody .= "<td>$value</td>";
+        }
         $this->assertSame(
-            "<td>8</td>\n<td>Frank &lt;b&gt;Miller&lt;/b&gt;</td>\n<td>0</td>\n<td>Suspended</td>\n<td>Winnipeg</td>\n<td>1992-07-22</td>\n<td>31</td>",
-            (string) $rows->first()->sprintf("<td>{value}</td>")->implode("\n")
+            "<td>8</td><td>Frank &lt;b&gt;Miller&lt;/b&gt;</td><td>0</td><td>Suspended</td><td>Winnipeg</td><td>1992-07-22</td><td>31</td>",
+            $tbody
         );
     }
 
@@ -1448,20 +1457,20 @@ class DocsExamplesTest extends BaseTestCase
 
         $this->assertSame(['Active', 'Inactive', 'Suspended'], $keys);
         $this->assertSame('string', get_debug_type($keys[0]));
-        $this->assertCount(10, $byStatus->get('Active'));
-        $this->assertCount(5, $byStatus->get('Inactive'));
-        $this->assertCount(5, $byStatus->get('Suspended'));
+        $this->assertCount(10, $byStatus->Active);
+        $this->assertCount(5, $byStatus->Inactive);
+        $this->assertCount(5, $byStatus->Suspended);
 
         $html = '';
-        foreach ($byStatus->get('Inactive') as $item) {
-            $html .= "<li>$item->name - {$item->age->numberFormat(2)->andPrefix('$')}</li>";
+        foreach ($byStatus->Inactive as $item) {
+            $html .= "<li>$item->name - {$item->age->numberFormat(2)->prepend('$')}</li>";
         }
         $this->assertStringStartsWith('<li>Dave Williams - $48.00</li>', $html);
     }
 
     public function testCommonPatternsLookupMaps(): void
     {
-        $productNames = DB::select('products')->pluck('product_name', 'product_id');
+        $productNames = DB::select('products')->column('product_name', 'product_id');
 
         $this->assertSame([
             1 => 'Product A',
@@ -1472,17 +1481,17 @@ class DocsExamplesTest extends BaseTestCase
         ], $productNames->toArray());
 
         $productsById = DB::select('products')->indexBy('product_id');
-        $this->assertSame('Product C', $productsById->get(3)->product_name->value());
+        $this->assertSame('Product C', $productsById->{'3'}->product_name->value());
     }
 
     public function testCommonPatternsCheckingAColumnForAValue(): void
     {
         $admins = DB::select('users', ['isAdmin' => 1]);
 
-        $this->assertTrue($admins->pluck('name')->contains('Alice Smith'));
-        $this->assertFalse($admins->pluck('name')->contains('Bob Johnson'));
+        $this->assertTrue($admins->column('name')->contains('Alice Smith'));
+        $this->assertFalse($admins->column('name')->contains('Bob Johnson'));
 
-        $hasNumIndex = DB::query("SHOW INDEX FROM ::users")->pluck('Column_name')->contains('num');
+        $hasNumIndex = DB::query("SHOW INDEX FROM ::users")->column('Column_name')->contains('num');
         $this->assertTrue($hasNumIndex);
     }
 
@@ -1521,12 +1530,12 @@ class DocsExamplesTest extends BaseTestCase
             ->subtract($noTraffic->sales)
             ->percentOf($noTraffic->sales)
             ->ifNull('-')
-            ->apply($withSign));
+            ->map($withSign));
         $this->assertSame('-17%', (string) $noTraffic->sales
             ->subtract($stats->sales)
             ->percentOf($stats->sales)
             ->ifNull('-')
-            ->apply($withSign));
+            ->map($withSign));
 
         $this->assertSame('25.4%', (string) $stats->completionRate->percent(1));
         $this->assertSame('-', (string) $noTraffic->completionRate->percent(0, '-'));
@@ -1543,15 +1552,15 @@ class DocsExamplesTest extends BaseTestCase
 
         $this->assertSame(
             'Vancouver, BC V6B 1A1',
-            $withRegion->city->and(', ') . $withRegion->region->and(' ') . $withRegion->postalCode
+            $withRegion->city->append(', ') . $withRegion->region->append(' ') . $withRegion->postalCode
         );
         $this->assertSame(
             'Vancouver, V6B 1A1',
-            $noRegion->city->and(', ') . $noRegion->region->and(' ') . $noRegion->postalCode
+            $noRegion->city->append(', ') . $noRegion->region->append(' ') . $noRegion->postalCode
         );
 
-        $this->assertSame('$0.00', (string) $withRegion->balance->andPrefix('$'));
-        $this->assertSame('', (string) $noRegion->balance->andPrefix('$'));
+        $this->assertSame('$0.00', (string) $withRegion->balance->prepend('$'));
+        $this->assertSame('', (string) $noRegion->balance->prepend('$'));
     }
 
     public function testCommonPatternsValuesInUrlsAndJavascript(): void

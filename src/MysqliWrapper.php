@@ -28,6 +28,8 @@ class MysqliWrapper extends mysqli
     /**
      * Whether a transaction is currently active on this connection.
      * Used by Connection::transaction() to detect accidental nesting.
+     *
+     * @internal API may change between releases
      */
     public bool $inTransaction = false;
 
