@@ -136,6 +136,7 @@ class Connection
         $this->mysqli->options(MYSQLI_OPT_CONNECT_TIMEOUT, $this->connectTimeout);
         $this->mysqli->options(MYSQLI_OPT_READ_TIMEOUT, $this->readTimeout);
         $this->mysqli->options(MYSQLI_OPT_LOCAL_INFILE, 0); // disable "LOAD DATA LOCAL INFILE" for security
+        $this->mysqli->options(MYSQLI_SET_CHARSET_NAME, 'utf8mb4'); // charset rides the connect handshake; see the set_charset gate below
 
         // Return native PHP types (int/float) instead of strings
         if (defined('MYSQLI_OPT_INT_AND_FLOAT_NATIVE')) {
@@ -160,11 +161,11 @@ class Connection
                 $database = $this->secret('database');
                 if ($this->databaseAutoCreate && $e->getCode() === 1049) {
                     DB::assertIdentifier($database, 'database name');
-                    // COLLATE pinned: the default utf8mb4 collation differs per server (MySQL 8.0+:
-                    // 0900_ai_ci, MariaDB 10.3-10.11: general_ci, MariaDB 11.4+: uca1400_ai_ci) while
-                    // utf8mb4_unicode_ci exists on every supported server, so auto-created databases
-                    // collate identically everywhere. See docs/internal/db-behavior-matrix.md (2026-07)
-                    $dbCreateQuery = "CREATE DATABASE `$database` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci";
+                    // CHARACTER SET utf8mb4: without it, MySQL 5.7 creates a latin1 database.
+                    // No COLLATE on purpose: each server uses its default utf8mb4 collation,
+                    // same as our CREATE TABLE statements, so every table in the database lands
+                    // on one collation however it was created
+                    $dbCreateQuery = "CREATE DATABASE `$database` CHARACTER SET utf8mb4";
                     $this->mysqli->real_connect($this->secret('hostname'), $this->secret('username'), $this->secret('password'), null, null, null, $flags);
                     try {
                         $this->mysqli->query($dbCreateQuery);
@@ -193,13 +194,23 @@ class Connection
             throw new RuntimeException($errorMsg);
         }
 
-        // Set charset - DO THIS FIRST
-        if ($this->mysqli->character_set_name() !== 'utf8mb4') {
-            $this->mysqli->set_charset('utf8mb4');
-        }
-
         $this->server = new Server($this->mysqli);
         $this->table  = new TableInfo($this);
+
+        // utf8mb4 was already set during the connect handshake (MYSQLI_SET_CHARSET_NAME above).
+        // Most servers are done at that point; two cases still need a set_charset() call:
+        //   - MySQL/Percona 8.0+: their default collation (utf8mb4_0900_ai_ci) is newer than
+        //     the one the handshake can carry (utf8mb4_general_ci), so call set_charset() to
+        //     land the default. MariaDB and 5.7-family servers land their default either way,
+        //     so they skip the call and save its round trip.
+        //   - Pooled connections (p: hostname): reuse keeps the previous session's charset,
+        //     whatever it was. The charset check below catches that for free (client-side).
+        // Server-by-server results: docs/internal/db-behavior-matrix.md (2026-08)
+        $charsetLeakedFromPool = $this->mysqli->character_set_name() !== 'utf8mb4';   // fresh connects are always utf8mb4
+        $newerDefaultCollation = !$this->server->isMariaDb() && version_compare($this->server->version(), '8.0', '>=');
+        if ($charsetLeakedFromPool || $newerDefaultCollation) {
+            $this->mysqli->set_charset('utf8mb4');
+        }
 
         // Check mysql version
         if ($this->versionRequired) {

@@ -115,6 +115,17 @@ class Server
     }
 
     /**
+     * Whether the server is MariaDB. Free: MariaDB names itself in the connect
+     * handshake, so unlike vendor() this can never cost a query.
+     *
+     *     DB::$server->isMariaDb();  // true on "10.6.27-MariaDB-ubu2204"
+     */
+    public function isMariaDb(): bool
+    {
+        return stripos($this->mysqli->server_info, 'mariadb') !== false;
+    }
+
+    /**
      * Display name of the database product and its hosting, ready for server info pages.
      *
      *     DB::$server->vendorName();                                  // "MariaDB"

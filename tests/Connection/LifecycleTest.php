@@ -107,6 +107,11 @@ class LifecycleTest extends BaseTestCase
         $selectedDatabase = DB::$mysqli->query("SELECT DATABASE() as db")->fetch_assoc()['db'];
         $this->assertSame($database, $selectedDatabase);
 
+        // utf8mb4 with no COLLATE pinned: the collation is the server's own utf8mb4 default
+        [$charset, $collation] = DB::$mysqli->query("SELECT DEFAULT_CHARACTER_SET_NAME, DEFAULT_COLLATION_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME = '$database'")->fetch_row();
+        $this->assertSame('utf8mb4', $charset);
+        $this->assertStringStartsWith('utf8mb4_', $collation);
+
         DB::$mysqli->query("DROP DATABASE `$database`") or throw new RuntimeException("Error dropping database");
     }
 

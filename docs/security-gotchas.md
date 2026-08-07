@@ -45,6 +45,17 @@ inline values are rejected, so injection is hard to write even by accident.
 You have to step off that path on purpose to open a hole. Stay on it and
 injection is not something you have to think about.
 
+### Connection Charset - Always utf8mb4
+
+ZenDB connections are always utf8mb4: escaping, HTML-encoding, and backups all
+assume it. Calling `set_charset()` with anything else throws, so an accidental
+change fails loudly instead of quietly changing what escaping means. Raw SQL
+like `SET NAMES latin1` still runs (it is ordinary SQL), but it makes PHP
+escape for one charset while the server parses another, the classic multi-byte
+injection setup, so it is unsupported: send it and that connection's escaping
+is broken until the connection closes. Every new connection starts utf8mb4,
+including reused pooled connections.
+
 ### Unencoded Output - `rawHtml()`
 
 Every value from ZenDB HTML-encodes itself in string context, so normal output

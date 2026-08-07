@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Itools\ZenDB;
 
 use Closure;
+use InvalidArgumentException;
 use ReturnTypeWillChange;
 use Throwable;
 use mysqli;
@@ -125,6 +126,26 @@ class MysqliWrapper extends mysqli
         $this->logQuery($query, $startTime);
 
         return $result;
+    }
+
+    /**
+     * mysqli::set_charset() restricted to utf8mb4. ZenDB connections are always utf8mb4:
+     * escaping, SmartString encoding, and backups all assume it, and a changed charset
+     * survives pooled-connection reuse into later requests. Throws on any other charset
+     * so an accidental change fails loudly instead of corrupting data.
+     *
+     * @see mysqli::set_charset()
+     *
+     * @param string $charset Must be 'utf8mb4'
+     * @return bool True on success; throws on any other charset
+     * @throws InvalidArgumentException When $charset isn't utf8mb4
+     */
+    public function set_charset(string $charset): bool
+    {
+        if ($charset !== 'utf8mb4') {
+            throw new InvalidArgumentException("ZenDB connections are always utf8mb4; set_charset('$charset') is not supported.");
+        }
+        return parent::set_charset($charset);
     }
 
     /**

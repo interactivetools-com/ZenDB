@@ -1201,6 +1201,39 @@ try {
     };
 
     $reused->close();
+
+    // Charset-vs-pool-reuse: pool reuse goes through COM_CHANGE_USER, which has its own
+    // charset field that mysqlnd fills from ITS notion of the connection charset. Each
+    // cycle dirties a pooled slot a different way, then reopens it with the utf8mb4
+    // handshake option (MYSQLI_SET_CHARSET_NAME, the way connect() does) and records
+    // what the reused session actually has. set_charset() changes client and server
+    // state together; the three SQL statements change only the server, so mysqlnd may
+    // unknowingly send the stale or the correct charset on reuse - that's the question.
+    // The answer decides whether a persistent flag needs a set_charset guard on the
+    // servers where fresh connects skip it (MariaDB and pre-8.0)
+    $dirtyStyles = [
+        'set_charset(latin1)'    => fn(mysqli $c) => $c->set_charset('latin1'),
+        'SET NAMES latin1'       => fn(mysqli $c) => $c->query("SET NAMES latin1"),
+        'SET CHARACTER SET'      => fn(mysqli $c) => $c->query("SET CHARACTER SET latin1"),
+        'SET character_set_*'    => fn(mysqli $c) => $c->query("SET character_set_client = 'latin1', character_set_connection = 'latin1', character_set_results = 'latin1'"),
+    ];
+    foreach ($dirtyStyles as $styleLabel => $applyDirty) {
+        $dirtier = mysqli_init();
+        $dirtier->real_connect("p:$hostname", $username, $password, $database);
+        $applyDirty($dirtier);
+        $dirtierThreadId = $dirtier->thread_id;
+        $dirtier->close();
+
+        $optioned = mysqli_init();
+        $optioned->options(MYSQLI_SET_CHARSET_NAME, 'utf8mb4');
+        $optioned->real_connect("p:$hostname", $username, $password, $database);
+        $charsetState = $optioned->query("SELECT @@character_set_client, @@character_set_connection, @@character_set_results, @@collation_connection")->fetch_row();
+        $persistentProbes["PERSISTENT: reuse after $styleLabel"] =
+            ($optioned->thread_id === $dirtierThreadId ? 'reused; ' : 'NEW THREAD (reflects a fresh connection, not a pool reset); ')
+            . 'client ' . $optioned->character_set_name() . ', session ' . implode('/', $charsetState);
+        $optioned->close();
+    }
+
     $mysqli->query("DROP TABLE IF EXISTS zdb_probe_plink");
 } catch (mysqli_sql_exception $e) {
     $persistentProbes['PERSISTENT probes'] = 'probe failed: ' . $e->getMessage();

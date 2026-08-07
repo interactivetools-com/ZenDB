@@ -127,7 +127,14 @@ class EscapeEquivalenceTest extends BaseTestCase
      */
     public function testGbkNegativeControl(): void
     {
-        $mysqli = DB::$mysqli;
+        // Raw mysqli on purpose: MysqliWrapper::set_charset() rejects non-utf8mb4, and this
+        // test needs a genuinely-gbk connection to prove the fast-path check catches one
+        $mysqli = new \mysqli(
+            self::$configDefaults['hostname'],
+            self::$configDefaults['username'],
+            self::$configDefaults['password'],
+            self::$configDefaults['database'],
+        );
         try {
             $mysqli->set_charset('gbk');
         } catch (mysqli_sql_exception) {
