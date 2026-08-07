@@ -982,6 +982,22 @@ Stock Docker images with default configs answered these probes. Install-dependen
 
 - all servers: `rolled back`
 
+### PERSISTENT: reuse after set_charset(latin1)
+
+- all servers: `reused; client latin1, session latin1/latin1/latin1/latin1_swedish_ci`
+
+### PERSISTENT: reuse after SET NAMES latin1
+
+- all servers: `reused; client latin1, session latin1/latin1/latin1/latin1_swedish_ci`
+
+### PERSISTENT: reuse after SET CHARACTER SET
+
+- all servers: `reused; client latin1, session latin1/latin1/latin1/latin1_swedish_ci`
+
+### PERSISTENT: reuse after SET character_set_*
+
+- all servers: `reused; client latin1, session latin1/latin1/latin1/latin1_swedish_ci`
+
 ### UNION FIELDS: single SELECT control
 
 - all servers: `id(table='zdb_probe_u1' orgtable='zdb_probe_u1'), name(table='zdb_probe_u1' orgtable='zdb_probe_u1')`

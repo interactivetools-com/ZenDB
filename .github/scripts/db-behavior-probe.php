@@ -1126,9 +1126,38 @@ try {
             : 'DIFFERS: handshake ' . implode('/', $handshakeState) . ' vs set_charset ' . implode('/', $setCharsetState),
     ];
 
+    // DDL with a charset-only clause: does the connect route change what collation new
+    // objects get? connect() skips set_charset on MariaDB/5.7 and auto-creates databases
+    // with CHARACTER SET utf8mb4 and no COLLATE, so both routes must produce identical
+    // databases and tables (charset-only DDL should resolve server-side, ignoring
+    // connection state) - measured here rather than assumed
+    $ddlByRoute = [];
+    foreach ([['handshake', $viaHandshake], ['set_charset', $viaSetCharset]] as [$route, $conn]) {
+        $conn->query("DROP DATABASE IF EXISTS zdb_probe_ddl");
+        $conn->query("CREATE DATABASE zdb_probe_ddl CHARACTER SET utf8mb4");
+        $dbCollation = $conn->query("SELECT DEFAULT_COLLATION_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME = 'zdb_probe_ddl'")->fetch_row()[0];
+        $conn->query("DROP DATABASE zdb_probe_ddl");
+
+        $conn->query("DROP TABLE IF EXISTS zdb_probe_ddl_tbl");
+        $conn->query("CREATE TABLE zdb_probe_ddl_tbl (t VARCHAR(10)) CHARACTER SET utf8mb4");
+        $tblCollation = $conn->query("SELECT TABLE_COLLATION FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'zdb_probe_ddl_tbl'")->fetch_row()[0];
+        $conn->query("DROP TABLE zdb_probe_ddl_tbl");
+
+        $ddlByRoute[$route] = "$dbCollation / $tblCollation";
+        $handshakeProbes["HANDSHAKE DDL: db/table collation via $route route"] = $ddlByRoute[$route];
+    }
+    $handshakeProbes['HANDSHAKE DDL: routes identical'] = $ddlByRoute['handshake'] === $ddlByRoute['set_charset'] ? 'identical' : 'DIFFERS';
+
     $viaHandshake->query("SET collation_connection = 'utf8mb4_bin'");
     $viaHandshake->query("SET character_set_client = 'utf8mb4', character_set_connection = 'utf8mb4', character_set_results = 'utf8mb4'");
     $handshakeProbes['HANDSHAKE CHARSET: collation after SET character_set_* over utf8mb4_bin'] = $viaHandshake->query("SELECT @@collation_connection")->fetch_row()[0];
+
+    // Bonus: DDL on a connection whose collation_connection was forced to utf8mb4_bin -
+    // proves (or disproves) that connection collation never reaches charset-only DDL
+    $viaHandshake->query("SET collation_connection = 'utf8mb4_bin'");
+    $viaHandshake->query("CREATE TABLE zdb_probe_ddl_tbl (t VARCHAR(10)) CHARACTER SET utf8mb4");
+    $handshakeProbes['HANDSHAKE DDL: table collation with collation_connection=utf8mb4_bin'] = $viaHandshake->query("SELECT TABLE_COLLATION FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'zdb_probe_ddl_tbl'")->fetch_row()[0];
+    $viaHandshake->query("DROP TABLE zdb_probe_ddl_tbl");
 
     $viaHandshake->close();
     $viaSetCharset->close();
