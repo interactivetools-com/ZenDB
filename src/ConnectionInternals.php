@@ -840,33 +840,45 @@ trait ConnectionInternals
      * Fetch result rows with column mapping, smart joins, and auto-decryption.
      *
      * - $singleTable: caller guarantees a single-table `SELECT *` (no duplicate columns or
-     *   SmartJoins possible), skipping metadata checks entirely unless `encryptionKey` is set
+     *   SmartJoins possible), skipping metadata checks entirely; $fullTable names the table
+     *   so keyed connections can cache its encrypted-column list
      * - Fast path: direct C-level MYSQLI_ASSOC fetch when no remapping is needed
      * - "First wins": duplicate column names use the first occurrence
      * - SmartJoins: multi-table queries add qualified names (e.g., 'users.name')
      * - Self-joins: adds alias-based names (e.g., 'a.name', 'b.name')
      * - Auto-decryption: MEDIUMBLOB columns are decrypted when an encryption key is configured
      */
-    private function fetchMappedRows(mysqli_result|bool $mysqliResult, bool $singleTable = false): array
+    private function fetchMappedRows(mysqli_result|bool $mysqliResult, bool $singleTable = false, string $fullTable = ''): array
     {
         if (is_bool($mysqliResult)) {
             return [];  // INSERT/UPDATE/DELETE return true, not a result set
         }
 
-        // Field metadata finds encrypted columns (when a key is set) and, for arbitrary
-        // query() SQL, duplicate columns and SmartJoins. Single-table keyless queries need none of it.
-        $hasEncryptionKey = (bool)$this->secret('encryptionKey');
-        $fetchFields      = $singleTable && !$hasEncryptionKey ? [] : $mysqliResult->fetch_fields();
-        $encryptedMap     = $hasEncryptionKey ? DB::getEncryptedColumns($fetchFields) : [];   // [fieldIndex => colName] for MEDIUMBLOB cols
-
         // Single-table `SELECT *` (select/selectOne build that SQL themselves) can't have
-        // duplicate columns or joined tables, so rows need no remapping
+        // duplicate columns or joined tables, so rows need no remapping. Encrypted columns
+        // are looked up once per table per connection: the first select harvests the
+        // MEDIUMBLOB column list from this result's own field metadata, later selects skip
+        // fetch_fields() entirely (it builds a stdClass per column on every call)
         if ($singleTable) {
+            $encryptedCols = [];
+            if ($this->hasEncryptionKey) {
+                static $tableCache = new WeakMap();   // connection => [fullTable => encrypted column names]
+                if (!isset($tableCache[$this][$fullTable])) {
+                    $tableCache[$this]             ??= [];
+                    $tableCache[$this][$fullTable] = array_values(DB::getEncryptedColumns($mysqliResult->fetch_fields()));
+                }
+                $encryptedCols = $tableCache[$this][$fullTable];
+            }
             $rows = $mysqliResult->fetch_all(MYSQLI_ASSOC);
             $mysqliResult->free();
-            $this->decryptRows($rows, array_values($encryptedMap));
+            $this->decryptRows($rows, $encryptedCols);
             return $rows;
         }
+
+        // Field metadata finds encrypted columns (when a key is set) plus, for arbitrary
+        // query() SQL, duplicate columns and SmartJoins
+        $fetchFields  = $mysqliResult->fetch_fields();
+        $encryptedMap = $this->hasEncryptionKey ? DB::getEncryptedColumns($fetchFields) : [];   // [fieldIndex => colName] for MEDIUMBLOB cols
 
         // Extract field metadata from result
         $names        = array_column($fetchFields, 'name');
@@ -1081,6 +1093,9 @@ trait ConnectionInternals
             $this->$key                 = null;            // clear property to prevent leakage
             unset($config[$key]);                          // consume key so it won't hit the property loop
         }
+
+        // Hoisted so per-query paths can check key presence without a vault lookup
+        $this->hasEncryptionKey = !empty(self::$secrets[$this]['encryptionKey']);
     }
 
     /**
@@ -1101,6 +1116,9 @@ trait ConnectionInternals
     private ?string $password      = null;
     private ?string $database      = null;
     private ?string $encryptionKey = null;
+
+    /** @var bool True when a non-empty `encryptionKey` is sealed in the vault (set by sealSecrets) */
+    private bool $hasEncryptionKey = false;
 
     // Result handling
     /** @var callable|null Custom handler for loading results */

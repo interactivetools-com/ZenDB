@@ -377,7 +377,7 @@ class Connection
 
         // Execute
         $result = $this->mysqli->query($sql);
-        $rows   = $this->fetchMappedRows($result, singleTable: true);
+        $rows   = $this->fetchMappedRows($result, singleTable: true, fullTable: $fullTable);
 
         return $this->toSmartArray($rows, $sql, $baseTable);
     }
@@ -411,7 +411,7 @@ class Connection
         $sql               = "SELECT * FROM `$fullTable` {$this->whereFromArgs($whereEtc)} LIMIT 1";
 
         $result    = $this->mysqli->query($sql);
-        $rows      = $this->fetchMappedRows($result, singleTable: true);
+        $rows      = $this->fetchMappedRows($result, singleTable: true, fullTable: $fullTable);
         $resultSet = $this->toSmartArray($rows, $sql, $baseTable);
 
         // asHtml()/asRaw() ensure SmartNull from empty results becomes a SmartArray matching the connection
@@ -850,7 +850,7 @@ class Connection
      */
     public function decryptRows(array &$rows, array $keysOrFetchFields): void
     {
-        if (!$rows || !$keysOrFetchFields || !$this->secret('encryptionKey')) {
+        if (!$rows || !$keysOrFetchFields || !$this->hasEncryptionKey) {
             return;
         }
 
