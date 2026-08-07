@@ -1093,6 +1093,123 @@ $probes += $zeroDateProbes;
 echo "### Zero and invalid dates\n\n";
 echo mdTable($zeroDateProbes);
 
+//
+// Charset in the connection handshake - a proposed connect() change sends utf8mb4
+// inside the handshake packet (options MYSQLI_SET_CHARSET_NAME before real_connect)
+// instead of paying set_charset()'s round trip after connecting. Safe only if both
+// routes leave the session in the same state on every server: same character_set_*
+// values and the same collation_connection (each server resolves its own utf8mb4
+// default collation). The last probe covers the companion change of adding
+// character_set_client/connection/results to the connect-time SET statement: setting
+// character_set_connection must reset collation_connection to the server's utf8mb4
+// default even when another collation was active, the way SET NAMES does
+//
+try {
+    $viaHandshake = mysqli_init();
+    $viaHandshake->options(MYSQLI_SET_CHARSET_NAME, 'utf8mb4');
+    $viaHandshake->real_connect($hostname, $username, $password, $database);
+
+    $viaSetCharset = mysqli_init();
+    $viaSetCharset->real_connect($hostname, $username, $password, $database);
+    $viaSetCharset->set_charset('utf8mb4');
+
+    $stateSql        = "SELECT @@character_set_client, @@character_set_connection, @@character_set_results, @@collation_connection";
+    $handshakeState  = $viaHandshake->query($stateSql)->fetch_row();
+    $setCharsetState = $viaSetCharset->query($stateSql)->fetch_row();
+
+    $handshakeProbes = [
+        'HANDSHAKE CHARSET: client character_set_name()' => $viaHandshake->character_set_name(),
+        'HANDSHAKE CHARSET: session charsets'            => implode(' / ', array_slice($handshakeState, 0, 3)),
+        'HANDSHAKE CHARSET: @@collation_connection'      => $handshakeState[3],
+        'HANDSHAKE CHARSET: same state as set_charset route' => $handshakeState === $setCharsetState && $viaHandshake->character_set_name() === $viaSetCharset->character_set_name()
+            ? 'identical'
+            : 'DIFFERS: handshake ' . implode('/', $handshakeState) . ' vs set_charset ' . implode('/', $setCharsetState),
+    ];
+
+    $viaHandshake->query("SET collation_connection = 'utf8mb4_bin'");
+    $viaHandshake->query("SET character_set_client = 'utf8mb4', character_set_connection = 'utf8mb4', character_set_results = 'utf8mb4'");
+    $handshakeProbes['HANDSHAKE CHARSET: collation after SET character_set_* over utf8mb4_bin'] = $viaHandshake->query("SELECT @@collation_connection")->fetch_row()[0];
+
+    $viaHandshake->close();
+    $viaSetCharset->close();
+} catch (mysqli_sql_exception $e) {
+    $handshakeProbes = ['HANDSHAKE CHARSET probes' => 'probe failed: ' . $e->getMessage()];
+}
+$probes += $handshakeProbes;
+
+echo "### Charset in the connection handshake\n\n";
+echo mdTable($handshakeProbes);
+
+//
+// Persistent connections - a proposed `persistent` config flag prepends p: to the
+// hostname so mysqli reuses pooled connections instead of paying TCP setup and auth
+// per request. ZenDB depends on the pool reset (mysqlnd sends COM_CHANGE_USER on
+// reuse) restoring a clean session: user variables cleared so the lazy @ek SET
+// re-arms, sql_mode and charset back to defaults, temporary tables dropped, open
+// transactions rolled back. The probes dirty all of those on one pooled connection,
+// close it, reopen the same pool slot, and record what the reused session reports.
+// The pool is per-process, so the reopen below reuses the closed connection
+//
+$persistentProbes = [
+    'PERSISTENT: ini mysqli.allow_persistent'         => (string)ini_get('mysqli.allow_persistent'),
+    'PERSISTENT: ini mysqli.rollback_on_cached_plink' => (string)ini_get('mysqli.rollback_on_cached_plink'),
+];
+try {
+    $mysqli->query("DROP TABLE IF EXISTS zdb_probe_plink");
+    $mysqli->query("CREATE TABLE zdb_probe_plink (num INT NOT NULL) ENGINE=InnoDB");
+
+    $dirty = mysqli_init();
+    $dirty->real_connect("p:$hostname", $username, $password, $database);
+    $dirtyThreadId = $dirty->thread_id;
+    $dirty->set_charset('latin1');
+    $dirty->query("SET @zdb_probe_uservar = 'leaked'");
+    $dirty->query("SET SESSION sql_mode = 'ANSI_QUOTES'");
+    $dirty->query("CREATE TEMPORARY TABLE zdb_probe_ptemp (num INT NOT NULL)");
+    $dirty->query("START TRANSACTION");
+    $dirty->query("INSERT INTO zdb_probe_plink VALUES (1)");   // left uncommitted on purpose
+    $dirty->close();
+
+    $reused = mysqli_init();
+    $reused->real_connect("p:$hostname", $username, $password, $database);
+    $persistentProbes['PERSISTENT: pool reuse'] = $reused->thread_id === $dirtyThreadId
+        ? 'reused (same server thread)'
+        : "new server thread ($dirtyThreadId -> $reused->thread_id; resets below reflect a fresh connection, not a pool reset)";
+
+    $userVar = $reused->query("SELECT @zdb_probe_uservar")->fetch_row()[0];
+    $persistentProbes['PERSISTENT: user variable after reuse'] = $userVar === null ? 'cleared (lazy @ek SET re-arms)' : 'LEAKED: ' . displayValue($userVar);
+
+    $sqlModeAfterReuse = $reused->query("SELECT @@SESSION.sql_mode")->fetch_row()[0];
+    $persistentProbes['PERSISTENT: session sql_mode after reuse'] = str_contains($sqlModeAfterReuse, 'ANSI_QUOTES') ? "LEAKED: $sqlModeAfterReuse" : 'reset to server default';
+
+    $persistentProbes['PERSISTENT: charset after reuse'] = $reused->character_set_name() . ' / @@character_set_client ' . $reused->query("SELECT @@character_set_client")->fetch_row()[0];
+
+    try {
+        $reused->query("SELECT COUNT(*) FROM zdb_probe_ptemp");
+        $persistentProbes['PERSISTENT: temporary table after reuse'] = 'STILL EXISTS';
+    } catch (mysqli_sql_exception $e) {
+        $persistentProbes['PERSISTENT: temporary table after reuse'] = 'dropped (error ' . $e->getCode() . ')';
+    }
+
+    // Uncommitted INSERT: the reused session seeing 0 rows means its old transaction is
+    // gone; the main connection distinguishes rolled back (0) from committed (1)
+    $rowsReused = (int)$reused->query("SELECT COUNT(*) FROM zdb_probe_plink")->fetch_row()[0];
+    $rowsOther  = (int)$mysqli->query("SELECT COUNT(*) FROM zdb_probe_plink")->fetch_row()[0];
+    $persistentProbes['PERSISTENT: uncommitted INSERT after reuse'] = match (true) {
+        $rowsReused === 0 && $rowsOther === 0 => 'rolled back',
+        $rowsOther === 1                      => 'COMMITTED',
+        default                               => "open transaction survived (reused sees $rowsReused, other connection sees $rowsOther)",
+    };
+
+    $reused->close();
+    $mysqli->query("DROP TABLE IF EXISTS zdb_probe_plink");
+} catch (mysqli_sql_exception $e) {
+    $persistentProbes['PERSISTENT probes'] = 'probe failed: ' . $e->getMessage();
+}
+$probes += $persistentProbes;
+
+echo "### Persistent connection reuse\n\n";
+echo mdTable($persistentProbes);
+
 $mysqli->close();
 
 /**
