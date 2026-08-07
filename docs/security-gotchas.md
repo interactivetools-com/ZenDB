@@ -49,12 +49,13 @@ injection is not something you have to think about.
 
 ZenDB connections are always utf8mb4: escaping, HTML-encoding, and backups all
 assume it. Calling `set_charset()` with anything else throws, so an accidental
-change fails loudly instead of quietly changing what escaping means. Raw SQL
-like `SET NAMES latin1` still runs (it is ordinary SQL), but it makes PHP
-escape for one charset while the server parses another, the classic multi-byte
-injection setup, so it is unsupported: send it and that connection's escaping
-is broken until the connection closes. Every new connection starts utf8mb4,
-including reused pooled connections.
+change fails loudly. Changing it with raw SQL (`SET NAMES latin1`) is
+unsupported: escaping usually keeps up (mysqli watches for those statements),
+but results come back converted to the new charset (characters it can't
+represent turn into `?`), HTML-encoding still assumes UTF-8, and a charset
+change mysqli can't see (inside a stored procedure or statement batch) desyncs
+escaping from the server, the classic multi-byte injection setup. Every new
+connection starts utf8mb4, including reused pooled connections.
 
 ### Unencoded Output - `rawHtml()`
 

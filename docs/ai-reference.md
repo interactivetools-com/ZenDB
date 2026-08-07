@@ -609,8 +609,8 @@ Returns `mysqli_result|true`, not ZenDB collections; failures throw
 `mysqli_sql_exception`. Results skip auto-decryption (see Encryption).
 
 Connections are always utf8mb4. `set_charset()` throws on any other charset;
-changing the charset with raw SQL (`SET NAMES`) breaks escaping and is
-unsupported. Every new connection starts utf8mb4, including pooled reuse.
+changing the charset with raw SQL (`SET NAMES`) is unsupported. Every new
+connection starts utf8mb4, including pooled reuse.
 
 ### Multiple Connections
 

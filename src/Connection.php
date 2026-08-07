@@ -199,10 +199,13 @@ class Connection
 
         // utf8mb4 was already set during the connect handshake (MYSQLI_SET_CHARSET_NAME above).
         // Most servers are done at that point; two cases still need a set_charset() call:
-        //   - MySQL/Percona 8.0+: their default collation (utf8mb4_0900_ai_ci) is newer than
-        //     the one the handshake can carry (utf8mb4_general_ci), so call set_charset() to
-        //     land the default. MariaDB and 5.7-family servers land their default either way,
-        //     so they skip the call and save its round trip.
+        //   - MySQL/Percona 8.0+: the handshake can only carry utf8mb4_general_ci, so the
+        //     connection would compare string literals with general_ci rules where the
+        //     server's default is utf8mb4_0900_ai_ci; set_charset() switches it to the
+        //     server's default. Only the connection's own comparisons are affected -
+        //     CREATE TABLE/DATABASE get the server's default collation either way.
+        //     MariaDB and 5.7-family servers already get their default from the
+        //     handshake alone, so they skip the call and save its round trip.
         //   - Pooled connections (p: hostname): reuse keeps the previous session's charset,
         //     whatever it was. The charset check below catches that for free (client-side).
         // Server-by-server results: docs/internal/db-behavior-matrix.md (2026-08)
