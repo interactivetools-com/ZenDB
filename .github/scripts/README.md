@@ -31,9 +31,11 @@ suite methodology, and remaining work live in
   ZenDB-shaped query-compile cells; one JSON per OS x PHP cell
 - `escape-e2e-probe.php` - end-to-end family: interpolation vs prepared vs PDO
   vs hex per DB server, round-trip census, reuse crossover, bulk grid
-- `escape-zendb-probe.php` - ZenDB vs raw mysqli (`escape-zendb-matrix.yml`):
-  DB::select/selectOne/query vs hand-written mysqli, whole-query wall time plus
-  per-row wrapping cost; the only escape script that needs composer install
+- `escape-zendb-probe.php` - ZenDB vs raw mysqli vs fresh-prepared mysqli
+  (`escape-zendb-matrix.yml`) on real-world page scenarios: detail page (1
+  row), widget (5), list page (25 and 100), each consumed as HTML output or
+  raw arrays, on news-corpus content; whole-query wall time. The only escape
+  script that needs composer install
 - `escape-merge.php` - merge probe JSONs from either family into one grid
 - `escape-results.md` - committed verdict grid from full CI runs (citable source)
 

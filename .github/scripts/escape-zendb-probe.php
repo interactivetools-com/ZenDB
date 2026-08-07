@@ -2,21 +2,34 @@
 declare(strict_types=1);
 
 /**
- * ZenDB versus raw mysqli: DB::select()/selectOne()/query() and hand-written
- * mysqli doing the identical work, timed as whole queries against a live server.
+ * ZenDB versus raw mysqli versus fresh-prepared mysqli, on real-world page
+ * scenarios, timed as whole queries against a live server.
  *
  *     php .github/scripts/escape-zendb-probe.php [--json=out.json] [--filter=id1,id2] [--scale=1.0]
  *
  * Unlike the other probes this one loads the real library (composer install
- * required), because the question is how ZenDB's full pipeline compares to
- * raw mysqli: placeholder parse + escaping on the way in, round trip, and
- * SmartArray/SmartString wrapping on the way out. Point queries measure the
- * per-query difference; the 1000-row fetch cells isolate the
- * per-row wrapping cost, with and without touching a field (SmartString
- * encoding is paid at output time, so both numbers matter). The raw side that
- * touches fields calls htmlspecialchars() - the work SmartString's encoding
- * replaces - so both sides end XSS-safe; raw fetch-only rows are labeled as
- * doing less (no output encoding).
+ * required), because the question is what each data-access style costs on the
+ * pages websites actually serve. Scenarios cover the common shapes: load one
+ * record (detail page), a handful (widget), 25 (list page), and 100 (the
+ * largest listing worth optimizing for), each consumed the way pages consume
+ * them - HTML-encoded output or raw arrays. Every scenario pairs the same
+ * raw-mysqli baseline (interpolated SQL + real_escape_string, htmlspecialchars
+ * on output) against one candidate:
+ *
+ *   *-zendb     DB::selectOne()/select(), SmartString output or ->toArray()
+ *   *-prepared  fresh mysqli prepare/bind/execute per query (the PHP-FPM
+ *               reality: statement handles don't outlive the request), same
+ *               output work as raw
+ *
+ * Test data is the news corpus from SmartArray/benchmarks/news-page.php:
+ * title ~60 B with an apostrophe, summary ~300 B and content ~5 KB of prose at
+ * corpus-measured special-character density (~1.3% apostrophes, & < > absent).
+ * Before any timing, ZenDB's HTML output is verified byte-identical to the
+ * baseline's htmlspecialchars() loop.
+ *
+ * Prepared statements pay a real extra round trip for prepare(), so they read
+ * worse as ping grows; each cell reports whole-query wall time on loopback,
+ * where round trips are cheapest and every difference is at its largest.
  *
  * Same paired A/B design and DB_* env vars as escape-e2e-probe.php.
  */
@@ -27,18 +40,15 @@ if (!is_file($autoload)) {
     exit(1);
 }
 require $autoload;
-require __DIR__ . '/escape-corpus.php';
 
 use Itools\ZenDB\DB;
 
 error_reporting(E_ALL);
 ini_set('display_errors', '1');
 
-$opts    = getopt('', ['json::', 'filter::', 'scale::']);
-$filter  = isset($opts['filter']) ? array_flip(array_map('trim', explode(',', (string)$opts['filter']))) : null;
-$scale   = isset($opts['scale']) ? max(0.01, (float)$opts['scale']) : 1.0;
-$rtIters = max(50, (int)(1000 * $scale));    // point-query cells
-$fetchIters = max(20, (int)(200 * $scale));  // 1000-row fetch cells
+$opts   = getopt('', ['json::', 'filter::', 'scale::']);
+$filter = isset($opts['filter']) ? array_flip(array_map('trim', explode(',', (string)$opts['filter']))) : null;
+$scale  = isset($opts['scale']) ? max(0.01, (float)$opts['scale']) : 1.0;
 
 $hostname = getenv('DB_HOSTNAME') ?: '127.0.0.1';
 $username = getenv('DB_USERNAME') ?: 'root';
@@ -56,7 +66,7 @@ DB::connect([
 ]);
 $mysqli = DB::$mysqli;   // ZenDB's own connection doubles as the raw-side handle
 
-//region Environment facts and scratch data
+//region Environment facts
 
 $pings = [];
 for ($i = 0; $i < 200; $i++) {
@@ -82,47 +92,63 @@ $out = [
     'tests'        => [],
 ];
 
-/** Deterministic pseudo-random ASCII word soup, no escapables. */
-function build_clean(int $len, int $seed): string
+//endregion
+//region Test data - news corpus (from SmartArray/benchmarks/news-page.php)
+
+// Headline with one apostrophe (quotes in headlines are common; 50 bytes)
+const UNIT_TITLE = "Mayor Says 'No' to Downtown Towers Plan This Year ";
+// Prose with a quoted phrase and an apostrophe per ~220 chars (~1.3% specials)
+const UNIT_PROSE = "The company's third-quarter report shows steady growth in every region, and the board called the results \"very encouraging\" in its letter to shareholders. Management expects the same pace next year as new locations open. ";
+
+const CATEGORIES = ['news', 'sports', 'business', 'tech', 'arts', 'travel', 'health', 'science', 'opinion', 'local'];
+
+/** ~$bytes of text from $unit, rotated by $shift chars so each record differs */
+function from_unit(string $unit, int $bytes, int $shift): string
 {
-    mt_srand($seed);
-    $words = ['alpha', 'bravo', 'charlie', 'delta', 'echo', 'fox', 'golf', 'hotel', 'india', 'kilo'];
-    $s = '';
-    while (strlen($s) < $len) {
-        $s .= $words[mt_rand(0, 9)] . ' ';
-    }
-    return substr($s, 0, $len);
+    $shift = $shift % strlen($unit);
+    $rot   = substr($unit, $shift) . substr($unit, 0, $shift);
+    return substr(str_repeat($rot, intdiv($bytes, strlen($rot)) + 1), 0, $bytes);
 }
 
-$mysqli->query('DROP TABLE IF EXISTS zenbench_kv');
-$mysqli->query('CREATE TABLE zenbench_kv (id INT PRIMARY KEY AUTO_INCREMENT,
-    a VARCHAR(255) NOT NULL, b VARCHAR(255) NOT NULL, num INT NOT NULL,
-    KEY idx_a (a)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
-
-// 1000 rows, some values with apostrophes, for point queries and full fetches
-$pool = [];
-for ($i = 0; $i < 64; $i++) {
-    $v = build_clean(24, 100 + $i);
-    $pool[] = $i % 3 === 0 ? substr($v, 0, 8) . "'" . substr($v, 9) : $v;
+/** The baseline output call: the standard safe helper wrapped once per project */
+function e(string $text): string
+{
+    return htmlspecialchars($text, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 }
-$poolN = count($pool);
-$stmt  = $mysqli->prepare('INSERT INTO zenbench_kv (a, b, num) VALUES (?, ?, ?)');
+
+$mysqli->query('DROP TABLE IF EXISTS zenbench_news');
+$mysqli->query('CREATE TABLE zenbench_news (
+    id         INT PRIMARY KEY AUTO_INCREMENT,
+    category   VARCHAR(30)  NOT NULL,
+    title      VARCHAR(255) NOT NULL,
+    summary    TEXT         NOT NULL,
+    content    MEDIUMTEXT   NOT NULL,
+    created_at DATETIME     NOT NULL,
+    KEY idx_category_created (category, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
+
+// 1000 rows: 100 per category, staggered timestamps, every row's text distinct
+$stmt = $mysqli->prepare('INSERT INTO zenbench_news (category, title, summary, content, created_at) VALUES (?, ?, ?, ?, ?)');
 for ($i = 0; $i < 1000; $i++) {
-    $num = $i % 250;
-    $stmt->bind_param('ssi', $pool[$i % $poolN], $pool[($i + 1) % $poolN], $num);
+    $category  = CATEGORIES[$i % 10];
+    $title     = from_unit(UNIT_TITLE, 60, $i * 3);
+    $summary   = from_unit(UNIT_PROSE, 300, $i * 7);
+    $content   = from_unit(UNIT_PROSE, 5000, $i * 13);
+    $createdAt = gmdate('Y-m-d H:i:s', 1767225600 + $i * 3600);   // 2026-01-01 00:00:00 UTC + 1h per row
+    $stmt->bind_param('sssss', $category, $title, $summary, $content, $createdAt);
     $stmt->execute();
 }
 $stmt->close();
 
 //endregion
-//region Cells
+//region Scenario cells
 
 /** Interleaved paired benchmark; returns [a_ns, b_ns] per-op bests. */
-function ab_bench_rt(callable $a, callable $b, int $iters, int $reps = 7): array
+function ab_bench(callable $a, callable $b, int $iters, int $reps = 7): array
 {
     $bestA  = INF;
     $bestB  = INF;
-    $warmup = max(5, intdiv($iters, 20));
+    $warmup = max(3, intdiv($iters, 20));
     $a($warmup);
     $b($warmup);
     for ($r = 0; $r < $reps; $r++) {
@@ -144,118 +170,190 @@ function ab_bench_rt(callable $a, callable $b, int $iters, int $reps = 7): array
 
 $GLOBALS['sink'] = 0;
 
-// --- Point query by string (the everyday WHERE shape) ---
-$rawSelectByA = static function (int $iters) use ($mysqli, $pool, $poolN): void {
+// --- Detail page: one record by id, output title + content as HTML ---
+$rawDetailHtml = static function (int $iters) use ($mysqli): void {
     $acc = 0;
     for ($i = 0; $i < $iters; $i++) {
-        $rows = $mysqli->query("SELECT * FROM zenbench_kv WHERE a = '"
-            . $mysqli->real_escape_string($pool[$i % $poolN]) . "' LIMIT 10")->fetch_all(MYSQLI_ASSOC);
-        $acc += count($rows);
+        $row = $mysqli->query('SELECT * FROM zenbench_news WHERE id = ' . ($i % 1000 + 1))->fetch_assoc();
+        $acc += strlen(e($row['title'])) + strlen(e($row['content']));
     }
     $GLOBALS['sink'] += $acc;
 };
-$zenSelectByA = static function (int $iters) use ($pool, $poolN): void {
+$preparedDetailHtml = static function (int $iters) use ($mysqli): void {
     $acc = 0;
     for ($i = 0; $i < $iters; $i++) {
-        $rows = DB::select('kv', 'a = ? LIMIT 10', $pool[$i % $poolN]);
-        $acc += count($rows);
+        $id   = $i % 1000 + 1;
+        $stmt = $mysqli->prepare('SELECT * FROM zenbench_news WHERE id = ?');
+        $stmt->bind_param('i', $id);
+        $stmt->execute();
+        $row = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+        $acc += strlen(e($row['title'])) + strlen(e($row['content']));
     }
     $GLOBALS['sink'] += $acc;
 };
-
-// --- Point query by int (WHERE id = number: no escaping on either side) ---
-$rawSelectById = static function (int $iters) use ($mysqli): void {
+$zenDetailHtml = static function (int $iters): void {
     $acc = 0;
     for ($i = 0; $i < $iters; $i++) {
-        $row = $mysqli->query('SELECT * FROM zenbench_kv WHERE id = ' . ($i % 1000 + 1))->fetch_assoc();
-        $acc += $row === null ? 0 : 1;
-    }
-    $GLOBALS['sink'] += $acc;
-};
-$zenSelectById = static function (int $iters): void {
-    $acc = 0;
-    for ($i = 0; $i < $iters; $i++) {
-        $row = DB::selectOne('kv', ['id' => $i % 1000 + 1]);
-        $acc += count($row) > 0 ? 1 : 0;
+        $row = DB::selectOne('news', ['id' => $i % 1000 + 1]);
+        $acc += strlen((string)$row->title) + strlen((string)$row->content);
     }
     $GLOBALS['sink'] += $acc;
 };
 
-// --- Raw SQL with placeholders vs hand-escaped raw SQL ---
-$zenQuery = static function (int $iters) use ($pool, $poolN): void {
+// --- Detail page: one record by id, raw array out (logic/API use) ---
+$rawDetailRaw = static function (int $iters) use ($mysqli): void {
     $acc = 0;
     for ($i = 0; $i < $iters; $i++) {
-        $rows = DB::query('SELECT * FROM ::kv WHERE a = ? OR num = ? LIMIT 10',
-            $pool[$i % $poolN], $i % 250);
-        $acc += count($rows);
+        $row = $mysqli->query('SELECT * FROM zenbench_news WHERE id = ' . ($i % 1000 + 1))->fetch_assoc();
+        $acc += count($row);
     }
     $GLOBALS['sink'] += $acc;
 };
-$rawQuery = static function (int $iters) use ($mysqli, $pool, $poolN): void {
+$preparedDetailRaw = static function (int $iters) use ($mysqli): void {
     $acc = 0;
     for ($i = 0; $i < $iters; $i++) {
-        $rows = $mysqli->query("SELECT * FROM zenbench_kv WHERE a = '"
-            . $mysqli->real_escape_string($pool[$i % $poolN]) . "' OR num = " . ($i % 250)
-            . ' LIMIT 10')->fetch_all(MYSQLI_ASSOC);
-        $acc += count($rows);
+        $id   = $i % 1000 + 1;
+        $stmt = $mysqli->prepare('SELECT * FROM zenbench_news WHERE id = ?');
+        $stmt->bind_param('i', $id);
+        $stmt->execute();
+        $row = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+        $acc += count($row);
     }
     $GLOBALS['sink'] += $acc;
 };
-
-// --- 1000-row fetch: wrapping cost, fetch-only (raw side does less: no output encoding) ---
-$rawFetchAll = static function (int $iters) use ($mysqli): void {
+$zenDetailRaw = static function (int $iters): void {
     $acc = 0;
     for ($i = 0; $i < $iters; $i++) {
-        $rows = $mysqli->query('SELECT * FROM zenbench_kv')->fetch_all(MYSQLI_ASSOC);
-        $acc += count($rows);
-    }
-    $GLOBALS['sink'] += $acc;
-};
-$zenFetchAll = static function (int $iters): void {
-    $acc = 0;
-    for ($i = 0; $i < $iters; $i++) {
-        $rows = DB::select('kv');
-        $acc += count($rows);
+        $row = DB::selectOne('news', ['id' => $i % 1000 + 1])->toArray();
+        $acc += count($row);
     }
     $GLOBALS['sink'] += $acc;
 };
 
-// --- 1000-row fetch + output one field per row, both sides XSS-safe ---
-$rawFetchTouch = static function (int $iters) use ($mysqli): void {
+// --- List pages: N newest in a category, output title (+summary) as HTML ---
+$rawList = static function (int $iters, int $limit, bool $withSummary) use ($mysqli): void {
     $acc = 0;
     for ($i = 0; $i < $iters; $i++) {
-        $rows = $mysqli->query('SELECT * FROM zenbench_kv')->fetch_all(MYSQLI_ASSOC);
+        $category = $mysqli->real_escape_string(CATEGORIES[$i % 10]);
+        $rows     = $mysqli->query("SELECT * FROM zenbench_news WHERE category = '$category'
+            ORDER BY created_at DESC LIMIT $limit")->fetch_all(MYSQLI_ASSOC);
         foreach ($rows as $row) {
-            $acc += strlen(htmlspecialchars($row['a'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'));
+            $acc += strlen(e($row['title'])) + ($withSummary ? strlen(e($row['summary'])) : 0);
         }
     }
     $GLOBALS['sink'] += $acc;
 };
-$zenFetchTouch = static function (int $iters): void {
+$preparedList = static function (int $iters, int $limit, bool $withSummary) use ($mysqli): void {
     $acc = 0;
     for ($i = 0; $i < $iters; $i++) {
-        foreach (DB::select('kv') as $row) {
-            $acc += strlen((string)$row->a);
+        $category = CATEGORIES[$i % 10];
+        $stmt     = $mysqli->prepare("SELECT * FROM zenbench_news WHERE category = ? ORDER BY created_at DESC LIMIT $limit");
+        $stmt->bind_param('s', $category);
+        $stmt->execute();
+        $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+        $stmt->close();
+        foreach ($rows as $row) {
+            $acc += strlen(e($row['title'])) + ($withSummary ? strlen(e($row['summary'])) : 0);
+        }
+    }
+    $GLOBALS['sink'] += $acc;
+};
+$zenList = static function (int $iters, int $limit, bool $withSummary): void {
+    $acc = 0;
+    for ($i = 0; $i < $iters; $i++) {
+        $rows = DB::select('news', "category = ? ORDER BY created_at DESC LIMIT $limit", CATEGORIES[$i % 10]);
+        foreach ($rows as $row) {
+            $acc += strlen((string)$row->title) + ($withSummary ? strlen((string)$row->summary) : 0);
         }
     }
     $GLOBALS['sink'] += $acc;
 };
 
+// --- List page, raw arrays out (JSON/API use, no HTML) ---
+$rawListRaw = static function (int $iters, int $limit) use ($mysqli): void {
+    $acc = 0;
+    for ($i = 0; $i < $iters; $i++) {
+        $category = $mysqli->real_escape_string(CATEGORIES[$i % 10]);
+        $rows     = $mysqli->query("SELECT * FROM zenbench_news WHERE category = '$category'
+            ORDER BY created_at DESC LIMIT $limit")->fetch_all(MYSQLI_ASSOC);
+        $acc += count($rows);
+    }
+    $GLOBALS['sink'] += $acc;
+};
+$preparedListRaw = static function (int $iters, int $limit) use ($mysqli): void {
+    $acc = 0;
+    for ($i = 0; $i < $iters; $i++) {
+        $category = CATEGORIES[$i % 10];
+        $stmt     = $mysqli->prepare("SELECT * FROM zenbench_news WHERE category = ? ORDER BY created_at DESC LIMIT $limit");
+        $stmt->bind_param('s', $category);
+        $stmt->execute();
+        $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+        $stmt->close();
+        $acc += count($rows);
+    }
+    $GLOBALS['sink'] += $acc;
+};
+$zenListRaw = static function (int $iters, int $limit): void {
+    $acc = 0;
+    for ($i = 0; $i < $iters; $i++) {
+        $rows = DB::select('news', "category = ? ORDER BY created_at DESC LIMIT $limit", CATEGORIES[$i % 10])->toArray();
+        $acc += count($rows);
+    }
+    $GLOBALS['sink'] += $acc;
+};
+
+//endregion
+//region Correctness gate - ZenDB HTML output must match full-flag htmlspecialchars() byte for byte
+// SmartString encodes with ENT_QUOTES | ENT_SUBSTITUTE | ENT_DISALLOWED | ENT_HTML5 (' becomes
+// &apos;, not &#039;). The timed baseline races the common faster helper e() instead - same
+// policy as SmartString's own speed suite; both outputs are XSS-safe.
+
+$gateRaw = '';
+$rows    = $mysqli->query("SELECT * FROM zenbench_news WHERE category = 'news' ORDER BY created_at DESC LIMIT 25")->fetch_all(MYSQLI_ASSOC);
+foreach ($rows as $row) {
+    $gateRaw .= htmlspecialchars($row['title'], ENT_QUOTES | ENT_SUBSTITUTE | ENT_DISALLOWED | ENT_HTML5, 'UTF-8')
+              . htmlspecialchars($row['summary'], ENT_QUOTES | ENT_SUBSTITUTE | ENT_DISALLOWED | ENT_HTML5, 'UTF-8');
+}
+$gateZen = '';
+foreach (DB::select('news', "category = ? ORDER BY created_at DESC LIMIT 25", 'news') as $row) {
+    $gateZen .= $row->title . $row->summary;
+}
+if ($gateRaw !== $gateZen) {
+    fwrite(STDERR, "CORPUS_FAIL: ZenDB HTML output differs from baseline htmlspecialchars()\n");
+    exit(1);
+}
+$out['corpus'] = 'PASS';
+
+//endregion
+//region Run cells
+
+// [id, base iters, A label, B label, A fn, B fn]
+$e = 'htmlspecialchars';   // keep labels short
 $tests = [
-    ['zvr-selftie', 'rt', 'raw select by string', 'raw select by string (same)', $rawSelectByA, $rawSelectByA],
-    ['zvr-select-string', 'rt', 'raw mysqli + real_escape + fetch_all', 'DB::select(kv, a = ?)', $rawSelectByA, $zenSelectByA],
-    ['zvr-select-int', 'rt', 'raw mysqli WHERE id = int', 'DB::selectOne(kv, id)', $rawSelectById, $zenSelectById],
-    ['zvr-query-raw-sql', 'rt', 'raw mysqli hand-escaped SQL', 'DB::query with placeholders', $rawQuery, $zenQuery],
-    ['zvr-fetch-1000', 'fetch', 'raw fetch_all assoc (no encoding)', 'DB::select full table', $rawFetchAll, $zenFetchAll],
-    ['zvr-fetch-touch-1000', 'fetch', 'raw fetch_all + htmlspecialchars per row', 'DB::select + SmartString output per row', $rawFetchTouch, $zenFetchTouch],
+    ['zvr-selftie',            300, 'raw list25 + ' . $e,        'raw list25 + ' . $e . ' (same)', fn($n) => $rawList($n, 25, true),      fn($n) => $rawList($n, 25, true)],
+    ['zvr-detail-html-zendb',  800, 'raw mysqli + ' . $e,        'DB::selectOne + SmartString',    $rawDetailHtml,                        $zenDetailHtml],
+    ['zvr-detail-html-prepared', 800, 'raw mysqli + ' . $e,      'fresh prepared + ' . $e,         $rawDetailHtml,                        $preparedDetailHtml],
+    ['zvr-detail-raw-zendb',   800, 'raw mysqli fetch_assoc',    'DB::selectOne + toArray()',      $rawDetailRaw,                         $zenDetailRaw],
+    ['zvr-detail-raw-prepared', 800, 'raw mysqli fetch_assoc',   'fresh prepared fetch_assoc',     $rawDetailRaw,                         $preparedDetailRaw],
+    ['zvr-widget5-html-zendb', 500, 'raw mysqli + ' . $e,        'DB::select + SmartString',       fn($n) => $rawList($n, 5, false),      fn($n) => $zenList($n, 5, false)],
+    ['zvr-widget5-html-prepared', 500, 'raw mysqli + ' . $e,     'fresh prepared + ' . $e,         fn($n) => $rawList($n, 5, false),      fn($n) => $preparedList($n, 5, false)],
+    ['zvr-list25-html-zendb',  300, 'raw mysqli + ' . $e,        'DB::select + SmartString',       fn($n) => $rawList($n, 25, true),      fn($n) => $zenList($n, 25, true)],
+    ['zvr-list25-html-prepared', 300, 'raw mysqli + ' . $e,      'fresh prepared + ' . $e,         fn($n) => $rawList($n, 25, true),      fn($n) => $preparedList($n, 25, true)],
+    ['zvr-list25-raw-zendb',   300, 'raw mysqli fetch_all',      'DB::select + toArray()',         fn($n) => $rawListRaw($n, 25),         fn($n) => $zenListRaw($n, 25)],
+    ['zvr-list25-raw-prepared', 300, 'raw mysqli fetch_all',     'fresh prepared fetch_all',       fn($n) => $rawListRaw($n, 25),         fn($n) => $preparedListRaw($n, 25)],
+    ['zvr-list100-html-zendb', 150, 'raw mysqli + ' . $e,        'DB::select + SmartString',       fn($n) => $rawList($n, 100, true),     fn($n) => $zenList($n, 100, true)],
+    ['zvr-list100-html-prepared', 150, 'raw mysqli + ' . $e,     'fresh prepared + ' . $e,         fn($n) => $rawList($n, 100, true),     fn($n) => $preparedList($n, 100, true)],
 ];
 
-foreach ($tests as [$id, $class, $aLabel, $bLabel, $aFn, $bFn]) {
+foreach ($tests as [$id, $baseIters, $aLabel, $bLabel, $aFn, $bFn]) {
     if ($filter !== null && !isset($filter[$id])) {
         continue;
     }
-    [$aNs, $bNs] = ab_bench_rt($aFn, $bFn, $class === 'rt' ? $rtIters : $fetchIters);
-    $ratio = $aNs / $bNs; // > 1: B (ZenDB side) faster
+    $iters = max(20, (int)($baseIters * $scale));
+    [$aNs, $bNs] = ab_bench($aFn, $bFn, $iters);
+    $ratio = $aNs / $bNs; // > 1: B (the candidate) faster
     $out['tests'][$id] = [
         'a_label' => $aLabel, 'b_label' => $bLabel, 'sink' => 'wall',
         'a_ns'    => round($aNs, 0), 'b_ns' => round($bNs, 0),
@@ -265,7 +363,7 @@ foreach ($tests as [$id, $class, $aLabel, $bLabel, $aFn, $bFn]) {
     ];
 }
 
-$mysqli->query('DROP TABLE IF EXISTS zenbench_kv');
+$mysqli->query('DROP TABLE IF EXISTS zenbench_news');
 
 //endregion
 //region Report
@@ -273,7 +371,7 @@ $mysqli->query('DROP TABLE IF EXISTS zenbench_kv');
 printf("### %s | PHP %s%s | %s | ping %sus%s\n\n",
     $out['server_label'], $out['php'], $out['zts'] ? ' ZTS' : '', $out['server'], $out['ping_us'],
     $out['xdebug'] ? ' **XDEBUG LOADED - RESULTS INVALID**' : '');
-echo "Ratios read as B vs A: >1.00 means the ZenDB side is faster; <1.00 measures what ZenDB's extra work (placeholders, XSS-safe results) currently costs.\n\n";
+echo "Ratios read as B vs A: >1.00 means the candidate beats raw mysqli; <1.00 measures what the candidate's extra work currently costs.\n\n";
 echo "| test | A | B | A us | B us | B vs A | verdict |\n|---|---|---|---|---|---|---|\n";
 foreach ($out['tests'] as $id => $t) {
     printf("| %s | %s | %s | %.1f | %.1f | %.2fx | %s |\n",
