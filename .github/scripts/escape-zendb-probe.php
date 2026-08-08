@@ -376,12 +376,53 @@ $mysqli->query('DROP TABLE IF EXISTS zenbench_news');
 printf("### %s | PHP %s%s | %s | ping %sus%s\n\n",
     $out['server_label'], $out['php'], $out['zts'] ? ' ZTS' : '', $out['server'], $out['ping_us'],
     $out['xdebug'] ? ' **XDEBUG LOADED - RESULTS INVALID**' : '');
-echo "Ratios read as B vs A: >1.00 means the candidate beats raw mysqli; <1.00 measures what the candidate's extra work currently costs.\n\n";
-echo "| test                       | A                              | B                                    |     A us |     B us | B vs A | verdict  |\n";
-echo "|:---------------------------|:-------------------------------|:-------------------------------------|---------:|---------:|-------:|:---------|\n";
-foreach ($out['tests'] as $id => $t) {
-    printf("| %-26s | %-30s | %-36s | %8.1f | %8.1f | %5.2fx | %-8s |\n",
-        $id, $t['a_label'], $t['b_label'], $t['a_us'], $t['b_us'], $t['ratio'], $t['verdict']);
+if (isset($opts['json'])) {
+    // CI / research report: every cell with its paired A/B timings
+    echo "Ratios read as B vs A: >1.00 means the candidate beats raw mysqli; <1.00 measures what the candidate's extra work currently costs.\n\n";
+    echo "| test                       | A                              | B                                    |     A us |     B us | B vs A | verdict  |\n";
+    echo "|:---------------------------|:-------------------------------|:-------------------------------------|---------:|---------:|-------:|:---------|\n";
+    foreach ($out['tests'] as $id => $t) {
+        printf("| %-26s | %-30s | %-36s | %8.1f | %8.1f | %5.2fx | %-8s |\n",
+            $id, $t['a_label'], $t['b_label'], $t['a_us'], $t['b_us'], $t['ratio'], $t['verdict']);
+    }
+}
+else {
+    // Interactive report: the same per-page tables as docs/performance.md
+    $printPageTable = static function (array $rows) use ($out): void {
+        printf("| %-17s | %11s | %11s | %11s | %19s |\n", 'Page', 'prepared', 'raw SQL', 'ZenDB', 'ZenDB vs raw');
+        echo "|:------------------|------------:|------------:|------------:|--------------------:|\n";
+        foreach ($rows as [$label, $prepId, $zenId]) {
+            if (!isset($out['tests'][$prepId], $out['tests'][$zenId])) {
+                continue;
+            }
+            $prep = (int)round($out['tests'][$prepId]['b_us']);
+            $raw  = (int)round($out['tests'][$zenId]['a_us']);
+            $zen  = (int)round($out['tests'][$zenId]['b_us']);
+            $diff = $zen - $raw;
+            $vs   = $out['tests'][$zenId]['verdict'] === 'TIE' ? 'tie' : sprintf('%+d us (%.6fs)', $diff, $diff / 1_000_000);
+            printf("| %-17s | %8d us | %8d us | %8d us | %19s |\n", $label, $prep, $raw, $zen, $vs);
+        }
+    };
+
+    echo "Pages that HTML-encode their output, per complete page:\n\n";
+    $printPageTable([
+        ['Detail, 1 article', 'zvr-detail-html-prepared',  'zvr-detail-html-zendb'],
+        ['Widget, 5 rows',    'zvr-widget5-html-prepared', 'zvr-widget5-html-zendb'],
+        ['List, 25 rows',     'zvr-list25-html-prepared',  'zvr-list25-html-zendb'],
+        ['List, 100 rows',    'zvr-list100-html-prepared', 'zvr-list100-html-zendb'],
+    ]);
+
+    echo "\nRaw arrays, no HTML output:\n\n";
+    $printPageTable([
+        ['Detail, 1 article', 'zvr-detail-raw-prepared',  'zvr-detail-raw-zendb'],
+        ['List, 25 rows',     'zvr-list25-raw-prepared',  'zvr-list25-raw-zendb'],
+        ['List, 100 rows',    'zvr-list100-raw-prepared', 'zvr-list100-raw-zendb'],
+    ]);
+
+    if (isset($out['tests']['zvr-selftie']) && $out['tests']['zvr-selftie']['verdict'] !== 'TIE') {
+        echo "\nNote: the raw-vs-itself calibration cell fell outside the tie band, so this machine is noisy; treat small differences as noise.\n";
+    }
+    echo "\nPer-cell A/B details: rerun with --json=results.json\n";
 }
 
 $out['runtime_seconds'] = (int)round((hrtime(true) - $probeStart) / 1e9);
