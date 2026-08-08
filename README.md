@@ -100,6 +100,7 @@ Full guides and references ([browse on GitHub](https://github.com/interactivetoo
     - [Encryption](docs/encryption.md) - automatic column encryption with `encryptionKey`
 - **Lookup**
     - [Security Gotchas](docs/security-gotchas.md) - the narrow cases that still let you write an unsafe query, and the safe form for each
+    - [Performance](docs/performance.md) - measured page benchmarks: faster than prepared statements, within microseconds of raw SQL
     - [Troubleshooting](docs/troubleshooting.md) - exception messages explained, connection problems, behavior gotchas, debugging
     - [Method Reference](docs/method-reference.md) - every method, parameter, and return type in one place
     - [AI Reference](docs/ai-reference.md) - the complete API in one dense file, written for AI coding assistants

@@ -413,4 +413,4 @@ edge cases, driver differences), see the CI-generated
 
 ---
 
-[← Security Gotchas](security-gotchas.md) | [Documentation Index](README.md) | [Next: Method Reference →](method-reference.md)
+[← Performance](performance.md) | [Documentation Index](README.md) | [Next: Method Reference →](method-reference.md)

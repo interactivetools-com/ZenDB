@@ -189,4 +189,4 @@ encrypt with an authenticated cipher in your application before storing.
 
 ---
 
-[← Encryption](encryption.md) | [Documentation Index](README.md) | [Next: Troubleshooting →](troubleshooting.md)
+[← Encryption](encryption.md) | [Documentation Index](README.md) | [Next: Performance →](performance.md)
