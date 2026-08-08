@@ -142,18 +142,18 @@ class TableInfo
      */
     public function namesFull(): array
     {
-        $prefix        = $this->db->tablePrefix;
-        $prefixLength  = strlen($prefix);
-        $escapedPrefix = $this->mysqli->real_escape_string($prefix);
-        $result        = $this->mysqli->query(
+        $prefix     = $this->db->tablePrefix;
+        $likePrefix = $this->db->likeStartsWith($prefix); // escapes % and _, so prefix underscores match literally
+        $result     = $this->mysqli->query(
             "SELECT TABLE_NAME
                FROM information_schema.TABLES
-              WHERE TABLE_SCHEMA = DATABASE() AND LEFT(TABLE_NAME, $prefixLength) = '$escapedPrefix' AND TABLE_TYPE = 'BASE TABLE'",
+              WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME LIKE $likePrefix AND TABLE_TYPE = 'BASE TABLE'",
         );
-        $names         = array_column($result->fetch_all(), 0);
+        $names = array_column($result->fetch_all(), 0);
         $result->free();
 
         // content tables first, system tables (underscore after the prefix) last, alphabetical within each group
+        $prefixLength  = strlen($prefix);
         $isSystemTable = fn(string $name) => ($name[$prefixLength] ?? '') === '_';
         usort($names, fn($a, $b) => $isSystemTable($a) <=> $isSystemTable($b) ?: $a <=> $b);
 

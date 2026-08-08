@@ -48,6 +48,10 @@ class GetTableNamesTest extends BaseTestCase
         // Create a table without our prefix
         DB::$mysqli->query("DROP TABLE IF EXISTS other_table_xyz");
         DB::$mysqli->query("CREATE TABLE other_table_xyz (id INT)");
+
+        // Create a table that only matches test_ if the prefix underscore acts as a LIKE any-char wildcard
+        DB::$mysqli->query("DROP TABLE IF EXISTS testXwildcard");
+        DB::$mysqli->query("CREATE TABLE testXwildcard (id INT)");
     }
 
     public static function tearDownAfterClass(): void
@@ -61,7 +65,9 @@ class GetTableNamesTest extends BaseTestCase
             DB::$mysqli->query("DROP TABLE IF EXISTS test__underscore");
             DB::$mysqli->query("DROP VIEW IF EXISTS test_get_tables_view");
             DB::$mysqli->query("DROP TABLE IF EXISTS other_table_xyz");
+            DB::$mysqli->query("DROP TABLE IF EXISTS testXwildcard");
             DB::$mysqli->query("DROP TABLE IF EXISTS cms_pages");
+            DB::$mysqli->query("DROP TABLE IF EXISTS caf\u{e9}_pages");
         } catch (Exception) {
             // Ignore cleanup errors
         }
@@ -132,6 +138,20 @@ class GetTableNamesTest extends BaseTestCase
         $this->assertNotContains('get_tables_a', $tables);
     }
 
+    public function testWithMultibytePrefix(): void
+    {
+        // PHP measures the prefix in bytes; the LIKE pattern compares strings, so a
+        // multibyte prefix matches its tables instead of silently listing none
+        DB::$mysqli->query("DROP TABLE IF EXISTS caf\u{e9}_pages");
+        DB::$mysqli->query("CREATE TABLE caf\u{e9}_pages (id INT)");
+
+        $conn   = DB::clone(['tablePrefix' => "caf\u{e9}_"]);
+        $tables = $conn->table->names();
+
+        $this->assertContains('pages', $tables);
+        $this->assertNotContains('get_tables_a', $tables);
+    }
+
     public function testWithEmptyPrefix(): void
     {
         $conn   = DB::clone(['tablePrefix' => '']);
@@ -176,6 +196,9 @@ class GetTableNamesTest extends BaseTestCase
 
             // Wrong prefix - excluded
             'wrong prefix'        => ['other_table_xyz', false],
+
+            // testXwildcard - excluded: the prefix underscore is a literal, not a LIKE any-char wildcard
+            'underscore literal'  => ['wildcard', false],
         ];
     }
 
