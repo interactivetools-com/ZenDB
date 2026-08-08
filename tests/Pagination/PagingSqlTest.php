@@ -89,6 +89,35 @@ class PagingSqlTest extends BaseTestCase
         $this->assertSame('LIMIT 10 OFFSET 0', (string) $sql);
     }
 
+    /**
+     * @dataProvider provideOverflowInputs
+     */
+    public function testExtremeInputsProduceIntegerSql(mixed $page, mixed $perPage): void
+    {
+        // Unclamped, these overflow (pageNum-1)*perPage to float and write OFFSET 9.2233720368548E+18: MySQL error 1064
+        $sql = (string) DB::pagingSql($page, $perPage);
+        $this->assertMatchesRegularExpression('/^LIMIT \d+ OFFSET \d+$/', $sql);
+    }
+
+    public static function provideOverflowInputs(): array
+    {
+        return [
+            'page beyond int range'      => ['99999999999999999999', 10],
+            'page PHP_INT_MAX'           => [PHP_INT_MAX, 10],
+            'page PHP_INT_MIN, abs overflows' => [PHP_INT_MIN, 10],
+            'page PHP_INT_MIN, perPage 1'     => [PHP_INT_MIN, 1],
+            'perPage PHP_INT_MIN'        => [1, PHP_INT_MIN],
+            'both PHP_INT_MAX'           => [PHP_INT_MAX, PHP_INT_MAX],
+        ];
+    }
+
+    public function testClampedOffsetRunsOnServer(): void
+    {
+        // The clamped worst case must be SQL the server accepts; pages past the data return no rows
+        $rows = DB::select('users', "ORDER BY num ?", DB::pagingSql('99999999999999999999', 10));
+        $this->assertCount(0, $rows);
+    }
+
     //endregion
     //region Type Handling
 

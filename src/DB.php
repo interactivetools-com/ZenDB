@@ -254,6 +254,9 @@ class DB
     /**
      * Generates a LIMIT/OFFSET SQL clause for pagination.
      *
+     * Safe for raw request input: page numbers too large for the offset math are
+     * clamped so the offset stays a plain integer (pages past the data return no rows).
+     *
      * @param mixed $pageNum The current page number; zero, empty, or invalid input becomes 1
      * @param mixed $perPage Records per page; zero, empty, or invalid input becomes 10
      * @return RawSql LIMIT/OFFSET clause
@@ -262,6 +265,9 @@ class DB
     {
         $pageNum = abs((int)$pageNum) ?: 1;
         $perPage = abs((int)$perPage) ?: 10;
+        $pageNum = is_float($pageNum) ? PHP_INT_MAX : $pageNum;          // abs(PHP_INT_MIN) doesn't fit in an int, so abs() returns a float
+        $perPage = is_float($perPage) ? PHP_INT_MAX : $perPage;
+        $pageNum = min($pageNum, intdiv(PHP_INT_MAX - 1, $perPage) + 1); // keep (pageNum-1)*perPage an int: overflowing to float writes E-notation, which is a MySQL syntax error
 
         $offset = ($pageNum - 1) * $perPage;
         return self::rawSql("LIMIT $perPage OFFSET $offset");
