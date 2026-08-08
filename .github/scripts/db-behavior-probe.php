@@ -1323,18 +1323,18 @@ echo "### UNION column attribution\n\n";
 echo mdTable($unionProbes);
 
 //
-// Empty-set subquery - escapeCSV() expands an empty array to IN (SELECT 0 FROM DUAL WHERE 0)
-// so that IN matches nothing and NOT IN matches everything. Verifies every server parses
-// FROM DUAL inside an IN subquery and returns the empty-set answers, including for a NULL
-// left operand (NOT IN over an empty set is true even for NULL, unlike NOT IN (NULL))
+// Empty-set subquery - escapeCSV() expands an empty array to
+// IN (SELECT 0 FROM (SELECT 0) empty_set WHERE 0) so that IN matches nothing and NOT IN
+// matches everything. Verifies every server returns the empty-set answers, including for
+// a NULL left operand (NOT IN over an empty set is true even for NULL, unlike NOT IN (NULL))
 //
 try {
     $row = $mysqli->query(
-        "SELECT 1    IN     (SELECT 0 FROM DUAL WHERE 0),
-                1    NOT IN (SELECT 0 FROM DUAL WHERE 0),
-                NULL IN     (SELECT 0 FROM DUAL WHERE 0),
-                NULL NOT IN (SELECT 0 FROM DUAL WHERE 0),
-                0    NOT IN (SELECT 0 FROM DUAL WHERE 0)",
+        "SELECT 1    IN     (SELECT 0 FROM (SELECT 0) empty_set WHERE 0),
+                1    NOT IN (SELECT 0 FROM (SELECT 0) empty_set WHERE 0),
+                NULL IN     (SELECT 0 FROM (SELECT 0) empty_set WHERE 0),
+                NULL NOT IN (SELECT 0 FROM (SELECT 0) empty_set WHERE 0),
+                0    NOT IN (SELECT 0 FROM (SELECT 0) empty_set WHERE 0)",
     )->fetch_row();
     $emptySetProbes = [
         'EMPTY SET: 1 IN (empty)'        => displayValue($row[0]),
@@ -1350,6 +1350,39 @@ $probes += $emptySetProbes;
 
 echo "### Empty-set subquery (escapeCSV empty-array expansion)\n\n";
 echo mdTable($emptySetProbes);
+
+//
+// Empty-set spelling candidates - MariaDB 10.2.6/10.2.7 constant-fold
+// IN (SELECT 0 FROM DUAL WHERE 0) into plain `x = 0`, ignoring that the set is empty,
+// so a string column matches every row via string-to-number coercion. Each candidate
+// is checked with the three discriminating cases: '0 NOT IN' and 'NULL NOT IN' expect 1
+// (the fold returns 0/NULL), and the string-column IN expects 0 (the fold returns 1)
+//
+$emptySetCandidates = [
+    'DUAL WHERE 0'          => "SELECT 0 FROM DUAL WHERE 0",
+    'DUAL WHERE 1=0'        => "SELECT 0 FROM DUAL WHERE 1=0",
+    'derived table WHERE 0' => "SELECT 0 FROM (SELECT 0) empty_set WHERE 0",
+    'information_schema'    => "SELECT 0 FROM information_schema.COLLATIONS WHERE 0",
+];
+$candidateProbes = [];
+foreach ($emptySetCandidates as $name => $subquery) {
+    try {
+        $row = $mysqli->query("SELECT 0 NOT IN ($subquery), NULL NOT IN ($subquery), 'Alice' IN ($subquery)")->fetch_row();
+        $candidateProbes["EMPTY SET CANDIDATE: $name"] = sprintf(
+            "0 NOT IN=%s, NULL NOT IN=%s, 'Alice' IN=%s%s",
+            displayValue($row[0]),
+            displayValue($row[1]),
+            displayValue($row[2]),
+            ($row[0] === '1' && $row[1] === '1' && $row[2] === '0') ? ' - correct' : ' - WRONG',
+        );
+    } catch (mysqli_sql_exception $e) {
+        $candidateProbes["EMPTY SET CANDIDATE: $name"] = 'error: ' . $e->getMessage();
+    }
+}
+$probes += $candidateProbes;
+
+echo "### Empty-set spelling candidates\n\n";
+echo mdTable($candidateProbes);
 
 $mysqli->close();
 

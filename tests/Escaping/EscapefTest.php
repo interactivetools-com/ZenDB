@@ -85,7 +85,7 @@ class EscapefTest extends BaseTestCase
     {
         // Empty arrays expand to a zero-row subquery: IN matches nothing, NOT IN matches everything
         $result = DB::escapef("id IN (?)", []);
-        $this->assertSame("id IN (SELECT 0 FROM DUAL WHERE 0)", $result);
+        $this->assertSame("id IN (SELECT 0 FROM (SELECT 0) empty_set WHERE 0)", $result);
     }
 
     public function testEscapefSmartArray(): void

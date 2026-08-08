@@ -820,8 +820,8 @@ trait ConnectionInternals
      * NULL values are skipped: NULL never matches inside IN (...), and one NULL in a
      * NOT IN (...) list makes the whole clause return zero rows. Use IS NULL to match
      * NULL rows. Duplicates are removed. An empty list (or one that was all NULLs)
-     * becomes the zero-row subquery SELECT 0 FROM DUAL WHERE 0, so IN matches nothing
-     * and NOT IN matches everything.
+     * becomes the zero-row subquery SELECT 0 FROM (SELECT 0) empty_set WHERE 0, so
+     * IN matches nothing and NOT IN matches everything.
      *
      * Tip: You probably don't need this! Named placeholders handle arrays
      * automatically, which is simpler and keeps your values parameterized:
@@ -858,8 +858,11 @@ trait ConnectionInternals
         // uses SORT_STRING, which would collapse type-distinct values like '' and false.
         $safeValues = array_unique($safeValues);
 
-        // Empty list: a zero-row subquery, so IN matches nothing and NOT IN matches everything
-        return new RawSql($safeValues ? implode(',', $safeValues) : 'SELECT 0 FROM DUAL WHERE 0');
+        // Empty list: a zero-row subquery, so IN matches nothing and NOT IN matches everything.
+        // The row source must be a derived table, not DUAL: MySQL before 5.7.8 and early MariaDB 10.2
+        // ignore an impossible WHERE on DUAL inside IN subqueries (MySQL bug #17895), which reads as
+        // `x = 0` and matches every row of a string column via string-to-number coercion
+        return new RawSql($safeValues ? implode(',', $safeValues) : 'SELECT 0 FROM (SELECT 0) empty_set WHERE 0');
     }
 
     /**

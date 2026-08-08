@@ -56,7 +56,7 @@ class EscapeCSVTest extends BaseTestCase
     public function testEscapeCSVEmptyArrayReturnsEmptySetSubquery(): void
     {
         $result = DB::escapeCSV([]);
-        $this->assertSame('SELECT 0 FROM DUAL WHERE 0', (string) $result);
+        $this->assertSame('SELECT 0 FROM (SELECT 0) empty_set WHERE 0', (string) $result);
     }
 
     public function testEmptyArrayInListMatchesNothing(): void
@@ -113,7 +113,7 @@ class EscapeCSVTest extends BaseTestCase
     {
         // Nulls are skipped, so an all-null list gets the same empty-set subquery as an empty array
         $result = DB::escapeCSV([null, null]);
-        $this->assertSame('SELECT 0 FROM DUAL WHERE 0', (string) $result);
+        $this->assertSame('SELECT 0 FROM (SELECT 0) empty_set WHERE 0', (string) $result);
     }
 
     public function testEscapeCSVWithBooleans(): void
@@ -238,11 +238,11 @@ class EscapeCSVTest extends BaseTestCase
             'integers'       => [[1, 2, 3], '1,2,3'],
             'strings'        => [['a', 'b', 'c'], "'a','b','c'"],
             'mixed'          => [[1, 'two', 3], "1,'two',3"],
-            'empty'          => [[], 'SELECT 0 FROM DUAL WHERE 0'],
+            'empty'          => [[], 'SELECT 0 FROM (SELECT 0) empty_set WHERE 0'],
             'single int'     => [[42], '42'],
             'single string'  => [['test'], "'test'"],
             'with null'      => [[1, null, 2], '1,2'],
-            'all nulls'      => [[null], 'SELECT 0 FROM DUAL WHERE 0'],
+            'all nulls'      => [[null], 'SELECT 0 FROM (SELECT 0) empty_set WHERE 0'],
             'with bool'      => [[true, false], 'TRUE,FALSE'],
             'duplicates'     => [[1, 1, 2], '1,2'],
             'floats'         => [[1.1, 2.2], '1.1,2.2'],

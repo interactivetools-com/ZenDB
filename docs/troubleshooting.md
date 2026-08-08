@@ -351,7 +351,7 @@ DB::select('users', "id IN (:ids)", [':ids' => [1, null, 3]]);
 // SELECT * FROM `users` WHERE id IN (1,3)
 ```
 
-Second, an empty array expands to `SELECT 0 FROM DUAL WHERE 0`, a subquery
+Second, an empty array expands to `SELECT 0 FROM (SELECT 0) empty_set WHERE 0`, a subquery
 that returns zero rows: an empty set. `IN` of an empty set matches nothing
 and `NOT IN` of an empty set matches everything, so both directions do what
 an empty list should:
@@ -359,11 +359,11 @@ an empty list should:
 ```php
 $wantedIds = [];  // e.g., no checkboxes ticked
 DB::select('users', "id IN (:ids)", [':ids' => $wantedIds]);
-// SELECT * FROM `users` WHERE id IN (SELECT 0 FROM DUAL WHERE 0) - returns no rows
+// SELECT * FROM `users` WHERE id IN (SELECT 0 FROM (SELECT 0) empty_set WHERE 0) - returns no rows
 
 $excludeIds = [];  // nothing to exclude
 DB::select('users', "id NOT IN (:ids)", [':ids' => $excludeIds]);
-// SELECT * FROM `users` WHERE id NOT IN (SELECT 0 FROM DUAL WHERE 0) - returns all rows
+// SELECT * FROM `users` WHERE id NOT IN (SELECT 0 FROM (SELECT 0) empty_set WHERE 0) - returns all rows
 ```
 
 ### Booleans Convert to TRUE and FALSE
