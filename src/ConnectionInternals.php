@@ -1236,6 +1236,22 @@ trait ConnectionInternals
     private static WeakMap $secrets;
 
     /**
+     * Reject table prefixes with characters outside a-z, A-Z, 0-9, _, -, and .
+     * The character set mirrors what CMS Builder's installer accepts (including
+     * '.', which exists in installed prefixes). ASCII-only also keeps PHP's
+     * byte-counted prefix math in step with MySQL's character-counted LEFT():
+     * a multibyte prefix would make Table::names() silently return no tables.
+     *
+     * @throws InvalidArgumentException
+     */
+    private function assertValidTablePrefix(): void
+    {
+        if (!preg_match('/^[\w.-]*\z/', $this->tablePrefix)) {
+            throw new InvalidArgumentException("Invalid tablePrefix '$this->tablePrefix', allowed characters: a-z, A-Z, 0-9, _, -, .");
+        }
+    }
+
+    /**
      * Seal credentials into the WeakMap vault and null them on the object.
      * Requires hostname, username, password, and database to be present
      * in $config (construct) or $source vault (clone), throws otherwise.

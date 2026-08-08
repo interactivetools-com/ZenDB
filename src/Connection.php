@@ -114,6 +114,7 @@ class Connection
             $this->$key = $value;
         }
         unset($config);
+        $this->assertValidTablePrefix();
 
         // Connect
         $this->connect();
@@ -297,6 +298,7 @@ class Connection
         foreach ($config as $key => $value) {
             $clone->$key = $value;
         }
+        $clone->assertValidTablePrefix();
 
         return $clone;
     }

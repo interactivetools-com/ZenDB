@@ -98,10 +98,11 @@ coding assistants.
   clamped; previously the multiply overflowed to float and wrote
   `OFFSET 9.2233720368548E+18`, a MySQL syntax error (1064) reachable
   from any page-number URL parameter
-- `Table::names()` / `Table::namesFull()` - Multibyte table prefixes now
-  match their tables; previously the prefix length was counted in bytes
-  where MySQL counts characters, so a prefix like `café_` silently
-  listed no tables
+- `tablePrefix` - Now validated when a connection or clone is configured;
+  allowed characters are a-z, A-Z, 0-9, `_`, `-`, and `.` (everything CMS
+  Builder's installer accepts). Previously a multibyte prefix like `café_`
+  connected fine but `Table::names()` silently listed no tables, because
+  the prefix length was counted in bytes where MySQL counts characters
 - SmartString values - Now escape by their original type everywhere: a
   wrapped `int`/`float`/`bool` becomes a typed SQL literal (`5`, `TRUE`)
   instead of a quoted string (`'5'`, `'1'`), and a wrapped `null` means

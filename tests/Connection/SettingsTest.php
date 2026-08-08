@@ -63,6 +63,31 @@ class SettingsTest extends BaseTestCase
         $this->assertSame('test_', self::$conn->tablePrefix);
     }
 
+    public function testMultibyteTablePrefixThrowsBeforeConnecting(): void
+    {
+        // PHP counts prefix bytes where MySQL's LEFT() counts characters, so a multibyte
+        // prefix would make Table::names() silently return no tables; rejected at config
+        // time instead. Fake credentials prove the throw happens before any connection attempt
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('allowed characters');
+
+        new Connection([
+            'hostname'    => 'localhost',
+            'username'    => 'unused',
+            'password'    => 'unused',
+            'database'    => 'unused',
+            'tablePrefix' => "caf\u{e9}_",
+        ]);
+    }
+
+    public function testCloneRejectsMultibyteTablePrefix(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('allowed characters');
+
+        self::$conn->clone(['tablePrefix' => "caf\u{e9}_"]);
+    }
+
     //endregion
     //region Settings Applied to Queries
 
