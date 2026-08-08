@@ -942,12 +942,17 @@ class DocsExamplesTest extends BaseTestCase
         $this->assertSame(2, count($users));
     }
 
-    public function testPlaceholdersEmptyArrayInListMatchesNothing(): void
+    public function testPlaceholdersEmptyArrayExpandsToEmptySet(): void
     {
         $users = DB::select('users', "num IN (:ids)", [':ids' => []]);
 
-        $this->assertSame('SELECT * FROM `test_users` WHERE num IN (NULL)', $users->mysqli('query'));
+        $this->assertSame('SELECT * FROM `test_users` WHERE num IN (SELECT 0 FROM DUAL WHERE 0)', $users->mysqli('query'));
         $this->assertSame(0, count($users));
+
+        $users = DB::select('users', "num NOT IN (:ids)", [':ids' => []]);
+
+        $this->assertSame('SELECT * FROM `test_users` WHERE num NOT IN (SELECT 0 FROM DUAL WHERE 0)', $users->mysqli('query'));
+        $this->assertSame(20, count($users));
     }
 
     public function testPlaceholdersMissingValueThrows(): void
@@ -2465,17 +2470,13 @@ class DocsExamplesTest extends BaseTestCase
 
         $wantedIds = [];
         $wanted    = DB::select('users', "num IN (:ids)", [':ids' => $wantedIds]);
-        $this->assertSame('SELECT * FROM `test_users` WHERE num IN (NULL)', DB::$mysqli->lastQuery);
+        $this->assertSame('SELECT * FROM `test_users` WHERE num IN (SELECT 0 FROM DUAL WHERE 0)', DB::$mysqli->lastQuery);
         $this->assertCount(0, $wanted);
 
         $excludeIds = [];
-        $trap       = DB::select('users', "num NOT IN (:ids)", [':ids' => $excludeIds]);
-        $this->assertSame('SELECT * FROM `test_users` WHERE num NOT IN (NULL)', DB::$mysqli->lastQuery);
-        $this->assertCount(0, $trap);
-
-        $fixed = DB::select('users', "num NOT IN (:ids)", [':ids' => $excludeIds ?: [-1]]);
-        $this->assertSame('SELECT * FROM `test_users` WHERE num NOT IN (-1)', DB::$mysqli->lastQuery);
-        $this->assertCount(20, $fixed);
+        $all        = DB::select('users', "num NOT IN (:ids)", [':ids' => $excludeIds]);
+        $this->assertSame('SELECT * FROM `test_users` WHERE num NOT IN (SELECT 0 FROM DUAL WHERE 0)', DB::$mysqli->lastQuery);
+        $this->assertCount(20, $all);
     }
 
     public function testTroubleshootingBooleansConvertToTrueAndFalse(): void

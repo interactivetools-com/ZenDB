@@ -719,7 +719,8 @@ underscore, hyphen only).
 - **String numbers in LIMIT:** `"LIMIT ?", "10"` (string) quotes it. Use `"LIMIT ?", 10` (int).
 - **selectOne() auto-adds LIMIT 1.** Don't add your own LIMIT or OFFSET.
 - **count() rejects LIMIT/OFFSET** too. Use `select()` if you need them.
-- **Empty arrays in IN():** `[':ids' => []]` becomes `IN (NULL)`, matching nothing.
+- **Empty arrays in IN():** `[':ids' => []]` becomes `IN (SELECT 0 FROM DUAL WHERE 0)`, an
+  empty set: `IN` matches nothing, `NOT IN` matches everything.
   Expansion also skips `null` elements and removes duplicates: `[1, null, 1, 2]` → `IN (1,2)`.
 - **Boolean values:** `true`/`false` become SQL `TRUE`/`FALSE` keywords.
 - **Param forms:** up to 3 direct values for `?` placeholders, or one array of `:name` params. Never pass positional values as an array, e.g. `("a = ? AND b = ?", [1, 2])` -- that form is deprecated and will throw in a future version.

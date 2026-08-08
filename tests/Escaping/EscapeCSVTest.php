@@ -53,10 +53,31 @@ class EscapeCSVTest extends BaseTestCase
     //endregion
     //region Empty and Special Cases
 
-    public function testEscapeCSVEmptyArrayReturnsNull(): void
+    public function testEscapeCSVEmptyArrayReturnsEmptySetSubquery(): void
     {
         $result = DB::escapeCSV([]);
-        $this->assertSame('NULL', (string) $result);
+        $this->assertSame('SELECT 0 FROM DUAL WHERE 0', (string) $result);
+    }
+
+    public function testEmptyArrayInListMatchesNothing(): void
+    {
+        $result = DB::query("SELECT * FROM ::users WHERE num IN (:ids)", [':ids' => []]);
+        $this->assertCount(0, $result);
+    }
+
+    public function testEmptyArrayNotInListMatchesEverything(): void
+    {
+        $totalRows = DB::count('users');
+        $this->assertGreaterThan(0, $totalRows);
+
+        $result = DB::query("SELECT * FROM ::users WHERE num NOT IN (:ids)", [':ids' => []]);
+        $this->assertCount($totalRows, $result);
+    }
+
+    public function testEmptyArrayAsWhereArrayValueMatchesNothing(): void
+    {
+        $result = DB::select('users', ['num' => []]);
+        $this->assertCount(0, $result);
     }
 
     public function testEscapeCSVSingleElement(): void
@@ -88,11 +109,11 @@ class EscapeCSVTest extends BaseTestCase
         $this->assertSame('1,3', (string) $result);
     }
 
-    public function testEscapeCSVAllNullsReturnsNull(): void
+    public function testEscapeCSVAllNullsReturnsEmptySetSubquery(): void
     {
-        // Same fallback as an empty array: IN (NULL) matches nothing
+        // Nulls are skipped, so an all-null list gets the same empty-set subquery as an empty array
         $result = DB::escapeCSV([null, null]);
-        $this->assertSame('NULL', (string) $result);
+        $this->assertSame('SELECT 0 FROM DUAL WHERE 0', (string) $result);
     }
 
     public function testEscapeCSVWithBooleans(): void
@@ -217,11 +238,11 @@ class EscapeCSVTest extends BaseTestCase
             'integers'       => [[1, 2, 3], '1,2,3'],
             'strings'        => [['a', 'b', 'c'], "'a','b','c'"],
             'mixed'          => [[1, 'two', 3], "1,'two',3"],
-            'empty'          => [[], 'NULL'],
+            'empty'          => [[], 'SELECT 0 FROM DUAL WHERE 0'],
             'single int'     => [[42], '42'],
             'single string'  => [['test'], "'test'"],
             'with null'      => [[1, null, 2], '1,2'],
-            'all nulls'      => [[null], 'NULL'],
+            'all nulls'      => [[null], 'SELECT 0 FROM DUAL WHERE 0'],
             'with bool'      => [[true, false], 'TRUE,FALSE'],
             'duplicates'     => [[1, 1, 2], '1,2'],
             'floats'         => [[1.1, 2.2], '1.1,2.2'],

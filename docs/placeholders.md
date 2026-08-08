@@ -201,12 +201,10 @@ Four non-errors worth knowing:
   as-is: `"ORDER BY name LIMIT 10"`.
 - Empty string literals are allowed: `"email != ''"` runs as-is. The quote
   check only rejects quotes with content between them.
-- An empty array in an `IN` list expands to `NULL`, and `IN (NULL)` matches
-  nothing, which is usually what an empty list should do. Watch `NOT IN`
-  though: `NOT IN (NULL)` *also* matches nothing (a NULL comparison rule in
-  MySQL), when an empty exclusion list should match everything. If the list
-  can be empty, substitute a value that can't match:
-  `[':ids' => $excludeIds ?: [-1]]`.
+- An empty array expands to the zero-row subquery
+  `SELECT 0 FROM DUAL WHERE 0`, an empty set. `IN` of an empty set matches
+  nothing and `NOT IN` of an empty set matches everything, so an empty
+  want-list returns no rows and an empty exclusion list returns all rows.
 - Unused *named* parameters are allowed, so you can build one params array
   and pass it to several related queries. Unused *positional* values are
   deprecated (they usually mean a missing `?`) and log a warning.

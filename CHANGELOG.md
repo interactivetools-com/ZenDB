@@ -89,6 +89,11 @@ coding assistants.
   string cast rounds to 14 significant digits, so very large floats could
   silently match the wrong rows. `NAN` and `INF` now throw
   `InvalidArgumentException`
+- Empty arrays in IN lists - Now expand to the zero-row subquery
+  `SELECT 0 FROM DUAL WHERE 0` instead of the literal `NULL`, so `NOT IN`
+  with an empty exclusion list matches all rows; previously
+  `NOT IN (NULL)` silently matched none. `IN` with an empty list still
+  matches nothing
 - SmartString values - Now escape by their original type everywhere: a
   wrapped `int`/`float`/`bool` becomes a typed SQL literal (`5`, `TRUE`)
   instead of a quoted string (`'5'`, `'1'`), and a wrapped `null` means

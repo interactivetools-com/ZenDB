@@ -1322,6 +1322,35 @@ $probes += $unionProbes;
 echo "### UNION column attribution\n\n";
 echo mdTable($unionProbes);
 
+//
+// Empty-set subquery - escapeCSV() expands an empty array to IN (SELECT 0 FROM DUAL WHERE 0)
+// so that IN matches nothing and NOT IN matches everything. Verifies every server parses
+// FROM DUAL inside an IN subquery and returns the empty-set answers, including for a NULL
+// left operand (NOT IN over an empty set is true even for NULL, unlike NOT IN (NULL))
+//
+try {
+    $row = $mysqli->query(
+        "SELECT 1    IN     (SELECT 0 FROM DUAL WHERE 0),
+                1    NOT IN (SELECT 0 FROM DUAL WHERE 0),
+                NULL IN     (SELECT 0 FROM DUAL WHERE 0),
+                NULL NOT IN (SELECT 0 FROM DUAL WHERE 0),
+                0    NOT IN (SELECT 0 FROM DUAL WHERE 0)",
+    )->fetch_row();
+    $emptySetProbes = [
+        'EMPTY SET: 1 IN (empty)'        => displayValue($row[0]),
+        'EMPTY SET: 1 NOT IN (empty)'    => displayValue($row[1]),
+        'EMPTY SET: NULL IN (empty)'     => displayValue($row[2]),
+        'EMPTY SET: NULL NOT IN (empty)' => displayValue($row[3]),
+        'EMPTY SET: 0 NOT IN (empty)'    => displayValue($row[4]),
+    ];
+} catch (mysqli_sql_exception $e) {
+    $emptySetProbes = ['EMPTY SET probes' => 'probe failed: ' . $e->getMessage()];
+}
+$probes += $emptySetProbes;
+
+echo "### Empty-set subquery (escapeCSV empty-array expansion)\n\n";
+echo mdTable($emptySetProbes);
+
 $mysqli->close();
 
 /**
