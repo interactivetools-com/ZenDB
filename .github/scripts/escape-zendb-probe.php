@@ -16,7 +16,7 @@ declare(strict_types=1);
  * raw-mysqli baseline (interpolated SQL + real_escape_string, htmlspecialchars
  * on output) against one candidate:
  *
- *   *-zendb     DB::selectOne()/select(), SmartString output or ->toArray()
+ *   *-zendb     DB::selectOne()/query(), SmartString output or ->toArray()
  *   *-prepared  fresh mysqli prepare/bind/execute per query (the PHP-FPM
  *               reality: statement handles don't outlive the request), same
  *               output work as raw
@@ -113,7 +113,7 @@ function from_unit(string $unit, int $bytes, int $shift): string
 /** The baseline output call: the standard safe helper wrapped once per project */
 function e(string $text): string
 {
-    return htmlspecialchars($text, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    return htmlspecialchars($text, ENT_QUOTES | ENT_SUBSTITUTE | ENT_DISALLOWED | ENT_HTML5, 'UTF-8');
 }
 
 $mysqli->query('DROP TABLE IF EXISTS zenbench_news');
@@ -263,7 +263,7 @@ $preparedList = static function (int $iters, int $limit, bool $withSummary) use 
 $zenList = static function (int $iters, int $limit, bool $withSummary): void {
     $acc = 0;
     for ($i = 0; $i < $iters; $i++) {
-        $rows = DB::select('news', "category = ? ORDER BY created_at DESC LIMIT $limit", CATEGORIES[$i % 10]);
+        $rows = DB::query("SELECT * FROM ::news WHERE category = ? ORDER BY created_at DESC LIMIT $limit", CATEGORIES[$i % 10]);
         foreach ($rows as $row) {
             $acc += strlen((string)$row->title) + ($withSummary ? strlen((string)$row->summary) : 0);
         }
@@ -298,7 +298,7 @@ $preparedListRaw = static function (int $iters, int $limit) use ($mysqli): void 
 $zenListRaw = static function (int $iters, int $limit): void {
     $acc = 0;
     for ($i = 0; $i < $iters; $i++) {
-        $rows = DB::select('news', "category = ? ORDER BY created_at DESC LIMIT $limit", CATEGORIES[$i % 10])->toArray();
+        $rows = DB::query("SELECT * FROM ::news WHERE category = ? ORDER BY created_at DESC LIMIT $limit", CATEGORIES[$i % 10])->toArray();
         $acc += count($rows);
     }
     $GLOBALS['sink'] += $acc;
@@ -337,15 +337,15 @@ $tests = [
     ['zvr-detail-html-prepared', 800, 'raw mysqli + ' . $e,      'fresh prepared + ' . $e,         $rawDetailHtml,                        $preparedDetailHtml],
     ['zvr-detail-raw-zendb',   800, 'raw mysqli fetch_assoc',    'DB::selectOne + toArray()',      $rawDetailRaw,                         $zenDetailRaw],
     ['zvr-detail-raw-prepared', 800, 'raw mysqli fetch_assoc',   'fresh prepared fetch_assoc',     $rawDetailRaw,                         $preparedDetailRaw],
-    ['zvr-widget5-html-zendb', 500, 'raw mysqli + ' . $e,        'DB::select + SmartString',       fn($n) => $rawList($n, 5, false),      fn($n) => $zenList($n, 5, false)],
+    ['zvr-widget5-html-zendb', 500, 'raw mysqli + ' . $e,        'DB::query + SmartString',       fn($n) => $rawList($n, 5, false),      fn($n) => $zenList($n, 5, false)],
     ['zvr-widget5-html-prepared', 500, 'raw mysqli + ' . $e,     'fresh prepared + ' . $e,         fn($n) => $rawList($n, 5, false),      fn($n) => $preparedList($n, 5, false)],
-    ['zvr-list25-html-zendb',  300, 'raw mysqli + ' . $e,        'DB::select + SmartString',       fn($n) => $rawList($n, 25, true),      fn($n) => $zenList($n, 25, true)],
+    ['zvr-list25-html-zendb',  300, 'raw mysqli + ' . $e,        'DB::query + SmartString',       fn($n) => $rawList($n, 25, true),      fn($n) => $zenList($n, 25, true)],
     ['zvr-list25-html-prepared', 300, 'raw mysqli + ' . $e,      'fresh prepared + ' . $e,         fn($n) => $rawList($n, 25, true),      fn($n) => $preparedList($n, 25, true)],
-    ['zvr-list25-raw-zendb',   300, 'raw mysqli fetch_all',      'DB::select + toArray()',         fn($n) => $rawListRaw($n, 25),         fn($n) => $zenListRaw($n, 25)],
+    ['zvr-list25-raw-zendb',   300, 'raw mysqli fetch_all',      'DB::query + toArray()',         fn($n) => $rawListRaw($n, 25),         fn($n) => $zenListRaw($n, 25)],
     ['zvr-list25-raw-prepared', 300, 'raw mysqli fetch_all',     'fresh prepared fetch_all',       fn($n) => $rawListRaw($n, 25),         fn($n) => $preparedListRaw($n, 25)],
-    ['zvr-list100-html-zendb', 150, 'raw mysqli + ' . $e,        'DB::select + SmartString',       fn($n) => $rawList($n, 100, true),     fn($n) => $zenList($n, 100, true)],
+    ['zvr-list100-html-zendb', 150, 'raw mysqli + ' . $e,        'DB::query + SmartString',       fn($n) => $rawList($n, 100, true),     fn($n) => $zenList($n, 100, true)],
     ['zvr-list100-html-prepared', 150, 'raw mysqli + ' . $e,     'fresh prepared + ' . $e,         fn($n) => $rawList($n, 100, true),     fn($n) => $preparedList($n, 100, true)],
-    ['zvr-list100-raw-zendb',  150, 'raw mysqli fetch_all',      'DB::select + toArray()',         fn($n) => $rawListRaw($n, 100),        fn($n) => $zenListRaw($n, 100)],
+    ['zvr-list100-raw-zendb',  150, 'raw mysqli fetch_all',      'DB::query + toArray()',         fn($n) => $rawListRaw($n, 100),        fn($n) => $zenListRaw($n, 100)],
     ['zvr-list100-raw-prepared', 150, 'raw mysqli fetch_all',    'fresh prepared fetch_all',       fn($n) => $rawListRaw($n, 100),        fn($n) => $preparedListRaw($n, 100)],
 ];
 
