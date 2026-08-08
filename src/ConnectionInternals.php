@@ -1136,6 +1136,29 @@ trait ConnectionInternals
             : SmartArray::fromDatabaseRows($rows, $properties);
     }
 
+    /**
+     * Single-row version of toSmartArray() for selectOne()/queryOne(): builds the same
+     * result set but returns its first row (an empty collection when there are no rows),
+     * skipping the first() and asHtml()/asRaw() conversion steps. root() on the row
+     * returns the full result set.
+     */
+    private function toSmartArrayRow(array $rows, string $sql, string $baseTable = ''): SmartArrayBase
+    {
+        $properties = [
+            'loadHandler' => $this->loadHandler,
+            'mysqli'      => [
+                'query'         => $sql,
+                'baseTable'     => $baseTable,
+                'affected_rows' => $this->mysqli->affected_rows,
+                'insert_id'     => $this->mysqli->insert_id,
+            ],
+        ];
+
+        return $this->useSmartStrings
+            ? SmartArrayHtml::fromDatabaseRow($rows, $properties)
+            : SmartArray::fromDatabaseRow($rows, $properties);
+    }
+
     //endregion
     //region Object Lifecycle
 

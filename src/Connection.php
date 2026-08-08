@@ -183,7 +183,7 @@ class Connection
             $errorDetail  = $e->getMessage() ?: $this->mysqli->connect_error;
 
             // Detect WSL + Unix socket failure
-            $isWslSocketError = isset($_SERVER['WSL_DISTRO_NAME']) && $errorCode === 2002 && preg_match('/No such file/i', $errorDetail) && preg_match('/^localhost\z/i', (string)$this->secret('hostname'));
+            $isWslSocketError = isset($_SERVER['WSL_DISTRO_NAME']) && $errorCode === 2002 && preg_match('/No such file/i', $errorDetail) && preg_match('/^(p:)?localhost\z/i', (string)$this->secret('hostname'));
 
             $errorMsg = match (true) {
                 $isWslSocketError                        => "'localhost' uses Unix sockets. To connect to Windows MySQL from WSL, use '127.0.0.1' or 'localhost:3306' with WSL mirrored networking.\n$baseErrorMsg: $errorDetail",
@@ -352,18 +352,25 @@ class Connection
      */
     public function queryOne(string $sqlTemplate, ...$params): SmartArrayBase
     {
-        $this->mysqli->lastQuery = $sqlTemplate;  // set for reject-* errors; query() overwrites with the LIMIT-appended template
+        $this->mysqli->lastQuery = $sqlTemplate;  // set for reject-* errors; overwritten with the LIMIT-appended template below
 
         $this->rejectLimitAndOffset($sqlTemplate);
         $this->rejectPreLimitConflicts($sqlTemplate);
 
         $supportsLimit = preg_match('/^\s*(SELECT|WITH)\b/i', $sqlTemplate);
         $sqlTemplate   .= $supportsLimit ? ' LIMIT 1' : '';
-        $resultSet     = $this->query($sqlTemplate, ...$params);
 
-        // asHtml()/asRaw() ensure SmartNull from empty results becomes a SmartArray matching the connection
-        $firstRow = $resultSet->first();
-        return $this->useSmartStrings ? $firstRow->asHtml() : $firstRow->asRaw();
+        // query() body with a single-row tail: toSmartArrayRow() returns the first row
+        // directly (an empty collection when no row matches), skipping the result-set
+        // first() and asHtml()/asRaw() steps
+        $this->mysqli->lastQuery = $sqlTemplate;
+        $this->assertSafeTemplate($sqlTemplate);
+        $this->paramValues = $this->parseParams($params);
+        $sql               = $this->replacePlaceholders($sqlTemplate);
+        $result            = $this->mysqli->query($sql);
+        $rows              = $this->fetchMappedRows($result, sqlTemplate: $sqlTemplate);
+
+        return $this->toSmartArrayRow($rows, $sql);
     }
 
     /**
@@ -424,13 +431,12 @@ class Connection
         $this->paramValues = $this->parseParams($params);
         $sql               = "SELECT * FROM `$fullTable` {$this->whereFromArgs($whereEtc)} LIMIT 1";
 
-        $result    = $this->mysqli->query($sql);
-        $rows      = $this->fetchMappedRows($result, singleTable: true, fullTable: $fullTable);
-        $resultSet = $this->toSmartArray($rows, $sql, $baseTable);
+        $result = $this->mysqli->query($sql);
+        $rows   = $this->fetchMappedRows($result, singleTable: true, fullTable: $fullTable);
 
-        // asHtml()/asRaw() ensure SmartNull from empty results becomes a SmartArray matching the connection
-        $firstRow = $resultSet->first();
-        return $this->useSmartStrings ? $firstRow->asHtml() : $firstRow->asRaw();
+        // toSmartArrayRow() returns the first row directly (an empty collection when no
+        // row matches), skipping the result-set first() and asHtml()/asRaw() steps
+        return $this->toSmartArrayRow($rows, $sql, $baseTable);
     }
 
     /**
