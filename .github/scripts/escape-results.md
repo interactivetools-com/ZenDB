@@ -4,18 +4,21 @@ Committed, citable results of the escape benchmark suite. First full run
 2026-08-05: `escape-matrix.yml` run 30964178143 (CPU family, all 30 cells:
 5 OS x PHP 8.1-8.6, JIT off, scale 1.0; the 8.6 cells ran 8.6.0-dev nightly),
 `escape-e2e-matrix.yml` run 30964179764 (5-server family), and
-`escape-zendb-matrix.yml` run 31214556312 (2026-08-07, ZenDB-vs-raw family,
+`escape-zendb-matrix.yml` run 31235348504 (2026-08-08, ZenDB-vs-raw family,
 PHP 8.1 and 8.4 against MySQL 8.0; suite built around real-world page
 scenarios - detail/widget/list pages against raw and fresh-prepared mysqli
 on news-corpus content - replacing the earlier synthetic cells, last
-recorded in run 31190847410). The zendb family's first run was 31192294387
-the same day; 31214556312 re-measured after the 2026-08 pipeline
-optimizations landed, and cell-to-cell deltas between the two runs sit
-inside runner variance (the per-query savings are nanoseconds to a few
-microseconds against 120-140us loopback pages, and the largest one, the
-encrypted-column cache, needs a keyed connection while this suite connects
-keyless). Every escaper passed its correctness gate on every cell in every
-family, and all three grids are below in full.
+recorded in run 31190847410). Earlier zendb-family runs: 31192294387 and
+31214556312 (both 2026-08-07). 31235348504 re-measured after the full
+2026-08 optimization pass (placeholder fast paths, single-table metadata
+skip, cached-blank result construction, fused selectOne/queryOne tail):
+the detail-page cells improved a few points over 31214556312 - both
+detail-html cells now measure a tie with raw mysqli - and the remaining
+cell-to-cell deltas sit inside runner variance (per-query savings are
+nanoseconds to a few microseconds against 120-140us loopback pages, and
+the largest one, the encrypted-column cache, needs a keyed connection
+while this suite connects keyless). Every escaper passed its correctness
+gate on every cell in every family, and all three grids are below in full.
 
 Ratios are B-vs-A measured interleaved in one process; >1.00x means the
 candidate is faster. The selftie rows calibrate the noise band: ties within
@@ -104,17 +107,17 @@ Regenerate:
 - **ZenDB vs hand-written mysqli vs fresh-prepared mysqli** (`zvr-*`,
   loopback, news-corpus content; each cell is a whole page: query plus
   HTML-encoded output or raw arrays): the HTML detail page ties raw mysqli
-  (`zvr-detail-html-zendb` 0.94-1.04x - the 8.1 cell measured ZenDB ahead);
-  the other scenarios cost 7-18% (`zvr-detail-raw-zendb` 0.85-0.91x,
-  `zvr-widget5-html-zendb` 0.82-0.86x, `zvr-list25-html-zendb` 0.88-0.93x,
-  `zvr-list25-raw-zendb` 0.87-0.88x, `zvr-list100-html-zendb` 0.90-0.92x).
+  (`zvr-detail-html-zendb` 0.99-1.00x); the other scenarios cost 5-12%
+  (`zvr-detail-raw-zendb` 0.92-0.95x, `zvr-widget5-html-zendb` 0.88-0.89x,
+  `zvr-list25-html-zendb` 0.88-0.91x, `zvr-list25-raw-zendb` 0.89-0.92x,
+  `zvr-list100-html-zendb` 0.88-0.94x).
   Fresh-prepared mysqli (prepare/bind/execute per query - the PHP-FPM
-  reality) costs 1.2-1.8x raw on identical work (`zvr-*-prepared`
-  0.57-0.87x, worst on point queries where prepare() is an extra round
+  reality) costs 1.1-1.8x raw on identical work (`zvr-*-prepared`
+  0.57-0.89x, worst on point queries where prepare() is an extra round
   trip), so ZenDB with SmartString output beats prepared mysqli with
   htmlspecialchars in every scenario. Absolute ZenDB cost per page: within
-  +/-14us of raw on the HTML detail page, 21-31us detail-raw, 38-64us on
-  25-row pages, ~115-120us at 100 rows - and the ratios shrink further as
+  +/-2us of raw on the HTML detail page, 13-16us detail-raw, 41-61us on
+  25-row pages, 85-145us at 100 rows - and the ratios shrink further as
   real network latency replaces loopback.
 
 ## CPU Family Grid (run 30964178143)
@@ -291,26 +294,26 @@ Correctness: every escaper passes its gate on every cell.
 
 </details>
 
-## ZenDB-vs-Raw Family Grid (run 31214556312)
+## ZenDB-vs-Raw Family Grid (run 31235348504)
 
 
 Correctness: ZenDB HTML output byte-identical to full-flag htmlspecialchars() on every cell.
 
 | test | zendb-vs-raw php8.1 | zendb-vs-raw php8.4 |
 |---|---|---|
-| zvr-selftie | 1.02x | 0.99x |
-| zvr-detail-html-zendb | 1.04x | 0.94x (slower) |
-| zvr-detail-html-prepared | 0.57x (slower) | 0.62x (slower) |
-| zvr-detail-raw-zendb | 0.91x (slower) | 0.85x (slower) |
-| zvr-detail-raw-prepared | 0.59x (slower) | 0.57x (slower) |
-| zvr-widget5-html-zendb | 0.82x (slower) | 0.86x (slower) |
-| zvr-widget5-html-prepared | 0.62x (slower) | 0.68x (slower) |
-| zvr-list25-html-zendb | 0.93x (slower) | 0.88x (slower) |
-| zvr-list25-html-prepared | 0.75x (slower) | 0.75x (slower) |
-| zvr-list25-raw-zendb | 0.87x (slower) | 0.88x (slower) |
-| zvr-list25-raw-prepared | 0.71x (slower) | 0.74x (slower) |
-| zvr-list100-html-zendb | 0.92x (slower) | 0.90x (slower) |
-| zvr-list100-html-prepared | 0.86x (slower) | 0.87x (slower) |
+| zvr-selftie | 1.00x | 1.00x |
+| zvr-detail-html-zendb | 1.00x | 0.99x |
+| zvr-detail-html-prepared | 0.57x (slower) | 0.60x (slower) |
+| zvr-detail-raw-zendb | 0.95x (slower) | 0.92x (slower) |
+| zvr-detail-raw-prepared | 0.58x (slower) | 0.58x (slower) |
+| zvr-widget5-html-zendb | 0.89x (slower) | 0.88x (slower) |
+| zvr-widget5-html-prepared | 0.64x (slower) | 0.69x (slower) |
+| zvr-list25-html-zendb | 0.91x (slower) | 0.88x (slower) |
+| zvr-list25-html-prepared | 0.72x (slower) | 0.75x (slower) |
+| zvr-list25-raw-zendb | 0.92x (slower) | 0.89x (slower) |
+| zvr-list25-raw-prepared | 0.74x (slower) | 0.75x (slower) |
+| zvr-list100-html-zendb | 0.94x (slower) | 0.88x (slower) |
+| zvr-list100-html-prepared | 0.89x (slower) | 0.88x (slower) |
 
 <details><summary>Test legend (A vs B, sink)</summary>
 
