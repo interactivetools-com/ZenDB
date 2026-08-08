@@ -7,9 +7,11 @@ Reading this on the web instead? Same file:
 https://github.com/interactivetools-com/ZenDB/blob/main/docs/ai-reference.md
 -->
 
-# ZenDB: PHP/MySQL Database Library
+# ZenDB: Injection-Proof SQL for PHP/MySQL
 
-A PHP/MySQL database layer that's easy to use and hard to misuse.
+A database layer that's easy to use and hard to misuse. Faster than
+prepared statements plus `htmlspecialchars()` on every measured page,
+and within microseconds of raw SQL ([measurements](docs/performance.md)).
 
 - **SQL injection is impossible:** ZenDB rejects any query with inline
   values. Every dynamic value goes through placeholders, not because you

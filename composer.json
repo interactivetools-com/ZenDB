@@ -1,7 +1,7 @@
 {
   "name": "itools/zendb",
   "description": "Injection-proof PHP/MySQL database layer with automatic XSS-safe output",
-  "keywords": ["database", "mysql", "mysqli", "sql", "dbal", "crud", "secure", "parameterized-queries", "injection-proof", "database-layer"],
+  "keywords": ["php", "mysql", "mariadb", "mysqli", "database", "database-layer", "sql", "dbal", "crud", "placeholders", "prepared-statements", "parameterized-queries", "sql-injection", "injection-proof", "security", "xss", "html-encoding", "transactions", "encryption", "smartarray", "smartstring"],
   "type": "library",
   "homepage": "https://github.com/interactivetools-com/ZenDB",
   "license": "MIT",
