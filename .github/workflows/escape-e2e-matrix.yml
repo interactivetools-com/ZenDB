@@ -37,6 +37,10 @@ on:
         description: 'Comma-separated test ids (blank = all)'
         required: false
         default: ''
+      php-version:
+        description: 'PHP version (default = the 8.1 floor; 8.2+ enables the execute_query test)'
+        required: false
+        default: '8.1'
 
 jobs:
   db-matrix:
@@ -94,11 +98,12 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # The probe uses plain mysqli/PDO with no dependencies, so no composer install.
-      # Pinned to the minimum supported PHP so the script can't drift past it
+      # Defaults to the minimum supported PHP so the script can't drift past it;
+      # the php-version input exists because mysqli::execute_query() is 8.2+
       - name: Setup PHP
         uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2.37.2
         with:
-          php-version: '8.1'
+          php-version: '${{ inputs.php-version }}'
           extensions: mysqli, pdo_mysql
           coverage: none
           # JIT set explicitly: runner images ship a non-zero jit_buffer_size, so
