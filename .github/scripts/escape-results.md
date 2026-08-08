@@ -394,3 +394,17 @@ Self-tie 1.00x.
 | zvr-list100-html-prepared | 0.88x (slower) |
 | zvr-list100-raw-zendb | 0.86x (slower) |
 | zvr-list100-raw-prepared | 0.84x (slower) |
+
+### Encode-flag cost: full flags vs PHP defaults, PHP 8.5 (run 31274925567)
+
+Two encode-only cells backing the "full flag set" Fine Print bullet on
+docs/performance.md: each page's htmlspecialchars() work with SmartString's
+full flag set (A) against PHP's default flags (B), rows pre-fetched so only
+the encoding is timed. The full set costs ~6 us per detail page and ~46 us
+per 100-row list. Self-tie 1.00x; this runner is slower than the page-grid
+run above, so these absolutes read slightly high against that grid.
+
+| test | A us | B us | B vs A |
+|---|---|---|---|
+| zvr-flags-detail | 41.0 | 34.7 | 1.18x |
+| zvr-flags-list100 | 307.7 | 261.3 | 1.18x |

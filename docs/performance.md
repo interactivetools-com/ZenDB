@@ -164,9 +164,9 @@ Benchmark choices, stated plainly.
   safety: `ENT_DISALLOWED` replaces control characters that are invalid in
   HTML, so they never reach the page. The baseline uses the same flags to
   produce identical output. Plain `htmlspecialchars($x)` with PHP's
-  defaults skips that scan and encodes these pages ~5 µs (detail) to
-  ~37 µs (100-row list) faster; against that baseline the gaps grow by the
-  same amounts and the detail-page tie becomes a loss of about 5 µs.
+  defaults skips that scan and encodes these pages ~6 µs (detail) to
+  ~46 µs (100-row list) faster; against that baseline the gaps grow by the
+  same amounts and the detail-page tie becomes a loss of a few µs.
 - **The prepared cells use the classic form.** `prepare()`, `bind_param()`,
   `execute()`, fresh per query, which is what per-request PHP pays.
   `execute_query()` measured the same in a separate five-server comparison.
