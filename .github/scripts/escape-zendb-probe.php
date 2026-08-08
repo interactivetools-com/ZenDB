@@ -345,6 +345,8 @@ $tests = [
     ['zvr-list25-raw-prepared', 300, 'raw mysqli fetch_all',     'fresh prepared fetch_all',       fn($n) => $rawListRaw($n, 25),         fn($n) => $preparedListRaw($n, 25)],
     ['zvr-list100-html-zendb', 150, 'raw mysqli + ' . $e,        'DB::select + SmartString',       fn($n) => $rawList($n, 100, true),     fn($n) => $zenList($n, 100, true)],
     ['zvr-list100-html-prepared', 150, 'raw mysqli + ' . $e,     'fresh prepared + ' . $e,         fn($n) => $rawList($n, 100, true),     fn($n) => $preparedList($n, 100, true)],
+    ['zvr-list100-raw-zendb',  150, 'raw mysqli fetch_all',      'DB::select + toArray()',         fn($n) => $rawListRaw($n, 100),        fn($n) => $zenListRaw($n, 100)],
+    ['zvr-list100-raw-prepared', 150, 'raw mysqli fetch_all',    'fresh prepared fetch_all',       fn($n) => $rawListRaw($n, 100),        fn($n) => $preparedListRaw($n, 100)],
 ];
 
 foreach ($tests as [$id, $baseIters, $aLabel, $bLabel, $aFn, $bFn]) {
