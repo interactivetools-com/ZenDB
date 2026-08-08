@@ -389,8 +389,8 @@ if (isset($opts['json'])) {
 else {
     // Interactive report: the same per-page tables as docs/performance.md
     $printPageTable = static function (array $rows) use ($out): void {
-        printf("| %-17s | %11s | %11s | %11s | %19s |\n", 'Page', 'prepared', 'raw SQL', 'ZenDB', 'ZenDB vs raw');
-        echo "|:------------------|------------:|------------:|------------:|--------------------:|\n";
+        printf("| %-17s | %8s | %8s | %8s | %20s |\n", 'Page', 'prepared', 'raw SQL', 'ZenDB', 'ZenDB vs raw');
+        echo "|:------------------|---------:|---------:|---------:|---------------------:|\n";
         foreach ($rows as [$label, $prepId, $zenId]) {
             if (!isset($out['tests'][$prepId], $out['tests'][$zenId])) {
                 continue;
@@ -400,7 +400,7 @@ else {
             $zen  = (int)round($out['tests'][$zenId]['b_us']);
             $diff = $zen - $raw;
             $vs   = $out['tests'][$zenId]['verdict'] === 'TIE' ? 'tie' : sprintf('%+d us (%.6fs)', $diff, $diff / 1_000_000);
-            printf("| %-17s | %8d us | %8d us | %8d us | %19s |\n", $label, $prep, $raw, $zen, $vs);
+            printf("| %-17s | %5d us | %5d us | %5d us | %20s |\n", $label, $prep, $raw, $zen, $vs);
         }
     };
 
