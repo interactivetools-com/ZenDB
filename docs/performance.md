@@ -28,7 +28,7 @@ below), and all other PHP and database versions come out within a few percent.
 
 ZenDB runs faster than prepared statements plus `htmlspecialchars()`, the
 standard safe alternative, on every page, and costs at most 145 µs (0.000145s)
-more than raw SQL, the fastest safe code you can write, tying the
+more than raw SQL, the fastest safe approach, tying the
 single-article detail page. For scale, humans start to notice interface
 delays around 100 ms: about 700 times the largest difference in these tables.
 
@@ -159,6 +159,14 @@ Benchmark choices, stated plainly.
 - **The benchmark checks correctness before timing.** Before timing starts,
   the suite verifies ZenDB's HTML output is byte-identical to the baseline's
   `htmlspecialchars()` output, using the exact flags shown in the code above.
+- **The baseline encodes with the full flag set.** ZenDB encodes with
+  `ENT_QUOTES | ENT_SUBSTITUTE | ENT_DISALLOWED | ENT_HTML5` for the extra
+  safety: `ENT_DISALLOWED` replaces control characters that are invalid in
+  HTML, so they never reach the page. The baseline uses the same flags to
+  produce identical output. Plain `htmlspecialchars($x)` with PHP's
+  defaults skips that scan and encodes these pages ~5 µs (detail) to
+  ~37 µs (100-row list) faster; against that baseline the gaps grow by the
+  same amounts and the detail-page tie becomes a loss of about 5 µs.
 - **The prepared cells use the classic form.** `prepare()`, `bind_param()`,
   `execute()`, fresh per query, which is what per-request PHP pays.
   `execute_query()` measured the same in a separate five-server comparison.

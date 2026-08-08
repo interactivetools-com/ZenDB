@@ -307,6 +307,47 @@ $zenListRaw = static function (int $iters, int $limit): void {
     $GLOBALS['sink'] += $acc;
 };
 
+// --- Flag cost: the page's encode work, full flags vs PHP's default flags ---
+// Rows pre-fetched; these cells time only the htmlspecialchars() calls, so the
+// A-B difference is exactly what the full flag set costs each page.
+$flagDetailRows = $mysqli->query('SELECT title, content FROM zenbench_news ORDER BY id LIMIT 100')->fetch_all(MYSQLI_ASSOC);
+$flagListRows   = $mysqli->query("SELECT title, summary FROM zenbench_news WHERE category = 'news' ORDER BY created_at DESC LIMIT 100")->fetch_all(MYSQLI_ASSOC);
+
+$fullFlagDetail = static function (int $iters) use ($flagDetailRows): void {
+    $acc = 0;
+    for ($i = 0; $i < $iters; $i++) {
+        $row  = $flagDetailRows[$i % 100];
+        $acc += strlen(e($row['title'])) + strlen(e($row['content']));
+    }
+    $GLOBALS['sink'] += $acc;
+};
+$defaultFlagDetail = static function (int $iters) use ($flagDetailRows): void {
+    $acc = 0;
+    for ($i = 0; $i < $iters; $i++) {
+        $row  = $flagDetailRows[$i % 100];
+        $acc += strlen(htmlspecialchars($row['title'])) + strlen(htmlspecialchars($row['content']));
+    }
+    $GLOBALS['sink'] += $acc;
+};
+$fullFlagList100 = static function (int $iters) use ($flagListRows): void {
+    $acc = 0;
+    for ($i = 0; $i < $iters; $i++) {
+        foreach ($flagListRows as $row) {
+            $acc += strlen(e($row['title'])) + strlen(e($row['summary']));
+        }
+    }
+    $GLOBALS['sink'] += $acc;
+};
+$defaultFlagList100 = static function (int $iters) use ($flagListRows): void {
+    $acc = 0;
+    for ($i = 0; $i < $iters; $i++) {
+        foreach ($flagListRows as $row) {
+            $acc += strlen(htmlspecialchars($row['title'])) + strlen(htmlspecialchars($row['summary']));
+        }
+    }
+    $GLOBALS['sink'] += $acc;
+};
+
 //endregion
 //region Correctness gate - ZenDB HTML output must match full-flag htmlspecialchars() byte for byte
 // SmartString encodes with ENT_QUOTES | ENT_SUBSTITUTE | ENT_DISALLOWED | ENT_HTML5; the timed
@@ -349,6 +390,8 @@ $tests = [
     ['zvr-list100-html-prepared', 150, 'raw mysqli + ' . $e,     'fresh prepared + ' . $e,         fn($n) => $rawList($n, 100, true),     fn($n) => $preparedList($n, 100, true)],
     ['zvr-list100-raw-zendb',  150, 'raw mysqli fetch_all',      'DB::query + toArray()',         fn($n) => $rawListRaw($n, 100),        fn($n) => $zenListRaw($n, 100)],
     ['zvr-list100-raw-prepared', 150, 'raw mysqli fetch_all',    'fresh prepared fetch_all',       fn($n) => $rawListRaw($n, 100),        fn($n) => $preparedListRaw($n, 100)],
+    ['zvr-flags-detail',      4000, 'full-flag ' . $e,           'default-flag ' . $e,             $fullFlagDetail,                       $defaultFlagDetail],
+    ['zvr-flags-list100',     1000, 'full-flag ' . $e,           'default-flag ' . $e,             $fullFlagList100,                      $defaultFlagList100],
 ];
 
 foreach ($tests as [$id, $baseIters, $aLabel, $bLabel, $aFn, $bFn]) {
