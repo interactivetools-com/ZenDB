@@ -46,6 +46,8 @@ use Itools\ZenDB\DB;
 error_reporting(E_ALL);
 ini_set('display_errors', '1');
 
+$probeStart = hrtime(true);
+
 $opts   = getopt('', ['json::', 'filter::', 'scale::']);
 $filter = isset($opts['filter']) ? array_flip(array_map('trim', explode(',', (string)$opts['filter']))) : null;
 $scale  = isset($opts['scale']) ? max(0.01, (float)$opts['scale']) : 1.0;
@@ -128,6 +130,7 @@ $mysqli->query('CREATE TABLE zenbench_news (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
 
 // 1000 rows: 100 per category, staggered timestamps, every row's text distinct
+fwrite(STDERR, "building news corpus: 1,000 rows ...\n");
 $stmt = $mysqli->prepare('INSERT INTO zenbench_news (category, title, summary, content, created_at) VALUES (?, ?, ?, ?, ?)');
 for ($i = 0; $i < 1000; $i++) {
     $category  = CATEGORIES[$i % 10];
@@ -306,9 +309,8 @@ $zenListRaw = static function (int $iters, int $limit): void {
 
 //endregion
 //region Correctness gate - ZenDB HTML output must match full-flag htmlspecialchars() byte for byte
-// SmartString encodes with ENT_QUOTES | ENT_SUBSTITUTE | ENT_DISALLOWED | ENT_HTML5 (' becomes
-// &apos;, not &#039;). The timed baseline races the common faster helper e() instead - same
-// policy as SmartString's own speed suite; both outputs are XSS-safe.
+// SmartString encodes with ENT_QUOTES | ENT_SUBSTITUTE | ENT_DISALLOWED | ENT_HTML5; the timed
+// baseline's e() helper uses the same flags, so the outputs must match byte for byte.
 
 $gateRaw = '';
 $rows    = $mysqli->query("SELECT * FROM zenbench_news WHERE category = 'news' ORDER BY created_at DESC LIMIT 25")->fetch_all(MYSQLI_ASSOC);
@@ -353,6 +355,7 @@ foreach ($tests as [$id, $baseIters, $aLabel, $bLabel, $aFn, $bFn]) {
     if ($filter !== null && !isset($filter[$id])) {
         continue;
     }
+    fwrite(STDERR, "benchmarking $id ...\n");
     $iters = max(20, (int)($baseIters * $scale));
     [$aNs, $bNs] = ab_bench($aFn, $bFn, $iters);
     $ratio = $aNs / $bNs; // > 1: B (the candidate) faster
@@ -374,11 +377,15 @@ printf("### %s | PHP %s%s | %s | ping %sus%s\n\n",
     $out['server_label'], $out['php'], $out['zts'] ? ' ZTS' : '', $out['server'], $out['ping_us'],
     $out['xdebug'] ? ' **XDEBUG LOADED - RESULTS INVALID**' : '');
 echo "Ratios read as B vs A: >1.00 means the candidate beats raw mysqli; <1.00 measures what the candidate's extra work currently costs.\n\n";
-echo "| test | A | B | A us | B us | B vs A | verdict |\n|---|---|---|---|---|---|---|\n";
+echo "| test                       | A                              | B                                    |     A us |     B us | B vs A | verdict  |\n";
+echo "|:---------------------------|:-------------------------------|:-------------------------------------|---------:|---------:|-------:|:---------|\n";
 foreach ($out['tests'] as $id => $t) {
-    printf("| %s | %s | %s | %.1f | %.1f | %.2fx | %s |\n",
+    printf("| %-26s | %-30s | %-36s | %8.1f | %8.1f | %5.2fx | %-8s |\n",
         $id, $t['a_label'], $t['b_label'], $t['a_us'], $t['b_us'], $t['ratio'], $t['verdict']);
 }
+
+$out['runtime_seconds'] = (int)round((hrtime(true) - $probeStart) / 1e9);
+printf("\nTotal runtime: %ds\n", $out['runtime_seconds']);
 
 if (isset($opts['json'])) {
     file_put_contents((string)$opts['json'], json_encode($out, JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR) . "\n");

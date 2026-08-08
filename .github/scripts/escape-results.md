@@ -294,6 +294,18 @@ Correctness: every escaper passes its gate on every cell.
 
 </details>
 
+### PHP 8.4 addendum: execute_query (run 31269527565)
+
+The `rt-interp-vs-execute-query` test needs PHP 8.2+, so the 8.1-floor grid
+above can never run it. Filtered rerun on PHP 8.4: `execute_query()` measures
+the same as classic fresh-prepared within the noise band on every server.
+
+| test | mysql:5.7 | mysql:8.0 | mysql:8.4 | mariadb:10.6 | mariadb:11.8 |
+|---|---|---|---|---|---|
+| rt-selftie | 1.00x | 0.99x | 0.99x | 1.00x | 0.99x |
+| rt-interp-vs-prepared | 0.57x (slower) | 0.61x (slower) | 0.59x (slower) | 0.58x (slower) | 0.58x (slower) |
+| rt-interp-vs-execute-query | 0.60x (slower) | 0.63x (slower) | 0.59x (slower) | 0.58x (slower) | 0.62x (slower) |
+
 ## ZenDB-vs-Raw Family Grid (run 31235348504)
 
 
@@ -330,3 +342,55 @@ Candidates (A is always raw mysqli: interpolated SQL + real_escape_string, htmls
 - **zvr-selftie**: raw list25 vs itself (noise calibration)
 
 </details>
+
+## ZenDB-vs-Raw Page Grid, PHP 8.5 (run 31272787620)
+
+Same family after three probe changes: the baseline `htmlspecialchars()` uses
+SmartString's full flag set (ENT_QUOTES | ENT_SUBSTITUTE | ENT_DISALLOWED |
+ENT_HTML5), list cells call `DB::query()` with the SQL docs/performance.md
+shows, and list100 gained raw-array cells. This run is the source for every
+number on docs/performance.md.
+
+Correctness: ZenDB HTML output byte-identical to full-flag htmlspecialchars() on every cell.
+
+| test | A us | B us | B vs A |
+|---|---|---|---|
+| zvr-selftie | 357.2 | 353.9 | 1.01x |
+| zvr-detail-html-zendb | 168.0 | 164.1 | 1.02x |
+| zvr-detail-html-prepared | 164.3 | 275.3 | 0.60x (slower) |
+| zvr-detail-raw-zendb | 140.3 | 151.2 | 0.93x (slower) |
+| zvr-detail-raw-prepared | 139.2 | 239.6 | 0.58x (slower) |
+| zvr-widget5-html-zendb | 189.5 | 215.5 | 0.88x (slower) |
+| zvr-widget5-html-prepared | 189.3 | 285.3 | 0.66x (slower) |
+| zvr-list25-html-zendb | 352.7 | 385.8 | 0.91x (slower) |
+| zvr-list25-html-prepared | 352.7 | 477.7 | 0.74x (slower) |
+| zvr-list25-raw-zendb | 300.7 | 344.9 | 0.87x (slower) |
+| zvr-list25-raw-prepared | 303.0 | 407.5 | 0.74x (slower) |
+| zvr-list100-html-zendb | 898.7 | 978.6 | 0.92x (slower) |
+| zvr-list100-html-prepared | 897.8 | 1044.5 | 0.86x (slower) |
+| zvr-list100-raw-zendb | 678.6 | 823.7 | 0.82x (slower) |
+| zvr-list100-raw-prepared | 706.6 | 808.7 | 0.87x (slower) |
+
+### Variant: MariaDB 12.3 + JIT on, PHP 8.5 (run 31273510581)
+
+Everything-latest check: newest MariaDB, tracing JIT with a 128M buffer.
+Every ratio lands within a few points of the grid above, most list cells
+slightly closer to raw, so neither JIT nor server choice changes the story.
+Self-tie 1.00x.
+
+| test | B vs A |
+|---|---|
+| zvr-detail-html-zendb | 1.04x |
+| zvr-detail-html-prepared | 0.56x (slower) |
+| zvr-detail-raw-zendb | 0.92x (slower) |
+| zvr-detail-raw-prepared | 0.54x (slower) |
+| zvr-widget5-html-zendb | 0.88x (slower) |
+| zvr-widget5-html-prepared | 0.64x (slower) |
+| zvr-list25-html-zendb | 0.94x (slower) |
+| zvr-list25-html-prepared | 0.74x (slower) |
+| zvr-list25-raw-zendb | 0.89x (slower) |
+| zvr-list25-raw-prepared | 0.75x (slower) |
+| zvr-list100-html-zendb | 0.93x (slower) |
+| zvr-list100-html-prepared | 0.88x (slower) |
+| zvr-list100-raw-zendb | 0.86x (slower) |
+| zvr-list100-raw-prepared | 0.84x (slower) |
