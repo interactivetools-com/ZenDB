@@ -1170,9 +1170,9 @@ echo "### Charset in the connection handshake\n\n";
 echo mdTable($handshakeProbes);
 
 //
-// Persistent connections - a proposed `persistent` config flag prepends p: to the
-// hostname so mysqli reuses pooled connections instead of paying TCP setup and auth
-// per request. ZenDB depends on the pool reset (mysqlnd sends COM_CHANGE_USER on
+// Persistent connections - a p: hostname prefix makes mysqli reuse pooled
+// connections instead of paying TCP setup and auth per request (see
+// docs/persistent-connections.md). ZenDB depends on the pool reset (mysqlnd sends COM_CHANGE_USER on
 // reuse) restoring a clean session: user variables cleared so the lazy @ek SET
 // re-arms, sql_mode and charset back to defaults, temporary tables dropped, open
 // transactions rolled back. The probes dirty all of those on one pooled connection,
