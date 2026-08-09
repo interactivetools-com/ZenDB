@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Itools\ZenDB\Tests\TableHelpers;
 
 use Exception;
+use InvalidArgumentException;
 use Itools\ZenDB\DB;
 use Itools\ZenDB\Table;
 use Itools\ZenDB\Tests\BaseTestCase;
@@ -67,7 +68,6 @@ class GetTableNamesTest extends BaseTestCase
             DB::$mysqli->query("DROP TABLE IF EXISTS other_table_xyz");
             DB::$mysqli->query("DROP TABLE IF EXISTS testXwildcard");
             DB::$mysqli->query("DROP TABLE IF EXISTS cms_pages");
-            DB::$mysqli->query("DROP TABLE IF EXISTS `v2.cms_pages`");
         } catch (Exception) {
             // Ignore cleanup errors
         }
@@ -138,17 +138,14 @@ class GetTableNamesTest extends BaseTestCase
         $this->assertNotContains('get_tables_a', $tables);
     }
 
-    public function testWithDottedPrefix(): void
+    public function testDottedPrefixRejected(): void
     {
-        // Dots are allowed in prefixes: CMS Builder's installer accepts them and installs use them
-        DB::$mysqli->query("DROP TABLE IF EXISTS `v2.cms_pages`");
-        DB::$mysqli->query("CREATE TABLE `v2.cms_pages` (id INT)");
+        // A dot in a prefix is ambiguous (database qualifier in most tools, literal name
+        // character otherwise), so config refuses it instead of guessing
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage("Invalid tablePrefix");
 
-        $conn   = DB::clone(['tablePrefix' => 'v2.cms_']);
-        $tables = $conn->table->names();
-
-        $this->assertContains('pages', $tables);
-        $this->assertNotContains('get_tables_a', $tables);
+        DB::clone(['tablePrefix' => 'v2.cms_']);
     }
 
     public function testWithEmptyPrefix(): void

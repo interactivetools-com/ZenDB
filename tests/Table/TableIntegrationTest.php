@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Itools\ZenDB\Tests\Table;
 
+use InvalidArgumentException;
 use Itools\ZenDB\DB;
 use Itools\ZenDB\Table;
 use Itools\ZenDB\Tests\BaseTestCase;
@@ -156,6 +157,7 @@ class TableIntegrationTest extends BaseTestCase
         $this->assertTrue(Table::existsFull($this->fullTable), 'the real full name matches');
         $this->assertFalse(Table::existsFull($this->fullTable . '_no_such_table'));
         $this->assertFalse(Table::existsFull('bad`name'), 'invalid names return false, like exists()');
+        $this->assertFalse(Table::existsFull('no_such.dotted_table'), 'dots are askable: other tools create literal-dot tables');
         if (DB::$tablePrefix !== '') {
             $this->assertFalse(Table::existsFull($this->baseTable), 'the base name alone is not the MySQL name');
         }
@@ -255,6 +257,24 @@ class TableIntegrationTest extends BaseTestCase
 
     //endregion
     //region columns()
+
+    #[Test]
+    public function columnsThrowsForInvalidNames(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('Invalid table name');
+
+        Table::columns('bad`name');
+    }
+
+    #[Test]
+    public function foreignKeysThrowsForInvalidNames(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('Invalid table name');
+
+        Table::foreignKeys('users; DROP TABLE users');
+    }
 
     #[Test]
     public function columnsReportsEveryColumnInTableOrder(): void

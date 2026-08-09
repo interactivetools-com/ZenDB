@@ -32,6 +32,23 @@ Full lists of what changed per release: [CHANGELOG.md](CHANGELOG.md).
 *Follow this section when upgrading from ZenDB before v1.0.0
 (or CMS Builder before 3.85).*
 
+### Config changes
+
+> - `tablePrefix` can no longer contain dots; `connect()` throws
+>   "Invalid tablePrefix" naming the allowed characters
+>   (`a-z A-Z 0-9 _ -`). CMS Builder's installer used to accept dotted
+>   prefixes like `'client2.cms_'`, which named tables literally
+>   (`client2.cms_news`, dot included). An install like that needs a
+>   one-time rename to a dot-free prefix before upgrading:
+>
+>   ```sql
+>   RENAME TABLE `client2.cms_news` TO `client2_cms_news`;  -- repeat per table
+>   ```
+>
+>   ```php
+>   'tablePrefix' => 'client2_cms_',  // was 'client2.cms_'
+>   ```
+
 ### Silent changes
 
 > - Passing a result field (a SmartString) back into a query as a value,

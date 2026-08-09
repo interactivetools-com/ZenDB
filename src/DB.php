@@ -319,20 +319,26 @@ class DB
     /**
      * Returns the SQL expression to decrypt an encrypted column using the session encryption key (@ek).
      * Used internally by the {{column}} template syntax and available for custom query building.
-     * The template layer expands a leading :: to the table prefix ({{::users.email}}) before
-     * this method builds the expression; this method itself takes names as-is.
      *
-     *     DB::decryptExpr('email')       // "AES_DECRYPT(`email`, @ek)"
-     *     DB::decryptExpr('blog.title')  // "AES_DECRYPT(`blog`.`title`, @ek)"
+     * Takes a column name ('apiToken') or table.column ('users.apiToken') - one dot at most.
+     * Don't pass a table name alone; it would be treated as a column called that.
+     * Names go into the SQL exactly as written: the table half is the real table name or a
+     * join alias, and `tablePrefix` is never added. Need the prefix? Write it out
+     * ('cms_users.apiToken') or use the {{::table.column}} template form.
      *
-     * @param string $column Column name, optionally dot-qualified (e.g., "table.column")
+     *     DB::decryptExpr('email')                // "AES_DECRYPT(`email`, @ek)"
+     *     DB::decryptExpr('blog.title')           // "AES_DECRYPT(`blog`.`title`, @ek)"
+     *     DB::decryptExpr('u.email')              // "AES_DECRYPT(`u`.`email`, @ek)" - join alias
+     *     DB::decryptExpr('cms_users.apiToken')   // "AES_DECRYPT(`cms_users`.`apiToken`, @ek)" - prefix written in
+     *
+     * @param string $column Column name, optionally table-qualified ("table.column", one dot max)
      * @return string SQL expression
      * @see Connection::encryptValue() for the write side (AES_ENCRYPT)
      */
     public static function decryptExpr(string $column): string
     {
-        if (!preg_match('/^[\w-]+(?:\.[\w-]+)*\z/', $column)) {
-            throw new InvalidArgumentException("Invalid column name '$column' in decryptExpr(), allowed characters: a-z, A-Z, 0-9, _, -, .");
+        if (!preg_match('/^[\w-]+(?:\.[\w-]+)?\z/', $column)) { // column or table.column, one dot at most
+            throw new InvalidArgumentException("Invalid column name '$column' in decryptExpr(), expected column or table.column with characters: a-z, A-Z, 0-9, _, -");
         }
         $column = str_replace('.', '`.`', $column); // "blog.title" => "blog`.`title"
         return "AES_DECRYPT(`$column`, @ek)";       // => AES_DECRYPT(`blog`.`title`, @ek)

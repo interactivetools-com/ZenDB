@@ -3,7 +3,6 @@ declare(strict_types=1);
 
 namespace Itools\ZenDB;
 
-use InvalidArgumentException;
 use RuntimeException;
 use mysqli_sql_exception;
 
@@ -76,6 +75,11 @@ class TableInfo
      */
     public function exists(string $baseTable): bool
     {
+        // exists() never throws, so a bad name gets an answer instead of an error:
+        // a name outside the identifier charset can't be one of our tables
+        if (!preg_match('/^[\w-]+\z/', $baseTable)) {
+            return false;
+        }
         return $this->existsFull($this->db->tablePrefix . $baseTable);
     }
 
@@ -92,13 +96,17 @@ class TableInfo
      */
     public function existsFull(string $fullTable): bool
     {
+        // The identifier charset plus dots: ZenDB never creates dotted names, but other
+        // tools do, and inside backticks a dot is just part of the name, so they're a
+        // fair question here. Anything outside this charset isn't safe to query and
+        // can't exist anyway
+        if (!preg_match('/^[\w.-]+\z/', $fullTable)) {
+            return false;
+        }
         try {
-            DB::assertIdentifier($fullTable, 'table name');
             $escapedFullTable = $this->mysqli->real_escape_string($fullTable);
             $this->mysqli->query("SELECT 1 FROM `$escapedFullTable` LIMIT 0")->free();
             return true;
-        } catch (InvalidArgumentException) {
-            return false; // a name MySQL wouldn't accept can't exist
         } catch (mysqli_sql_exception $e) {
             // Codes 2000-2999 are the client library's: the exchange with the server never
             // completed, so there's no answer to report. Everything else is the server
@@ -207,6 +215,7 @@ class TableInfo
      */
     public function columns(string $baseTable): array
     {
+        DB::assertIdentifier($baseTable, 'table name');
         $escapedFullTable = $this->mysqli->real_escape_string($this->db->tablePrefix . $baseTable);
 
         // SELECT * because not every server has every field (e.g. no GENERATION_EXPRESSION before MariaDB 10.2)
@@ -357,8 +366,8 @@ class TableInfo
      */
     public function showCreateTable(string $baseTable): string
     {
-        $fullTable = $this->db->tablePrefix . $baseTable;
-        DB::assertIdentifier($fullTable, 'table name');
+        DB::assertIdentifier($baseTable, 'table name');
+        $fullTable        = $this->db->tablePrefix . $baseTable;
         $escapedFullTable = $this->mysqli->real_escape_string($fullTable);
 
         $result = $this->mysqli->query("SHOW CREATE TABLE `$escapedFullTable`");
@@ -698,8 +707,8 @@ class TableInfo
      */
     public function primaryKey(string $baseTable): string
     {
-        $fullTable = $this->db->tablePrefix . $baseTable;
-        DB::assertIdentifier($fullTable, 'table name');
+        DB::assertIdentifier($baseTable, 'table name');
+        $fullTable        = $this->db->tablePrefix . $baseTable;
         $escapedFullTable = $this->mysqli->real_escape_string($fullTable);
 
         $result = $this->mysqli->query("SHOW INDEX FROM `$escapedFullTable` WHERE Key_name = 'PRIMARY' AND Seq_in_index = 1");
@@ -745,8 +754,8 @@ class TableInfo
      */
     public function indexes(string $baseTable, ?string $columnName = null): array
     {
-        $fullTable = $this->db->tablePrefix . $baseTable;
-        DB::assertIdentifier($fullTable, 'table name');
+        DB::assertIdentifier($baseTable, 'table name');
+        $fullTable        = $this->db->tablePrefix . $baseTable;
         $escapedFullTable = $this->mysqli->real_escape_string($fullTable);
 
         $result = $this->mysqli->query("SHOW INDEX FROM `$escapedFullTable`");
@@ -838,6 +847,7 @@ class TableInfo
      */
     public function foreignKeys(string $baseTable, ?string $columnName = null): array
     {
+        DB::assertIdentifier($baseTable, 'table name');
         $escapedFullTable = $this->mysqli->real_escape_string($this->db->tablePrefix . $baseTable);
         $result           = $this->mysqli->query(
             "SELECT KCU.CONSTRAINT_NAME, KCU.COLUMN_NAME, KCU.REFERENCED_TABLE_NAME, KCU.REFERENCED_COLUMN_NAME, RC.DELETE_RULE, RC.UPDATE_RULE
@@ -891,6 +901,7 @@ class TableInfo
      */
     public function foreignKeysReferencing(string $baseTable): array
     {
+        DB::assertIdentifier($baseTable, 'table name');
         $escapedFullTable = $this->mysqli->real_escape_string($this->db->tablePrefix . $baseTable);
         $result           = $this->mysqli->query(
             "SELECT CONSTRAINT_NAME, TABLE_NAME, COLUMN_NAME, REFERENCED_COLUMN_NAME

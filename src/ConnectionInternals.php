@@ -1236,18 +1236,20 @@ trait ConnectionInternals
     private static WeakMap $secrets;
 
     /**
-     * Reject table prefixes with characters outside a-z, A-Z, 0-9, _, -, and .
-     * The character set mirrors what CMS Builder's installer accepts (including
-     * '.', which exists in installed prefixes). ASCII-only also keeps PHP's
-     * byte-counted prefix math in step with MySQL's character-counted LEFT():
-     * a multibyte prefix would make Table::names() silently return no tables.
+     * Reject table prefixes with characters outside a-z, A-Z, 0-9, _, and -.
+     * Dots are rejected because their meaning is ambiguous: in MySQL and most
+     * tools a dot means a `database.` qualifier, and tables with literal dots
+     * in their names are nonstandard (WordPress rejects dotted prefixes too).
+     * ASCII-only also keeps PHP's byte-counted prefix math in step with MySQL's
+     * character-counted LEFT(): a multibyte prefix would make Table::names()
+     * silently return no tables.
      *
      * @throws InvalidArgumentException
      */
     private function assertValidTablePrefix(): void
     {
-        if (!preg_match('/^[\w.-]*\z/', $this->tablePrefix)) {
-            throw new InvalidArgumentException("Invalid tablePrefix '$this->tablePrefix', allowed characters: a-z, A-Z, 0-9, _, -, .");
+        if (!preg_match('/^[\w-]*\z/', $this->tablePrefix)) {
+            throw new InvalidArgumentException("Invalid tablePrefix '$this->tablePrefix', allowed characters: a-z, A-Z, 0-9, _, -");
         }
     }
 

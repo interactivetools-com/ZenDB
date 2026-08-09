@@ -45,6 +45,24 @@ coding assistants.
 
 ### Changed
 
+- `tablePrefix` - dots are no longer allowed; `connect()` and `clone()`
+  throw "Invalid tablePrefix" naming the allowed characters
+  (`a-z A-Z 0-9 _ -`). A dot in a prefix is ambiguous (most tools read it
+  as a `database.` qualifier) and tables with literal dots in their names
+  are nonstandard, so ZenDB refuses at config time instead of guessing.
+  See [UPGRADING.md](UPGRADING.md) for the rename steps if an install
+  has one
+- Invalid table names throw earlier - `columns()`, `hasColumn()`,
+  `columnNames()`, `showCreateTable()`, `primaryKey()`, `indexes()`,
+  `foreignKeys()`, and `foreignKeysReferencing()` now validate the base
+  name before the prefix is added and throw `InvalidArgumentException`
+  for names outside `a-z A-Z 0-9 _ -` instead of sending them to MySQL;
+  `Table::exists()` keeps answering false without throwing
+- `Table::existsFull()` - accepts dots in the name it's asked about:
+  literal-dot tables are legal MySQL and other tools create them, so
+  they're a fair question even though ZenDB never creates them
+- `DB::decryptExpr()` - takes a column or `table.column` (one dot at
+  most); longer dotted chains throw
 - `escape()`, `escapef()`, and `escapeCSV()` - Marked `@internal`; they
   exist so ZenDB and CMS Builder can build their own SQL. Placeholders are
   the supported API

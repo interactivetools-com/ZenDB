@@ -170,6 +170,45 @@ the marker, and `{{}}` lives inside SQL text.
 
 ---
 
+## Dotted Table Prefixes - DECIDED: Banned (2026-08)
+
+CMS Builder's installer used to accept prefixes like `client2.cms_`, naming
+tables literally (`client2.cms_news`, dot included - CMS Builder quotes full
+names in one backtick pair, so that's the only reading that ever worked
+there). Full literal-dot support was built and working (validation, `::`
+emitting backticked names, `{{::table.column}}`, the test suite on a dotted
+default prefix), then reverted after researching what the rest of the world
+does:
+
+- WordPress hit this exact issue in 2004 (Trac #910) and hard-bans dots:
+  "$table_prefix can only contain numbers, letters, and underscores".
+- Drupal supports dotted prefixes with the OPPOSITE meaning: `'shared.'` is
+  a `database.` qualifier for cross-database table sharing, and identifier
+  quoting for MySQL 8 broke it (#3186120) - the same collision from the
+  other side.
+- Laravel, Doctrine, and CodeIgniter all read a dot in a name as a
+  qualifier. No mainstream library treats it as a literal prefix character.
+
+So a dot in a prefix is ambiguous on arrival - a user writing `'shared.'`
+more likely means cross-database than literal-dot tables - and ZenDB refuses
+at config time instead of guessing. Existing dotted installs migrate with
+RENAME TABLE (steps in UPGRADING.md), reviewed as part of the CMS Builder
+upgrade notes.
+
+Kept from the exploration (correct regardless of dots):
+
+- Base names are validated before the prefix is added; `columns()`,
+  `hasColumn()`/`columnNames()`, and the FOREIGN KEY methods fail fast on
+  invalid names like the other schema helpers.
+- `exists()` keeps its never-throws contract and answers false for names
+  outside the identifier charset.
+- `existsFull()` accepts dots in the names it's asked about: literal-dot
+  tables are legal MySQL and other tools create them.
+- `decryptExpr()` takes one dot at most (column or table.column); a second
+  dot would build a database-qualified reference no caller means.
+
+---
+
 ## Undocumented on Purpose - DECIDED (2026-07)
 
 The docs deliberately omit these; the omission is a decision, not a gap
