@@ -78,6 +78,8 @@ class Table
      *     Table::defaultFromDefinition("timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP");   // 'CURRENT_TIMESTAMP'
      *     Table::defaultFromDefinition("datetime DEFAULT NULL");                           // null
      *     Table::defaultFromDefinition("mediumtext NOT NULL");                             // null
+     *     Table::defaultFromDefinition("varchar(10) NOT NULL DEFAULT 'draft',");           // 'draft' - a line copied
+     *                                                                                      // from SHOW CREATE TABLE keeps its comma; that's fine
      *
      * This is the one cross-server way to read a default: information_schema's COLUMN_DEFAULT reports
      * in incompatible forms (MariaDB returns DDL text, MySQL raw values), while SHOW CREATE TABLE is
@@ -116,7 +118,7 @@ class Table
                 return null;
             }
             $value = substr($masked, $valueOffset, $close - $valueOffset + 1);
-        } elseif (preg_match('/\G\S+/', $masked, $valueMatch, 0, $valueOffset)) {
+        } elseif (preg_match('/\G[^\s,]+/', $masked, $valueMatch, 0, $valueOffset)) { // stop at the column separator; quoted commas are masked
             $value = $valueMatch[0];
         } else {
             return null; // nothing after DEFAULT: not a shape any server prints
