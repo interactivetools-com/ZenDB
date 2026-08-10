@@ -33,6 +33,46 @@ Differences from the table-based methods:
 `LIMIT` or `OFFSET`. For your own `LIMIT`, or clauses that go after it like
 `FOR UPDATE`, use `DB::query(...)->first()`.
 
+## Formatting Long Queries
+
+The examples above open the string on the call line and align the SQL
+keywords on the lines below; that is the form used throughout these docs,
+and it needs no special syntax. Two variations help as queries grow.
+
+Moving the template into a variable keeps the call short when it also
+carries parameters:
+
+```php
+$sql = "
+    SELECT u.name, o.total
+      FROM ::users  u
+      JOIN ::orders o ON o.userId = u.id
+     WHERE o.total > :minTotal
+  ORDER BY o.total DESC";
+
+$rows = DB::query($sql, [':minTotal' => 100]);
+// SELECT u.name, o.total FROM users u JOIN orders o ON o.userId = u.id ...
+```
+
+Heredoc syntax does the same job if you prefer it: `<<<__SQL__` starts a
+multi-line string that ends at the closing marker, whose indentation is
+stripped from every line (so it can't be indented deeper than the
+least-indented line). ZenDB templates contain no quotes and no `$`
+variables, so heredoc and double quotes produce identical strings here;
+use whichever reads better to you:
+
+```php
+$sql = <<<__SQL__
+    SELECT u.name, o.total
+      FROM ::users  u
+      JOIN ::orders o ON o.userId = u.id
+     WHERE o.total > :minTotal
+  ORDER BY o.total DESC
+  __SQL__;
+
+$rows = DB::query($sql, [':minTotal' => 100]);
+```
+
 ## Table Prefixes in Raw SQL with `::`
 
 `select()` adds the table prefix for you. In raw SQL, write `::` in front of

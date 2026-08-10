@@ -1062,6 +1062,39 @@ class DocsExamplesTest extends BaseTestCase
         $this->assertSame('SELECT MAX(price) AS maxPrice FROM test_products LIMIT 1', DB::$mysqli->lastQuery);
     }
 
+    public function testJoinsFormattingLongQueries(): void
+    {
+        $sql = "
+            SELECT u.name, o.total_amount
+              FROM ::users  u
+              JOIN ::orders o ON o.user_id = u.num
+             WHERE o.total_amount > :minTotal
+          ORDER BY o.total_amount DESC";
+
+        $rows         = DB::query($sql, [':minTotal' => 100]);
+        $doubleQuoted = DB::$mysqli->lastQuery;
+
+        $heredocSql = <<<__SQL__
+            SELECT u.name, o.total_amount
+              FROM ::users  u
+              JOIN ::orders o ON o.user_id = u.num
+             WHERE o.total_amount > :minTotal
+          ORDER BY o.total_amount DESC
+          __SQL__;
+
+        $heredocRows = DB::query($heredocSql, [':minTotal' => 100]);
+
+        $normalize = static fn(string $s): string => preg_replace('/\s+/', ' ', trim($s));
+
+        $this->assertSame(
+            'SELECT u.name, o.total_amount FROM test_users u JOIN test_orders o ON o.user_id = u.num WHERE o.total_amount > 100 ORDER BY o.total_amount DESC',
+            $normalize($doubleQuoted)
+        );
+        $this->assertSame($normalize($doubleQuoted), $normalize(DB::$mysqli->lastQuery));
+        $this->assertSame($rows->toArray(), $heredocRows->toArray());
+        $this->assertCount(3, $rows);
+    }
+
     public function testJoinsTablePrefixesInRawSql(): void
     {
         DB::query("
