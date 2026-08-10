@@ -91,7 +91,7 @@ Full lists of what changed per release: [CHANGELOG.md](CHANGELOG.md).
 >
 > - Floats are written with exact round-trip precision; the old string cast
 >   rounded to 14 significant digits, so equality matches against very
->   large floats could match the wrong rows. `NAN` and `INF` now throw.
+>   large floats could match the wrong rows. Passing `NAN` or `INF` now throws.
 >
 >   ```php
 >   DB::select('measurements', 'value = ?', 12345678901234567.0);

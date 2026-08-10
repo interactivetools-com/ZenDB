@@ -168,7 +168,7 @@ Benchmark choices, stated plainly.
   ~46 µs (100-row list) faster; against that baseline the gaps grow by the
   same amounts and the detail-page tie becomes a loss of a few µs.
 - **The prepared cells use the classic form.** `prepare()`, `bind_param()`,
-  `execute()`, fresh per query, which is what per-request PHP pays.
+  `execute()`, fresh per query, which is what per-request PHP pays;
   `execute_query()` measured the same in a separate five-server comparison.
 - **Not measured: reused prepared statements.** Reusing a statement handle
   beats re-preparing ~1.8x, but handles don't survive a PHP-FPM request, so

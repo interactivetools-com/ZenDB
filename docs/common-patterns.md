@@ -8,7 +8,7 @@ to adapt.
 ## Record Detail with 404 - `or404()`
 
 Load a single record, or send a `404 Not Found` response and exit if it
-doesn't exist. `or404()` returns the row when the result has data, so it
+doesn't exist. When the result has data, `or404()` returns the row, so it
 chains directly onto a `selectOne()` call:
 
 ```php
@@ -60,7 +60,7 @@ if ($emailInUse) {
 
 ## One Value from a Query - `DB::queryOne()`
 
-Aggregates return one row with one column. `queryOne()` returns that row
+Aggregates return one row with one column; `queryOne()` returns that row
 directly, so the value chains right off the call:
 
 ```php
@@ -70,7 +70,7 @@ $newest = DB::queryOne("SELECT MAX(createdAt) AS newest FROM ::users")->newest;
 echo "Newest signup: {$newest->dateFormat('M j, Y')}";
 ```
 
-For columns whose names are awkward to type, read by position with `at()`.
+For columns whose names are awkward to type, read by position with `at()` -
 `SHOW CREATE TABLE` returns a column literally named `Create Table`:
 
 ```php
@@ -78,7 +78,7 @@ $createSql = DB::queryOne("SHOW CREATE TABLE ::users")->at(1)->value();
 // by name instead: ->{'Create Table'}->value()
 ```
 
-The same trick works on whole result sets. `columnAt()` extracts a column by
+The same trick works on whole result sets; `columnAt()` extracts a column by
 position when the column name varies:
 
 ```php
@@ -133,8 +133,8 @@ echo "$total results, page $page of $totalPages";
 ```
 
 Both helpers sanitize their own inputs, so `$_GET` values can be passed
-straight in. `likeContains()` escapes quotes and the LIKE wildcards `%` and
-`_`, so a search for `50%` matches the literal text `50%`. `pagingSql()`
+straight in: `likeContains()` escapes quotes and the LIKE wildcards `%` and
+`_`, so a search for `50%` matches the literal text `50%`; `pagingSql()`
 casts the page number to `int` and falls back to page 1 on anything empty or
 non-numeric.
 
@@ -283,7 +283,7 @@ $hasEmailIndex = DB::query("SHOW INDEX FROM ::users")->column('Column_name')->co
 ```
 
 For a one-off check straight against the database, `DB::count()` above is
-the better tool. `contains()` earns its keep when the collection is already
+the better tool; `contains()` earns its keep when the collection is already
 in hand, or when several values get tested against the same one.
 
 ## Default Missing Numbers to Zero - `or()`
@@ -381,8 +381,8 @@ echo "<script>let userName = {$user->name->jsonEncode()};</script>";
 ## Click-to-Call Phone Links - `pregReplace()`
 
 A `tel:` link needs bare digits; the displayed number keeps its formatting.
-`pregReplace()` runs a regex on the raw value and returns a new value that
-HTML-encodes on output like any other:
+To get both, `pregReplace()` runs a regex on the raw value and returns a new
+value that HTML-encodes on output like any other:
 
 ```php
 <a href="tel:<?= $user->phone->pregReplace('/\D/', '') ?>"><?= $user->phone ?></a>

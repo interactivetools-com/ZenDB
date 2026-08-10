@@ -66,7 +66,7 @@ encryption box on an existing field.
 
 ## Writing and Reading Encrypted Data
 
-With the key set, nothing about your queries changes. `insert()` and
+With the key set, nothing about your queries changes: `insert()` and
 `update()` encrypt `MEDIUMBLOB` values before they reach MySQL, and every read
 method (`select()`, `selectOne()`, `query()`, `queryOne()`) decrypts them in
 the results:

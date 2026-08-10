@@ -105,13 +105,13 @@ coding assistants.
   cause
 - Float values - Now written to SQL with exact round-trip precision; PHP's
   string cast rounds to 14 significant digits, so very large floats could
-  silently match the wrong rows. `NAN` and `INF` now throw
+  silently match the wrong rows. Passing `NAN` or `INF` now throws
   `InvalidArgumentException`
 - Empty arrays in IN lists - Now expand to the zero-row subquery
   `SELECT 0 FROM (SELECT 0) empty_set WHERE 0` instead of the literal
   `NULL`, so `NOT IN` with an empty exclusion list matches all rows;
-  previously `NOT IN (NULL)` silently matched none. `IN` with an empty
-  list still matches nothing
+  previously `NOT IN (NULL)` silently matched none. Empty `IN` lists
+  still match nothing
 - `DB::pagingSql()` - Page numbers too large for the offset math are now
   clamped; previously the multiply overflowed to float and wrote
   `OFFSET 9.2233720368548E+18`, a MySQL syntax error (1064) reachable

@@ -93,7 +93,7 @@ echo $user->lastLogin->dateFormat('M j, Y')->or('Never');
 
 ## Debugging with `print_r()`
 
-The result objects describe themselves when inspected. `print_r()` shows the
+The result objects describe themselves when inspected; `print_r()` shows the
 data, and `->debug()` adds the executed SQL and MySQL metadata:
 
 ```php
@@ -123,7 +123,7 @@ $result = DB::query("INSERT INTO ::users SET name = ?", 'Alice');
 $newId  = $result->mysqli('insert_id');
 ```
 
-That's for inserts written as raw SQL. `DB::insert()` returns the new ID
+That's for inserts written as raw SQL; `DB::insert()` returns the new ID
 directly, no metadata call needed.
 
 ## Result Methods (Collections)

@@ -60,7 +60,7 @@ connection starts utf8mb4, including reused pooled connections.
 ### Unencoded Output - `rawHtml()`
 
 Every value from ZenDB HTML-encodes itself in string context, so normal output
-is XSS-safe without effort. `rawHtml()` is the single exception: it returns
+is XSS-safe without effort. The single exception is `rawHtml()`: it returns
 the value unencoded.
 
 ```php

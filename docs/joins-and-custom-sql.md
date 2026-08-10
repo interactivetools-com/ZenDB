@@ -8,7 +8,7 @@ Joins, the table-qualified keys ZenDB adds to multi-table results.
 
 `DB::query()` runs SQL you write yourself, with the same protections as
 `select()`. The template guard still rejects quotes and inline numbers, and
-values still enter through placeholders. `DB::queryOne()` works the same way
+values still enter through placeholders; `DB::queryOne()` works the same way
 but returns only the first row:
 
 ```php
@@ -104,7 +104,7 @@ print_r($row);
 // [orders.total]     => 100.00
 ```
 
-Qualified keys follow one rule: reading the key should tell you the source.
+Qualified keys follow one rule: reading the key should tell you the source -
 `users.id` means the `id` column of the `users` table, no query context
 needed. That's why the prefix is dropped (`cms_users` still produces
 `users.id`), why aliases don't get keys (`FROM ::users u` also produces

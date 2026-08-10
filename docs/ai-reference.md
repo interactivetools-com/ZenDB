@@ -311,8 +311,8 @@ DB::insert('users', [
 
 ## DB::query() / DB::queryOne() -- Custom SQL
 
-Full SQL with all safety checks still enforced. `query()` returns
-`SmartArrayHtml` collection. `queryOne()` returns the first row only.
+Full SQL with all safety checks still enforced; `query()` returns
+`SmartArrayHtml` collection; `queryOne()` returns the first row only.
 Auto-adds `LIMIT 1` (for SELECT/WITH). **Throws if you add LIMIT or OFFSET.**
 
 ```php
@@ -608,7 +608,7 @@ DB::$mysqli->affected_rows;
 Returns `mysqli_result|true`, not ZenDB collections; failures throw
 `mysqli_sql_exception`. Results skip auto-decryption (see Encryption).
 
-Connections are always utf8mb4. `set_charset()` throws on any other charset;
+Connections are always utf8mb4: `set_charset()` throws on any other charset;
 changing the charset with raw SQL (`SET NAMES`) is unsupported. Every new
 connection starts utf8mb4, including pooled reuse.
 
@@ -635,9 +635,9 @@ Each Connection has the same methods as `DB::` (`select`, `selectOne`,
 
 With `encryptionKey` set in `DB::connect()`, every `MEDIUMBLOB` column is
 AES-128-ECB encrypted on `insert()`/`update()` and decrypted on read; no
-query changes needed. `MEDIUMBLOB` is then reserved for encrypted data --
+query changes needed. That reserves `MEDIUMBLOB` for encrypted data --
 store plain binary (images, files) in `BLOB` or `LONGBLOB`, which are left
-alone. `NULL` passes through unencrypted.
+alone; `NULL` passes through unencrypted.
 
 ```php
 // Exact match: encrypt the search value in PHP (encryption is deterministic)
@@ -652,10 +652,11 @@ DB::decryptRows($rows, $result->fetch_fields());
 ```
 
 `DB::encryptValue()` produces the same ciphertext as `insert()`/`update()`,
-so it also writes encrypted values through raw SQL. `{{table.column}}` works
-in joins: write the column reference as you would unencrypted, wrapped in
-braces. `::` applies `tablePrefix` inside `{{}}` (`{{::users.apiToken}}`
-matches `FROM ::users`); alias qualifiers stay as written (`{{u.apiToken}}`).
+so it also writes encrypted values through raw SQL. For joins, write the
+column reference as you would unencrypted, wrapped in braces
+(`{{table.column}}`). Inside `{{}}`, `::` applies `tablePrefix`
+(`{{::users.apiToken}}` matches `FROM ::users`); alias qualifiers stay as
+written (`{{u.apiToken}}`).
 
 ```php
 // Build decrypt expressions for SQL you assemble yourself ({{column}} expands to this)

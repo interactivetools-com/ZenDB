@@ -150,8 +150,8 @@ DB::select('users', "id IN (:ids)", [':ids' => [1, 2, 3]]);
 ### "This method doesn't support LIMIT or OFFSET"
 
 **What happened:** The template passed to `selectOne()`, `queryOne()`, or
-`count()` contains `LIMIT` or `OFFSET`. `selectOne()` and `queryOne()` append
-`LIMIT 1` themselves, and `count()` returns a single number; a caller-supplied
+`count()` contains `LIMIT` or `OFFSET`; `selectOne()` and `queryOne()` append
+`LIMIT 1` themselves, and `count()` returns a single number, so a caller-supplied
 `LIMIT` conflicts with both.
 
 ```php
@@ -352,7 +352,7 @@ DB::select('users', "id IN (:ids)", [':ids' => [1, null, 3]]);
 ```
 
 Second, an empty array expands to `SELECT 0 FROM (SELECT 0) empty_set WHERE 0`, a subquery
-that returns zero rows: an empty set. `IN` of an empty set matches nothing
+that returns zero rows: an empty set; `IN` of an empty set matches nothing
 and `NOT IN` of an empty set matches everything, so both directions do what
 an empty list should:
 

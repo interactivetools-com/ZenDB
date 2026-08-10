@@ -1,7 +1,7 @@
 # Method Reference
 
 Every supported method, constant, and property in one place: signatures, return
-types, and a one-line description each. `DB::` is a static facade over a
+types, and a one-line description each. The `DB` class is a static facade over a
 default connection; methods below also exist on `Connection` instances
 (`$db->select(...)`) with the same signature, except the four marked `DB` only
 and connecting itself (`new Connection($config)` connects in the constructor).
