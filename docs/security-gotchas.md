@@ -86,21 +86,8 @@ deliberate opt-outs, not misused reads.
 ## The Empty-Quotes Gap
 
 The template guard rejects quotes, so interpolating a value into quotes you
-wrote yourself throws the first time it runs with real data:
-
-```php
-$name = $_GET['name']; // "Vancouver"
-
-// This throws - the interpolated value puts quotes in the template
-DB::query("SELECT * FROM ::users WHERE name = '$name'");
-// Throws: Quotes not allowed in template. Replace 'Vancouver' with :paramName and add: [ ':paramName' => 'Vancouver' ]
-
-// The placeholder form
-DB::query("SELECT * FROM ::users WHERE name = ?", $name);
-```
-
-You can't ship the wrong form by accident, because it breaks the moment any
-real value reaches it. That is the guard working as designed.
+wrote yourself (`WHERE name = '$name'` instead of `WHERE name = ?`) throws
+the first time it runs with real data; you can't ship that form by accident.
 
 There is one gap. The guard allows the empty-string literal `''` (a common,
 harmless thing to write, as in `WHERE name != ''`). An attacker whose value
