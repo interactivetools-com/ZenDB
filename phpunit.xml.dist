@@ -4,9 +4,11 @@
          bootstrap="tests/bootstrap.php"
          colors="true"
          executionOrder="depends,defects"
-         beStrictAboutOutputDuringTests="true"
+         failOnWarning="true"
+         failOnNotice="true"
+         failOnDeprecation="true"
          failOnRisky="true"
-         failOnWarning="true">
+         beStrictAboutOutputDuringTests="true">
 
   <testsuites>
     <testsuite name="ZenDB Test Suite">
