@@ -34,6 +34,8 @@ class Connection
 
     /**
      * The raw mysqli connection instance. You can use this for direct access to mysqli methods if needed.
+     *
+     * TODO-PHP84: Make this `public private(set)` so it can't be set by accident; reads keep working.
      */
     public ?MysqliWrapper $mysqli = null;
 
@@ -41,6 +43,8 @@ class Connection
      * Identity facts about the connected database server. Set at connect, null when disconnected.
      *
      *     $db->server->version();  // "10.6.27"
+     *
+     * TODO-PHP84: Make this `public private(set)` so it can't be set by accident; reads keep working.
      */
     public ?Server $server = null;
 
@@ -51,12 +55,17 @@ class Connection
      *
      *     $db->table->exists('users');  // true/false
      *
+     * TODO-PHP84: Make this `public private(set)` so it can't be set by accident; reads keep working.
+     *
      * @internal API may change between releases
      */
     public ?TableInfo $table = null;
 
     /**
-     * Table prefix prepended to table names (e.g., 'cms_')
+     * Table prefix prepended to table names (e.g., 'cms_').
+     * Set it with DB::connect(['tablePrefix' => ...]) or DB::clone(['tablePrefix' => ...]), which validate it.
+     *
+     * TODO-PHP84: Make this `public private(set)` so it can't be set by accident; reads keep working.
      */
     public string $tablePrefix = '';
 
