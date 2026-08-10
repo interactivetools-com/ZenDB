@@ -215,6 +215,20 @@ Kept from the exploration (correct regardless of dots):
 
 ---
 
+## HTML Composition - DECIDED: SmartString's appendHtml()/wrapHtml() are the answer (2026-08)
+
+The question started here: templates wrapping a query-result field in markup
+only when the field has a value. The ruling lives with the string type:
+SmartString's `appendHtml()`/`wrapHtml()` cover the idiom (missing value
+returns "", so the whole wrapper vanishes), and result fields are
+SmartStrings so they get both directly - ZenDB adds nothing. Rejected across
+the family: a SmartHtml type, encode-on-append, entity-sniffing, and further
+`*Html()` name variants. If richer safe-HTML composition is ever needed, the
+design is a dedicated safe-HTML type (details in SmartString's
+design-decisions entry).
+
+---
+
 ## Undocumented on Purpose - DECIDED (2026-07)
 
 The docs deliberately omit these; the omission is a decision, not a gap

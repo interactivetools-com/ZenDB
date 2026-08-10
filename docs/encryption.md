@@ -186,6 +186,24 @@ the log. If you see this warning, either the key changed or the column still
 holds unencrypted rows from before encryption was turned on; both mean stop
 and re-encrypt, not ignore.
 
+## Schema Changes Mid-Request
+
+ZenDB reads a table's column types the first time it needs them and caches the
+answer for the life of the connection. Change a table's schema while the same
+PHP process is still running and it keeps using the cached list, so a column
+can stop being encrypted on write or stop being decrypted on read, with no
+warning either way.
+
+Reconnect after a mid-request schema change:
+
+```php
+DB::disconnect();
+DB::connect($config);
+```
+
+Import and upgrade scripts are where this comes up. Normal page requests don't
+change schemas, so the cached list stays correct for the whole request.
+
 ## How the Keys Line Up
 
 ZenDB uses AES-128-ECB because it's the strongest encryption that works on
