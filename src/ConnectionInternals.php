@@ -953,17 +953,24 @@ trait ConnectionInternals
      *
      * False negatives just take the metadata path; false positives would silently
      * drop SmartJoins keys, so anything that could involve a second table answers
-     * no: JOIN, or a comma anywhere after the first FROM (comma-joins, and
-     * conservatively multi-column ORDER BY). RawSql fragments can land anywhere in
-     * the SQL, so they also reject FROM and bare commas; pagingSql's
-     * 'LIMIT x OFFSET y' passes. UNIONs are single-table-equivalent: no server
+     * no: a statement that isn't SELECT or WITH (CALL and EXECUTE run SQL the
+     * template doesn't contain), JOIN, or a comma anywhere after the first FROM
+     * (comma-joins, and conservatively multi-column ORDER BY). RawSql fragments
+     * can land anywhere in the SQL, so they also reject FROM and bare commas;
+     * pagingSql's 'LIMIT x OFFSET y' passes. UNIONs are single-table-equivalent: no server
      * attributes union result columns in fetch_fields() (table/orgtable empty on
      * all 22 matrix servers), so SmartJoins can't trigger and duplicate columns
      * are still caught structurally. See docs/internal/db-behavior-matrix.md.
      */
     private function isSingleTableQuery(string $template): bool
     {
-        if (preg_match('/join|from.*,/is', $template)) {
+        if (!preg_match('/^\s*(SELECT|WITH)\b/i', $template)) {
+            return false;   // CALL, EXECUTE, and friends: the tables they read aren't in the template
+        }
+
+        // [^,]* rather than .*: same answer, no backtracking. preg_match returns false when
+        // PCRE gives up, and that has to land on the metadata path, not the fast one.
+        if (preg_match('/join|from[^,]*,/is', $template) !== 0) {
             return false;
         }
 
