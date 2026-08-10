@@ -97,34 +97,32 @@ class Table
      */
     public static function defaultFromDefinition(string $definitionSql): ?string
     {
-        $quotedRx = '\'(?:[^\'\\\\]++|\\\\.|\'\')*+\'';
+        // hide quoted text (enum values, comment text) so only structural keywords can match
+        [$masked, $literals] = TableInfo::maskStringLiterals($definitionSql);
 
-        // scan left to right, skipping quoted literals (enum values, comment text), so only the
-        // structural keywords steer the parse
-        $valueOffset = null;
-        preg_match_all("~$quotedRx|\\bGENERATED ALWAYS AS\\b|\\bDEFAULT ~", $definitionSql, $matches, PREG_OFFSET_CAPTURE);
-        foreach ($matches[0] as [$token, $offset]) {
-            if ($token[0] === "'") { // quoted literal: text, not structure
-                continue;
-            }
-            if ($token === 'GENERATED ALWAYS AS') { // generated columns can't have a DEFAULT clause
-                return null;
-            }
-            $valueOffset = $offset + strlen($token);
-            break;
-        }
-        if ($valueOffset === null) {
+        if (str_contains($masked, 'GENERATED ALWAYS AS')) { // generated columns can't have a DEFAULT clause
             return null;
         }
+        if (!preg_match('/\bDEFAULT /', $masked, $match, PREG_OFFSET_CAPTURE)) {
+            return null;
+        }
+        $valueOffset = $match[0][1] + strlen('DEFAULT ');
 
-        // the value is a quoted literal ('' or backslash escaping), a parenthesized expression
-        // (parens balanced, quote-aware so a ')' inside a string literal doesn't end it), or a bare
-        // token (0, NULL, current_timestamp())
-        if (!preg_match("~\\G($quotedRx|(\\((?:[^()']++|$quotedRx|(?2))*+\\))|\\S+)~", $definitionSql, $match, 0, $valueOffset)) {
+        // the value is a parenthesized expression (parens in quoted text are masked, so a plain
+        // walk balances them) or a single token: a masked string literal, 0, NULL, current_timestamp()
+        if (($masked[$valueOffset] ?? '') === '(') {
+            $close = TableInfo::matchingParenPos($masked, $valueOffset);
+            if ($close === null) {
+                return null;
+            }
+            $value = substr($masked, $valueOffset, $close - $valueOffset + 1);
+        } elseif (preg_match('/\G\S+/', $masked, $valueMatch, 0, $valueOffset)) {
+            $value = $valueMatch[0];
+        } else {
             return null; // nothing after DEFAULT: not a shape any server prints
         }
-        $default = $match[1];
 
+        $default = strtr($value, $literals); // restore the original quoted text
         if ($default === 'NULL') {
             return null;
         }

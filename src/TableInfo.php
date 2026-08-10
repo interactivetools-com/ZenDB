@@ -681,7 +681,7 @@ class TableInfo
      * Find the ')' that closes the '(' at $openPos, or null if it never closes.
      * Callers pass masked text, so parens inside string literals can't miscount.
      */
-    private static function matchingParenPos(string $maskedText, int $openPos): ?int
+    public static function matchingParenPos(string $maskedText, int $openPos): ?int
     {
         $depth = 0;
         for ($pos = $openPos, $length = strlen($maskedText); $pos < $length; $pos++) {
