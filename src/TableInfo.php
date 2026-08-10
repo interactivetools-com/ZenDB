@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Itools\ZenDB;
 
+use InvalidArgumentException;
 use RuntimeException;
 use mysqli_sql_exception;
 
@@ -53,13 +54,14 @@ class TableInfo
     //region Tables
 
     /**
-     * Check whether a table exists and can be queried. Any name is a fair question,
-     * including one MySQL wouldn't accept as an identifier: missing table, broken view,
-     * or missing privilege all answer false. The one thing that throws is a connection
-     * failure - there's no answer to report, and every query behaves the same way there.
+     * Check whether a table exists and can be queried. An invalid name throws, same as
+     * every other method that takes a table name; a missing table, broken view, or
+     * missing privilege answers false. A connection failure also throws - there's no
+     * answer to report, and every query behaves the same way there.
      *
      *     Table::exists('articles');       // true
      *     Table::exists('no_such_table');  // false
+     *     Table::exists('bad`name');       // throws InvalidArgumentException
      *
      * The check probes the table with a zero-row SELECT instead of reading information_schema,
      * so views and this connection's temporary tables count as existing (information_schema
@@ -68,18 +70,17 @@ class TableInfo
      * macOS servers, case-sensitive on most Linux servers (lower_case_table_names).
      * See docs/internal/db-behavior-matrix.md (2026-07).
      *
-     * For a name that already includes the prefix use existsFull().
+     * For a name that already includes the prefix use existsFull(). For a name ZenDB
+     * couldn't have created (dots, spaces, another database), see existsFull() for the
+     * information_schema query.
      *
      * @param string $baseTable Table name without prefix
      * @return bool True when a table, view, or temporary table by that name exists
+     * @throws InvalidArgumentException For names with characters outside a-z, A-Z, 0-9, _, -
      */
     public function exists(string $baseTable): bool
     {
-        // exists() never throws, so a bad name gets an answer instead of an error:
-        // a name outside the identifier charset can't be one of our tables
-        if (!preg_match('/^[\w-]+\z/', $baseTable)) {
-            return false;
-        }
+        DB::assertIdentifier($baseTable, 'table name');
         return $this->existsFull($this->db->tablePrefix . $baseTable);
     }
 
@@ -91,21 +92,24 @@ class TableInfo
      *     Table::existsFull('cms_articles');  // true
      *     Table::existsFull('articles');      // false (the real name is cms_articles)
      *
+     * An invalid name throws, same as exists(). To check a name ZenDB couldn't have
+     * created (a dotted name another tool made, or a table in another database), ask
+     * information_schema - it just can't see temporary tables:
+     *
+     *     $found = DB::queryOne("
+     *         SELECT COUNT(*) AS cnt FROM information_schema.TABLES
+     *         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?
+     *     ", 'legacy.dotted_name')->cnt->int() > 0;
+     *
      * @param string $fullTable Table name exactly as MySQL knows it
      * @return bool True when a table, view, or temporary table by that name exists
+     * @throws InvalidArgumentException For names with characters outside a-z, A-Z, 0-9, _, -
      */
     public function existsFull(string $fullTable): bool
     {
-        // The identifier charset plus dots: ZenDB never creates dotted names, but other
-        // tools do, and inside backticks a dot is just part of the name, so they're a
-        // fair question here. Anything outside this charset isn't safe to query and
-        // can't exist anyway
-        if (!preg_match('/^[\w.-]+\z/', $fullTable)) {
-            return false;
-        }
+        DB::assertIdentifier($fullTable, 'table name'); // guarantees the name is safe between backticks
         try {
-            $escapedFullTable = $this->mysqli->real_escape_string($fullTable);
-            $this->mysqli->query("SELECT 1 FROM `$escapedFullTable` LIMIT 0")->free();
+            $this->mysqli->query("SELECT 1 FROM `$fullTable` LIMIT 0")->free();
             return true;
         } catch (mysqli_sql_exception $e) {
             // Codes 2000-2999 are the client library's: the exchange with the server never

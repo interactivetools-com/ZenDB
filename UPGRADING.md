@@ -49,6 +49,15 @@ Full lists of what changed per release: [CHANGELOG.md](CHANGELOG.md).
 >   'tablePrefix' => 'client2_cms_',  // was 'client2.cms_'
 >   ```
 
+### Behavior changes
+
+> - `Table::exists()` and `Table::existsFull()` throw
+>   `InvalidArgumentException` for names with characters outside
+>   `a-z A-Z 0-9 _ -`, same as the other table methods. The deprecated
+>   `DB::hasTable()` and `DB::tableExists()` keep returning false for
+>   invalid names, so existing code only changes behavior when it moves
+>   to the new methods.
+
 ### Silent changes
 
 > - Passing a result field (a SmartString) back into a query as a value,

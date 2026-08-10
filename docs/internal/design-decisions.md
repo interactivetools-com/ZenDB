@@ -200,10 +200,16 @@ Kept from the exploration (correct regardless of dots):
 - Base names are validated before the prefix is added; `columns()`,
   `hasColumn()`/`columnNames()`, and the FOREIGN KEY methods fail fast on
   invalid names like the other schema helpers.
-- `exists()` keeps its never-throws contract and answers false for names
-  outside the identifier charset.
-- `existsFull()` accepts dots in the names it's asked about: literal-dot
-  tables are legal MySQL and other tools create them.
+- `exists()` and `existsFull()` throw for invalid names, dots included,
+  same as every other method that takes a table name. A dot carve-out for
+  existsFull() was considered and dropped: it was really motivated by our
+  own dotted-prefix support, existsFull() already answered false for other
+  legal MySQL names like `my table`, and both probes only ever see the
+  current database (clone() can't switch databases; a clone shares the
+  mysqli connection, so `USE` would switch the original too). Checking a
+  name ZenDB couldn't have created is an information_schema one-liner,
+  shown in the existsFull() docblock. The deprecated hasTable() and
+  tableExists() shims keep answering false for invalid names.
 - `decryptExpr()` takes one dot at most (column or table.column); a second
   dot would build a database-qualified reference no caller means.
 

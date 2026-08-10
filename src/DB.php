@@ -337,7 +337,7 @@ class DB
      */
     public static function decryptExpr(string $column): string
     {
-        if (!preg_match('/^[\w-]+(?:\.[\w-]+)?\z/', $column)) { // column or table.column, one dot at most
+        if (!preg_match('/^[\w-]+(?:\.[\w-]+)?\z/', $column)) { // column or table.column, one dot at most; assertIdentifier()'s regex each side - keep them in sync
             throw new InvalidArgumentException("Invalid column name '$column' in decryptExpr(), expected column or table.column with characters: a-z, A-Z, 0-9, _, -");
         }
         $column = str_replace('.', '`.`', $column); // "blog.title" => "blog`.`title"

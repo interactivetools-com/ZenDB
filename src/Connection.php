@@ -981,14 +981,19 @@ class Connection
     //region Deprecations
 
     /**
-     * @deprecated Use $connection->table->exists() or ->table->existsFull() instead
+     * @deprecated Use $connection->table->exists() or ->table->existsFull() instead; note
+     *             they throw for invalid names where this returns false
      * @see        TableInfo::exists()
      * @see        TableInfo::existsFull()
      */
     #[Deprecated(reason: 'use ->table->exists() or ->table->existsFull() instead')]
     public function hasTable(string $table, bool $isPrefixed = false): bool
     {
-        return $isPrefixed ? $this->table->existsFull($table) : $this->table->exists($table);
+        try {
+            return $isPrefixed ? $this->table->existsFull($table) : $this->table->exists($table);
+        } catch (InvalidArgumentException) {
+            return false; // invalid name can't be a table
+        }
     }
 
     /**

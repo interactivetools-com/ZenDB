@@ -143,12 +143,19 @@ class TableIntegrationTest extends BaseTestCase
     }
 
     #[Test]
-    public function existsReturnsFalseForInvalidNamesInsteadOfThrowing(): void
+    public function existsThrowsForInvalidNames(): void
     {
-        $this->assertFalse(Table::exists('bad`name'), 'backtick fails the identifier check');
-        $this->assertFalse(Table::exists('bad name'), 'space fails the identifier check');
-        $this->assertFalse(Table::exists('users; DROP TABLE users'), 'injection attempt fails the identifier check');
-        $this->assertFalse(Table::exists(''), 'empty name is the bare prefix at best, never a real table');
+        // same rule as every other method that takes a table name; the deprecated
+        // hasTable()/tableExists() shims keep answering false (HasTableTest pins that)
+        $badNames = ['bad`name', 'bad name', 'users; DROP TABLE users', '', 'no.dots'];
+        foreach ($badNames as $badName) {
+            try {
+                Table::exists($badName);
+                $this->fail("Table::exists('$badName') should throw");
+            } catch (InvalidArgumentException $e) {
+                $this->assertStringContainsString('Invalid table name', $e->getMessage());
+            }
+        }
     }
 
     #[Test]
@@ -156,10 +163,25 @@ class TableIntegrationTest extends BaseTestCase
     {
         $this->assertTrue(Table::existsFull($this->fullTable), 'the real full name matches');
         $this->assertFalse(Table::existsFull($this->fullTable . '_no_such_table'));
-        $this->assertFalse(Table::existsFull('bad`name'), 'invalid names return false, like exists()');
-        $this->assertFalse(Table::existsFull('no_such.dotted_table'), 'dots are askable: other tools create literal-dot tables');
         if (DB::$tablePrefix !== '') {
             $this->assertFalse(Table::existsFull($this->baseTable), 'the base name alone is not the MySQL name');
+        }
+    }
+
+    #[Test]
+    public function existsFullThrowsForInvalidNames(): void
+    {
+        // dots included: ZenDB can't create a dotted name, so asking about one is a coding
+        // mistake; the existsFull() docblock shows the information_schema query for tables
+        // other tools created
+        $badNames = ['bad`name', 'no_such.dotted_table', ''];
+        foreach ($badNames as $badName) {
+            try {
+                Table::existsFull($badName);
+                $this->fail("Table::existsFull('$badName') should throw");
+            } catch (InvalidArgumentException $e) {
+                $this->assertStringContainsString('Invalid table name', $e->getMessage());
+            }
         }
     }
 

@@ -636,7 +636,8 @@ trait ConnectionInternals
 
                 $value = $this->getPlaceholderValue($match, $positionalCount);
 
-                // Backtick placeholders: insert safe identifiers (table/column names) unquoted (or throw if unsafe)
+                // Backtick placeholders: insert safe identifiers (table/column names) unquoted (or throw if unsafe).
+                // Same regex as assertIdentifier() - if that ever changes, change this too
                 if ($match[0] === '`') {
                     $isSafeIdentifier = is_string($value) && preg_match('/^[\w-]+\z/', $value); // + rejects '', \z rejects trailing newline
                     return $isSafeIdentifier ? "`$value`" : throw new InvalidArgumentException("Invalid backtick identifier: " . var_export($value, true) . ". Only word characters (a-z, 0-9, _, -) allowed.");
@@ -1248,7 +1249,7 @@ trait ConnectionInternals
      */
     private function assertValidTablePrefix(): void
     {
-        if (!preg_match('/^[\w-]*\z/', $this->tablePrefix)) {
+        if (!preg_match('/^[\w-]*\z/', $this->tablePrefix)) { // assertIdentifier()'s regex with * so '' passes - keep them in sync
             throw new InvalidArgumentException("Invalid tablePrefix '$this->tablePrefix', allowed characters: a-z, A-Z, 0-9, _, -");
         }
     }

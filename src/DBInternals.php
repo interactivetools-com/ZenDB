@@ -77,6 +77,9 @@ trait DBInternals
      * matters there, since real_escape_string() doesn't escape backticks, so escaping
      * alone can't make an identifier safe. $what names the value in the error message.
      *
+     * A few places inline this regex (or a close variant) instead of calling it - grep
+     * for [\w- before changing the charset so they all move together.
+     *
      *     DB::assertIdentifier($fullTable, 'table name'); // throws for 'title; DROP TABLE users'
      *
      * @internal
@@ -155,7 +158,7 @@ trait DBInternals
     //region Deprecations
 
     /**
-     * @deprecated Use Table::exists() instead
+     * @deprecated Use Table::exists() instead; note it throws for invalid names where this returns false
      * @see        Table::exists()
      * @noinspection PhpDeprecationInspection deliberate delegation, hasTable() keeps the isPrefixed flag working
      */
@@ -167,7 +170,7 @@ trait DBInternals
     }
 
     /**
-     * @deprecated Use Table::exists() instead
+     * @deprecated Use Table::exists() instead; note it throws for invalid names where this returns false
      * @see        Table::exists()
      * @noinspection PhpDeprecationInspection deliberate delegation, Connection::hasTable() keeps the isPrefixed flag working
      */
