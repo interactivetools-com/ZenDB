@@ -610,9 +610,10 @@ DB::$mysqli->affected_rows;
 Returns `mysqli_result|true`, not ZenDB collections; failures throw
 `mysqli_sql_exception`. Results skip auto-decryption (see Encryption).
 
-Connections are always utf8mb4: `set_charset()` throws on any other charset;
-changing the charset with raw SQL (`SET NAMES`) is unsupported. Every new
-connection starts utf8mb4, including pooled reuse.
+Connections are always utf8mb4. Never change it. `set_charset()` throws on any
+other charset. Raw SQL (`SET NAMES`, `SET CHARACTER SET`) is not blocked but
+defeats escaping and allows SQL injection: mysqli keeps escaping for utf8mb4
+while the server switches.
 
 ### Multiple Connections
 

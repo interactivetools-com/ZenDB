@@ -134,6 +134,9 @@ class MysqliWrapper extends mysqli
      * survives pooled-connection reuse into later requests. Throws on any other charset
      * so an accidental change fails loudly instead of corrupting data.
      *
+     * This only covers the method. "SET NAMES" through query() switches the server while
+     * mysqli keeps escaping for utf8mb4, which allows SQL injection; see docs/security-gotchas.md.
+     *
      * @see mysqli::set_charset()
      *
      * @param string $charset Must be 'utf8mb4'
