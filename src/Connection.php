@@ -115,9 +115,13 @@ class Connection
         // Seal credentials into vault (removes credential keys from $config)
         $this->sealSecrets(config: $config);
 
-        // Apply remaining config to properties
+        // Apply remaining config to properties (sealSecrets() already consumed the credential keys)
+        $settableKeys = ['tablePrefix', 'useSmartJoins', 'useSmartStrings', 'usePhpTimezone',
+                         'loadHandler', 'versionRequired', 'requireSSL', 'databaseAutoCreate',
+                         'connectTimeout', 'readTimeout', 'queryLogger', 'sqlMode'];
+
         foreach ($config as $key => $value) {
-            if (!property_exists($this, $key)) {
+            if (!in_array($key, $settableKeys, true)) {
                 throw new InvalidArgumentException("Unknown configuration key: '$key'");
             }
             $this->$key = $value;

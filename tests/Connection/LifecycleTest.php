@@ -8,6 +8,7 @@ namespace Itools\ZenDB\Tests\Connection;
 use Itools\ZenDB\DB;
 use Itools\ZenDB\Connection;
 use Itools\ZenDB\Tests\BaseTestCase;
+use PHPUnit\Framework\Attributes\DataProvider;
 use InvalidArgumentException;
 use RuntimeException;
 
@@ -136,6 +137,31 @@ class LifecycleTest extends BaseTestCase
         $this->expectExceptionMessage("Unknown configuration key: 'invalidKey'");
         $config = array_merge(self::$configDefaults, ['invalidKey' => 'value']);
         DB::connect($config);
+    }
+
+    /**
+     * Config keys are checked against an explicit list, not property_exists(), which is true
+     * for private properties too. Setting hasEncryptionKey desyncs encrypt from decrypt: writes
+     * encrypt, reads hand back raw ciphertext, and saving that value back double-encrypts it.
+     */
+    #[DataProvider('provideInternalPropertyNames')]
+    public function testInternalPropertiesRejectedAsConfigKeys(string $key, mixed $value): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage("Unknown configuration key: '$key'");
+        $config = array_merge(self::$configDefaults, [$key => $value]);
+        DB::connect($config);
+    }
+
+    public static function provideInternalPropertyNames(): array
+    {
+        return [
+            'private flag'   => ['hasEncryptionKey', false],
+            'private state'  => ['decryptWarned', true],
+            'private params' => ['paramValues', []],
+            'public mysqli'  => ['mysqli', null],
+            'public table'   => ['table', null],
+        ];
     }
 
     public function testDisconnect(): void
