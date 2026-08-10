@@ -876,7 +876,7 @@ class DocsExamplesTest extends BaseTestCase
     public function testPlaceholdersIdentifierRejectsInjection(): void
     {
         $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage("Invalid backtick identifier: 'name; DROP TABLE users'. Only word characters (a-z, 0-9, _, -) allowed.");
+        $this->expectExceptionMessage("Invalid backtick identifier 'name; DROP TABLE users', allowed characters: a-z, A-Z, 0-9, _, -");
 
         DB::select('users', "ORDER BY `:sort`", [':sort' => 'name; DROP TABLE users']);
     }
@@ -2130,7 +2130,7 @@ class DocsExamplesTest extends BaseTestCase
             $message = $e->getMessage();
         }
         $this->assertSame(
-            "Invalid backtick identifier: 'name; DROP TABLE x'. Only word characters (a-z, 0-9, _, -) allowed.",
+            "Invalid backtick identifier 'name; DROP TABLE x', allowed characters: a-z, A-Z, 0-9, _, -",
             $message
         );
     }
