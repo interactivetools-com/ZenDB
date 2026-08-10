@@ -33,7 +33,10 @@ use JetBrains\PhpStorm\Deprecated;
  * Deprecations elsewhere: Connection's deprecated instance methods are in
  * ConnectionDeprecations (same ladder), and deprecated argument shapes (e.g.
  * positional values in an array) are logged inline at their parse sites in
- * ConnectionInternals.
+ * ConnectionInternals. If one of those inline chunks grows past a few lines,
+ * extract the body to a private method named deprecated*() in the region
+ * matching its ladder stage - the live method keeps its signature and a
+ * one-line dispatch (see SmartArray's deprecatedWhereArraySyntax()).
  */
 trait DBDeprecations
 {
