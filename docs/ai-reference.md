@@ -208,15 +208,17 @@ Named placeholders can be reused in the same query.
 
 ### Positional `?`
 
-Max 3, passed as separate arguments. For 4 or more values, use named
-placeholders. Never pass positional values as a single array (deprecated),
-and arrays cannot be used as `?` values (ambiguous) -- use named placeholders.
+Max 3, passed as separate arguments. For 4 or more values, or any array
+value, use named placeholders.
 
 ```php
 DB::select('users', "name = ? AND city = ?", 'John', 'Vancouver');
 
-// Arrays require named placeholders
-DB::select('users', "id IN (:ids)", [':ids' => [1, 2, 3]]);
+// WRONG - PDO habit, one array of positional values: deprecated, and only the first element is used
+DB::select('users', "id IN (?)", [1, 2, 3]);                // runs as: id IN (1)
+
+// RIGHT - arrays go through named placeholders
+DB::select('users', "id IN (:ids)", [':ids' => [1, 2, 3]]); // runs as: id IN (1,2,3)
 ```
 
 ### Named `:name`
@@ -724,7 +726,7 @@ underscore, hyphen only).
   empty set: `IN` matches nothing, `NOT IN` matches everything.
   Expansion also skips `null` elements and removes duplicates: `[1, null, 1, 2]` → `IN (1,2)`.
 - **Boolean values:** `true`/`false` become SQL `TRUE`/`FALSE` keywords.
-- **Param forms:** up to 3 direct values for `?` placeholders, or one array of `:name` params. Never pass positional values as an array, e.g. `("a = ? AND b = ?", [1, 2])` -- that form is deprecated and will throw in a future version.
+- **Param forms:** up to 3 direct values for `?` placeholders, or one array of `:name` params. Positional values in one array are deprecated (see Positional `?` under Placeholders & Parameters).
 
 ---
 
