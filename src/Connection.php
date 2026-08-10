@@ -6,7 +6,6 @@ namespace Itools\ZenDB;
 use InvalidArgumentException;
 use Itools\SmartArray\SmartArrayBase;
 use Itools\SmartString\SmartString;
-use JetBrains\PhpStorm\Deprecated;
 use RuntimeException;
 use Throwable;
 use mysqli;
@@ -29,6 +28,7 @@ use WeakMap;
 class Connection
 {
     use ConnectionInternals;
+    use ConnectionDeprecations;
 
     //region Public Properties
 
@@ -975,56 +975,6 @@ class Connection
         }
 
         return $cache[$this];
-    }
-
-    //endregion
-    //region Deprecations
-
-    /**
-     * @deprecated Use $connection->table->exists() or ->table->existsFull() instead; note
-     *             they throw for invalid names where this returns false
-     * @see        TableInfo::exists()
-     * @see        TableInfo::existsFull()
-     */
-    #[Deprecated(reason: 'use ->table->exists() or ->table->existsFull() instead')]
-    public function hasTable(string $table, bool $isPrefixed = false): bool
-    {
-        try {
-            return $isPrefixed ? $this->table->existsFull($table) : $this->table->exists($table);
-        } catch (InvalidArgumentException) {
-            return false; // invalid name can't be a table
-        }
-    }
-
-    /**
-     * @deprecated Use $connection->table->names() or ->namesFull() instead
-     * @see        Table::names()
-     * @see        Table::namesFull()
-     */
-    #[Deprecated(reason: 'use ->table->names() or ->table->namesFull() instead')]
-    public function getTableNames(bool $withPrefix = false): array
-    {
-        return $withPrefix ? $this->table->namesFull() : $this->table->names();
-    }
-
-    /**
-     * @deprecated Use $connection->table->columnDefinitions() instead; note it throws for unknown
-     *             tables and invalid names where this returns []
-     * @see        TableInfo::columnDefinitions()
-     */
-    #[Deprecated(reason: 'use ->table->columnDefinitions() instead')]
-    public function getColumnDefinitions(string $baseTable): array
-    {
-        try {
-            return $this->table->columnDefinitions($baseTable);
-        } catch (mysqli_sql_exception $e) {
-            if (2000 <= $e->getCode() && $e->getCode() <= 2999) {
-                throw $e; // connection failure: no answer to report (see TableInfo::existsFull)
-            }
-            return []; // server answered: unknown table, invalid name, or no access means no definitions
-        } catch (InvalidArgumentException) {
-            return []; // invalid name can't have definitions
-        }
     }
 
     //endregion

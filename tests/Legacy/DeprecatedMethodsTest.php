@@ -11,9 +11,10 @@ use Itools\ZenDB\RawSql;
 use Itools\ZenDB\Tests\BaseTestCase;
 
 /**
- * Tests for deprecated static methods via __callStatic
+ * Tests for deprecated DB static methods: Logged-stage declared methods and the
+ * Fatal-stage __callStatic dispatch (see DBDeprecations for the ladder).
  *
- * @covers \Itools\ZenDB\DB::__callStatic
+ * @covers \Itools\ZenDB\DB
  */
 class DeprecatedMethodsTest extends BaseTestCase
 {

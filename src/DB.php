@@ -23,6 +23,7 @@ use Throwable;
 class DB
 {
     use DBInternals;
+    use DBDeprecations;
 
     //region Constants
 
