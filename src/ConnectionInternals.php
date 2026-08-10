@@ -1036,6 +1036,7 @@ trait ConnectionInternals
                 return $rows;
             }
             $mysqliResult->data_seek(0);  // duplicate columns: refetch through the metadata path
+            unset($rows);                 // assoc collapse is last-wins, we return first-wins: unusable, and it would sit here through the numeric fetch
         }
 
         // Field metadata finds encrypted columns (when a key is set) plus, for arbitrary
