@@ -256,6 +256,19 @@ The docs deliberately omit these; the omission is a decision, not a gap
 
 ---
 
+## Deprecation Notices - DECIDED: The `@` on `trigger_error()` stays (2026-08)
+
+`DBDeprecations::logDeprecation()` sends notices as `@trigger_error(...)`. The
+`@` mutes PHP's own display *and* its logging, so only a `set_error_handler()`
+ever sees them. That is the intent: notices are for handlers that collect them
+(CMS Builder's developer log), never for page output or PHP's default error
+log. Don't remove the `@` to make PHP log them.
+
+SmartString and SmartArray follow the same rule and state it at the call site;
+ZenDB's `logDeprecation()` has no comment saying so.
+
+---
+
 ## Other Ideas Rejected (2026-03)
 
 - **Schema awareness** (cache table schemas, ignore non-column keys, fuzzy column

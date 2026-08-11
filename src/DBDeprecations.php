@@ -172,6 +172,11 @@ trait DBDeprecations
     /**
      * Log a deprecation warning with caller location.
      *
+     * The @ suppressor mutes PHP's default display and logging. Only a custom error
+     * handler (set_error_handler) receives these notices; without one, nothing is
+     * shown or logged. This is deliberate: deprecation notices are meant for error
+     * handlers that collect them, never for page output.
+     *
      * @param string $message Deprecation message (caller file:line will be appended)
      * @internal
      */
