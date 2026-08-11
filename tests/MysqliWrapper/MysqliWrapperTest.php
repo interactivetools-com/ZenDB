@@ -193,6 +193,9 @@ class MysqliWrapperTest extends BaseTestCase
         $result = $conn->mysqli->execute_query("SELECT * FROM test_native_eq WHERE id = ?", [1]);
 
         $this->assertInstanceOf(\mysqli_result::class, $result);
+        if (PHP_VERSION_ID >= 80200) {
+            $this->assertFalse(self::polyfillRanLast($conn->mysqli), "Flag off on PHP 8.2+: native execute_query() must run, not the polyfill");
+        }
         $row = $result->fetch_assoc();
         $this->assertSame('Alice', $row['name']);
     }
@@ -207,11 +210,24 @@ class MysqliWrapperTest extends BaseTestCase
         $result = $conn->mysqli->execute_query("INSERT INTO test_native_eq2 (name) VALUES (?)", ['Native Test']);
 
         $this->assertTrue($result);
+        if (PHP_VERSION_ID >= 80200) {
+            $this->assertFalse(self::polyfillRanLast($conn->mysqli), "Flag off on PHP 8.2+: native execute_query() must run, not the polyfill");
+        }
         $this->assertSame(1, $conn->mysqli->insert_id);
     }
 
     //endregion
     //region execute_query Polyfill
+
+    /**
+     * True if the last execute_query() ran the polyfill branch; only that branch
+     * assigns the private stmtKeepAlive property, the native branch never touches it.
+     */
+    private static function polyfillRanLast(MysqliWrapper $mysqli): bool
+    {
+        $stmt = (new \ReflectionProperty(MysqliWrapper::class, 'stmtKeepAlive'))->getValue($mysqli);
+        return $stmt instanceof MysqliStmtWrapper;
+    }
 
     public function testForcePolyfillFlag(): void
     {
@@ -229,6 +245,7 @@ class MysqliWrapperTest extends BaseTestCase
             $result = $conn->mysqli->execute_query("SELECT * FROM test_polyfill LIMIT 1");
 
             $this->assertInstanceOf(\mysqli_result::class, $result);
+            $this->assertTrue(self::polyfillRanLast($conn->mysqli), "Flag set: the polyfill branch must run, not native execute_query()");
         } finally {
             // Restore
             MysqliWrapper::$forceExecuteQueryPolyfill = $original;
@@ -256,6 +273,7 @@ class MysqliWrapperTest extends BaseTestCase
             );
 
             $this->assertInstanceOf(\mysqli_result::class, $result);
+            $this->assertTrue(self::polyfillRanLast($conn->mysqli), "Flag set: the polyfill branch must run, not native execute_query()");
             $row = $result->fetch_assoc();
             $this->assertSame('Test', $row['name']);
         } finally {

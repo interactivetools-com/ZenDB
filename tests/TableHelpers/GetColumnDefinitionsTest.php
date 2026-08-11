@@ -75,14 +75,16 @@ class GetColumnDefinitionsTest extends BaseTestCase
 
     public function testStripsDefaultCharset(): void
     {
-        $columns = DB::getColumnDefinitions('users');
+        // A column that explicitly repeats the table's default charset: SHOW CREATE TABLE
+        // prints it, and the normalizer must strip it as redundant
+        DB::$mysqli->query("DROP TEMPORARY TABLE IF EXISTS test_charset_strip");
+        DB::$mysqli->query("CREATE TEMPORARY TABLE test_charset_strip (
+            note VARCHAR(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
 
-        // Default charset/collation should be stripped
-        foreach ($columns as $definition) {
-            // Common default charset patterns that should be removed
-            $this->assertStringNotContainsString('CHARACTER SET utf8mb4', $definition);
-            $this->assertStringNotContainsString('COLLATE utf8mb4_unicode_ci', $definition);
-        }
+        $columns = DB::getColumnDefinitions('charset_strip');
+        $this->assertStringNotContainsString('CHARACTER SET', $columns['note']);
+        $this->assertStringNotContainsString('COLLATE', $columns['note']);
     }
 
     public function testNonExistingTableReturnsEmpty(): void
@@ -116,9 +118,13 @@ class GetColumnDefinitionsTest extends BaseTestCase
     {
         $columns = DB::getColumnDefinitions('users');
 
-        // isAdmin is TINYINT(1) NULL
+        // isAdmin is nullable; a bare 'NULL' check would also match 'NOT NULL'
         $isAdminDef = $columns['isAdmin'] ?? '';
-        $this->assertStringContainsString('NULL', $isAdminDef);
+        $this->assertStringContainsString('DEFAULT NULL', $isAdminDef);
+        $this->assertStringNotContainsString('NOT NULL', $isAdminDef);
+
+        // And the contrast: num is NOT NULL
+        $this->assertStringContainsString('NOT NULL', $columns['num'] ?? '');
     }
 
     public function testAutoIncrementInfo(): void
@@ -128,17 +134,6 @@ class GetColumnDefinitionsTest extends BaseTestCase
         // num should have AUTO_INCREMENT
         $numDef = $columns['num'] ?? '';
         $this->assertStringContainsStringIgnoringCase('auto_increment', $numDef);
-    }
-
-    public function testPrimaryKeyColumn(): void
-    {
-        // Primary key info might be in the column definition
-        $columns = DB::getColumnDefinitions('users');
-        $numDef = $columns['num'] ?? '';
-
-        // Either has PRIMARY KEY in definition or auto_increment (which implies PK for InnoDB)
-        $hasPrimaryInfo = stripos($numDef, 'auto_increment') !== false;
-        $this->assertTrue($hasPrimaryInfo);
     }
 
     //endregion

@@ -236,10 +236,21 @@ class TableIntegrationTest extends BaseTestCase
     #[Test]
     public function namesSortSystemTablesAfterContentTablesEachGroupAlphabetical(): void
     {
-        $names = Table::names();
+        // The suite fixture has no _system tables, so without probes the system half
+        // asserts over an empty array; create two in reverse alphabetical order
+        DB::$mysqli->query("CREATE TABLE `" . DB::$tablePrefix . "_zz_probe` (num INT)");
+        DB::$mysqli->query("CREATE TABLE `" . DB::$tablePrefix . "_aa_probe` (num INT)");
+        try {
+            $names = Table::names();
+        } finally {
+            DB::$mysqli->query("DROP TABLE IF EXISTS `" . DB::$tablePrefix . "_zz_probe`");
+            DB::$mysqli->query("DROP TABLE IF EXISTS `" . DB::$tablePrefix . "_aa_probe`");
+        }
         $content   = array_values(array_filter($names, fn($name) => !str_starts_with($name, '_')));
         $system    = array_values(array_filter($names, fn($name) => str_starts_with($name, '_')));
 
+        $this->assertContains('_aa_probe', $system);
+        $this->assertContains('_zz_probe', $system);
         $this->assertSame([...$content, ...$system], $names, 'content tables first, then _system tables');
 
         $sortedContent = $content;
@@ -491,13 +502,20 @@ class TableIntegrationTest extends BaseTestCase
     #[Test]
     public function hiddenIndexReportsIsVisibleFalse(): void
     {
-        // MySQL 8 calls a hidden index INVISIBLE, MariaDB 10.6+ calls it IGNORED; older servers have neither
+        // MySQL 8 calls a hidden index INVISIBLE, MariaDB 10.6+ calls it IGNORED; older servers
+        // have neither and answer 1064 (parse error). Anything else is a real failure.
         try {
             DB::query("ALTER TABLE `?` ALTER INDEX idx_single INVISIBLE", $this->fullTable);
-        } catch (Throwable) {
+        } catch (mysqli_sql_exception $e) {
+            if ($e->getCode() !== 1064) {
+                throw $e;
+            }
             try {
                 DB::query("ALTER TABLE `?` ALTER INDEX idx_single IGNORED", $this->fullTable);
-            } catch (Throwable) {
+            } catch (mysqli_sql_exception $e) {
+                if ($e->getCode() !== 1064) {
+                    throw $e;
+                }
                 $this->markTestSkipped('Server supports neither INVISIBLE (MySQL 8) nor IGNORED (MariaDB 10.6+) indexes.');
             }
         }
@@ -510,11 +528,15 @@ class TableIntegrationTest extends BaseTestCase
     #[Test]
     public function functionalIndexColsShowTheExpression(): void
     {
-        // functional index parts are MySQL 8.0.13+ only; MariaDB uses virtual columns instead
+        // functional index parts are MySQL 8.0.13+ only; MariaDB and older MySQL answer
+        // 1064 (parse error). Anything else is a real failure.
         $extraBase = $this->createSideTable('_extra', 'email VARCHAR(50) NOT NULL');
         try {
             DB::query("ALTER TABLE `?` ADD INDEX idx_lower ((lower(email)))", DB::$tablePrefix . $extraBase);
-        } catch (Throwable) {
+        } catch (mysqli_sql_exception $e) {
+            if ($e->getCode() !== 1064) {
+                throw $e;
+            }
             $this->markTestSkipped('Server does not support functional index parts (MySQL 8.0.13+ only).');
         }
 

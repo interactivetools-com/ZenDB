@@ -24,10 +24,14 @@ class DocsCoverageTest extends BaseTestCase
     #[DataProvider('publicMethodsProvider')]
     public function testMethodIsInMethodReference(string $method): void
     {
-        $reference = file_get_contents(dirname(__DIR__, 2) . '/docs/method-reference.md');
-        $this->assertTrue(
-            str_contains($reference, "::$method(") || str_contains($reference, "->$method("),
-            "Public method $method() is not mentioned in docs/method-reference.md - document it, or mark it @internal or @deprecated in the source"
+        // Only a backticked signature opening a table row counts as documentation;
+        // the method's name appearing inside some other method's example does not
+        $reference  = file_get_contents(dirname(__DIR__, 2) . '/docs/method-reference.md');
+        $documented = preg_match('/^\|\s*`[^`|]*(::|->)' . preg_quote($method, '/') . '\(/m', $reference);
+        $this->assertSame(
+            1,
+            $documented,
+            "Public method $method() has no table row in docs/method-reference.md - document it, or mark it @internal or @deprecated in the source"
         );
     }
 

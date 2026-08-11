@@ -6,6 +6,7 @@ declare(strict_types=1);
 
 namespace Itools\ZenDB\Tests\ValueTypes;
 
+use InvalidArgumentException;
 use Itools\SmartArray\SmartArray;
 use Itools\SmartArray\SmartNull;
 use Itools\SmartString\SmartString;
@@ -122,22 +123,19 @@ class SmartTypeValuesTest extends BaseTestCase
     //endregion
     //region SmartNull
 
-    public function testSmartNullBecomesNull(): void
+    public function testSmartNullInSetClauseThrows(): void
     {
-        // SmartNull is not directly supported in insert() SET clause
-        // Use null directly instead
-        $insertId = DB::insert('users', [
+        // Placeholders unwrap SmartNull to SQL NULL (see testSmartNullInPlaceholder);
+        // the SET clause does not - it rejects SmartNull as an unsupported type
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage("Unsupported type for column 'isAdmin'");
+
+        DB::insert('users', [
             'name' => 'SmartNull Test',
-            'isAdmin' => null,
+            'isAdmin' => new SmartNull(),
             'status' => 'Active',
             'city' => 'Test'
         ]);
-
-        $row = DB::selectOne('users', ['num' => $insertId]);
-        $this->assertNull($row->get('isAdmin')->value());
-
-        // Clean up
-        DB::delete('users', ['num' => $insertId]);
     }
 
     public function testSmartNullInPlaceholder(): void
@@ -160,15 +158,11 @@ class SmartTypeValuesTest extends BaseTestCase
         $this->assertCount(3, $result);
     }
 
-    public function testSmartArrayInSetClause(): void
+    public function testSmartArrayEscapeCsv(): void
     {
-        // For multi-value columns stored as CSV
-        // Note: This depends on how the schema handles array values
-        // In most cases, arrays are converted to CSV strings
-
+        // Multi-value columns stored as CSV go through escapeCSV()
         $smartArray = new SmartArray(['tag1', 'tag2', 'tag3']);
 
-        // escapeCSV handles SmartArray
         $csv = DB::escapeCSV($smartArray->toArray());
         $this->assertSame("'tag1','tag2','tag3'", (string) $csv);
     }
@@ -188,7 +182,8 @@ class SmartTypeValuesTest extends BaseTestCase
 
     public function testMixedSmartTypes(): void
     {
-        $name = new SmartString('Test User');
+        // Bob Johnson is Suspended, so the name match adds a row the status list doesn't
+        $name = new SmartString('Bob Johnson');
         $smartArray = new SmartArray(['Active', 'Inactive']);
 
         $result = DB::query(
@@ -196,8 +191,8 @@ class SmartTypeValuesTest extends BaseTestCase
             [':name' => $name, ':statuses' => $smartArray]
         );
 
-        // All Active and Inactive users, plus exact name match
-        $this->assertCount(15, $result);
+        // 10 Active + 5 Inactive + 1 Suspended name match
+        $this->assertCount(16, $result);
     }
 
     public function testSmartStringFromQueryResult(): void

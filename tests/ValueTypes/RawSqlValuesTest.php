@@ -148,6 +148,7 @@ class RawSqlValuesTest extends BaseTestCase
             "SELECT * FROM ::users WHERE age BETWEEN ? AND ?",
             [DB::rawSql('25'), DB::rawSql('35')]
         );
+        $this->assertCount(10, $result); // 0 rows would skip the loop below
 
         foreach ($result as $row) {
             $age = $row->get('age')->value();

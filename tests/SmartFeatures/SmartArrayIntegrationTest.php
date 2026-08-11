@@ -255,15 +255,6 @@ class SmartArrayIntegrationTest extends BaseTestCase
     //endregion
     //region SmartStrings Toggle
 
-    public function testUseSmartStringsTrue(): void
-    {
-        // Default behavior
-        $result = DB::select('users', ['num' => 1]);
-        $row = $result->first();
-
-        $this->assertInstanceOf(SmartString::class, $row->get('name'));
-    }
-
     public function testSmartStringsEnabled(): void
     {
         // Default behavior - SmartStrings enabled

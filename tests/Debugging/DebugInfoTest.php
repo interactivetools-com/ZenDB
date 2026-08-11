@@ -31,20 +31,6 @@ class DebugInfoTest extends BaseTestCase
         $secrets[$conn]             = $entry;
     }
 
-    public function testDebugInfoMasksPassword(): void
-    {
-        // configDefaults has password '' which is empty and won't be masked
-        // Use a separate connection with a real password to test masking
-        $conn = new Connection(self::$configDefaults);
-
-        // Inject a non-empty password into the vault to test masking
-        $debugInfo = $conn->__debugInfo();
-        $this->assertArrayHasKey('password', $debugInfo);
-
-        // With empty password, should NOT be masked
-        $this->assertSame('', $debugInfo['password']);
-    }
-
     public function testDebugInfoMasksNonEmptyPassword(): void
     {
         // Connect normally, then inject a non-empty password into the vault to test masking

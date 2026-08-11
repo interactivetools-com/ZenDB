@@ -192,8 +192,8 @@ class PagingSqlTest extends BaseTestCase
 
     public function testPagingSqlWithCondition(): void
     {
-        // Paginate only Active users
-        $activeCount = DB::count('users', ['status' => 'Active']);
+        // Paginate only Active users; 10 in the fixture, so page 1 of 5 is full
+        $this->assertSame(10, DB::count('users', ['status' => 'Active']));
 
         // Use named placeholders for status and pagingSql
         $page1 = DB::select('users', "status = :status ORDER BY num :paging", [':status' => 'Active', ':paging' => DB::pagingSql(1, 5)]);

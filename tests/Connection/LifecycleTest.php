@@ -188,8 +188,24 @@ class LifecycleTest extends BaseTestCase
         DB::connect(self::$configDefaults);
 
         $independent = new Connection(self::$configDefaults);
+        $threadId    = $independent->mysqli->thread_id;
         unset($independent);
 
+        // Connection and its TableInfo reference each other, so unset() alone doesn't free
+        // the object; the handle closes when the cycle collector runs
+        gc_collect_cycles();
+
+        // The independent connection's server thread is gone (allow a brief lag)
+        $gone = false;
+        for ($i = 0; $i < 100 && !$gone; $i++) {
+            $gone = DB::$mysqli->query("SELECT 1 FROM information_schema.processlist WHERE id = $threadId")->num_rows === 0;
+            if (!$gone) {
+                usleep(10_000);
+            }
+        }
+        $this->assertTrue($gone, "Destructor must close the independent connection");
+
+        // And the default connection is untouched
         $this->assertTrue(DB::isConnected(true));
     }
 
@@ -262,7 +278,8 @@ class LifecycleTest extends BaseTestCase
             $this->assertSame('Etc/GMT-14', DB::phpTimezoneForMysql());
 
             date_default_timezone_set('Pacific/Chatham');    // +12:45 passes through; +13:45 during DST (Sep-Apr) remaps
-            $this->assertContains(DB::phpTimezoneForMysql(), ['+12:45', 'Pacific/Chatham']);
+            $expected = date('P') === '+12:45' ? '+12:45' : 'Pacific/Chatham';
+            $this->assertSame($expected, DB::phpTimezoneForMysql());
         } finally {
             date_default_timezone_set($originalTz);
         }
@@ -339,15 +356,18 @@ class LifecycleTest extends BaseTestCase
         $this->assertTrue(version_compare(DB::$server->version(), '5.0.0', '>='));  // same normalized value the versionRequired check compares
     }
 
-    public function testRequireSSLOption(): void
+    public function testRequireSSLConnectsEncrypted(): void
     {
-        // Note: This may fail on systems without SSL configured
-        // We just test that the option is accepted
-        $config = array_merge(self::$configDefaults, ['requireSSL' => false]);
+        try {
+            $conn = new Connection(array_merge(self::$configDefaults, ['requireSSL' => true]));
+        } catch (RuntimeException $e) {
+            // A server built without SSL refuses MYSQLI_CLIENT_SSL outright; if the flag
+            // silently regressed to 0 we would connect in plaintext and fail below instead
+            $this->markTestSkipped("Server refused SSL connection: {$e->getMessage()}");
+        }
 
-        DB::connect($config);
-
-        $this->assertTrue(DB::isConnected());
+        $cipher = $conn->mysqli->query("SHOW SESSION STATUS LIKE 'Ssl_cipher'")->fetch_row()[1];
+        $this->assertNotSame('', $cipher, "requireSSL => true must negotiate an encrypted connection");
     }
 
     public function testDatabaseAutoCreateOption(): void

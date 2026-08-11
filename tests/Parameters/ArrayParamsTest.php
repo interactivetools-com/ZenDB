@@ -68,8 +68,10 @@ class ArrayParamsTest extends BaseTestCase
 
     public function testArrayDeduplication(): void
     {
-        // Duplicate values should be deduplicated
+        // Duplicates are removed in the generated SQL itself; the row count alone
+        // can't tell (num is the primary key, so MySQL returns 3 either way)
         $result = DB::query("SELECT * FROM ::users WHERE num IN (:ids)", [':ids' => [1, 1, 2, 2, 3]]);
+        $this->assertStringContainsString('IN (1,2,3)', DB::$mysqli->lastQuery);
         $this->assertCount(3, $result);
     }
 

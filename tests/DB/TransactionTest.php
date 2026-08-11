@@ -122,6 +122,16 @@ class TransactionTest extends BaseTestCase
                 $config   = self::$configDefaults;
                 $killer   = new mysqli($config['hostname'], $config['username'], $config['password'], $config['database']);
                 $killer->query("KILL $threadId");
+
+                // KILL is asynchronous: wait until the server thread is gone so the
+                // ROLLBACK reliably fails instead of racing the kill
+                for ($i = 0; $i < 100; $i++) {
+                    $alive = $killer->query("SELECT 1 FROM information_schema.processlist WHERE id = $threadId")->num_rows;
+                    if (!$alive) {
+                        break;
+                    }
+                    usleep(10_000);
+                }
                 $killer->close();
 
                 throw new RuntimeException("original failure");

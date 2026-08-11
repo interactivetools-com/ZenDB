@@ -144,6 +144,10 @@ class NullValuesTest extends BaseTestCase
         $zeros = DB::select('users', ['isAdmin' => 0]);
         $nulls = DB::select('users', ['isAdmin' => null]);
 
+        // Row counts first: if either query matched nothing, the loops below assert nothing
+        $this->assertCount(8, $zeros);
+        $this->assertCount(4, $nulls);
+
         // No overlap between the two sets
         foreach ($zeros as $row) {
             $this->assertNotNull($row->get('isAdmin')->value());

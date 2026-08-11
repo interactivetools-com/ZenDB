@@ -38,7 +38,10 @@ class SettingsTest extends BaseTestCase
     public function testUseSmartJoinsCanBeDisabled(): void
     {
         self::$conn->useSmartJoins = false;
-        $this->assertFalse(self::$conn->useSmartJoins);
+
+        $row = self::$conn->query("SELECT u.name, o.total_amount FROM ::users u JOIN ::orders o ON u.num = o.user_id WHERE u.num = ?", 6)->first();
+        $this->assertFalse(isset($row['users.name']), "Qualified keys must not be added with useSmartJoins disabled");
+        $this->assertSame('Dave Williams', $row->get('name')->value());
     }
 
     //endregion
@@ -52,7 +55,8 @@ class SettingsTest extends BaseTestCase
     public function testUseSmartStringsCanBeDisabled(): void
     {
         self::$conn->useSmartStrings = false;
-        $this->assertFalse(self::$conn->useSmartStrings);
+
+        $this->assertIsString(self::$conn->select('users', ['num' => 1])->first()->name, "Raw values must come back with useSmartStrings disabled");
     }
 
     //endregion

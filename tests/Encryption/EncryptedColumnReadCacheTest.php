@@ -7,6 +7,7 @@ namespace Itools\ZenDB\Tests\Encryption;
 
 use Itools\ZenDB\Connection;
 use Itools\ZenDB\Tests\BaseTestCase;
+use ReflectionMethod;
 
 /**
  * Tests the per-connection cache of encrypted-column lists used by select()/selectOne():
@@ -35,6 +36,28 @@ class EncryptedColumnReadCacheTest extends BaseTestCase
             $this->assertSame('alpha-secret', $row['secret'], "Select #$i should decrypt");
             $this->assertSame('alpha', $row['label'], "Select #$i should leave VARCHAR untouched");
         }
+    }
+
+    public function testLaterSelectsReadFromCache(): void
+    {
+        // Prime the cache
+        $row = self::$conn->selectOne('enc_cache_a', ['num' => 1])->toArray();
+        $this->assertSame('alpha-secret', $row['secret']);
+
+        // The cache is a static WeakMap inside fetchMappedRows: connection => [table => columns]
+        $cache   = (new ReflectionMethod(Connection::class, 'fetchMappedRows'))->getStaticVariables()['tableCache'];
+        $entries = $cache[self::$conn] ?? [];
+        $this->assertSame(['secret'], $entries['test_enc_cache_a'] ?? null, "First select must cache the encrypted-column list");
+
+        // Poison the cached list; a repeated harvest would decrypt anyway and fail this
+        $entries['test_enc_cache_a'] = [];
+        $cache[self::$conn]          = $entries;
+        $poisoned = self::$conn->selectOne('enc_cache_a', ['num' => 1])->toArray();
+        $this->assertNotSame('alpha-secret', $poisoned['secret'], "Later selects must use the cached list, not re-harvest field metadata");
+
+        // Restore the real list for the remaining tests
+        $entries['test_enc_cache_a'] = ['secret'];
+        $cache[self::$conn]          = $entries;
     }
 
     public function testEmptyFirstSelectStillHarvestsMetadata(): void

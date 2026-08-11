@@ -59,10 +59,14 @@ class ConnectCharsetTest extends BaseTestCase
             self::$configDefaults['database'],
         );
         $dirty->set_charset('latin1');
+        $dirtyThreadId = $dirty->thread_id;
         $dirty->close();
 
         $conn = self::createDefaultConnection(['hostname' => 'p:' . self::$configDefaults['hostname']]);
 
+        // Same server thread = same pooled slot; a fresh slot would be utf8mb4
+        // from the handshake alone and prove nothing about COM_CHANGE_USER
+        $this->assertSame($dirtyThreadId, $conn->mysqli->thread_id, "Pool must hand back the dirtied slot for this test to mean anything");
         $this->assertSame('utf8mb4', $conn->mysqli->character_set_name());
         $this->assertSame('utf8mb4', $conn->mysqli->query("SELECT @@character_set_client")->fetch_row()[0]);
 

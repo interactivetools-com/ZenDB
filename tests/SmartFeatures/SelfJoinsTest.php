@@ -160,9 +160,9 @@ class SelfJoinsTest extends BaseTestCase
 
     public function testSelfJoinWithSelectStar(): void
     {
-        // This is tricky - both e.* and m.* will have same column names
+        // e.* and m.* produce duplicate column names; the aliased m.name was no duplicate at all
         $result = DB::query(
-            "SELECT e.*, m.name as manager_name
+            "SELECT e.*, m.*
              FROM ::employees e
              LEFT JOIN ::employees m ON e.manager_id = m.id
              WHERE e.id = ?",
@@ -171,10 +171,10 @@ class SelfJoinsTest extends BaseTestCase
 
         $row = $result->first();
 
-        // First occurrence wins for duplicate columns
+        // First occurrence (e) wins for plain keys; the manager stays reachable via its alias
         $this->assertSame(4, $row->get('id')->value());
         $this->assertSame('Developer 1', $row->get('name')->value());
-        $this->assertSame('VP Engineering', $row->get('manager_name')->value());
+        $this->assertSame('VP Engineering', $row->get('m.name')->value());
     }
 
     //endregion

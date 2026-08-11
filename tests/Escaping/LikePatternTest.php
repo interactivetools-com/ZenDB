@@ -205,10 +205,12 @@ class LikePatternTest extends BaseTestCase
 
     public function testLikeStartsWithNoFalsePositives(): void
     {
-        // Create a user with percent sign in name
+        // One name with a literal percent sign, one control that an unescaped
+        // '100%' wildcard would also match
         DB::insert('users', ['name' => '100% Complete', 'status' => 'Active', 'city' => 'Test']);
+        DB::insert('users', ['name' => '1000 Islands',  'status' => 'Active', 'city' => 'Test']);
 
-        // Search for '100%' should only match that user, not '100' followed by anything
+        // Search for '100%' should only match the literal, not '100' followed by anything
         $pattern = DB::likeStartsWith('100%');
         $result = DB::query("SELECT * FROM ::users WHERE name LIKE ?", $pattern);
 
@@ -217,6 +219,7 @@ class LikePatternTest extends BaseTestCase
 
         // Clean up
         DB::delete('users', ['name' => '100% Complete']);
+        DB::delete('users', ['name' => '1000 Islands']);
     }
 
     //endregion

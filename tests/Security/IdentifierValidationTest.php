@@ -42,20 +42,24 @@ class IdentifierValidationTest extends BaseTestCase
         // Create a test table with number in name
         DB::query("DROP TEMPORARY TABLE IF EXISTS test_table2");
         DB::query("CREATE TEMPORARY TABLE test_table2 (id INT)");
+        DB::query("INSERT INTO test_table2 VALUES (?)", 42);
 
+        // A row comes back, so the name was accepted and the right table queried
         $result = DB::select('table2');
-        $this->assertCount(0, $result);
+        $this->assertCount(1, $result);
+        $this->assertSame(42, $result->first()->get('id')->value());
     }
 
     public function testTableNameStartingWithNumber(): void
     {
-        // MySQL allows table names starting with numbers if quoted
         DB::query("DROP TEMPORARY TABLE IF EXISTS `test_2table`");
         DB::query("CREATE TEMPORARY TABLE `test_2table` (id INT)");
+        DB::query("INSERT INTO `test_2table` VALUES (?)", 42);
 
-        // But our validation requires alphanumeric start
+        // A leading digit is a valid identifier; a row comes back to prove the right table was queried
         $result = DB::select('2table');
-        $this->assertCount(0, $result);
+        $this->assertCount(1, $result);
+        $this->assertSame(42, $result->first()->get('id')->value());
     }
 
     //endregion
@@ -163,6 +167,7 @@ class IdentifierValidationTest extends BaseTestCase
         DB::query("INSERT INTO test_dash_col (`my-col`) VALUES (?)", 1);
         $result = DB::query("SELECT * FROM test_dash_col");
         $this->assertCount(1, $result);
+        $this->assertSame(1, $result->first()->get('my-col')->value());
     }
 
     public function testColumnNameWithQuotesThrows(): void
@@ -207,11 +212,10 @@ class IdentifierValidationTest extends BaseTestCase
      */
     public function testValidIdentifiers(string $identifier): void
     {
-        // Test that the identifier passes validation when used in a column placeholder
-        // We use a dynamic column name in select to test identifier validation
-        // Using users table and valid column name 'num' aliased with the identifier
-        $result = DB::query("SELECT num as `?` FROM ::users LIMIT 1", $identifier);
-        $this->assertCount(1, $result);
+        // Alias 'num' to the identifier; reading the value back under that exact
+        // key proves the alias survived quoting unmangled
+        $row = DB::query("SELECT num as `?` FROM ::users ORDER BY num LIMIT 1", $identifier)->first();
+        $this->assertSame(1, $row->get($identifier)->value());
     }
 
     public static function provideValidIdentifiers(): array

@@ -250,23 +250,24 @@ class SqlInjectionPreventionTest extends BaseTestCase
     /**
      * @dataProvider provideInvalidTemplates
      */
-    public function testInvalidTemplatesRejected(string $description, string $template): void
+    public function testInvalidTemplatesRejected(string $expectedMessage, string $template): void
     {
         $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage("in template");
+        $this->expectExceptionMessage($expectedMessage);
 
         DB::query($template, 1);
     }
 
     public static function provideInvalidTemplates(): array
     {
+        // [expected message fragment, template] - each row pins its own guard
         return [
-            'hardcoded string'         => ['Hardcoded value', "SELECT * FROM ::users WHERE name = 'admin'"],
-            'hardcoded number'         => ['Hardcoded number', "SELECT * FROM ::users WHERE num = 1"],
-            'concatenated'             => ['Concatenated value', 'SELECT * FROM ::users WHERE num = ' . '5'],
-            'hex literal'              => ['Hex literal', 'SELECT * FROM ::users WHERE num = 0xDEAD'],
-            'binary literal'           => ['Binary literal', 'SELECT * FROM ::users WHERE num = 0b1010'],
-            'scientific literal'       => ['Scientific literal', 'SELECT * FROM ::users WHERE num = 1e10'],
+            'hardcoded string'         => ["Quotes not allowed in template",          "SELECT * FROM ::users WHERE name = 'admin'"],
+            'hardcoded number'         => ["Standalone number in template",           "SELECT * FROM ::users WHERE num = 1"],
+            'concatenated'             => ["Standalone number in template",           'SELECT * FROM ::users WHERE num = ' . '5'],
+            'hex literal'              => ["Numeric literal '0xDEAD' in template",    'SELECT * FROM ::users WHERE num = 0xDEAD'],
+            'binary literal'           => ["Numeric literal '0b1010' in template",    'SELECT * FROM ::users WHERE num = 0b1010'],
+            'scientific literal'       => ["Numeric literal '1e10' in template",      'SELECT * FROM ::users WHERE num = 1e10'],
         ];
     }
 

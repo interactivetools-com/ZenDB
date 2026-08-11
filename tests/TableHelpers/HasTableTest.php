@@ -51,6 +51,13 @@ class HasTableTest extends BaseTestCase
         DB::$mysqli->query("DROP TABLE IF EXISTS test_exists_shadowed");
         DB::$mysqli->query("CREATE TABLE test_exists_shadowed (id INT PRIMARY KEY, extra INT)");
         DB::$mysqli->query("CREATE TEMPORARY TABLE test_exists_shadowed (id INT)");
+
+        // Control tables for the wildcards-as-literals rows: hasTable('exists_check_')
+        // and hasTable('nonexistent%table') only find these if _ or % act as LIKE wildcards
+        DB::$mysqli->query("DROP TABLE IF EXISTS test_exists_check2");
+        DB::$mysqli->query("CREATE TABLE test_exists_check2 (id INT)");
+        DB::$mysqli->query("DROP TABLE IF EXISTS test_nonexistent1table");
+        DB::$mysqli->query("CREATE TABLE test_nonexistent1table (id INT)");
     }
 
     public static function tearDownAfterClass(): void
@@ -60,6 +67,8 @@ class HasTableTest extends BaseTestCase
             DB::$mysqli->query("DROP TEMPORARY TABLE IF EXISTS test_exists_shadowed");
             DB::$mysqli->query("DROP TABLE IF EXISTS test_exists_shadowed");
             DB::$mysqli->query("DROP TABLE IF EXISTS test_exists_check");
+            DB::$mysqli->query("DROP TABLE IF EXISTS test_exists_check2");
+            DB::$mysqli->query("DROP TABLE IF EXISTS test_nonexistent1table");
             DB::$mysqli->query("DROP VIEW IF EXISTS test_exists_view");
             DB::$mysqli->query("DROP VIEW IF EXISTS test_exists_broken_view");
         } catch (Exception) {
@@ -144,7 +153,8 @@ class HasTableTest extends BaseTestCase
             'broken view returns false'     => ['exists_broken_view',  false, false],
             'broken view full name false'   => ['test_exists_broken_view', true, false],
 
-            // Wildcards treated as literals (not LIKE patterns)
+            // Wildcards treated as literals (not LIKE patterns); as wildcards these
+            // would match the test_nonexistent1table / test_exists_check2 control tables
             'percent is literal'            => ['nonexistent%table',   false, false],
             'underscore is literal'         => ['exists_check_',       false, false],
 
