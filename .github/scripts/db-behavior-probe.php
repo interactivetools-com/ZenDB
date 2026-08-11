@@ -126,7 +126,8 @@ echo mdTable($sslProbes);
 //
 // SHOW CREATE TABLE - raw output for a fixture that hits every getColumnDefinitions()
 // normalization: display widths, tinyint(1) variants, year, column-level charset,
-// timestamp default spelling, and a column comment
+// timestamp default spelling, a column comment, and the implicit DEFAULT NULL MariaDB
+// prints on nullable text columns
 //
 $fixtureSql = <<<__SQL__
     CREATE TABLE zdb_probe (
@@ -146,6 +147,7 @@ $fixtureSql = <<<__SQL__
         dtLiteral   DATETIME NOT NULL DEFAULT '2024-01-01 00:00:00',
         bitDefault  BIT(4) NOT NULL DEFAULT b'101',
         numText     VARCHAR(10) NOT NULL DEFAULT 123,
+        body        MEDIUMTEXT,
         keywordText VARCHAR(50) NOT NULL DEFAULT 'save DEFAULT 5 each' COMMENT 'uses CHARACTER SET utf8mb4',
         PRIMARY KEY (num)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
@@ -182,6 +184,7 @@ if (preg_match('/^\).*/m', $createTable, $m)) {
 $createProbes += [
     'SHOW CREATE: oldText VARCHAR(50) CHARSET utf8'  => probeColumnDefinition($mysqli, 'oldText', "CREATE TABLE zdb_probe_special (oldText VARCHAR(50) CHARACTER SET utf8 NOT NULL DEFAULT '')"),
     'SHOW CREATE: code VARCHAR(36) DEFAULT (uuid())' => probeColumnDefinition($mysqli, 'code', "CREATE TABLE zdb_probe_special (code VARCHAR(36) NOT NULL DEFAULT (uuid()))"),
+    "SHOW CREATE: notes MEDIUMTEXT DEFAULT 'abc'"    => probeColumnDefinition($mysqli, 'notes', "CREATE TABLE zdb_probe_special (notes MEDIUMTEXT DEFAULT 'abc')"),
 ];
 $probes += $createProbes;
 
