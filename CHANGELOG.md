@@ -32,8 +32,8 @@ coding assistants. Everything else is hardening and fixes.
 ### Performance
 
 - **ZenDB is 3x faster than v0.9.1**, not counting MySQL's own time. Including
-  MySQL time, real pages run up to 40% faster. Measurements and how to rerun
-  them: [docs/performance.md](docs/performance.md)
+  MySQL time, real pages run up to 40% faster. What a page costs today:
+  [docs/performance.md](docs/performance.md)
 
 ### Changed
 
