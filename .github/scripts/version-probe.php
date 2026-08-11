@@ -393,11 +393,31 @@ foreach ($tests as [$id, $baseIters, $label, $rawFn, $oldFn, $newFn]) {
         'old_us'  => round($times['old'], 1),
         'new_us'  => round($times['new'], 1),
         'ratio'   => round($times['old'] / $times['new'], 3),
-        // The library's own share of the page: page time less the same page in raw mysqli
-        'lib_old' => round($times['old'] - $times['raw'], 1),
-        'lib_new' => round($times['new'] - $times['raw'], 1),
+        // ZenDB's own work on the page: what each version adds on top of raw mysqli
+        'adds_old' => round($times['old'] - $times['raw'], 1),
+        'adds_new' => round($times['new'] - $times['raw'], 1),
     ];
 }
+
+// The multiple, over every page at once: all of the baseline's added time
+// against all of the working copy's. Summing first keeps one page whose added
+// time lands near zero from dominating an average of per-page multiples.
+$addedOld = 0.0;
+$addedNew = 0.0;
+$baseline = 0.0;
+foreach ($out['tests'] as $id => $t) {
+    if ($id !== 'selftie') {
+        $baseline += $t['raw_us'];
+        $addedOld += $t['adds_old'];
+        $addedNew += $t['adds_new'];
+    }
+}
+$out['combined'] = [
+    'baseline_us' => round($baseline, 1),
+    'adds_old'    => round($addedOld, 1),
+    'adds_new'    => round($addedNew, 1),
+    'multiple'    => $addedNew > 0 ? round($addedOld / $addedNew, 2) : null,
+];
 
 $mysqli->query('DROP TABLE IF EXISTS zenbench_news');
 
@@ -437,13 +457,36 @@ $printTable(['lean25-html', 'lean100-html']);
 echo "\nData processing with no HTML output, via `->toArray()`:\n\n";
 $printTable(['detail-array', 'list25-array', 'list100-array']);
 
-echo "\nThe library's own share of each page: page time less the same page in raw mysqli.\n\n";
-printf("| %-32s | %10s | %10s |\n", 'Page', $out['baseline'], 'working');
-echo "|:---------------------------------|-----------:|-----------:|\n";
+echo "\nZenDB's own work, with the database's time taken out. Every page above runs a\n";
+echo "third way, in hand-written mysqli, and that time is the MySQL column: the query,\n";
+echo "the network, and building the rows, which no library controls. What each version\n";
+echo "adds on top of it is the work ZenDB itself does, and those two numbers give the\n";
+echo "multiple.\n\n";
+
+printf("| %-32s | %8s | %12s | %12s | %9s |\n", 'Page', 'MySQL', $out['baseline'] . ' adds', 'current adds', 'faster by');
+echo "|:---------------------------------|---------:|-------------:|-------------:|----------:|\n";
 foreach ($out['tests'] as $id => $t) {
-    if ($id !== 'selftie') {
-        printf("| %-32s | %7.0f us | %7.0f us |\n", $t['label'], $t['lib_old'], $t['lib_new']);
+    if ($id === 'selftie') {
+        continue;
     }
+    $multiple = match (true) {
+        $t['adds_new'] <= 0 => 'beats raw',
+        $t['adds_old'] <= 0 => 'n/a',
+        default             => sprintf('%.1fx', $t['adds_old'] / $t['adds_new']),
+    };
+    printf("| %-32s | %5.0f us | %+9.0f us | %+9.0f us | %9s |\n",
+        $t['label'], $t['raw_us'], $t['adds_old'], $t['adds_new'], $multiple);
+}
+printf("| %-32s | %5.0f us | %+9.0f us | %+9.0f us | %9s |\n",
+    '**Every page combined**', $out['combined']['baseline_us'], $out['combined']['adds_old'],
+    $out['combined']['adds_new'], $out['combined']['multiple'] ? sprintf('%.1fx', $out['combined']['multiple']) : 'n/a');
+
+if ($out['combined']['multiple']) {
+    printf("\nZenDB's own work is %.1fx faster than %s: across these pages it added %.0f us on\n"
+         . "top of MySQL and now adds %.0f us. Quote the combined row, not a single page:\n"
+         . "a page whose added time lands near zero divides into a huge multiple that moves\n"
+         . "by tens between runs, while the combined figure holds steady.\n",
+        $out['combined']['multiple'], $out['baseline'], $out['combined']['adds_old'], $out['combined']['adds_new']);
 }
 
 if (isset($out['tests']['selftie'])) {

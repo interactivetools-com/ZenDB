@@ -11,6 +11,10 @@ name: Version Speed Test
 #
 # The baseline pulls the SmartArray and SmartString that release resolves to, so
 # each side is the whole stack as an install gets it.
+#
+# Runs every PHP version against one database image per vendor by default. The
+# work being measured is client-side, so the server mostly cancels out, but the
+# spread shows the ratio holds; database: all widens it to db-matrix.json.
 on:
   workflow_dispatch:
     inputs:
@@ -19,7 +23,7 @@ on:
         required: false
         default: '0.9.1'
       php:
-        description: 'PHP version (blank = 8.1 + 8.4)'
+        description: 'PHP version (blank = every supported version)'
         required: false
         type: choice
         options: ['', '8.1', '8.2', '8.3', '8.4', '8.5']
@@ -32,10 +36,10 @@ on:
         required: false
         default: ''
       database:
-        description: 'Database image (blank = mysql:8.0)'
+        description: 'Database image (blank = one per vendor, all = every image in db-matrix.json)'
         required: false
         type: choice
-        options: ['', 'mysql:8.0', 'mysql:8.4', 'mariadb:11.8', 'mariadb:12.3']
+        options: ['', 'all', 'mysql:5.7', 'mysql:8.0', 'mysql:9.7', 'mariadb:10.11', 'mariadb:12.3', 'percona/percona-server:8.0']
       jit:
         description: 'PHP JIT (default off, matching production)'
         required: false
@@ -49,18 +53,31 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       php: ${{ steps.load.outputs.php }}
+      databases: ${{ steps.load.outputs.databases }}
     steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # The library's work is client-side, so the server mostly cancels out: both
+      # versions query the same one in the same process. The default spread is
+      # one image per vendor, old and new, enough to show the ratio holds.
       - name: Build matrix from inputs
         id: load
         run: |
           if [ -n "${{ inputs.php }}" ]; then
             echo 'php=["${{ inputs.php }}"]' >> "$GITHUB_OUTPUT"
           else
-            echo 'php=["8.1", "8.4"]' >> "$GITHUB_OUTPUT"
+            echo 'php=["8.1", "8.2", "8.3", "8.4", "8.5"]' >> "$GITHUB_OUTPUT"
           fi
 
+          case "${{ inputs.database }}" in
+            '')    echo 'databases=["mysql:8.0", "mysql:9.7", "mariadb:10.11", "mariadb:12.3", "percona/percona-server:8.0"]' >> "$GITHUB_OUTPUT" ;;
+            all)   echo "databases=$(jq -c . .github/db-matrix.json)" >> "$GITHUB_OUTPUT" ;;
+            *)     echo 'databases=["${{ inputs.database }}"]' >> "$GITHUB_OUTPUT" ;;
+          esac
+
   probe:
-    name: PHP ${{ matrix.php }}
+    name: PHP ${{ matrix.php }} / ${{ matrix.database }}
     runs-on: ubuntu-latest
     needs: matrix
     timeout-minutes: 15
@@ -69,10 +86,11 @@ jobs:
       fail-fast: false
       matrix:
         php: ${{ fromJSON(needs.matrix.outputs.php) }}
+        database: ${{ fromJSON(needs.matrix.outputs.databases) }}
 
     services:
       database:
-        image: ${{ inputs.database || 'mysql:8.0' }}
+        image: ${{ matrix.database }}
         env:
           MYSQL_ALLOW_EMPTY_PASSWORD: yes
           MYSQL_ROOT_HOST: '%'
@@ -134,7 +152,7 @@ jobs:
           DB_PASSWORD: ''
           DB_DATABASE: phpunit_test_db
         run: |
-          DB_SLUG=$(echo "${{ inputs.database || 'mysql:8.0' }}" | tr ':/' '--')
+          DB_SLUG=$(echo "${{ matrix.database }}" | tr ':/' '--')
           SLUG="version-php${{ matrix.php }}-$DB_SLUG${{ inputs.jit == 'on' && '-jit' || '' }}"
           echo "SLUG=$SLUG" >> "$GITHUB_ENV"
           php .github/scripts/version-probe.php \
