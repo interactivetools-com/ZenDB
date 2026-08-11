@@ -18,6 +18,19 @@ server returns) and merges the results into
 - `db-behavior-probe.php` - probe one server, print markdown (and optional JSON)
 - `db-behavior-merge.php` - merge per-server JSONs into one "who differs" report
 
+**Version speed test** (`version-matrix.yml`) - the previous release versus the
+working copy on the pages from
+[docs/performance.md](../../docs/performance.md), so a release can say how much
+faster it got.
+
+- `version-probe.php` - composer installs the baseline release into a scratch
+  directory with its namespaces suffixed "Old", loads both versions in one
+  process, and runs their pages interleaved; separate processes drift more than
+  the difference being measured. The baseline pulls the SmartArray and
+  SmartString that release resolves to, so each side is the whole stack as an
+  install gets it. Gated on identical page bytes and identical statements per
+  call, so a difference in the table is PHP-side work and never a round trip
+
 **Escape benchmark suite** (`escape-matrix.yml`, `escape-e2e-matrix.yml`,
 `escape-zendb-matrix.yml`) -
 measures every MySQL escaping candidate and every way values get into queries,
