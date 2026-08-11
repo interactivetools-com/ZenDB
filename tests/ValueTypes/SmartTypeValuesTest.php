@@ -6,7 +6,6 @@ declare(strict_types=1);
 
 namespace Itools\ZenDB\Tests\ValueTypes;
 
-use InvalidArgumentException;
 use Itools\SmartArray\SmartArray;
 use Itools\SmartArray\SmartNull;
 use Itools\SmartString\SmartString;
@@ -123,19 +122,28 @@ class SmartTypeValuesTest extends BaseTestCase
     //endregion
     //region SmartNull
 
-    public function testSmartNullInSetClauseThrows(): void
+    public function testSmartNullInSetClauseWritesNull(): void
     {
-        // Placeholders unwrap SmartNull to SQL NULL (see testSmartNullInPlaceholder);
-        // the SET clause does not - it rejects SmartNull as an unsupported type
-        $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage("Unsupported type for column 'isAdmin'");
-
-        DB::insert('users', [
+        // SmartNull unwraps to SQL NULL in SET clauses, same as placeholders
+        $insertId = DB::insert('users', [
             'name' => 'SmartNull Test',
             'isAdmin' => new SmartNull(),
             'status' => 'Active',
             'city' => 'Test'
         ]);
+
+        $row = DB::selectOne('users', ['num' => $insertId]);
+        $this->assertNull($row->get('isAdmin')->value());
+
+        // Clean up
+        DB::delete('users', ['num' => $insertId]);
+    }
+
+    public function testSmartNullInWhereArrayMatchesNull(): void
+    {
+        // SmartNull matches like a raw null: `column` IS NULL
+        $result = DB::select('users', ['isAdmin' => new SmartNull()]);
+        $this->assertCount(4, $result);
     }
 
     public function testSmartNullInPlaceholder(): void

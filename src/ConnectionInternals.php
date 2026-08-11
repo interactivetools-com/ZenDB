@@ -440,6 +440,7 @@ trait ConnectionInternals
      *   - null, int, float, bool, string (escaped and quoted)
      *   - RawSql (inserted as-is, for NOW(), UUID(), etc.)
      *   - SmartString (unwrapped via ->value(), then escaped)
+     *   - SmartNull (becomes NULL, same as placeholders)
      *
      * Arrays are not supported: column assignment is single-valued, so
      * callers must serialize (json_encode, implode, etc.) before passing.
@@ -465,6 +466,9 @@ trait ConnectionInternals
 
             if ($value instanceof SmartString) {
                 $value = $value->value(); // unwrap before the type check; SmartString can wrap null/bool
+            }
+            if ($value instanceof SmartNull) {
+                $value = null; // same as the placeholder path
             }
             $setElements[] = "`$column` = " . $this->escapeValue($value, "column '$column'");
         }
@@ -525,7 +529,7 @@ trait ConnectionInternals
      * Returns complete SQL with values escaped inline.
      *
      * Supported value types:
-     *   - null (becomes IS NULL)
+     *   - null, SmartNull (becomes IS NULL)
      *   - int, float, bool, string (escaped and quoted)
      *   - RawSql (inserted as-is, for NOW(), expressions, etc.)
      *   - SmartString (unwrapped via ->value(), then escaped)
@@ -548,6 +552,9 @@ trait ConnectionInternals
 
             if ($value instanceof SmartString) {
                 $value = $value->value(); // unwrap before the type check; SmartString can wrap null/bool
+            }
+            if ($value instanceof SmartNull) {
+                $value = null; // same as the placeholder path
             }
             $conditions[] = match (true) {
                 is_null($value)                  => "`$column` IS NULL",

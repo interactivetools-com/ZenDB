@@ -45,6 +45,12 @@ coding assistants.
 
 ### Changed
 
+- SmartNull values unwrap everywhere - `insert()`, `update()`, and WHERE
+  arrays now treat a SmartNull like `null` (writes `NULL`, matches
+  `IS NULL`), the same as placeholders already did. They used to throw
+  "Unsupported type for column '...'". A SmartNull usually means a lookup
+  missed, so check the lookup result first if "not found" should stop
+  the operation
 - `tablePrefix` - dots are no longer allowed; `connect()` and `clone()`
   throw "Invalid tablePrefix" naming the allowed characters
   (`a-z A-Z 0-9 _ -`). A dot in a prefix is ambiguous (most tools read it
