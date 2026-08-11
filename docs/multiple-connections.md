@@ -6,6 +6,11 @@ covers the two tools for going beyond it: `DB::clone()` reuses the live MySQL
 connection with different settings, and `new Connection()` opens a genuinely
 separate connection to another server, database, or set of credentials.
 
+Contents:
+
+- [Same Connection, Different Settings - `DB::clone()`](#same-connection-different-settings---dbclone)
+- [A Second Database - `new Connection()`](#a-second-database---new-connection)
+
 ## Same Connection, Different Settings - `DB::clone()`
 
 `DB::clone()` returns a new `Connection` object that shares the default

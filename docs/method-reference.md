@@ -6,6 +6,18 @@ default connection; methods below also exist on `Connection` instances
 (`$db->select(...)`) with the same signature, except the four marked `DB` only
 and connecting itself (`new Connection($config)` connects in the constructor).
 
+Contents:
+
+- [Connecting](#connecting)
+- [Reading Rows](#reading-rows)
+- [Writing Rows](#writing-rows)
+- [Table Names](#table-names)
+- [Query Helpers](#query-helpers)
+- [Encryption](#encryption)
+- [Constants](#constants)
+- [Properties](#properties)
+- [Parameter Forms](#parameter-forms)
+
 ## Connecting
 
 | Method                                | Returns      | Description                                                                                                                               |

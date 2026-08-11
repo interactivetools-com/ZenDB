@@ -17,6 +17,17 @@ reset command.
 > [the one-time trial](#the-one-time-trial), at a moment when you can
 > reload PHP.
 
+Contents:
+
+- [Should You Use It](#should-you-use-it)
+- [Enabling It](#enabling-it)
+- [Reuse Stays Clean](#reuse-stays-clean)
+- [The Sizing Check](#the-sizing-check)
+- [The One-Time Trial](#the-one-time-trial)
+- [Timeouts](#timeouts)
+- [Turning It Off](#turning-it-off)
+- [Good to Know](#good-to-know)
+
 ## Should You Use It
 
 **Use it when:**

@@ -5,6 +5,15 @@ trusted SQL expressions, `DB::pagingSql()` for pagination, four `like*()`
 helpers for escaped LIKE patterns, table prefix conversion, and date format
 constants.
 
+Contents:
+
+- [Trusted SQL Expressions - `DB::rawSql()`](#trusted-sql-expressions---dbrawsql)
+- [Pagination - `DB::pagingSql()`](#pagination---dbpagingsql)
+- [LIKE Patterns - `DB::likeContains()` and Friends](#like-patterns---dblikecontains-and-friends)
+- [Table Prefix Conversion - `DB::getFullTable()` and `DB::getBaseTable()`](#table-prefix-conversion---dbgetfulltable-and-dbgetbasetable)
+- [Date and Time Format Constants](#date-and-time-format-constants)
+- [Encryption Helpers](#encryption-helpers)
+
 ## Trusted SQL Expressions - `DB::rawSql()`
 
 `DB::rawSql()` wraps a string as a `RawSql` object. Wherever ZenDB accepts a

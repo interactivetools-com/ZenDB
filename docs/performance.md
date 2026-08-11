@@ -36,6 +36,15 @@ If those numbers answer your question, you can stop here. The rest of the
 page shows the code behind each column, explains where the microseconds go,
 and ends with how to rerun everything.
 
+Contents:
+
+- [How We Measured](#how-we-measured)
+- [The List Page, Three Ways](#the-list-page-three-ways)
+- [Why It Comes Out This Way](#why-it-comes-out-this-way)
+- [When to Care](#when-to-care)
+- [The Fine Print](#the-fine-print)
+- [Reproducing the Numbers](#reproducing-the-numbers)
+
 ## How We Measured
 
 The corpus is a news table: 1,000 rows of realistic prose across 10

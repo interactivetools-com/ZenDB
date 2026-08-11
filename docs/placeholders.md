@@ -29,6 +29,17 @@ insert the value unquoted.
 The last row (prefixed *value*, quoted not backticked) is rare; it exists
 for queries about tables themselves, like `SHOW TABLES LIKE`.
 
+Contents:
+
+- [Positional Placeholders (`?`)](#positional-placeholders-)
+- [Named Placeholders (`:name`)](#named-placeholders-name)
+- [Table Prefix (`::`)](#table-prefix-)
+- [Identifier Placeholders (`` `?` `` and `` `:name` ``)](#identifier-placeholders--and-name)
+- [Prefixed Values (`::?` and `:::name`)](#prefixed-values--and-name)
+- [Type Handling](#type-handling)
+- [What Happens If...](#what-happens-if)
+- [Why `::` for the Prefix](#why--for-the-prefix)
+
 ## Positional Placeholders (`?`)
 
 Each `?` takes the next argument in order. Great for short conditions:

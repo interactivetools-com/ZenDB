@@ -10,6 +10,25 @@ in signatures, docblocks, the changelog, and tests.
 
 ---
 
+Contents:
+
+- [Design Philosophy](#design-philosophy)
+- [DB::upsert() - DECIDED: Not adding (2026-03)](#dbupsert---decided-not-adding-2026-03)
+- [DB::exists() - DECIDED: Not adding (2026-03)](#dbexists---decided-not-adding-2026-03)
+- [Naming: queryLogger - DECIDED: Keep (2026-03)](#naming-querylogger---decided-keep-2026-03)
+- [DB::clone() - DECIDED: Keep (2026-03)](#dbclone---decided-keep-2026-03)
+- [Config Storage - DECIDED: Keep typed properties + credential vault (2026-03)](#config-storage---decided-keep-typed-properties--credential-vault-2026-03)
+- [Naming: rawHtml() - DECIDED: Only name for unencoded output (2026-07)](#naming-rawhtml---decided-only-name-for-unencoded-output-2026-07)
+- [Positional Parameters - DECIDED: Allowlist, max 3 direct (2026-07)](#positional-parameters---decided-allowlist-max-3-direct-2026-07)
+- [Smart Join Alias Keys - DECIDED: Self-joins only (2026-07)](#smart-join-alias-keys---decided-self-joins-only-2026-07)
+- [Encrypted-Column Qualifiers - DECIDED: `::` works inside `{{}}` (2026-07)](#encrypted-column-qualifiers---decided--works-inside--2026-07)
+- [Dotted Table Prefixes - DECIDED: Banned (2026-08)](#dotted-table-prefixes---decided-banned-2026-08)
+- [HTML Composition - DECIDED: SmartString's appendHtml()/wrapHtml() are the answer (2026-08)](#html-composition---decided-smartstrings-appendhtmlwraphtml-are-the-answer-2026-08)
+- [Undocumented on Purpose - DECIDED (2026-07)](#undocumented-on-purpose---decided-2026-07)
+- [Deprecation Notices - DECIDED: The `@` on `trigger_error()` stays (2026-08)](#deprecation-notices---decided-the--on-trigger_error-stays-2026-08)
+- [Empty-Quotes Gap - DECIDED: Keep allowing `''` (2026-08)](#empty-quotes-gap---decided-keep-allowing--2026-08)
+- [Other Ideas Rejected (2026-03)](#other-ideas-rejected-2026-03)
+
 ## Design Philosophy
 
 - **Convention over configuration** - sensible defaults, minimal setup

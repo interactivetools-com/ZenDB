@@ -9,6 +9,13 @@ against the library's design, and shows the safe form for each.
 If you use placeholders for values, backtick placeholders for identifiers, and
 leave output encoding on, none of this applies to you.
 
+Contents:
+
+- [Escape Hatches - `DB::$mysqli` and `rawHtml()`](#escape-hatches---dbmysqli-and-rawhtml)
+- [The Empty-Quotes Gap](#the-empty-quotes-gap)
+- [Dynamic Identifiers - ORDER BY and Column Names](#dynamic-identifiers---order-by-and-column-names)
+- [Encryption Threat Model](#encryption-threat-model)
+
 ## Escape Hatches - `DB::$mysqli` and `rawHtml()`
 
 Two escape hatches deliberately step outside the protection: `DB::$mysqli`

@@ -5,6 +5,20 @@ like arrays, and values that HTML-encode themselves on output. (`insert()`,
 `update()`, and `delete()` return plain ints.) This page covers the result
 hierarchy, output encoding, and the methods available at each level.
 
+Contents:
+
+- [The Result Hierarchy](#the-result-hierarchy)
+- [Output Encoding](#output-encoding)
+- [Getting Values from a Row](#getting-values-from-a-row)
+- [Getting Raw Data](#getting-raw-data)
+- [Chaining Value Methods](#chaining-value-methods)
+- [Debugging with `print_r()`](#debugging-with-print_r)
+- [Query Metadata - `mysqli()`](#query-metadata---mysqli)
+- [Result Methods (Collections)](#result-methods-collections)
+- [Row Methods](#row-methods)
+- [Value Methods (SmartString)](#value-methods-smartstring)
+- [Full References](#full-references)
+
 ## The Result Hierarchy
 
 ```

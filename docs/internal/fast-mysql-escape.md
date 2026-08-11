@@ -21,6 +21,19 @@ CMS Builder's backup ships this pattern in production: its dump loop
 7-pair `str_replace` with a once-per-table probe self-check and a
 `real_escape_string` fallback.
 
+Contents:
+
+- [The Core Finding](#the-core-finding)
+- [Benchmarks](#benchmarks)
+- [What php-src Actually Does (mysqlnd Source)](#what-php-src-actually-does-mysqlnd-source)
+- [Correctness Conditions (Both Already Guaranteed by ZenDB)](#correctness-conditions-both-already-guaranteed-by-zendb)
+- [Where This Could Apply in ZenDB](#where-this-could-apply-in-zendb)
+- [Test Strategy for Adoption](#test-strategy-for-adoption)
+- [Reproducing the Benchmarks](#reproducing-the-benchmarks)
+- [Benchmark-Suite Research Pass (2026-08)](#benchmark-suite-research-pass-2026-08)
+- [Suite Methodology Rules](#suite-methodology-rules)
+- [Status and Remaining Work](#status-and-remaining-work)
+
 ## The Core Finding
 
 `real_escape_string()` escapes exactly 7 characters, and its charset machinery
