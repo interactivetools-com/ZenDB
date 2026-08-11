@@ -258,8 +258,13 @@ class DB
     /**
      * Generates a LIMIT/OFFSET SQL clause for pagination.
      *
-     * Safe for raw request input: page numbers too large for the offset math are
-     * clamped so the offset stays a plain integer (pages past the data return no rows).
+     * Both numbers are cast to int, so a page number straight from a URL can't put
+     * anything in your SQL. A page number too big to multiply out gets capped so the
+     * OFFSET stays a whole number; pages past the end of the data return nothing.
+     *
+     * Nothing caps the page size. Ask for a million per page and MySQL returns a
+     * million rows and PHP holds them all. Pick that number in your code, not from
+     * the request.
      *
      * @param mixed $pageNum The current page number; zero, empty, or invalid input becomes 1
      * @param mixed $perPage Records per page; zero, empty, or invalid input becomes 10

@@ -78,6 +78,10 @@ DB::pagingSql('abc');      // LIMIT 10 OFFSET 0   (non-numeric becomes page 1)
 DB::pagingSql(-3, 25);     // LIMIT 25 OFFSET 50  (negative becomes positive)
 ```
 
+Take the page number from the URL, but pick the page size yourself. Nothing
+caps it, so `?perPage=1000000` really does ask for a million rows, and PHP
+holds every one of them in memory.
+
 To show "page 3 of 12", pair it with `DB::count()` on the same WHERE condition
 and divide by the page size:
 
