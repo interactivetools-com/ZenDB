@@ -269,6 +269,45 @@ ZenDB's `logDeprecation()` has no comment saying so.
 
 ---
 
+## Empty-Quotes Gap - DECIDED: Keep allowing `''` (2026-08)
+
+`assertSafeTemplate()` strips `''` and `""` before the quote check, so
+`WHERE name != ''` runs. That exception is what lets a balanced payload
+through: `' OR name=name #'` interpolated into `WHERE name = '$name'` reaches
+the guard as two empty-string literals and runs as a tautology. Documented in
+[The Empty-Quotes Gap](../security-gotchas.md). Raised again by a 2026-08
+security scan, which proposed rejecting every quote and requiring `''` from a
+placeholder.
+
+Not doing it. The gap needs one specific shape, and it's the only shape that
+survives development:
+
+| Developer wrote | blank value | real value | balanced payload |
+| --- | --- | --- | --- |
+| `WHERE name = $name` | SQL syntax error | Unknown column 'Alice' | runs |
+| `WHERE name = '$name'` | 0 rows, looks fine | guard throws | runs |
+
+Unquoted interpolation is broken for every value a developer would test with,
+so it can't ship. Quoted interpolation throws the moment a real value arrives.
+What's left is a field that is always blank until a user fills it, such as an
+optional filter, where the throw never fires. Digits still throw (`' OR 1=1 #'`
+is caught by the standalone-number check) and mysqli refuses a second
+statement, so the payload has to be digit-free and single-statement too.
+
+Closing it costs more than it buys: CMS Builder core alone has `= ''` and
+`!= ''` in `upload_functions.php`, `upgrade_functions.php`,
+`viewer_functions.php`, and two plugins, all of which would start throwing on
+upgrade, plus every customer template and third-party plugin we can't see or
+fix.
+
+The guard is a tripwire, not a parser. It reads the finished SQL string and
+can't tell which characters the developer typed and which came from a
+variable. It catches the common mistake early and loudly; placeholders are
+what make interpolation safe. Same reason the identifier gap
+(`ORDER BY $sort`) exists and is documented next to this one.
+
+---
+
 ## Other Ideas Rejected (2026-03)
 
 - **Schema awareness** (cache table schemas, ignore non-column keys, fuzzy column

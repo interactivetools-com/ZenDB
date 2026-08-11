@@ -251,10 +251,14 @@ trait ConnectionInternals
          * We strip '' and "" from a copy of the SQL before the quote check so they
          * aren't flagged as quoted strings. The original query is NOT modified.
          *
-         * Why this is safe: if a developer writes WHERE city = '$city', the only value
-         * that produces valid '' is an empty string, which carries no payload. Any real
-         * value like "Vancouver" produces WHERE city = 'Vancouver', which throws
-         * immediately, forcing the developer to use placeholders.
+         * What this catches: a developer writing WHERE city = '$city' gets a throw the
+         * moment a real value arrives - "Vancouver" produces WHERE city = 'Vancouver' -
+         * which forces placeholders before the code can work at all.
+         *
+         * What it doesn't: a value carrying its own balanced quotes reaches this check
+         * as nothing but empty strings and passes. That gap is known and documented in
+         * docs/security-gotchas.md; the tradeoff is settled in
+         * docs/internal/design-decisions.md.
          */
         $sqlForQuoteCheck = str_replace(["''", '""'], '', $sql);
 
