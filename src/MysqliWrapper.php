@@ -50,6 +50,12 @@ class MysqliWrapper extends mysqli
 
     /**
      * Query logger callback: fn(string $query, float $duration, ?Throwable $exception): void
+     *
+     * Runs mid-query, before the calling code has read its results, so a logger must not
+     * query this connection. Doing so overwrites what ZenDB is about to read: insert()
+     * returns 0 instead of the new id, update() and delete() report the logger's row
+     * count, and joined queries lose their table-qualified keys. To log to MySQL, give
+     * the logger its own connection. Reading properties like thread_id is fine.
      */
     public mixed $queryLogger = null;
 
