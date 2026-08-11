@@ -223,24 +223,24 @@ class SqlInjectionPreventionTest extends BaseTestCase
         // All these attempts should be safely handled via escaping
         $result = DB::query("SELECT * FROM ::users WHERE name = ?", $maliciousValue);
 
-        // Query executes safely - just returns no results
-        $this->assertInstanceOf(\Itools\SmartArray\SmartArrayHtml::class, $result, "Failed: $description");
+        // Escaped, the payload is a literal name that matches no rows.
+        // Unescaped, the OR-true payloads match all 20 rows and fail here.
+        $this->assertCount(0, $result, "Failed: $description");
 
         // Verify we can still query the table (it wasn't dropped)
-        $count = DB::count('users');
-        $this->assertSame(20, $count, "Table destroyed or rows lost after: $description");
+        $this->assertSame(20, DB::count('users'), "Table destroyed or rows lost after: $description");
     }
 
     public static function provideInjectionAttempts(): array
     {
         return [
-            'basic union'            => ['Basic UNION', "' UNION SELECT * FROM users --"],
+            'basic union'            => ['Basic UNION', "' UNION SELECT * FROM test_users --"],
             'or true'                => ['OR 1=1', "' OR '1'='1"],
             'comment out'            => ['Comment out', "admin'--"],
-            'semicolon'              => ['Multiple statements', "'; DELETE FROM users; --"],
-            'drop table'             => ['DROP TABLE', "'; DROP TABLE users; --"],
-            'update injection'       => ['UPDATE injection', "'; UPDATE users SET isAdmin=1; --"],
-            'stacked queries'        => ['Stacked queries', "a'; SELECT * FROM users WHERE '1'='1"],
+            'semicolon'              => ['Multiple statements', "'; DELETE FROM test_users; --"],
+            'drop table'             => ['DROP TABLE', "'; DROP TABLE test_users; --"],
+            'update injection'       => ['UPDATE injection', "'; UPDATE test_users SET isAdmin=1; --"],
+            'stacked queries'        => ['Stacked queries', "a'; SELECT * FROM test_users WHERE '1'='1"],
             'hex encoding'           => ['Hex encoding', "0x27204f52202731273d2731"],
             'null byte'              => ['NULL byte injection', "test\x00' OR '1'='1"],
             'unicode normalization'  => ['Unicode', "test\u{0027} OR 1=1 --"],
