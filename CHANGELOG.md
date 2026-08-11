@@ -8,11 +8,10 @@
 
 > **Bundled with CMS Builder v3.85**
 
-First stable release, and the first with a complete manual: task-oriented
-guides in `docs/` covering everything from your first query to joins,
-encryption, security, and troubleshooting, plus
+The headlines: ZenDB is 3x faster (including MySQL time, real pages run up to
+40% faster), and 1.0 has complete online docs plus
 [ai-reference.md](docs/ai-reference.md), the whole API in one file for AI
-coding assistants.
+coding assistants. Everything else is hardening and fixes.
 
 ### Added
 
@@ -29,6 +28,12 @@ coding assistants.
 - **`Table` and `Server`** - internal classes for reading table facts
   (exists, columns, indexes, ...) and server facts (version, vendor, SSL);
   the old table helpers are deprecated in their favor (below)
+
+### Performance
+
+- **ZenDB is 3x faster than v0.9.1**, not counting MySQL's own time. Including
+  MySQL time, real pages run up to 40% faster. Measurements and how to rerun
+  them: [docs/performance.md](docs/performance.md)
 
 ### Changed
 
