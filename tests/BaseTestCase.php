@@ -30,6 +30,38 @@ abstract class BaseTestCase extends TestCase
     ];
 
     /**
+     * Run $fn collecting messages for the given error types (error_reporting-style mask).
+     * The library sends warnings and deprecations via @trigger_error, so only an error
+     * handler can observe them. Returns [result, messages].
+     *
+     * @return array{0: mixed, 1: string[]}
+     */
+    protected function captureErrors(callable $fn, int $mask): array
+    {
+        $messages = [];
+        set_error_handler(static function (int $errno, string $errstr) use (&$messages): bool {
+            $messages[] = $errstr;
+            return true; // handled: captured errors stay out of the suite output
+        }, $mask);
+        try {
+            $result = $fn();
+        } finally {
+            restore_error_handler();
+        }
+        return [$result, $messages];
+    }
+
+    /**
+     * Run $fn collecting E_USER_DEPRECATED messages. Returns [result, messages].
+     *
+     * @return array{0: mixed, 1: string[]}
+     */
+    protected function captureDeprecations(callable $fn): array
+    {
+        return $this->captureErrors($fn, E_USER_DEPRECATED);
+    }
+
+    /**
      * Helper method to create a new default connection with test config.
      * Disconnects any existing connection first.
      * Returns a clone for tests that need an instance to work with.

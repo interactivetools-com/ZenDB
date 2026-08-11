@@ -981,20 +981,7 @@ class DocsExamplesTest extends BaseTestCase
 
     public function testPlaceholdersDeprecatedPositionalArrayRunsAsFirstValue(): void
     {
-        $deprecations = [];
-        set_error_handler(static function(int $errno, string $errstr) use (&$deprecations): bool {
-            if ($errno === E_USER_DEPRECATED) {
-                $deprecations[] = $errstr;
-                return true;
-            }
-            return false;
-        });
-
-        try {
-            $users = DB::select('users', "num IN (?)", [1, 2, 3]);
-        } finally {
-            restore_error_handler();
-        }
+        [$users, $deprecations] = $this->captureDeprecations(fn() => DB::select('users', "num IN (?)", [1, 2, 3]));
 
         $this->assertSame('SELECT * FROM `test_users` WHERE num IN (1)', $users->mysqli('query'));
         $this->assertSame(1, count($users));
@@ -1004,20 +991,7 @@ class DocsExamplesTest extends BaseTestCase
 
     public function testPlaceholdersDeprecatedExtraPositionalValue(): void
     {
-        $deprecations = [];
-        set_error_handler(static function(int $errno, string $errstr) use (&$deprecations): bool {
-            if ($errno === E_USER_DEPRECATED) {
-                $deprecations[] = $errstr;
-                return true;
-            }
-            return false;
-        });
-
-        try {
-            $users = DB::select('users', "num = ?", 1, 999);
-        } finally {
-            restore_error_handler();
-        }
+        [$users, $deprecations] = $this->captureDeprecations(fn() => DB::select('users', "num = ?", 1, 999));
 
         $this->assertSame('SELECT * FROM `test_users` WHERE num = 1', $users->mysqli('query'));
         $this->assertCount(1, $deprecations);
@@ -2045,18 +2019,11 @@ class DocsExamplesTest extends BaseTestCase
         $db->mysqli->query("CREATE TEMPORARY TABLE test_secrets (id INT PRIMARY KEY, apiToken MEDIUMBLOB)");
         $db->mysqli->query("INSERT INTO test_secrets VALUES (1, 'raw-bytes'), (2, 'more-raw-bytes')");
 
-        $warnings = [];
-        set_error_handler(function (int $errno, string $errstr) use (&$warnings): bool {
-            $warnings[] = $errstr;
-            return $errno === E_USER_WARNING;
-        }, E_USER_WARNING);
-
-        try {
+        [$rows, $warnings] = $this->captureErrors(function () use ($db) {
             $rows = $db->select('secrets');
             $db->select('secrets');
-        } finally {
-            restore_error_handler();
-        }
+            return $rows;
+        }, E_USER_WARNING);
 
         $this->assertCount(1, $warnings);
         $this->assertSame(
@@ -2420,17 +2387,7 @@ class DocsExamplesTest extends BaseTestCase
 
     public function testTroubleshootingPositionalValuesInArrayAreDeprecated(): void
     {
-        $deprecations = [];
-        set_error_handler(function (int $errno, string $errstr) use (&$deprecations): bool {
-            $deprecations[] = $errstr;
-            return $errno === E_USER_DEPRECATED;
-        }, E_USER_DEPRECATED);
-
-        try {
-            $rows = DB::select('users', "name = ? AND city = ?", ['John Doe', 'Vancouver']);
-        } finally {
-            restore_error_handler();
-        }
+        [$rows, $deprecations] = $this->captureDeprecations(fn() => DB::select('users', "name = ? AND city = ?", ['John Doe', 'Vancouver']));
 
         $this->assertCount(1, $rows);
         $this->assertCount(1, $deprecations);
@@ -2445,17 +2402,7 @@ class DocsExamplesTest extends BaseTestCase
 
     public function testTroubleshootingUnusedPositionalValuesAreDeprecated(): void
     {
-        $deprecations = [];
-        set_error_handler(function (int $errno, string $errstr) use (&$deprecations): bool {
-            $deprecations[] = $errstr;
-            return $errno === E_USER_DEPRECATED;
-        }, E_USER_DEPRECATED);
-
-        try {
-            $rows = DB::select('users', "num IN (?)", 1, 2, 3);
-        } finally {
-            restore_error_handler();
-        }
+        [$rows, $deprecations] = $this->captureDeprecations(fn() => DB::select('users', "num IN (?)", 1, 2, 3));
 
         $this->assertSame('SELECT * FROM `test_users` WHERE num IN (1)', DB::$mysqli->lastQuery);
         $this->assertCount(1, $rows);

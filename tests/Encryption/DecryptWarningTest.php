@@ -27,18 +27,10 @@ class DecryptWarningTest extends BaseTestCase
 
     public function testDecryptFailureWarnsOncePerConnection(): void
     {
-        $warnings = [];
-        set_error_handler(function (int $errno, string $errstr) use (&$warnings): bool {
-            $warnings[] = $errstr;
-            return $errno === E_USER_WARNING;
-        }, E_USER_WARNING);
-
-        try {
-            $rows      = self::$conn->select('decrypt_warn');
-            $rowsAgain = self::$conn->select('decrypt_warn');
-        } finally {
-            restore_error_handler();
-        }
+        [[$rows, $rowsAgain], $warnings] = $this->captureErrors(fn() => [
+            self::$conn->select('decrypt_warn'),
+            self::$conn->select('decrypt_warn'),
+        ], E_USER_WARNING);
 
         // Fail-open: raw bytes pass through unchanged
         $this->assertCount(2, $rows);
