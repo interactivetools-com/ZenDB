@@ -116,6 +116,15 @@ Full lists of what changed per release: [CHANGELOG.md](CHANGELOG.md).
 > - Empty strings in backtick identifier placeholders
 > - Param names starting with `:_` - the value silently never bound before
 > - Table or column names with a trailing newline
+> - A spread named-param array - `DB::query($sql, ...$params)` where
+>   `$params` is `[':id' => 5]`. PHP turns that into named arguments, which
+>   query methods don't accept. It used to bind them plus emit an
+>   "Undefined array key 0" warning. Drop the `...`:
+>
+>   ```php
+>   DB::query($sql, ...$params);   // throws
+>   DB::query($sql, $params);      // same params, supported form
+>   ```
 
 ### Deprecations
 

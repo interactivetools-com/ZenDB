@@ -708,6 +708,7 @@ class Connection
      * @param bool   $checkDb When input starts with the prefix, query the database to check
      *                        if prefixing it AGAIN yields a real table; if so, keep the input as-is
      * @return string Base table name without prefix
+     * @throws InvalidArgumentException With checkDb, for a prefixed name carrying characters outside a-z, A-Z, 0-9, _, -
      */
     public function getBaseTable(string $table, bool $checkDb = false): string
     {
@@ -747,6 +748,7 @@ class Connection
      * @param bool   $checkDb When input starts with the prefix, query the database to check
      *                        if it exists as-is; if not, treat it as a base name and add prefix
      * @return string Full table name with prefix
+     * @throws InvalidArgumentException With checkDb, for a prefixed name carrying characters outside a-z, A-Z, 0-9, _, -
      */
     public function getFullTable(string $table, bool $checkDb = false): string
     {

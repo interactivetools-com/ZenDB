@@ -53,14 +53,25 @@ coding assistants.
   See [UPGRADING.md](UPGRADING.md) for the rename steps if an install
   has one
 - Invalid table names throw earlier - `exists()`, `existsFull()`,
-  `columns()`, `hasColumn()`, `columnNames()`, `showCreateTable()`,
-  `primaryKey()`, `indexes()`, `foreignKeys()`, and
+  `columns()`, `hasColumn()`, `columnNames()`, `columnDefinitions()`,
+  `showCreateTable()`, `primaryKey()`, `indexes()`, `foreignKeys()`, and
   `foreignKeysReferencing()` now throw `InvalidArgumentException` for
   names with characters outside `a-z A-Z 0-9 _ -` instead of sending
-  them to MySQL or answering false. The deprecated `DB::hasTable()` and
-  `DB::tableExists()` keep answering false. To check a name ZenDB
-  couldn't have created (dots, another database), query
-  `information_schema.TABLES`; the `existsFull()` docblock shows how
+  them to MySQL or answering false. `DB::getFullTable()` and
+  `DB::getBaseTable()` do the same, but only with `checkDb: true` and
+  only for a name that starts with the prefix, since that's the one case
+  where they ask the database. An unknown table is still not an error:
+  a valid name for a table that doesn't exist returns `[]` or `false`
+  as before. The deprecated `DB::hasTable()` and `DB::tableExists()`
+  keep answering false. To check a name ZenDB couldn't have created
+  (dots, another database), query `information_schema.TABLES`; the
+  `existsFull()` docblock shows how
+- Spreading a named-param array now throws - `DB::query($sql, ...$params)`
+  with `$params = [':id' => 5]` reaches the query methods as PHP named
+  arguments, which aren't a supported way to pass query params. It used
+  to bind them anyway, along with an "Undefined array key 0" warning.
+  Drop the `...` and pass the array as one argument:
+  `DB::query($sql, $params)`
 - `DB::decryptExpr()` - takes a column or `table.column` (one dot at
   most); longer dotted chains throw
 - `escape()`, `escapef()`, and `escapeCSV()` - Marked `@internal`; they

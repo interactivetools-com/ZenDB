@@ -69,7 +69,7 @@ trait ConnectionInternals
         // PHP collects named arguments (query($sql, name: 'Bob')) into ...$params as
         // string keys - legal syntax, but not a supported way to pass query params
         if (!array_is_list($args)) {
-            throw new InvalidArgumentException("Query params can't be passed as PHP named arguments");
+            throw new InvalidArgumentException("Query params can't be passed as PHP named arguments. Pass the array as one argument instead of spreading it: query(\$sql, \$params)");
         }
 
         // Named params: single array of ':name' => value pairs

@@ -186,6 +186,7 @@ class TableInfo
      * @param string $baseTable  Table name without prefix
      * @param string $columnName Column to look for
      * @return bool True when the column exists on the table
+     * @throws InvalidArgumentException For names with characters outside a-z, A-Z, 0-9, _, -
      */
     public function hasColumn(string $baseTable, string $columnName): bool
     {
@@ -216,6 +217,7 @@ class TableInfo
      *
      * @param string $baseTable Table name without prefix
      * @return array<string, array{name: string, type: string, isNullable: bool, extra: string, charset: ?string}> columnName => column details
+     * @throws InvalidArgumentException For names with characters outside a-z, A-Z, 0-9, _, -
      */
     public function columns(string $baseTable): array
     {
@@ -262,6 +264,7 @@ class TableInfo
      *
      * @param string $baseTable Table name without prefix
      * @return list<string> Column names
+     * @throws InvalidArgumentException For names with characters outside a-z, A-Z, 0-9, _, -
      */
     public function columnNames(string $baseTable): array
     {
@@ -313,6 +316,7 @@ class TableInfo
      *
      * @param string $baseTable Table name without prefix
      * @return array<string, string> columnName => definition SQL
+     * @throws InvalidArgumentException For names with characters outside a-z, A-Z, 0-9, _, -
      */
     public function columnDefinitions(string $baseTable): array
     {
@@ -367,6 +371,7 @@ class TableInfo
      *
      * @param string $baseTable Table name without prefix
      * @return string The CREATE TABLE statement
+     * @throws InvalidArgumentException For names with characters outside a-z, A-Z, 0-9, _, -
      */
     public function showCreateTable(string $baseTable): string
     {
@@ -708,6 +713,7 @@ class TableInfo
      *
      * @param string $baseTable Table name without prefix
      * @return string The first PRIMARY KEY column name, or '' when there's none
+     * @throws InvalidArgumentException For names with characters outside a-z, A-Z, 0-9, _, -
      */
     public function primaryKey(string $baseTable): string
     {
@@ -755,6 +761,7 @@ class TableInfo
      * @param string      $baseTable  Table name without prefix
      * @param string|null $columnName Only return indexes that include this column
      * @return array<string, array{name: string, cols: list<string>, isAuto: bool, isPrimary: bool, isUnique: bool, indexType: string, isVisible: bool, comment: string, colsCsv: string, isFk: bool, isCustom: bool}> indexName => index details
+     * @throws InvalidArgumentException For names with characters outside a-z, A-Z, 0-9, _, -
      */
     public function indexes(string $baseTable, ?string $columnName = null): array
     {
@@ -848,6 +855,7 @@ class TableInfo
      * @param string      $baseTable  Table name without prefix
      * @param string|null $columnName Only return constraints that include this column
      * @return array<string, array{name: string, cols: list<string>, refTable: string, refCols: list<string>, onDelete: string, onUpdate: string}> constraintName => constraint details
+     * @throws InvalidArgumentException For names with characters outside a-z, A-Z, 0-9, _, -
      */
     public function foreignKeys(string $baseTable, ?string $columnName = null): array
     {
@@ -902,6 +910,7 @@ class TableInfo
      *
      * @param string $baseTable Table name without prefix
      * @return array<string, array{name: string, fullTable: string, cols: list<string>, refCols: list<string>}> constraintName => constraint details
+     * @throws InvalidArgumentException For names with characters outside a-z, A-Z, 0-9, _, -
      */
     public function foreignKeysReferencing(string $baseTable): array
     {
