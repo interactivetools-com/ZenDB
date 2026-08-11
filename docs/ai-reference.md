@@ -575,7 +575,7 @@ DB::connect([
     'useSmartStrings'      => true,           // Return SmartString values (auto HTML-encode); false = raw values, no encoding
     'usePhpTimezone'       => true,           // Sync MySQL timezone with PHP
     'versionRequired'      => '5.7.32',       // Minimum MySQL version or compatible
-    'requireSSL'           => false,          // Require SSL connection
+    'requireSSL'           => false,          // Encrypt connection; no cert verification
     'databaseAutoCreate'   => false,          // Create database if missing
     'connectTimeout'       => 3,              // Seconds
     'readTimeout'          => 60,             // Seconds

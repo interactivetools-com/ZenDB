@@ -102,7 +102,7 @@ class Connection
      *     usePhpTimezone?:       bool,      // Sync MySQL timezone with PHP (default: true)
      *     loadHandler?:          callable,  // @internal Custom result loading handler (CMS Builder plumbing); signature may change
      *     versionRequired?:      string,    // Minimum MySQL version or compatible (default: '5.7.32')
-     *     requireSSL?:           bool,      // Require SSL connection (default: false)
+     *     requireSSL?:           bool,      // Encrypt the connection; no certificate verification (default: false)
      *     databaseAutoCreate?:   bool,      // Create database if missing (default: false)
      *     connectTimeout?:       int,       // Connection timeout in seconds (default: 3)
      *     readTimeout?:          int,       // Read timeout in seconds (default: 60)

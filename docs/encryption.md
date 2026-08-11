@@ -40,6 +40,12 @@ server on your own or your hosting provider's internal network, anyone
 positioned to watch the traffic already has access to the servers
 themselves, so `requireSSL` adds nothing there.
 
+`requireSSL` encrypts the connection, it doesn't verify the server's
+certificate. That stops someone reading the traffic in transit; it doesn't
+stop someone who can point your connection at a server they control. ZenDB
+has no certificate-verification option, so if that's part of your threat
+model, reach the database over a private network or an SSH tunnel instead.
+
 ZenDB decides which columns to encrypt by column type: every `MEDIUMBLOB` is
 encrypted, everything else is left alone (including `TINYBLOB`, `BLOB`, and
 `LONGBLOB`):

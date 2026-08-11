@@ -176,8 +176,8 @@ class Server
      *                  TLS is always on with auto-generated certificates   → true
      *
      * Built to gate "encrypt the connection" UI: false only when enabling `requireSSL`
-     * is guaranteed to fail. True means the server side will accept TLS - the client
-     * can still reject an untrusted certificate, so success isn't guaranteed.
+     * is guaranteed to fail. True means the server side will accept TLS. ZenDB doesn't
+     * verify certificates, so a self-signed or expired one still connects.
      *
      * @see docs/internal/db-behavior-matrix.md how every supported server answers the TLS probes
      */

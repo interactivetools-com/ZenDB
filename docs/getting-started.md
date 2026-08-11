@@ -192,7 +192,7 @@ rather than being silently ignored.
 | **Connection Options** |        |                 |                                                                                       |
 | `connectTimeout`       | int    | `3`             | Connection timeout in seconds                                                         |
 | `readTimeout`          | int    | `60`            | Read timeout in seconds                                                               |
-| `requireSSL`           | bool   | `false`         | Require SSL for the database connection                                               |
+| `requireSSL`           | bool   | `false`         | Encrypt the database connection; no certificate verification                          |
 | `versionRequired`      | string | `'5.7.32'`      | Minimum MySQL version or compatible; connecting to an older server throws             |
 | `usePhpTimezone`       | bool   | `true`          | Set the MySQL session timezone to PHP's timezone                                      |
 | `sqlMode`              | string | *(shown right)* | `STRICT_ALL_TABLES,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION` |
