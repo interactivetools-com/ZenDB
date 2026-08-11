@@ -2,20 +2,13 @@
 
 Most old code keeps working after an upgrade:
 
-- **Renamed methods are removed slowly, never silently.** Old names keep
-  working while they step through deprecation stages over multiple releases
-  (IDE strikethrough, quiet notice, then a clear error), always naming
-  their replacement.
-- **Breaking changes produce clear errors.** Removed methods and invalid
-  inputs throw an exception naming the problem and the fix, e.g.
-  "DB::like() has been removed. Use DB::escape($value, true) or
-  DB::likeContains($value) instead", and
-  deprecated calls raise a quiet notice with their replacement and your
-  file and line, e.g. "DB::hasTable() is deprecated, use Table::exists()
-  instead in listings.php:14" - error handlers like CMS Builder's Developer
-  Log catch these.
-- **Only the silent changes need checking.** This file lists them per
-  version, each with a search or the warning that finds them.
+- **If it breaks, it tells you.** Old names phase out over multiple
+  releases - IDE strikethrough, then a quietly logged notice with your file
+  and line (CMS Builder shows these in the Developer Log), then a clear
+  error - always naming the replacement.
+- **Everything worth checking is listed here.** Silent behavior changes,
+  deprecations, and optional renames, per version, each with a search that
+  finds affected code.
 
 Upgrading ZenDB also upgrades SmartArray and SmartString - query results
 are their objects, so check their upgrade notes too:
@@ -85,9 +78,12 @@ Full lists of what changed per release: [CHANGELOG.md](CHANGELOG.md).
 >   // after this reads: 10.5.29     - throws, names the server's real version
 >   ```
 >
+>   Search: `versionRequired`
+>
 > - `DB::transaction()` - when the connection dies mid-transaction, catch
 >   blocks now receive the exception your code threw; they used to get the
 >   "server has gone away" error from the failing ROLLBACK that replaced it.
+>   Search: `DB::transaction(`
 >
 > - Floats are written with exact round-trip precision; the old string cast
 >   rounded to 14 significant digits, so equality matches against very
