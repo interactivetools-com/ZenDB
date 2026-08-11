@@ -258,6 +258,24 @@ class GetColumnDefinitionsTest extends BaseTestCase
         $this->assertSame('datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP', $columns['created']);
     }
 
+    public function testStripsImplicitTextDefaultNull(): void
+    {
+        // MariaDB 10.2+ prints 'mediumtext DEFAULT NULL' for a nullable text column, MySQL
+        // prints just 'mediumtext'; both must read back the same. Other types print
+        // DEFAULT NULL on both vendors, so theirs stays
+        DB::$mysqli->query("DROP TEMPORARY TABLE IF EXISTS test_schema_textnull");
+        DB::$mysqli->query("CREATE TEMPORARY TABLE test_schema_textnull (
+            body MEDIUMTEXT,
+            data BLOB,
+            age  INT
+        )");
+        $columns = DB::getColumnDefinitions('schema_textnull');
+
+        $this->assertSame('mediumtext', $columns['body']);
+        $this->assertSame('blob', $columns['data']);
+        $this->assertSame('int DEFAULT NULL', $columns['age']);
+    }
+
     //endregion
     //region Partitioned Tables
 

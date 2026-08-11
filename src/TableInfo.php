@@ -306,6 +306,9 @@ class TableInfo
      *     ('DEFAULT uuid()' → 'DEFAULT (uuid())'); CURRENT_TIMESTAMP stays bare per the rule above
      *   - MariaDB's bare numeric defaults are quoted the way MySQL prints them ('DEFAULT 0' → "DEFAULT '0'");
      *     both servers accept either form in DDL, the quoting is spelling, not type
+     *   - the implicit DEFAULT NULL MariaDB prints on nullable text/blob columns is dropped
+     *     ('mediumtext DEFAULT NULL' → 'mediumtext'), matching MySQL's output; real text defaults
+     *     survive, both MariaDB's quoted form (DEFAULT '123') and MySQL's expression form (DEFAULT ('abc'))
      *
      * COMMENT text is never modified: it is split off before normalizing and reattached after.
      *
@@ -421,6 +424,10 @@ class TableInfo
      *     keyword, and every supported server accepts the keyword
      *   - bare numeric defaults are quoted ('DEFAULT 0' → "DEFAULT '0'"): MariaDB prints them
      *     bare, MySQL prints them quoted, and every supported server accepts the quoted form
+     *   - the implicit DEFAULT NULL MariaDB prints on nullable text/blob columns is dropped
+     *     ('mediumtext DEFAULT NULL' → 'mediumtext'), matching MySQL's output; a nullable column
+     *     defaults to NULL either way, so replay is identical, and real text defaults survive,
+     *     both MariaDB's quoted form (DEFAULT '123') and MySQL's expression form (DEFAULT ('abc'))
      *
      * Engine, charset, and everything else replay as-is: this removes server-version noise,
      * it doesn't upgrade schemas. See docs/internal/db-behavior-matrix.md (2026-07).
@@ -492,6 +499,15 @@ class TableInfo
         // without the parens MySQL's DDL grammar requires
         $definition = self::stripRedundantGeneratedParens($definition);
         $definition = self::parenthesizeExpressionDefault($definition);
+
+        // NOT NULL is what decides whether a column allows NULL; DEFAULT NULL on a nullable column
+        // just spells out "no default". The vendors only disagree on text/blob, so that's all we touch:
+        //   - every other type: both vendors print DEFAULT NULL, so it's already identical and stays
+        //   - nullable text/blob: MariaDB prints DEFAULT NULL, MySQL prints nothing (it doesn't
+        //     allow literal defaults there) - drop it so both read the same
+        //   - real text defaults survive: MariaDB's are quoted so they're masked, and MySQL's
+        //     expression defaults keep their parens, so neither can match the strip
+        $definition = preg_replace('/^((?:tiny|medium|long)?(?:text|blob)\b.*?) DEFAULT NULL\b/', '$1', $definition);
 
         // MariaDB prints numeric-typed defaults bare (DEFAULT 0); MySQL prints them quoted (DEFAULT '0').
         // Quote bare numeric literals to match MySQL. Numbers only: other bare tokens are keywords (NULL)

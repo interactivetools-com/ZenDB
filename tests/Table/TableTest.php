@@ -298,6 +298,50 @@ final class TableTest extends TestCase
     }
 
     #[Test]
+    public function nullableTextAndBlobColumnsReadTheSameFromEveryServer(): void
+    {
+        // MariaDB 10.2+ supports text/blob defaults and prints the implicit DEFAULT NULL on
+        // nullable ones; MySQL forbids literal defaults there and prints just the type. Both
+        // prints must normalize to the MySQL spelling
+        $serverVariants = [
+            'mysql/percona' => ['`body` mediumtext', '`summary` text CHARACTER SET latin1', '`data` blob'],
+            'all mariadb'   => ['`body` mediumtext DEFAULT NULL', '`summary` text CHARACTER SET latin1 DEFAULT NULL', '`data` blob DEFAULT NULL'],
+        ];
+
+        foreach ($serverVariants as $server => [$body, $summary, $data]) {
+            $definitions = self::parseDdl("CREATE TABLE `t` (\n  $body,\n  $summary,\n  $data\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+            $this->assertSame('mediumtext', $definitions['body'], $server);
+            $this->assertSame('text CHARACTER SET latin1', $definitions['summary'], "a charset clause between type and default doesn't block the strip: $server");
+            $this->assertSame('blob', $definitions['data'], $server);
+        }
+    }
+
+    #[Test]
+    public function textDefaultNullStripNeverTouchesRealDefaultsOrOtherTypes(): void
+    {
+        // the survive cases: every other type prints DEFAULT NULL on BOTH vendors (already
+        // canonical, must stay), a real MariaDB text default is information, a MySQL 8.0.13+
+        // expression default on text keeps its parens, and 'DEFAULT NULL' inside a comment is text
+        $definitions = self::parseDdl(<<<'SQL'
+            CREATE TABLE `t` (
+              `age` int(11) DEFAULT NULL,
+              `city` varchar(60) DEFAULT NULL,
+              `bio` mediumtext DEFAULT '123',
+              `sig` mediumtext DEFAULT ('abc'),
+              `note` tinytext DEFAULT NULL COMMENT 'not a DEFAULT NULL marker',
+              `body` longtext NOT NULL
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            SQL);
+
+        $this->assertSame('int DEFAULT NULL', $definitions['age']);
+        $this->assertSame('varchar(60) DEFAULT NULL', $definitions['city']);
+        $this->assertSame("mediumtext DEFAULT '123'", $definitions['bio'], "a real MariaDB text default survives");
+        $this->assertSame("mediumtext DEFAULT ('abc')", $definitions['sig'], 'a MySQL expression default survives');
+        $this->assertSame("tinytext COMMENT 'not a DEFAULT NULL marker'", $definitions['note'], "the column's clause strips, the comment text doesn't");
+        $this->assertSame('longtext NOT NULL', $definitions['body']);
+    }
+
+    #[Test]
     public function stringDefaultsAreNeverMistakenForNumbers(): void
     {
         // string-typed defaults arrive quoted from every server, whatever their content: numeric-
@@ -467,7 +511,7 @@ final class TableTest extends TestCase
               `isAdmin` tinyint(1) NOT NULL DEFAULT '0',
               `flags` tinyint unsigned NOT NULL DEFAULT '0',
               `title` varchar(255) NOT NULL COMMENT 'not int(11), COLLATE utf8mb4_general_ci here',
-              `body` mediumtext DEFAULT NULL,
+              `body` mediumtext,
               `code` varchar(20) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
               PRIMARY KEY (`num`),
               KEY `idx_title` (`title`(10))
