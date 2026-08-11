@@ -241,6 +241,13 @@ clear about where that ends:
   cleanly.
 - **One key for everything.** Every `MEDIUMBLOB` on the connection uses the
   same key; there's no per-column opt-out.
+- **Deep server access reads the key.** ZenDB sends it to MySQL as a bound
+  parameter, so `SHOW PROCESSLIST` and performance_schema statement history
+  only show `SET @ek = UNHEX(SHA2(?, 512))`. The general query log is the
+  exception: it writes bound values inline, so a server running with
+  `general_log` on records the key. And where performance_schema is enabled
+  (on by default in MySQL, off in MariaDB), an account with access to it can
+  read `@ek` for as long as the connection lives.
 
 If you need protection against an attacker who can compare or tamper with
 ciphertext in the live database, encrypt with an authenticated cipher (such as
