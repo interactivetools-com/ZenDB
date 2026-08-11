@@ -921,7 +921,7 @@ class Connection
         unset($row);
     }
 
-    /** @var bool One "can't decrypt" warning per connection, not one per row */
+    /** @var bool One "can't decrypt" warning, not one per row */
     private bool $decryptWarned = false;
 
     /**

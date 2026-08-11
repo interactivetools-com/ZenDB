@@ -175,7 +175,7 @@ e.g. `[2 => 'apiToken', 3 => 'ssn']`.
 
 A value that fails to decrypt (wrong `encryptionKey`, or the column holds data
 that was never encrypted) passes through as its raw bytes, and the first
-failure triggers one `E_USER_WARNING` per connection:
+failure triggers an `E_USER_WARNING`:
 
 ```
 ZenDB: can't decrypt MEDIUMBLOB column 'apiToken', returning raw bytes. Wrong encryptionKey, or the column holds unencrypted data.
