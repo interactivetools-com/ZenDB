@@ -205,6 +205,8 @@ Four non-errors worth knowing:
   `SELECT 0 FROM (SELECT 0) empty_set WHERE 0`, an empty set; `IN` of an empty set matches
   nothing and `NOT IN` of an empty set matches everything, so an empty
   want-list returns no rows and an empty exclusion list returns all rows.
+  That subquery only fits `IN` and `NOT IN`; to use an array elsewhere, pass
+  your own value when the list is empty (`':tags' => $tags ?: ''`).
 - Unused *named* parameters are allowed, so you can build one params array
   and pass it to several related queries. Unused *positional* values are
   deprecated (they usually mean a missing `?`) and log a warning.

@@ -366,6 +366,22 @@ DB::select('users', "id NOT IN (:ids)", [':ids' => $excludeIds]);
 // SELECT * FROM `users` WHERE id NOT IN (SELECT 0 FROM (SELECT 0) empty_set WHERE 0) - returns all rows
 ```
 
+That subquery is built for `IN` and `NOT IN`. Put an array anywhere else and
+an empty one is a SQL syntax error naming `empty_set`:
+
+```php
+$tags = [];  // nothing selected
+DB::queryOne("SELECT CONCAT_WS(:sep, :tags) AS csv", [':sep' => ',', ':tags' => $tags]);
+// SQL syntax error near 'SELECT 0 FROM (SELECT 0) empty_set WHERE 0)'
+```
+
+Pick what an empty list should mean there and pass that instead:
+
+```php
+DB::queryOne("SELECT CONCAT_WS(:sep, :tags) AS csv", [':sep' => ',', ':tags' => $tags ?: '']);
+// SELECT CONCAT_WS(',', '') AS csv - returns an empty string
+```
+
 ### Booleans Convert to TRUE and FALSE
 
 PHP booleans become the SQL keywords `TRUE` and `FALSE` (which MySQL stores
