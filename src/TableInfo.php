@@ -7,6 +7,9 @@ use InvalidArgumentException;
 use RuntimeException;
 use mysqli_sql_exception;
 
+// compiles to single opcodes instead of runtime name lookups; see the note in ConnectionInternals.php
+use function count, strlen;
+
 /**
  * INTERNAL: Method names and return values may change between releases.
  *

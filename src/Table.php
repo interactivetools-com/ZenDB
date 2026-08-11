@@ -3,6 +3,9 @@ declare(strict_types=1);
 
 namespace Itools\ZenDB;
 
+// compiles to single opcodes instead of runtime name lookups; see the note in ConnectionInternals.php
+use function strlen;
+
 /**
  * INTERNAL: Method names and return values may change between releases.
  *

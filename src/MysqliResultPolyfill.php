@@ -7,6 +7,9 @@ use mysqli_result;
 use mysqli_stmt;
 use ValueError;
 
+// compiles to single opcodes instead of runtime name lookups; see the note in ConnectionInternals.php
+use function count;
+
 /**
  * Class MysqliResultPolyfill
  *

@@ -12,6 +12,9 @@ use mysqli;
 use mysqli_sql_exception;
 use WeakMap;
 
+// compiles to single opcodes instead of runtime name lookups; see the note in ConnectionInternals.php
+use function count, is_float, is_int, is_null, is_object, is_string, strlen;
+
 /**
  * Connection class for ZenDB - manages a single database connection with its own settings.
  *

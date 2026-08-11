@@ -9,6 +9,9 @@ use Itools\SmartString\SmartString;
 use RuntimeException;
 use Throwable;
 
+// compiles to single opcodes instead of runtime name lookups; see the note in ConnectionInternals.php
+use function is_float, is_null;
+
 /**
  * DB is a static facade for ZenDB that provides convenient static methods for database access.
  *
