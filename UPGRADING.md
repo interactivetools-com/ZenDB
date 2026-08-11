@@ -146,10 +146,10 @@ Full lists of what changed per release: [CHANGELOG.md](CHANGELOG.md).
 
 ### Optional renames
 
-No required changes yet: the old names still work and raise a deprecation
-notice naming their replacement (visible in error handlers like CMS
-Builder's Developer Log). They will throw in a future release, so rename
-when convenient.
+No required changes yet: the old names still work, and IDEs and static
+analysis flag them with the replacement to switch to. A later release logs
+a deprecation notice with the caller's file and line, and a release after
+that throws, so rename when convenient.
 
 | Old name (still works)       | Current name                 |
 |------------------------------|------------------------------|
