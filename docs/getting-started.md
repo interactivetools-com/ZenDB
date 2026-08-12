@@ -6,7 +6,8 @@ this page you will have selected, inserted, updated, and deleted rows.
 Contents:
 
 - [Installation](#installation)
-- [Connect and Fetch Your First Rows](#connect-and-fetch-your-first-rows)
+- [Connecting - `DB::connect()`](#connecting---dbconnect)
+- [Your First Query - `DB::select()`](#your-first-query---dbselect)
 - [The Mental Model](#the-mental-model)
 - [Fetching One Row - `DB::selectOne()`](#fetching-one-row---dbselectone)
 - [Inserting Rows - `DB::insert()`](#inserting-rows---dbinsert)
@@ -19,7 +20,7 @@ Contents:
 ## Installation
 
 Using CMS Builder? ZenDB is already installed and connected; skip ahead to
-[The Mental Model](#the-mental-model).
+[Your First Query](#your-first-query---dbselect).
 
 ```bash
 composer require itools/zendb
@@ -31,9 +32,9 @@ equivalent MariaDB. Composer also installs
 [SmartString](https://github.com/interactivetools-com/SmartString), the two
 libraries behind ZenDB's result sets and values.
 
-## Connect and Fetch Your First Rows
+## Connecting - `DB::connect()`
 
-Call `DB::connect()` once at startup, then query with the `DB::` static methods:
+Call `DB::connect()` once at startup:
 
 ```php
 use Itools\ZenDB\DB;
@@ -44,13 +45,6 @@ DB::connect([
     'password' => 'secret',    // use '' for none
     'database' => 'my_app',
 ]);
-
-$users = DB::select('users', ['status' => 'active']);
-// SELECT * FROM `users` WHERE `status` = 'active'
-
-foreach ($users as $user) {
-    echo "<li>$user->name from $user->city</li>";  // values HTML-encode themselves
-}
 ```
 
 All four config keys are required; a missing one throws `RuntimeException`
@@ -58,6 +52,20 @@ with the key name, and a failed connection throws with the MySQL error.
 Those four are enough for most apps; for everything else `DB::connect()`
 accepts (timeouts, `tablePrefix`, SSL, encryption), see
 [Configuration Options](#configuration-options) at the bottom of this page.
+
+## Your First Query - `DB::select()`
+
+`DB::select()` returns every matching row; loop the result with `foreach`
+and echo fields with property syntax:
+
+```php
+$users = DB::select('users', ['status' => 'active']);
+// SELECT * FROM `users` WHERE `status` = 'active'
+
+foreach ($users as $user) {
+    echo "<li>$user->name from $user->city</li>";  // values HTML-encode themselves
+}
+```
 
 ## The Mental Model
 
