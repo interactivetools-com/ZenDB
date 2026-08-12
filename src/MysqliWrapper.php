@@ -12,6 +12,9 @@ use mysqli_result;
 use mysqli_sql_exception;
 use mysqli_stmt;
 
+// import built-ins so calls resolve at compile time instead of per-call lookups; NamespacedCallsTest keeps this list exact
+use function get_object_vars, microtime, str_contains;
+
 /**
  * Class MysqliWrapper
  *

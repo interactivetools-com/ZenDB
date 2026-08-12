@@ -1,0 +1,180 @@
+<?php
+declare(strict_types=1);
+
+namespace Itools\ZenDB\Tests\Source;
+
+use InteractiveTools\Standards\NamespacedCallsCheck;
+use PHPUnit\Framework\TestCase;
+use ReflectionClass;
+
+use function array_column, array_filter, array_unique, class_exists, dirname, file_get_contents, file_put_contents, implode, is_file, ltrim, sort, sprintf, str_replace, sys_get_temp_dir, tempnam, unlink;
+
+/**
+ * Fails when a namespaced file does not import exactly the built-ins it calls.
+ *
+ * Three things are reported: a built-in called with no import, a built-in called
+ * with a leading backslash, and a built-in imported but never called. The result
+ * is one import line per file that lists what the file actually uses.
+ *
+ * Copy this file and NamespacedCallsCheck.php side by side into the repo's
+ * source-tests folder (tests/Source, or tests/Integration where that split
+ * exists) and change only the namespace line. The checker keeps its own
+ * namespace in every copy. Nothing else needs maintaining.
+ *
+ * To fix everything the test reports:
+ *
+ *     php path/to/NamespacedCallsCheck.php --fix src/
+ *
+ * Background, and what the saving actually is:
+ * micro-optimizations-namespaced-calls.md
+ */
+class NamespacedCallsTest extends TestCase
+{
+    /**
+     * Paths to scan, relative to the repo root. src only on purpose: the
+     * import is a hot-path optimization, and test code should not pay an
+     * import-line tax on every new file. This file and the checker still
+     * follow the rule; the self-test below holds them to it.
+     */
+    private const SCAN_PATHS = ['src'];
+
+    /**
+     * Files exempt from the rule, relative to the repo root.
+     *
+     * Add a reason on every entry. An exemption without one becomes permanent
+     * by accident, because nobody knows whether it is safe to remove.
+     */
+    private const ALLOWED = [
+        // 'src/Legacy/Whatever.php' => 'generated file, regenerated on build',
+    ];
+
+    /** Where NamespacedCallsCheck.php sits, relative to this file. Ignored when an autoloader finds it. */
+    private const CHECKER_PATH = '/NamespacedCallsCheck.php';
+
+    public static function setUpBeforeClass(): void
+    {
+        if (class_exists(NamespacedCallsCheck::class)) {
+            return;
+        }
+
+        $path = __DIR__ . self::CHECKER_PATH;
+        if (!is_file($path)) {
+            self::fail("NamespacedCallsCheck.php is not at $path. Point CHECKER_PATH at it in " . __FILE__ . '.');
+        }
+        require_once $path;
+    }
+
+    public function testProjectFilesImportExactlyWhatTheyCall(): void
+    {
+        $root     = dirname(__DIR__, 2);
+        $problems = [];
+
+        foreach (self::SCAN_PATHS as $path) {
+            foreach (NamespacedCallsCheck::scanPath("$root/$path") as $file => $findings) {
+                $relative = ltrim(str_replace($root, '', $file), '/\\');
+                if (isset(self::ALLOWED[$relative])) {
+                    continue;
+                }
+                $problems[$relative] = self::describe($findings);
+            }
+        }
+
+        $this->assertSame([], $problems, self::explain($problems));
+    }
+
+    /**
+     * The checker and this test follow the rule they enforce.
+     *
+     * SCAN_PATHS covers them in most layouts, but a repo that narrows it, or
+     * keeps the checker somewhere else, would quietly stop checking the one file
+     * whose whole job is this. Naming both files directly keeps that honest.
+     */
+    public function testTheCheckerAndThisTestFollowTheirOwnRule(): void
+    {
+        $files = [
+            (new ReflectionClass(NamespacedCallsCheck::class))->getFileName(),
+            (new ReflectionClass(self::class))->getFileName(),
+        ];
+
+        foreach ($files as $file) {
+            $findings = NamespacedCallsCheck::scanFile((string)$file);
+            $this->assertSame(
+                [],
+                $findings,
+                sprintf("%s does not follow the rule it enforces:\n  %s", $file, self::describe($findings)),
+            );
+        }
+    }
+
+    /**
+     * A method named after a built-in does not claim the name for its file: the
+     * class keeps its count() method while the file imports and calls the global
+     * count(). The method declaration used to blacklist the name, which made
+     * --fix silently drop the import.
+     */
+    public function testMethodNamedAfterABuiltinDoesNotClaimTheName(): void
+    {
+        $source = <<<'__PHP__'
+            <?php
+            namespace Example;
+
+            class Collection
+            {
+                public function count(): int
+                {
+                    return count($this->items);
+                }
+            }
+            __PHP__;
+
+        $file = (string)tempnam(sys_get_temp_dir(), 'ncc');
+        try {
+            file_put_contents($file, $source);
+            $this->assertSame('missing: count', self::describe(NamespacedCallsCheck::scanFile($file)));
+
+            $this->assertSame(['count'], NamespacedCallsCheck::fixFile($file));
+            $this->assertSame([], NamespacedCallsCheck::scanFile($file));
+            $this->assertStringContainsString('use function count;', (string)file_get_contents($file));
+        } finally {
+            unlink($file);
+        }
+    }
+
+    /** @param list<array{type: string, function: string, line: int}> $findings */
+    private static function describe(array $findings): string
+    {
+        $parts = [];
+        foreach (['missing', 'qualified', 'unused'] as $type) {
+            $names = array_unique(array_column(
+                array_filter($findings, static fn(array $f): bool => $f['type'] === $type),
+                'function',
+            ));
+            if ($names !== []) {
+                sort($names);
+                $parts[] = "$type: " . implode(', ', $names);
+            }
+        }
+        return implode('; ', $parts);
+    }
+
+    /** @param array<string, string> $problems */
+    private static function explain(array $problems): string
+    {
+        if ($problems === []) {
+            return '';
+        }
+
+        $lines   = ['These namespaced files do not import exactly the built-ins they call,'];
+        $lines[] = 'so PHP looks those names up at runtime on every call:';
+        $lines[] = '';
+        foreach ($problems as $file => $detail) {
+            $lines[] = "  $file";
+            $lines[] = "    $detail";
+        }
+        $lines[] = '';
+        $lines[] = 'Fix with:  php ' . (new ReflectionClass(NamespacedCallsCheck::class))->getFileName()
+            . ' --fix ' . implode(' ', self::SCAN_PATHS);
+
+        return implode("\n", $lines);
+    }
+}

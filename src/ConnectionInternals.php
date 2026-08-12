@@ -15,13 +15,8 @@ use WeakMap;
 use mysqli;
 use mysqli_result;
 
-// Speed: an unqualified builtin call in a namespaced file compiles to a runtime
-// name lookup; importing the name lets these compile to single opcodes instead of
-// function calls (~4ns each). Only builtins the compiler turns into opcodes are
-// listed - other builtins gain ~1ns and stay out. NativeCallsTest holds the opcode
-// list and names any uncovered call site or unused import.
-use function array_key_exists, count, is_array, is_bool, is_float, is_int, is_null, is_object,
-    is_string, strlen;
+// import built-ins so calls resolve at compile time instead of per-call lookups; NamespacedCallsTest keeps this list exact
+use function addcslashes, array_column, array_count_values, array_filter, array_flip, array_is_list, array_key_exists, array_keys, array_map, array_shift, array_unique, array_values, count, get_debug_type, get_object_vars, implode, in_array, is_array, is_bool, is_finite, is_float, is_int, is_null, is_object, is_string, preg_grep, preg_match, preg_replace, preg_replace_callback, str_contains, str_replace, str_starts_with, strlen, strspn, strtoupper, substr, substr_count, trim, var_export;
 
 /**
  * Query building and result processing internals for Connection.

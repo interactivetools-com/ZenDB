@@ -6,6 +6,9 @@ namespace Itools\ZenDB;
 use mysqli;
 use stdClass;
 
+// import built-ins so calls resolve at compile time instead of per-call lookups; NamespacedCallsTest keeps this list exact
+use function implode, in_array, preg_match, preg_replace, rtrim, str_contains, stripos, strtolower;
+
 /**
  * INTERNAL: Method names and return values may change between releases.
  *

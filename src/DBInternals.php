@@ -7,6 +7,9 @@ use InvalidArgumentException;
 use Itools\SmartString\SmartString;
 use RuntimeException;
 
+// import built-ins so calls resolve at compile time instead of per-call lookups; NamespacedCallsTest keeps this list exact
+use function date, preg_match;
+
 /**
  * Internal methods for DB.
  *

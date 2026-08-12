@@ -9,6 +9,9 @@ use mysqli_stmt;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
 
+// import built-ins so calls resolve at compile time instead of per-call lookups; NamespacedCallsTest keeps this list exact
+use function class_exists, json_encode, method_exists;
+
 /**
  * Wraps mysqli_stmt to add query logging support.
  */

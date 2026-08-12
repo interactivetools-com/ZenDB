@@ -12,8 +12,8 @@ use mysqli;
 use mysqli_sql_exception;
 use WeakMap;
 
-// compiles to single opcodes instead of runtime name lookups; see the note in ConnectionInternals.php
-use function count, is_float, is_int, is_null, is_object, is_string, strlen;
+// import built-ins so calls resolve at compile time instead of per-call lookups; NamespacedCallsTest keeps this list exact
+use function array_diff, array_flip, array_intersect_key, array_key_first, array_keys, count, defined, hash, implode, in_array, is_float, is_int, is_null, is_object, is_string, mysqli_report, openssl_decrypt, openssl_encrypt, preg_match, reset, rtrim, str_replace, str_starts_with, strlen, substr, trigger_error, version_compare;
 
 /**
  * Connection class for ZenDB - manages a single database connection with its own settings.

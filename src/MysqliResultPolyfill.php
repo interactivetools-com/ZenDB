@@ -7,8 +7,8 @@ use mysqli_result;
 use mysqli_stmt;
 use ValueError;
 
-// compiles to single opcodes instead of runtime name lookups; see the note in ConnectionInternals.php
-use function count;
+// import built-ins so calls resolve at compile time instead of per-call lookups; NamespacedCallsTest keeps this list exact
+use function array_fill, count, in_array;
 
 /**
  * Class MysqliResultPolyfill

@@ -7,6 +7,9 @@ use InvalidArgumentException;
 use Itools\SmartArray\SmartArrayBase;
 use JetBrains\PhpStorm\Deprecated;
 
+// import built-ins so calls resolve at compile time instead of per-call lookups; NamespacedCallsTest keeps this list exact
+use function basename, date, debug_backtrace, dirname, strtolower, time, trigger_error;
+
 /**
  * Old and retired DB method names, phased out in stages.
  *

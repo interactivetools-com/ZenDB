@@ -3,8 +3,8 @@ declare(strict_types=1);
 
 namespace Itools\ZenDB;
 
-// compiles to single opcodes instead of runtime name lookups; see the note in ConnectionInternals.php
-use function strlen;
+// import built-ins so calls resolve at compile time instead of per-call lookups; NamespacedCallsTest keeps this list exact
+use function preg_match, str_contains, strlen, strtr, substr;
 
 /**
  * INTERNAL: Method names and return values may change between releases.
