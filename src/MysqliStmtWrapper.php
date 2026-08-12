@@ -6,7 +6,6 @@ namespace Itools\ZenDB;
 use mysqli_result;
 use mysqli_sql_exception;
 use mysqli_stmt;
-use PHPUnit\Framework\TestCase;
 use RuntimeException;
 
 // import built-ins so calls resolve at compile time instead of per-call lookups; NamespacedCallsTest keeps this list exact
@@ -30,7 +29,7 @@ class MysqliStmtWrapper extends mysqli_stmt
      */
     public static function enableTestResultPolyfill(bool $enable): void
     {
-        if (!class_exists(TestCase::class, false)) {
+        if (!class_exists('PHPUnit\Framework\TestCase', false)) {
             throw new RuntimeException("forceResultPolyfill can only be set in test environment");
         }
         self::$forceResultPolyfill = $enable;
