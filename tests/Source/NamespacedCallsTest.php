@@ -16,10 +16,14 @@ use function array_column, array_filter, array_unique, class_exists, dirname, fi
  * with a leading backslash, and a built-in imported but never called. The result
  * is one import line per file that lists what the file actually uses.
  *
- * Copy this file and NamespacedCallsCheck.php side by side into the repo's
- * source-tests folder (tests/Source, or tests/Integration where that split
- * exists) and change only the namespace line. The checker keeps its own
- * namespace in every copy. Nothing else needs maintaining.
+ * The originals of this file and NamespacedCallsCheck.php live in the
+ * internal docs repo under programming/; each repo carries copies side by
+ * side in its source-tests folder (tests/Source, or tests/Integration where
+ * that split exists). The checker is byte-identical in every copy including
+ * the original; this file changes only the namespace line (CMS Builder also
+ * adjusts SCAN_PATHS to its layout). Edit the originals and re-copy rather
+ * than editing a copy; the release checklist in
+ * open-source/repo-standards.md compares them.
  *
  * To fix everything the test reports:
  *
@@ -31,10 +35,10 @@ use function array_column, array_filter, array_unique, class_exists, dirname, fi
 class NamespacedCallsTest extends TestCase
 {
     /**
-     * Paths to scan, relative to the repo root. src only on purpose: the
-     * import is a hot-path optimization, and test code should not pay an
-     * import-line tax on every new file. This file and the checker still
-     * follow the rule; the self-test below holds them to it.
+     * Paths to scan, relative to the repo root: the shipped source folders
+     * only, on purpose. The import is a hot-path optimization, and test code
+     * should not pay an import-line tax on every new file. This file and the
+     * checker still follow the rule; the self-test below holds them to it.
      */
     private const SCAN_PATHS = ['src'];
 
@@ -135,6 +139,32 @@ class NamespacedCallsTest extends TestCase
             $this->assertSame(['count'], NamespacedCallsCheck::fixFile($file));
             $this->assertSame([], NamespacedCallsCheck::scanFile($file));
             $this->assertStringContainsString('use function count;', (string)file_get_contents($file));
+        } finally {
+            unlink($file);
+        }
+    }
+
+    /**
+     * A file whose namespace line is indented still gets its import line, and
+     * the inserted line matches that indentation. The insert used to require
+     * the namespace at column 0, so --fix printed "(none needed)" on such a
+     * file while the scan kept flagging it.
+     */
+    public function testIndentedNamespaceStillGetsAnImportLine(): void
+    {
+        $source = <<<'__PHP__'
+            <?php
+                namespace Example;
+
+                $names = array_map('trim', $names);
+            __PHP__;
+
+        $file = (string)tempnam(sys_get_temp_dir(), 'ncc');
+        try {
+            file_put_contents($file, $source);
+            $this->assertSame(['array_map'], NamespacedCallsCheck::fixFile($file));
+            $this->assertSame([], NamespacedCallsCheck::scanFile($file));
+            $this->assertStringContainsString("\n    use function array_map;\n", (string)file_get_contents($file));
         } finally {
             unlink($file);
         }

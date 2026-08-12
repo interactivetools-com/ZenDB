@@ -32,7 +32,13 @@ use function array_column, array_diff_key, array_filter, array_keys, array_pop, 
  *     $findings = NamespacedCallsCheck::scanPath('src/');
  *     NamespacedCallsCheck::fixFile('src/Thing.php');
  *
- * Copy this file into a repo and point a test at it, or run it directly:
+ * The original of this file lives in the internal docs repo under
+ * programming/; SmartString, SmartArray, ZenDB, and CMS Builder each carry a
+ * byte-identical copy next to their NamespacedCallsTest.php. Edit the
+ * original and re-copy it to every repo rather than editing a copy; the
+ * release checklist in open-source/repo-standards.md compares the copies.
+ *
+ * Point a test at it, or run it directly:
  *
  *     php NamespacedCallsCheck.php src/ lib/          # report
  *     php NamespacedCallsCheck.php --fix src/         # rewrite the imports
@@ -468,42 +474,56 @@ class NamespacedCallsCheck
     /** Replaces the file's built-in imports with exactly $names, or returns it unchanged when the form is unsupported. */
     private static function setImports(string $source, array $names): string
     {
-        $line = 'use function ' . implode(', ', $names) . ";\n";
+        $imports = 'use function ' . implode(', ', $names) . ";\n";
 
-        // Replace the first simple `use function a, b;` statement and drop any others.
-        if (preg_match('/^[ \t]*use\s+function\s+[^;{]+;[ \t]*\R/mi', $source, $m, \PREG_OFFSET_CAPTURE)) {
-            $source = substr_replace($source, $line, (int)$m[0][1], strlen((string)$m[0][0]));
+        // Replace the first simple `use function a, b;` statement, keeping its
+        // indentation, and drop any others.
+        if (preg_match('/^([ \t]*)use\s+function\s+[^;{]+;[ \t]*\R/mi', $source, $m, \PREG_OFFSET_CAPTURE)) {
+            $source = substr_replace($source, $m[1][0] . $imports, (int)$m[0][1], strlen((string)$m[0][0]));
             return self::removeImports($source, true);
         }
 
         // No import line yet. Go after the last existing `use`, because PSR-12
         // puts class imports before function ones, and only fall back to the
         // namespace declaration when the file imports nothing at all.
-        $at = self::afterLastUse($source) ?? self::afterNamespace($source);
+        [$at, $indent] = self::afterLastUse($source) ?? self::afterNamespace($source) ?? [null, ''];
 
         return $at === null
             ? $source   // brace-style namespace and no imports: too varied to edit blind
-            : substr_replace($source, "\n" . $line, $at, 0);
+            : substr_replace($source, "\n" . $indent . $imports, $at, 0);
     }
 
-    /** Byte offset just past the last top-level `use ...;` statement, or null when there is none. */
-    private static function afterLastUse(string $source): ?int
+    /**
+     * Byte offset just past the last top-level `use ...;` statement and that
+     * line's indentation, or null when there is none. Top-level means column 0:
+     * an indented `use` is a trait inside a class body, and the import line must
+     * not end up in there.
+     *
+     * @return array{int, string}|null
+     */
+    private static function afterLastUse(string $source): ?array
     {
         if (!preg_match_all('/^use\s+[^;{]+;[ \t]*\R/m', $source, $all, \PREG_OFFSET_CAPTURE)) {
             return null;
         }
         $last = end($all[0]);
 
-        return (int)$last[1] + strlen((string)$last[0]);
+        return [(int)$last[1] + strlen((string)$last[0]), ''];
     }
 
-    /** Byte offset just past the namespace declaration, or null for the brace form. */
-    private static function afterNamespace(string $source): ?int
+    /**
+     * Byte offset just past the namespace declaration and that line's
+     * indentation, or null for the brace form. The line may be indented; the
+     * inserted import line then matches it.
+     *
+     * @return array{int, string}|null
+     */
+    private static function afterNamespace(string $source): ?array
     {
-        if (!preg_match('/^namespace\s+[^;{]+;[ \t]*\R/m', $source, $m, \PREG_OFFSET_CAPTURE)) {
+        if (!preg_match('/^([ \t]*)namespace\s+[^;{]+;[ \t]*\R/m', $source, $m, \PREG_OFFSET_CAPTURE)) {
             return null;
         }
-        return (int)$m[0][1] + strlen((string)$m[0][0]);
+        return [(int)$m[0][1] + strlen((string)$m[0][0]), (string)$m[1][0]];
     }
 
     /** Removes built-in `use function` statements, optionally keeping the first. */
@@ -567,12 +587,18 @@ if (isset($argv[0]) && realpath($argv[0]) === __FILE__) {
         exit(1);
     }
 
-    $files = 0;
+    $files   = 0;
+    $skipped = 0;
     foreach ($paths as $path) {
         foreach (NamespacedCallsCheck::scanPath($path) as $file => $findings) {
             $files++;
             if ($fix) {
                 $imported = NamespacedCallsCheck::fixFile($file);
+                if (NamespacedCallsCheck::scanFile($file) !== []) {
+                    $skipped++;
+                    printf("%s\n  skipped: no place to put the import line, add it by hand\n", $file);
+                    continue;
+                }
                 printf("%s\n  imports: %s\n", $file, $imported ? implode(', ', $imported) : '(none needed)');
                 continue;
             }
@@ -592,5 +618,5 @@ if (isset($argv[0]) && realpath($argv[0]) === __FILE__) {
         exit(0);
     }
     printf("\n%d file(s).%s\n", $files, $fix ? '' : ' Run again with --fix to rewrite the imports.');
-    exit($fix ? 0 : 1);
+    exit($fix && $skipped === 0 ? 0 : 1);
 }
