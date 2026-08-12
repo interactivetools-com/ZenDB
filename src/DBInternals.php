@@ -9,6 +9,7 @@ use RuntimeException;
 
 // import built-ins so calls resolve at compile time instead of per-call lookups; NamespacedCallsTest keeps this list exact
 use function date, preg_match;
+use const MYSQLI_TYPE_BLOB;
 
 /**
  * Internal methods for DB.

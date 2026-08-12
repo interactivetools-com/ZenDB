@@ -9,6 +9,7 @@ use mysqli_sql_exception;
 
 // import built-ins so calls resolve at compile time instead of per-call lookups; NamespacedCallsTest keeps this list exact
 use function array_column, array_filter, array_keys, array_map, count, explode, implode, in_array, preg_grep, preg_match, preg_replace, preg_replace_callback, str_starts_with, stripos, strlen, strpos, strtolower, strtr, substr, usort;
+use const MYSQLI_ASSOC, PREG_OFFSET_CAPTURE;
 
 /**
  * INTERNAL: Method names and return values may change between releases.

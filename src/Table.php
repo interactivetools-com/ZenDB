@@ -5,6 +5,7 @@ namespace Itools\ZenDB;
 
 // import built-ins so calls resolve at compile time instead of per-call lookups; NamespacedCallsTest keeps this list exact
 use function preg_match, str_contains, strlen, strtr, substr;
+use const PREG_OFFSET_CAPTURE;
 
 /**
  * INTERNAL: Method names and return values may change between releases.

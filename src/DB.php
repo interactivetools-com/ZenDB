@@ -11,6 +11,7 @@ use Throwable;
 
 // import built-ins so calls resolve at compile time instead of per-call lookups; NamespacedCallsTest keeps this list exact
 use function abs, intdiv, is_float, is_null, min, preg_match, str_replace;
+use const PHP_INT_MAX;
 
 /**
  * DB is a static facade for ZenDB that provides convenient static methods for database access.

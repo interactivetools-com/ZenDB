@@ -14,6 +14,7 @@ use WeakMap;
 
 // import built-ins so calls resolve at compile time instead of per-call lookups; NamespacedCallsTest keeps this list exact
 use function array_diff, array_flip, array_intersect_key, array_key_first, array_keys, count, defined, hash, implode, in_array, is_float, is_int, is_null, is_object, is_string, mysqli_report, openssl_decrypt, openssl_encrypt, preg_match, reset, rtrim, str_replace, str_starts_with, strlen, substr, trigger_error, version_compare;
+use const E_USER_WARNING, MYSQLI_CLIENT_SSL, MYSQLI_OPT_CONNECT_TIMEOUT, MYSQLI_OPT_INT_AND_FLOAT_NATIVE, MYSQLI_OPT_LOCAL_INFILE, MYSQLI_OPT_READ_TIMEOUT, MYSQLI_REPORT_ERROR, MYSQLI_REPORT_STRICT, MYSQLI_SET_CHARSET_NAME, OPENSSL_RAW_DATA;
 
 /**
  * Connection class for ZenDB - manages a single database connection with its own settings.

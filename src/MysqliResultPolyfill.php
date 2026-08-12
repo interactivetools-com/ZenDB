@@ -9,6 +9,7 @@ use ValueError;
 
 // import built-ins so calls resolve at compile time instead of per-call lookups; NamespacedCallsTest keeps this list exact
 use function array_fill, count, in_array;
+use const MYSQLI_ASSOC, MYSQLI_BOTH, MYSQLI_NUM;
 
 /**
  * Class MysqliResultPolyfill

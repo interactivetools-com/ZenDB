@@ -7,14 +7,16 @@ use InteractiveTools\Standards\NamespacedCallsCheck;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
 
-use function array_column, array_filter, array_unique, class_exists, dirname, file_get_contents, file_put_contents, implode, is_file, ltrim, sort, sprintf, str_replace, sys_get_temp_dir, tempnam, unlink;
+use function array_unique, class_exists, dirname, file_get_contents, file_put_contents, implode, is_file, ltrim, sort, sprintf, str_replace, sys_get_temp_dir, tempnam, unlink;
 
 /**
- * Fails when a namespaced file does not import exactly the built-ins it calls.
+ * Fails when a namespaced file does not import exactly the built-in functions
+ * and constants it uses.
  *
- * Three things are reported: a built-in called with no import, a built-in called
- * with a leading backslash, and a built-in imported but never called. The result
- * is one import line per file that lists what the file actually uses.
+ * Three things are reported: a built-in used with no import, a built-in written
+ * with a leading backslash, and a built-in imported but never used. The result
+ * is a `use function` line per file listing exactly what it calls, with a
+ * `use const` line directly below when the file reads built-in constants.
  *
  * The originals of this file and NamespacedCallsCheck.php live in the
  * internal docs repo under programming/; each repo carries copies side by
@@ -170,16 +172,90 @@ class NamespacedCallsTest extends TestCase
         }
     }
 
-    /** @param list<array{type: string, function: string, line: int}> $findings */
+    /**
+     * Built-in constants follow the same rule as functions: an unqualified
+     * read gets a `use const` line, placed directly below `use function` with
+     * no blank line between, and a backslashed read loses its backslash.
+     */
+    public function testBuiltinConstantsGetTheirOwnImportLine(): void
+    {
+        $source = <<<'__PHP__'
+            <?php
+            namespace Example;
+
+            function newest(array $names): array
+            {
+                sort($names, \SORT_STRING);
+                return $names;
+            }
+            __PHP__;
+
+        $file = (string)tempnam(sys_get_temp_dir(), 'ncc');
+        try {
+            file_put_contents($file, $source);
+            $this->assertSame('missing: sort; qualified: const SORT_STRING', self::describe(NamespacedCallsCheck::scanFile($file)));
+
+            $this->assertSame(['sort', 'const SORT_STRING'], NamespacedCallsCheck::fixFile($file));
+            $this->assertSame([], NamespacedCallsCheck::scanFile($file));
+            $fixed = (string)file_get_contents($file);
+            $this->assertStringContainsString("use function sort;\nuse const SORT_STRING;\n", $fixed);
+            $this->assertStringContainsString('sort($names, SORT_STRING);', $fixed);
+        } finally {
+            unlink($file);
+        }
+    }
+
+    /**
+     * A constant the file declares at namespace level keeps its name, because
+     * the reads mean the namespaced one and importing the global one would
+     * change them. A class constant claims nothing, same as a method: a bare
+     * read next to it still means the global constant.
+     */
+    public function testDeclaredConstantsKeepTheirName(): void
+    {
+        $source = <<<'__PHP__'
+            <?php
+            namespace Example;
+
+            const SORT_STRING = 'name';
+
+            class Page
+            {
+                public const PHP_EOL = '<br>';
+
+                public function render(): string
+                {
+                    return SORT_STRING . PHP_EOL;
+                }
+            }
+            __PHP__;
+
+        $file = (string)tempnam(sys_get_temp_dir(), 'ncc');
+        try {
+            file_put_contents($file, $source);
+            $this->assertSame('missing: const PHP_EOL', self::describe(NamespacedCallsCheck::scanFile($file)));
+
+            $this->assertSame(['const PHP_EOL'], NamespacedCallsCheck::fixFile($file));
+            $this->assertSame([], NamespacedCallsCheck::scanFile($file));
+            $this->assertStringContainsString("use const PHP_EOL;\n", (string)file_get_contents($file));
+        } finally {
+            unlink($file);
+        }
+    }
+
+    /** @param list<array{type: string, kind: string, name: string, line: int}> $findings */
     private static function describe(array $findings): string
     {
         $parts = [];
         foreach (['missing', 'qualified', 'unused'] as $type) {
-            $names = array_unique(array_column(
-                array_filter($findings, static fn(array $f): bool => $f['type'] === $type),
-                'function',
-            ));
+            $names = [];
+            foreach ($findings as $finding) {
+                if ($finding['type'] === $type) {
+                    $names[] = $finding['kind'] === 'constant' ? "const $finding[name]" : $finding['name'];
+                }
+            }
             if ($names !== []) {
+                $names = array_unique($names);
                 sort($names);
                 $parts[] = "$type: " . implode(', ', $names);
             }
@@ -194,8 +270,8 @@ class NamespacedCallsTest extends TestCase
             return '';
         }
 
-        $lines   = ['These namespaced files do not import exactly the built-ins they call,'];
-        $lines[] = 'so PHP looks those names up at runtime on every call:';
+        $lines   = ['These namespaced files do not import exactly the built-in functions'];
+        $lines[] = 'and constants they use, so PHP resolves those names at runtime:';
         $lines[] = '';
         foreach ($problems as $file => $detail) {
             $lines[] = "  $file";

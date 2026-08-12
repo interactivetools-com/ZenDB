@@ -9,6 +9,7 @@ use JetBrains\PhpStorm\Deprecated;
 
 // import built-ins so calls resolve at compile time instead of per-call lookups; NamespacedCallsTest keeps this list exact
 use function basename, date, debug_backtrace, dirname, strtolower, time, trigger_error;
+use const DEBUG_BACKTRACE_IGNORE_ARGS, E_USER_DEPRECATED;
 
 /**
  * Old and retired DB method names, phased out in stages.
