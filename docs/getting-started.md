@@ -19,7 +19,7 @@ Contents:
 
 ## Installation
 
-Using CMS Builder? ZenDB is already installed and connected; skip ahead to
+**Using CMS Builder?** ZenDB is already installed and connected; skip ahead to
 [Your First Query](#your-first-query---dbselect).
 
 ```bash
