@@ -116,8 +116,8 @@ Full guides and references ([browse on GitHub](https://github.com/interactivetoo
 
 ## Related Libraries
 
-- [SmartArray](https://github.com/interactivetools-com/SmartArray) - database rows as chainable collections, with fields that HTML-encode themselves on output.
-- [SmartString](https://github.com/interactivetools-com/SmartString) - PHP strings that HTML-encode themselves on echo, with chainable methods for formatting, dates, and numbers.
+- [SmartArray](https://github.com/interactivetools-com/SmartArray) - the collections your query results arrive as, with chainable filtering, sorting, and grouping.
+- [SmartString](https://github.com/interactivetools-com/SmartString) - the fields inside those results: strings that HTML-encode themselves on echo, with chainable formatting, date, and number methods.
 
 ## Questions?
 
