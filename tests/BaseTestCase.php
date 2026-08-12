@@ -11,9 +11,12 @@ use RuntimeException;
 use PHPUnit\Framework\TestCase;
 use Itools\ZenDB\DB;
 use Itools\ZenDB\Connection;
+use Itools\ZenDB\Tests\Support\SharedTestHelpers;
 
 abstract class BaseTestCase extends TestCase
 {
+    use SharedTestHelpers;
+
     protected static array $configDefaults = [
         'hostname'           => '127.0.0.1',
         'username'           => 'root',
@@ -28,28 +31,6 @@ abstract class BaseTestCase extends TestCase
         'connectTimeout'     => 10, // local MySQL can take over a second to accept a connection under load; short timeouts fail good runs
         'readTimeout'        => 60,
     ];
-
-    /**
-     * Run $fn collecting messages for the given error types (error_reporting-style mask).
-     * The library sends warnings and deprecations via @trigger_error, so only an error
-     * handler can observe them. Returns [result, messages].
-     *
-     * @return array{0: mixed, 1: string[]}
-     */
-    protected function captureErrors(callable $fn, int $mask): array
-    {
-        $messages = [];
-        set_error_handler(static function (int $errno, string $errstr) use (&$messages): bool {
-            $messages[] = $errstr;
-            return true; // handled: captured errors stay out of the suite output
-        }, $mask);
-        try {
-            $result = $fn();
-        } finally {
-            restore_error_handler();
-        }
-        return [$result, $messages];
-    }
 
     /**
      * Run $fn collecting E_USER_DEPRECATED messages. Returns [result, messages].
