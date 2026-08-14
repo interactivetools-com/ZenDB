@@ -12,7 +12,6 @@ use Itools\SmartArray\SmartNull;
 use Itools\SmartString\SmartString;
 use Throwable;
 use WeakMap;
-use mysqli;
 use mysqli_result;
 
 // import built-ins so calls resolve at compile time instead of per-call lookups; NamespacedCallsTest keeps this list exact
@@ -1054,7 +1053,7 @@ trait ConnectionInternals
      * - Self-joins: adds alias-based names (e.g., 'a.name', 'b.name')
      * - Auto-decryption: MEDIUMBLOB columns are decrypted when an encryption key is configured
      */
-    private function fetchMappedRows(mysqli_result|bool $mysqliResult, bool $singleTable = false, string $fullTable = '', string $sqlTemplate = ''): array
+    private function fetchMappedRows(mysqli_result|MysqliResultReplay|bool $mysqliResult, bool $singleTable = false, string $fullTable = '', string $sqlTemplate = ''): array
     {
         if (is_bool($mysqliResult)) {
             return [];  // INSERT/UPDATE/DELETE return true, not a result set
@@ -1256,7 +1255,7 @@ trait ConnectionInternals
      */
     public function __destruct()
     {
-        if ($this->mysqli instanceof mysqli) {
+        if ($this->mysqli !== null) {
             try {
                 // Drain any pending result sets to leave connection in clean state
                 while ($this->mysqli->more_results() && $this->mysqli->next_result()) {

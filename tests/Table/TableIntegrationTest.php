@@ -45,7 +45,9 @@ class TableIntegrationTest extends BaseTestCase
 
     protected function setUp(): void
     {
-        $this->baseTable = 'ztest_mysqltable_' . getmypid();
+        // Fixed name, not a per-run suffix: record/replay needs identical SQL across runs,
+        // and dropFixture() below already handles leftovers from a dead prior run
+        $this->baseTable = 'ztest_mysqltable_fixture';
         $this->fullTable = DB::$tablePrefix . $this->baseTable;
 
         $this->dropFixture(); // in case a prior run died before tearDown
@@ -188,10 +190,10 @@ class TableIntegrationTest extends BaseTestCase
     #[Test]
     public function cloneChecksTablesUnderItsOwnPrefix(): void
     {
-        // the fixture's full name is prefix + "ztest_mysqltable_<pid>"; a clone with the longer
+        // the fixture's full name is prefix + "ztest_mysqltable_fixture"; a clone with the longer
         // prefix finds it under the shorter base name, while the default connection doesn't
         $clone     = DB::clone(['tablePrefix' => DB::$tablePrefix . 'ztest_']);
-        $shortBase = 'mysqltable_' . getmypid();
+        $shortBase = 'mysqltable_fixture';
 
         $this->assertTrue($clone->table->exists($shortBase), "clone's exists() uses the clone's prefix");
         $this->assertFalse(Table::exists($shortBase), "default connection's exists() still uses its own prefix");

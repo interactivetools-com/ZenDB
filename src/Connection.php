@@ -3,12 +3,12 @@ declare(strict_types=1);
 
 namespace Itools\ZenDB;
 
+use Closure;
 use InvalidArgumentException;
 use Itools\SmartArray\SmartArrayBase;
 use Itools\SmartString\SmartString;
 use RuntimeException;
 use Throwable;
-use mysqli;
 use mysqli_sql_exception;
 use WeakMap;
 
@@ -41,7 +41,16 @@ class Connection
      *
      * TODO-PHP84: Make this `public private(set)` so it can't be set by accident; reads keep working.
      */
-    public ?MysqliWrapper $mysqli = null;
+    public MysqliWrapper|MysqliWrapperReplay|null $mysqli = null;
+
+    /**
+     * Test seam: when set, connect() calls this instead of `new MysqliWrapper()` to
+     * substitute a recording wrapper or a MysqliWrapperReplay serving recorded results.
+     * Signature: fn(?callable $queryLogger): MysqliWrapper|MysqliWrapperReplay
+     *
+     * @internal
+     */
+    public static ?Closure $mysqliWrapperFactory = null;
 
     /**
      * Identity facts about the connected database server. Set at connect, null when disconnected.
@@ -150,7 +159,9 @@ class Connection
         }
 
         // Create a new mysqli instance
-        $this->mysqli = new MysqliWrapper(queryLogger: $this->queryLogger);
+        $this->mysqli = self::$mysqliWrapperFactory
+            ? (self::$mysqliWrapperFactory)($this->queryLogger)
+            : new MysqliWrapper(queryLogger: $this->queryLogger);
         $this->mysqli->options(MYSQLI_OPT_CONNECT_TIMEOUT, $this->connectTimeout);
         $this->mysqli->options(MYSQLI_OPT_READ_TIMEOUT, $this->readTimeout);
         $this->mysqli->options(MYSQLI_OPT_LOCAL_INFILE, 0); // disable "LOAD DATA LOCAL INFILE" for security
@@ -278,7 +289,7 @@ class Connection
      */
     public function disconnect(): void
     {
-        if ($this->mysqli instanceof mysqli) {
+        if ($this->mysqli !== null) {
             $this->mysqli->close();
             $this->mysqli = null;
         }

@@ -246,8 +246,8 @@ class Server
     //endregion
     //region Internals
 
-    /** Live connection, or a stdClass with a server_info property in tests */
-    public mysqli|stdClass $mysqli;
+    /** Live connection, a MysqliWrapperReplay, or a stdClass with a server_info property in tests */
+    public mysqli|MysqliWrapperReplay|stdClass $mysqli;
 
     /** Cached vendor() answer, so the fingerprint query runs at most once per connection */
     private ?string $vendor = null;
@@ -277,7 +277,7 @@ class Server
         return $this->vendorStrings;
     }
 
-    public function __construct(mysqli|stdClass $mysqli)
+    public function __construct(mysqli|MysqliWrapperReplay|stdClass $mysqli)
     {
         $this->mysqli = $mysqli;
     }

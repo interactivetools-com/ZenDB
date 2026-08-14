@@ -988,7 +988,7 @@ class TableInfo
     private Connection $db;
 
     /** Raw handle for this class's queries: plain-array results, immune to connection settings */
-    private MysqliWrapper $mysqli;
+    private MysqliWrapper|MysqliWrapperReplay $mysqli;
 
     public function __construct(Connection $db)
     {

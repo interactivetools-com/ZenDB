@@ -10,6 +10,9 @@ vendor/
 .phpunit.result.cache
 phpunit.xml
 
+# Recorded query corpus for replay mode (machine-specific, regenerate with ZENDB_QUERY_MODE=record)
+tests/Support/Replay/corpus.php
+
 # IDE and local dev files
 .claude/
 .idea/

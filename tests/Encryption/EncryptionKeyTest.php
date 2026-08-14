@@ -6,6 +6,7 @@ declare(strict_types=1);
 namespace Itools\ZenDB\Tests\Encryption;
 
 use Itools\ZenDB\Connection;
+use Itools\ZenDB\MysqliWrapper;
 use Itools\ZenDB\Tests\BaseTestCase;
 use ReflectionProperty;
 
@@ -30,7 +31,9 @@ class EncryptionKeyTest extends BaseTestCase
      */
     private static function getEkDirect(Connection $conn): ?string
     {
-        $flagProp = new ReflectionProperty($conn->mysqli, 'encryptionKeySet');
+        // Reflect on MysqliWrapper explicitly: $conn->mysqli can be a recording subclass,
+        // and a subclass reflection can't see the parent's private property
+        $flagProp = new ReflectionProperty(MysqliWrapper::class, 'encryptionKeySet');
         $original = $flagProp->getValue($conn->mysqli);
         $flagProp->setValue($conn->mysqli, true);  // bypass ensureEncryptionKey
 
@@ -47,7 +50,9 @@ class EncryptionKeyTest extends BaseTestCase
      */
     private static function resetEk(Connection $conn): void
     {
-        $flagProp = new ReflectionProperty($conn->mysqli, 'encryptionKeySet');
+        // Reflect on MysqliWrapper explicitly: $conn->mysqli can be a recording subclass,
+        // and a subclass reflection can't see the parent's private property
+        $flagProp = new ReflectionProperty(MysqliWrapper::class, 'encryptionKeySet');
         $flagProp->setValue($conn->mysqli, true);  // bypass so "SET @ek = NULL" doesn't trigger ensureEncryptionKey
         $conn->mysqli->query("SET @ek = NULL");
         $flagProp->setValue($conn->mysqli, false);
@@ -160,7 +165,7 @@ class EncryptionKeyTest extends BaseTestCase
         $originalValue = self::getEkDirect($conn);
 
         // Change the callback via reflection (bypasses setter which resets flag)
-        $keyProp = new ReflectionProperty($conn->mysqli, 'getEncryptionKey');
+        $keyProp = new ReflectionProperty(MysqliWrapper::class, 'getEncryptionKey');
         $keyProp->setValue($conn->mysqli, fn() => 'different-key');
 
         // Run another @ek query - should NOT re-SET because encryptionKeySet is still true
@@ -179,10 +184,12 @@ class EncryptionKeyTest extends BaseTestCase
         $originalValue = self::getEkDirect($conn);
 
         // Change the callback AND reset the flag
-        $keyProp = new ReflectionProperty($conn->mysqli, 'getEncryptionKey');
+        $keyProp = new ReflectionProperty(MysqliWrapper::class, 'getEncryptionKey');
         $keyProp->setValue($conn->mysqli, fn() => 'new-key');
 
-        $flagProp = new ReflectionProperty($conn->mysqli, 'encryptionKeySet');
+        // Reflect on MysqliWrapper explicitly: $conn->mysqli can be a recording subclass,
+        // and a subclass reflection can't see the parent's private property
+        $flagProp = new ReflectionProperty(MysqliWrapper::class, 'encryptionKeySet');
         $flagProp->setValue($conn->mysqli, false);
 
         // Now @ek should be re-SET with the new key

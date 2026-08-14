@@ -46,7 +46,7 @@ class DB
     /**
      * The raw mysqli connection instance for direct database access.
      */
-    public static ?MysqliWrapper $mysqli = null;
+    public static MysqliWrapper|MysqliWrapperReplay|null $mysqli = null;
 
     /**
      * Identity facts about the connected database server. Set at connect, null when disconnected.
