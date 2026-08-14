@@ -16,7 +16,7 @@ use mysqli;
 use mysqli_result;
 
 // import built-ins so calls resolve at compile time instead of per-call lookups; NamespacedCallsTest keeps this list exact
-use function addcslashes, array_column, array_count_values, array_filter, array_flip, array_is_list, array_key_exists, array_keys, array_map, array_shift, array_unique, array_values, count, get_debug_type, get_object_vars, implode, in_array, is_array, is_bool, is_finite, is_float, is_int, is_null, is_object, is_string, preg_grep, preg_match, preg_replace, preg_replace_callback, str_contains, str_replace, str_starts_with, strlen, strspn, strtoupper, substr, substr_count, trim, var_export;
+use function addcslashes, array_column, array_count_values, array_filter, array_flip, array_is_list, array_key_exists, array_keys, array_map, array_shift, array_unique, array_values, count, get_debug_type, get_object_vars, implode, in_array, is_array, is_bool, is_finite, is_float, is_int, is_object, is_string, preg_grep, preg_match, preg_replace, preg_replace_callback, str_contains, str_replace, str_starts_with, strlen, strspn, strtoupper, substr, substr_count, trim, var_export;
 use const MYSQLI_ASSOC, MYSQLI_NUM;
 
 /**
@@ -99,15 +99,20 @@ trait ConnectionInternals
             return $values;
         }
 
-        // 2+ direct values: over the cap or arrays mixed in take the general path (throws)
-        if (count($args) > 1) {
-            if (count($args) > 3) {
+        // Single scalar value (query($sql, 123)): most common positional shape, skip the loop.
+        // Can't be an array here - the named-params branch above handled that.
+        if (count($args) === 1) {
+            $this->positionalParamCount = 1;
+            return [':1' => !is_object($args[0]) ? $args[0] : $this->unwrapParamObject($args[0])];
+        }
+
+        // 2-3 direct values: over the cap or arrays mixed in take the general path (throws)
+        if (count($args) > 3) {
+            return $this->parseParamsGeneral($args);
+        }
+        foreach ($args as $value) {
+            if (is_array($value)) {
                 return $this->parseParamsGeneral($args);
-            }
-            foreach ($args as $value) {
-                if (is_array($value)) {
-                    return $this->parseParamsGeneral($args);
-                }
             }
         }
 
@@ -466,7 +471,14 @@ trait ConnectionInternals
             if ($value instanceof SmartNull) {
                 $value = null; // same as the placeholder path
             }
-            $setElements[] = "`$column` = " . $this->escapeValue($value, "column '$column'");
+            // string/int arms copy escapeValue() output to skip the method call; EscapeParityTest pins them identical
+            if (is_string($value)) {
+                $setElements[] = "`$column` = '" . $this->mysqli->real_escape_string($value) . "'";
+            } elseif (is_int($value)) {
+                $setElements[] = "`$column` = $value";
+            } else {
+                $setElements[] = "`$column` = " . $this->escapeValue($value, "column '$column'");
+            }
         }
 
         return "SET " . implode(", ", $setElements);
@@ -552,12 +564,20 @@ trait ConnectionInternals
             if ($value instanceof SmartNull) {
                 $value = null; // same as the placeholder path
             }
-            $conditions[] = match (true) {
-                is_null($value)                  => "`$column` IS NULL",
-                $value instanceof SmartArrayBase => "`$column` IN (" . $this->escapeCSV($value->toArray()) . ")",
-                is_array($value)                 => "`$column` IN (" . $this->escapeCSV($value) . ")",
-                default                          => "`$column` = " . $this->escapeValue($value, "column '$column'"),
-            };
+            // string/int arms copy escapeValue() output to skip the method call; EscapeParityTest pins them identical
+            if (is_string($value)) {
+                $conditions[] = "`$column` = '" . $this->mysqli->real_escape_string($value) . "'";
+            } elseif (is_int($value)) {
+                $conditions[] = "`$column` = $value";
+            } elseif ($value === null) {
+                $conditions[] = "`$column` IS NULL";
+            } elseif ($value instanceof SmartArrayBase) {
+                $conditions[] = "`$column` IN (" . $this->escapeCSV($value->toArray()) . ")";
+            } elseif (is_array($value)) {
+                $conditions[] = "`$column` IN (" . $this->escapeCSV($value) . ")";
+            } else {
+                $conditions[] = "`$column` = " . $this->escapeValue($value, "column '$column'");
+            }
         }
 
         return "WHERE " . implode(" AND ", $conditions);
@@ -885,7 +905,9 @@ trait ConnectionInternals
 
     /**
      * Convert one PHP value to a SQL literal. Every value ZenDB writes into SQL goes
-     * through here: SET clauses, WHERE arrays, placeholders, escapef(), escapeCSV().
+     * through here or through an inlined copy of the string/int arms in a hot path
+     * (whereFromArray(), buildSetClause(), replacePlaceholders() fast arms);
+     * EscapeParityTest pins those copies byte-identical to this function.
      *
      *   "O'Brien"        →  'O\'Brien'    escaped and quoted
      *   42               →  42
@@ -908,15 +930,26 @@ trait ConnectionInternals
      */
     private function escapeValue(mixed $value, string $context = 'value'): string
     {
-        return match (true) {
-            is_null($value)          => 'NULL',
-            is_int($value)           => (string)$value,
-            is_float($value)         => $this->floatToSql($value, $context),
-            is_bool($value)          => $value ? 'TRUE' : 'FALSE',
-            $value instanceof RawSql => (string)$value,
-            is_string($value)        => "'" . $this->mysqli->real_escape_string($value) . "'",
-            default                  => throw new InvalidArgumentException("Unsupported type for $context: " . get_debug_type($value)),
-        };
+        // Checked most-common-first: strings and ints cover nearly all real values
+        if (is_string($value)) {
+            return "'" . $this->mysqli->real_escape_string($value) . "'";
+        }
+        if (is_int($value)) {
+            return (string)$value;
+        }
+        if ($value === null) {
+            return 'NULL';
+        }
+        if (is_float($value)) {
+            return $this->floatToSql($value, $context);
+        }
+        if (is_bool($value)) {
+            return $value ? 'TRUE' : 'FALSE';
+        }
+        if ($value instanceof RawSql) {
+            return (string)$value;
+        }
+        throw new InvalidArgumentException("Unsupported type for $context: " . get_debug_type($value));
     }
 
     /**
