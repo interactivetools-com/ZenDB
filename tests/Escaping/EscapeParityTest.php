@@ -6,6 +6,7 @@ namespace Itools\ZenDB\Tests\Escaping;
 
 use Closure;
 use Itools\ZenDB\Connection;
+use Itools\ZenDB\DB;
 use Itools\ZenDB\Tests\BaseTestCase;
 use PHPUnit\Framework\Attributes\DataProvider;
 use ReflectionMethod;
@@ -92,6 +93,12 @@ class EscapeParityTest extends BaseTestCase
     {
         $expected = 'x = ' . (self::$escapeValue)($value);
         $this->assertSame($expected, (self::$replacePlaceholders)('x = :val', [':val' => $value], 0));
+    }
+
+    #[DataProvider('valueProvider')]
+    public function testEscapeCsvMatchesEscapeValue(mixed $value): void
+    {
+        $this->assertSame((self::$escapeValue)($value), (string)DB::escapeCSV([$value]));
     }
 
     public function testWhereFromArrayNullBecomesIsNull(): void

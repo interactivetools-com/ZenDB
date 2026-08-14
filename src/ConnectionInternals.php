@@ -886,10 +886,17 @@ trait ConnectionInternals
             if ($value instanceof SmartString) {
                 $value = $value->value(); // unwrap before the type check; SmartString can wrap null/bool
             }
-            if ($value === null) {
+            // int/string arms copy escapeValue() output to skip the method call (ints first: ID lists
+            // are the common case); EscapeParityTest pins them identical
+            if (is_int($value)) {
+                $safeValues[] = (string)$value;
+            } elseif (is_string($value)) {
+                $safeValues[] = "'" . $this->mysqli->real_escape_string($value) . "'";
+            } elseif ($value === null) {
                 continue; // NULL never matches in IN and makes NOT IN return zero rows; use IS NULL to match NULLs
+            } else {
+                $safeValues[] = $this->escapeValue($value, 'IN-list value');
             }
-            $safeValues[] = $this->escapeValue($value, 'IN-list value');
         }
 
         // Dedupe the finished SQL literals, not the raw values: array_unique on raw input
@@ -906,8 +913,8 @@ trait ConnectionInternals
     /**
      * Convert one PHP value to a SQL literal. Every value ZenDB writes into SQL goes
      * through here or through an inlined copy of the string/int arms in a hot path
-     * (whereFromArray(), buildSetClause(), replacePlaceholders() fast arms);
-     * EscapeParityTest pins those copies byte-identical to this function.
+     * (whereFromArray(), buildSetClause(), escapeCSV(), replacePlaceholders() fast
+     * arms); EscapeParityTest pins those copies byte-identical to this function.
      *
      *   "O'Brien"        →  'O\'Brien'    escaped and quoted
      *   42               →  42
