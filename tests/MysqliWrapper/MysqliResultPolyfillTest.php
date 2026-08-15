@@ -21,6 +21,7 @@ class MysqliResultPolyfillTest extends BaseTestCase
 
     public static function setUpBeforeClass(): void
     {
+        self::requiresLiveMysql();   // raw wrapper connections in every test
         self::createDefaultConnection();
 
         // Save original state

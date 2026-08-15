@@ -18,6 +18,7 @@ class MysqliStmtWrapperTest extends BaseTestCase
 
     public static function setUpBeforeClass(): void
     {
+        self::requiresLiveMysql();   // raw wrapper connections in every test
         self::createDefaultConnection();
         self::$originalForceExecuteQueryPolyfill = MysqliWrapper::$forceExecuteQueryPolyfill;
     }

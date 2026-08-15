@@ -8,7 +8,6 @@ use Itools\ZenDB\MysqliWrapperReplay;
 use Itools\ZenDB\Tests\BaseTestCase;
 use Itools\ZenDB\Tests\Support\Replay\MysqliWrapperRecorder;
 use Itools\ZenDB\Tests\Support\Replay\QueryCorpus;
-use Itools\ZenDB\Tests\Support\Replay\ReplayHarness;
 use RuntimeException;
 use mysqli_sql_exception;
 
@@ -147,9 +146,7 @@ class ReplayTest extends BaseTestCase
 
     public function testRecordThenReplayReturnsIdenticalData(): void
     {
-        if (ReplayHarness::$isReplay) {
-            $this->markTestSkipped('Recording needs a live MySQL server');
-        }
+        self::requiresLiveMysql();
 
         $c      = self::$configDefaults;
         $corpus = new QueryCorpus();
@@ -187,9 +184,7 @@ class ReplayTest extends BaseTestCase
 
     public function testRecorderReturnsTheRewoundNativeResult(): void
     {
-        if (ReplayHarness::$isReplay) {
-            $this->markTestSkipped('Recording needs a live MySQL server');
-        }
+        self::requiresLiveMysql();
 
         $c        = self::$configDefaults;
         $recorder = new MysqliWrapperRecorder(new QueryCorpus());
@@ -223,9 +218,7 @@ class ReplayTest extends BaseTestCase
      */
     public function testEscapeMatchesLiveRealEscapeString(): void
     {
-        if (ReplayHarness::$isReplay) {
-            $this->markTestSkipped('Parity check needs the live escape to compare against');
-        }
+        self::requiresLiveMysql();
 
         $live   = self::createDefaultConnection()->mysqli;
         $replay = new MysqliWrapperReplay([]);

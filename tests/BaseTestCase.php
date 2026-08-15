@@ -11,6 +11,7 @@ use RuntimeException;
 use PHPUnit\Framework\TestCase;
 use Itools\ZenDB\DB;
 use Itools\ZenDB\Connection;
+use Itools\ZenDB\MysqliWrapperReplay;
 use Itools\ZenDB\Tests\Support\SharedTestHelpers;
 
 abstract class BaseTestCase extends TestCase
@@ -31,6 +32,20 @@ abstract class BaseTestCase extends TestCase
         'connectTimeout'     => 10, // local MySQL can take over a second to accept a connection under load; short timeouts fail good runs
         'readTimeout'        => 60,
     ];
+
+    /**
+     * Skip the current test when the suite is replaying from a corpus (no MySQL server).
+     * Call first thing from tests that need a real server: raw mysqli connections,
+     * wrapper internals, or queries whose SQL differs on every run.
+     */
+    protected static function requiresLiveMysql(): void
+    {
+        // Ask the factory what connections will get; no side effects on the global connection
+        $factory = Connection::$mysqliWrapperFactory;
+        if ($factory !== null && $factory(null) instanceof MysqliWrapperReplay) {
+            self::markTestSkipped('Needs a live MySQL server');
+        }
+    }
 
     /**
      * Run $fn collecting E_USER_DEPRECATED messages. Returns [result, messages].

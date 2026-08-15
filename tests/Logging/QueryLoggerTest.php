@@ -36,6 +36,8 @@ class QueryLoggerTest extends BaseTestCase
 
     public function testLoggerCallbackInvoked(): void
     {
+        self::requiresLiveMysql();
+
         $logs = [];
         $conn = new Connection(array_merge(self::$configDefaults, [
             'queryLogger' => function($query, $duration, $error) use (&$logs) {
@@ -80,6 +82,8 @@ class QueryLoggerTest extends BaseTestCase
 
     public function testLoggerReceivesDuration(): void
     {
+        self::requiresLiveMysql();
+
         $logs = [];
         $conn = new Connection(array_merge(self::$configDefaults, [
             'queryLogger' => function($query, $duration, $error) use (&$logs) {

@@ -22,6 +22,7 @@ class MysqliWrapperTest extends BaseTestCase
 {
     public static function setUpBeforeClass(): void
     {
+        self::requiresLiveMysql();   // raw wrapper connections in every test
         self::createDefaultConnection();
         self::resetTestTables();
     }

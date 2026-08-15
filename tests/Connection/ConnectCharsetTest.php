@@ -45,6 +45,8 @@ class ConnectCharsetTest extends BaseTestCase
 
     public function testPooledReuseRestoresCharset(): void
     {
+        self::requiresLiveMysql();
+
         if (!ini_get('mysqli.allow_persistent')) {
             $this->markTestSkipped('mysqli.allow_persistent is off');
         }

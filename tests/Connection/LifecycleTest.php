@@ -48,6 +48,8 @@ class LifecycleTest extends BaseTestCase
 
     public function testConnectionBackwardsCompatMysqli(): void
     {
+        self::requiresLiveMysql();
+
         DB::connect(self::$configDefaults);
         $this->assertInstanceOf(\mysqli::class, DB::$mysqli);
     }
@@ -60,6 +62,8 @@ class LifecycleTest extends BaseTestCase
 
     public function testConnectWithInvalidHostname(): void
     {
+        self::requiresLiveMysql();
+
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage("MySQL Error");
         $config = array_merge(self::$configDefaults, ['hostname' => 'invalid_value']);
@@ -68,6 +72,8 @@ class LifecycleTest extends BaseTestCase
 
     public function testConnectWithInvalidUsername(): void
     {
+        self::requiresLiveMysql();
+
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage("MySQL Error");
         $config = array_merge(self::$configDefaults, ['username' => 'invalid_value']);
@@ -76,6 +82,8 @@ class LifecycleTest extends BaseTestCase
 
     public function testConnectWithInvalidPassword(): void
     {
+        self::requiresLiveMysql();
+
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage("MySQL Error");
         $config = array_merge(self::$configDefaults, ['password' => 'invalid_value']);
@@ -185,6 +193,8 @@ class LifecycleTest extends BaseTestCase
 
     public function testIndependentConnectionDestructorClosesConnection(): void
     {
+        self::requiresLiveMysql();
+
         DB::connect(self::$configDefaults);
 
         $independent = new Connection(self::$configDefaults);
@@ -223,6 +233,8 @@ class LifecycleTest extends BaseTestCase
 
     public function testConnectWithQueryLogger(): void
     {
+        self::requiresLiveMysql();
+
         $logs = [];
         $config = array_merge(self::$configDefaults, [
             'queryLogger' => function($query, $duration, $error) use (&$logs) {
@@ -314,6 +326,8 @@ class LifecycleTest extends BaseTestCase
 
     public function testConnectWithoutPhpTimezone(): void
     {
+        self::requiresLiveMysql();
+
         $config = array_merge(self::$configDefaults, ['usePhpTimezone' => false]);
 
         DB::connect($config);
@@ -358,6 +372,8 @@ class LifecycleTest extends BaseTestCase
 
     public function testRequireSSLConnectsEncrypted(): void
     {
+        self::requiresLiveMysql();
+
         try {
             $conn = new Connection(array_merge(self::$configDefaults, ['requireSSL' => true]));
         } catch (RuntimeException $e) {
@@ -372,6 +388,8 @@ class LifecycleTest extends BaseTestCase
 
     public function testDatabaseAutoCreateOption(): void
     {
+        self::requiresLiveMysql();
+
         $config = array_merge(self::$configDefaults, ['databaseAutoCreate' => false]);
 
         DB::connect($config);
@@ -394,6 +412,8 @@ class LifecycleTest extends BaseTestCase
 
     public function testIsConnectedAfterServerGone(): void
     {
+        self::requiresLiveMysql();
+
         DB::connect(self::$configDefaults);
 
         // isConnected without ping just checks mysqli exists

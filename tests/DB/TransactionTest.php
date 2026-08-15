@@ -114,6 +114,8 @@ class TransactionTest extends BaseTestCase
 
     public function testRollbackFailureDoesNotMaskClosureException(): void
     {
+        self::requiresLiveMysql();
+
         try {
             DB::transaction(function () {
                 // Kill our own connection from a second connection so the ROLLBACK

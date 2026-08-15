@@ -100,6 +100,8 @@ class DebugInfoTest extends BaseTestCase
 
     public function testDebugInfoIncludesMysqli(): void
     {
+        self::requiresLiveMysql();
+
         $conn = new Connection(self::$configDefaults);
 
         $debugInfo = $conn->__debugInfo();

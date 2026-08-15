@@ -63,6 +63,8 @@ class EncryptionKeyTest extends BaseTestCase
 
     public function testEkIsNullBeforeFirstUse(): void
     {
+        self::requiresLiveMysql();
+
         $conn = new Connection(array_merge(self::$configDefaults, ['encryptionKey' => 'fresh-key']));
 
         // Check directly via mysqli - bypasses ensureEncryptionKey
@@ -72,6 +74,8 @@ class EncryptionKeyTest extends BaseTestCase
 
     public function testEkNotSetByQueriesWithoutIt(): void
     {
+        self::requiresLiveMysql();
+
         self::resetEk(self::$conn);
 
         // Run queries that don't reference @ek
@@ -108,6 +112,8 @@ class EncryptionKeyTest extends BaseTestCase
 
     public function testEkSetOnFirstQueryContainingIt(): void
     {
+        self::requiresLiveMysql();
+
         $conn = new Connection(array_merge(self::$configDefaults, ['encryptionKey' => 'my-key']));
 
         // Verify @ek is NULL before
@@ -123,6 +129,8 @@ class EncryptionKeyTest extends BaseTestCase
 
     public function testEkValueMatchesExpectedHash(): void
     {
+        self::requiresLiveMysql();
+
         $key  = 'deterministic-test-key';
         $conn = new Connection(array_merge(self::$configDefaults, ['encryptionKey' => $key]));
 
@@ -141,6 +149,8 @@ class EncryptionKeyTest extends BaseTestCase
 
     public function testEkNotResetOnSubsequentQueries(): void
     {
+        self::requiresLiveMysql();
+
         $conn = new Connection(array_merge(self::$configDefaults, ['encryptionKey' => 'once-only']));
 
         // First query triggers SET @ek
@@ -158,6 +168,8 @@ class EncryptionKeyTest extends BaseTestCase
 
     public function testChangingCallbackAfterFirstUseHasNoEffect(): void
     {
+        self::requiresLiveMysql();
+
         $conn = new Connection(array_merge(self::$configDefaults, ['encryptionKey' => 'original-key']));
 
         // Trigger @ek SET
@@ -177,6 +189,8 @@ class EncryptionKeyTest extends BaseTestCase
 
     public function testResettingFlagCausesReSet(): void
     {
+        self::requiresLiveMysql();
+
         $conn = new Connection(array_merge(self::$configDefaults, ['encryptionKey' => 'original-key']));
 
         // Trigger @ek SET
@@ -207,6 +221,8 @@ class EncryptionKeyTest extends BaseTestCase
 
     public function testEkTriggeredBySelectWithRawSqlWhere(): void
     {
+        self::requiresLiveMysql();
+
         self::resetEk(self::$conn);
 
         // @ek in a string WHERE clause via select()
@@ -332,6 +348,8 @@ class EncryptionKeyTest extends BaseTestCase
 
     public function testEncryptionKeyCallbackHiddenInMysqliWrapperDebugInfo(): void
     {
+        self::requiresLiveMysql();
+
         $conn  = new Connection(array_merge(self::$configDefaults, ['encryptionKey' => 'secret-key']));
         $debug = $conn->mysqli->__debugInfo();
         $this->assertSame('(set)', $debug['getEncryptionKey']);

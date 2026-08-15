@@ -17,14 +17,11 @@ use RuntimeException;
  *     ZENDB_QUERY_MODE=replay vendor/bin/phpunit   # serve the corpus, no MySQL
  *
  * ZENDB_QUERY_CORPUS overrides the corpus path (default: tests/Support/Replay/corpus.php).
- * Tests that need a live server (raw mysqli connections, wrapper internals) can guard
- * with: if (ReplayHarness::$isReplay) { $this->markTestSkipped(...); }
+ * Tests that need a live server (raw mysqli connections, wrapper internals) skip in
+ * replay mode by calling BaseTestCase::requiresLiveMysql() first thing.
  */
 final class ReplayHarness
 {
-    /** True when the suite is replaying from a corpus (no live MySQL behind the wrapper) */
-    public static bool $isReplay = false;
-
     public static function initFromEnv(): void
     {
         $mode = getenv('ZENDB_QUERY_MODE') ?: '';
@@ -53,7 +50,6 @@ final class ReplayHarness
         if (!is_file($corpusPath)) {
             throw new RuntimeException("Replay corpus not found: $corpusPath\nRecord one first with: ZENDB_QUERY_MODE=record vendor/bin/phpunit");
         }
-        self::$isReplay = true;
         $corpus = require $corpusPath;
         Connection::$mysqliWrapperFactory = static fn(?callable $queryLogger): MysqliWrapperReplay => new MysqliWrapperReplay($corpus, $queryLogger);
     }
