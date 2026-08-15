@@ -139,7 +139,6 @@ class Connection
             }
             $this->$key = $value;
         }
-        unset($config);
         if ($this->tablePrefix !== '') {
             isset(DB::$safeIdentifiers[$this->tablePrefix]) || DB::assertIdentifier($this->tablePrefix, 'tablePrefix');
         }
@@ -175,7 +174,7 @@ class Connection
         }
 
         // Pass encryption key callback to MysqliWrapper for automatic @ek session variable setup
-        if ($this->secret('encryptionKey') !== '' && $this->secret('encryptionKey') !== null) {
+        if (($this->secret('encryptionKey') ?? '') !== '') {
             $this->mysqli->setEncryptionKeyCallback(fn() => $this->secret('encryptionKey'));
         }
 
@@ -980,8 +979,7 @@ class Connection
         }
 
         // Encrypt each targeted value (intersect $values with encrypted columns, skip null / non-scalar)
-        $toEncrypt = array_intersect_key($values, array_flip($encryptedCols));
-        foreach ($toEncrypt as $col => $value) {
+        foreach (array_intersect_key($values, array_flip($encryptedCols)) as $col => $value) {
             if ($value instanceof SmartString) {
                 $value = $value->value(); // unwrap before the type check; SmartString can wrap null/bool
             }

@@ -15,7 +15,7 @@ use WeakMap;
 use mysqli_result;
 
 // import built-ins so calls resolve at compile time instead of per-call lookups; NamespacedCallsTest keeps this list exact
-use function addcslashes, array_column, array_count_values, array_filter, array_flip, array_is_list, array_key_exists, array_keys, array_map, array_shift, array_unique, array_values, count, get_debug_type, get_object_vars, implode, in_array, is_array, is_bool, is_finite, is_float, is_int, is_object, is_string, preg_grep, preg_match, preg_replace, preg_replace_callback, str_contains, str_replace, str_starts_with, strlen, strspn, strtoupper, substr, substr_count, trim, var_export;
+use function addcslashes, array_column, array_count_values, array_filter, array_flip, array_is_list, array_key_exists, array_keys, array_map, array_shift, array_unique, array_values, count, get_debug_type, get_object_vars, implode, is_array, is_bool, is_finite, is_float, is_int, is_object, is_string, preg_grep, preg_match, preg_replace, preg_replace_callback, str_contains, str_replace, str_starts_with, strlen, strspn, strtoupper, substr, substr_count, trim, var_export;
 use const MYSQLI_ASSOC, MYSQLI_NUM;
 
 /**
@@ -275,9 +275,9 @@ trait ConnectionInternals
             $quotedText = preg_match('/(([\'"]).*?\2)/', $sqlForQuoteCheck, $matches) ? $matches[1] : '';
             if ($quotedText) {
                 throw new InvalidArgumentException("Quotes not allowed in template. Replace $quotedText with :paramName and add: [ ':paramName' => $quotedText ]");
-            } else {
-                throw new InvalidArgumentException("Quotes not allowed in template. Use :paramName placeholder instead.");
             }
+
+            throw new InvalidArgumentException("Quotes not allowed in template. Use :paramName placeholder instead.");
         }
 
         /*
@@ -1024,7 +1024,7 @@ trait ConnectionInternals
 
         // [^,]* rather than .*: same answer, no backtracking. preg_match returns false when
         // PCRE gives up, and that has to land on the metadata path, not the fast one.
-        if (preg_match('/join|from[^,]*,/is', $template) !== 0) {
+        if (preg_match('/join|from[^,]*,/i', $template) !== 0) {
             return false;
         }
 
@@ -1161,7 +1161,7 @@ trait ConnectionInternals
 
         // SmartJoins: add qualified names (e.g., 'users.name') and alias names for self-joins (e.g., 'a.name')
         $prefixLen      = strlen($this->tablePrefix);
-        $selfJoinTables = array_filter(array_count_values($aliasToTable), fn($c) => $c > 1);
+        $selfJoinTables = array_filter(array_count_values($aliasToTable), static fn($c) => $c > 1);
 
         foreach ($fetchFields as $index => $field) {
             if (!$field->orgtable || !$field->orgname) {
@@ -1317,14 +1317,12 @@ trait ConnectionInternals
         self::$secrets        ??= new WeakMap();
         self::$secrets[$this] = [];
 
-        $optional = ['encryptionKey'];
-
         foreach (self::$secretKeys as $key) {
             $value = $source
                 ? self::$secrets[$source][$key] ?? null  // clone: copy from source
                 : $config[$key] ?? null;                 // construct: from config
 
-            if ($value === null && !in_array($key, $optional, true)) {
+            if ($value === null && $key !== 'encryptionKey') { // encryptionKey is the one optional secret
                 throw new RuntimeException("Missing required config: '$key'");
             }
             if ($value !== null && !is_string($value)) {

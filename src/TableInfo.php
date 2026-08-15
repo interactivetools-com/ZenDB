@@ -47,7 +47,7 @@ class TableInfo
     private const DEFAULT_COLLATIONS = [
         'utf8_general_ci',       // legacy utf8 (3-byte) default on every server except MariaDB 11.8+
         'utf8_uca1400_ai_ci',    // legacy utf8 default on MariaDB 11.8+
-        'utf8mb4_general_ci',    // utf8mb4 default: MySQL/Percona 5.7, MariaDB thru 10.11
+        'utf8mb4_general_ci',    // utf8mb4 default: MySQL/Percona 5.7, MariaDB through 10.11
         'utf8mb4_0900_ai_ci',    // utf8mb4 default: MySQL/Percona 8.0+ (unknown to MariaDB before 11.4)
         'utf8mb4_uca1400_ai_ci', // utf8mb4 default: MariaDB 11.4+ (unknown to MySQL, and MariaDB before 10.10)
         'utf8mb4_unicode_ci',    // no server's default; the usual explicit pin, chosen because every server has it
@@ -139,7 +139,7 @@ class TableInfo
     public function names(): array
     {
         $prefixLength = strlen($this->db->tablePrefix);
-        return array_map(fn(string $name) => substr($name, $prefixLength), $this->namesFull());
+        return array_map(static fn(string $name) => substr($name, $prefixLength), $this->namesFull());
     }
 
     /**
@@ -170,8 +170,8 @@ class TableInfo
         $result->free();
 
         // content tables first, system tables (underscore after the prefix) last, alphabetical within each group
-        $isSystemTable = fn(string $name) => ($name[$prefixLength] ?? '') === '_';
-        usort($names, fn($a, $b) => $isSystemTable($a) <=> $isSystemTable($b) ?: $a <=> $b);
+        $isSystemTable = static fn(string $name) => ($name[$prefixLength] ?? '') === '_';
+        usort($names, static fn($a, $b) => ($isSystemTable($a) <=> $isSystemTable($b)) ?: ($a <=> $b));
 
         return $names;
     }
@@ -475,6 +475,11 @@ class TableInfo
      * replays on every supported server. The single pipeline behind columnDefinitions() and
      * normalizeCreateTable(): both call it, so they always agree on what a column looks like.
      *
+     *     int(11) NOT NULL DEFAULT 0                      →  int NOT NULL DEFAULT '0'
+     *     mediumtext DEFAULT NULL                         →  mediumtext
+     *     varchar(50) CHARACTER SET utf8mb3 NOT NULL      →  varchar(50) CHARACTER SET utf8 NOT NULL
+     *     timestamp NOT NULL DEFAULT current_timestamp()  →  timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP
+     *
      * Callers mask string literals first, so quoted text (COMMENT, DEFAULT, enum values) can
      * never match a rewrite here.
      *
@@ -501,20 +506,21 @@ class TableInfo
         $definition = self::stripRedundantGeneratedParens($definition);
         $definition = self::parenthesizeExpressionDefault($definition);
 
-        // NOT NULL is what decides whether a column allows NULL; DEFAULT NULL on a nullable column
-        // just spells out "no default". The vendors only disagree on text/blob, so that's all we touch:
-        //   - every other type: both vendors print DEFAULT NULL, so it's already identical and stays
-        //   - nullable text/blob: MariaDB prints DEFAULT NULL, MySQL prints nothing (it doesn't
-        //     allow literal defaults there) - drop it so both read the same
-        //   - real text defaults survive: MariaDB's are quoted so they're masked, and MySQL's
-        //     expression defaults keep their parens, so neither can match the strip
-        $definition = preg_replace('/^((?:tiny|medium|long)?(?:text|blob)\b.*?) DEFAULT NULL\b/', '$1', $definition);
-
-        // MariaDB prints numeric-typed defaults bare (DEFAULT 0); MySQL prints them quoted (DEFAULT '0').
-        // Quote bare numeric literals to match MySQL. Numbers only: other bare tokens are keywords (NULL)
-        // or expressions (CURRENT_TIMESTAMP, uuid()) and must stay bare to keep their meaning, and string
-        // defaults are quoted, so they're masked by the caller and can never match
-        return preg_replace("/\bDEFAULT (-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)(?=,| |$)/", "DEFAULT '$1'", $definition);
+        // Last two cleanups in one call, one pass each (TableTest pins all of these):
+        //   - strip the DEFAULT NULL MariaDB prints on nullable text/blob columns - MySQL prints
+        //     nothing there, and a nullable column defaults to NULL either way
+        //     ('mediumtext DEFAULT NULL' → 'mediumtext'). Only text/blob: on every other type both
+        //     vendors print DEFAULT NULL, so it's already identical and stays. Real text defaults
+        //     can't match: MariaDB's are quoted (masked by the caller), MySQL's keep their
+        //     expression parens
+        //   - quote bare numeric defaults the way MySQL prints them ('DEFAULT 0' → "DEFAULT '0'") -
+        //     numbers only, since NULL and CURRENT_TIMESTAMP and uuid() must stay bare to keep
+        //     their meaning, and string defaults are masked so they can't match
+        return preg_replace(
+            ['/^((?:tiny|medium|long)?(?:text|blob)\b.*?) DEFAULT NULL\b/', "/\bDEFAULT (-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)(?=,| |$)/"],
+            ['$1',                                                          "DEFAULT '$1'"],
+            $definition,
+        );
     }
 
     /**
@@ -605,6 +611,10 @@ class TableInfo
      * and utf8mb3_* collation names. utf8mb4 can never match, and callers mask string literals
      * first so quoted text is untouched.
      *
+     *     CHARACTER SET utf8mb3 COLLATE utf8mb3_general_ci  →  CHARACTER SET utf8 COLLATE utf8_general_ci
+     *     CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci     →  CHARSET=utf8 COLLATE=utf8_uca1400_ai_ci
+     *     CHARACTER SET utf8mb4 COLLATE utf8mb4_bin         →  (unchanged: utf8mb4 is a different charset)
+     *
      * At a glance (utf8 and utf8mb3 are the same charset, two spellings):
      *
      *   spelling   printed in SHOW CREATE by            accepted in DDL by
@@ -625,8 +635,11 @@ class TableInfo
      */
     private static function rewriteUtf8mb3ToUtf8(string $maskedSql): string
     {
-        $maskedSql = preg_replace('/\b(CHARACTER SET |CHARSET=)utf8mb3\b/', '$1utf8', $maskedSql);
-        return preg_replace('/\b(COLLATE[ =])utf8mb3_/', '$1utf8_', $maskedSql);
+        // One pattern covers both spellings: $1 keeps the clause, and the lookahead accepts a
+        // collation's '_' suffix or a charset clause's word boundary without consuming either.
+        // A bare 'COLLATE utf8mb3' would also match; no server prints one (collation names
+        // always have a suffix), and rewriting it would be correct anyway
+        return preg_replace('/\b(CHARACTER SET |CHARSET=|COLLATE[ =])utf8mb3(?=_|\b)/', '$1utf8', $maskedSql);
     }
 
     /**
@@ -687,8 +700,10 @@ class TableInfo
         if (!preg_match('/\bDEFAULT (?!CURRENT_TIMESTAMP\b)[a-z_]\w*\(/i', $maskedDefinition, $match, PREG_OFFSET_CAPTURE)) {
             return $maskedDefinition;
         }
-        [$matchedText, $matchOffset] = $match[0]; // PREG_OFFSET_CAPTURE: [matched text, byte offset]
-        $matchOffset                 = (int)$matchOffset; // already an int; PhpStorm's stubs type all match slots as string
+        // PREG_OFFSET_CAPTURE: each match slot is [matched text, byte offset]; the (int) cast is
+        // for PhpStorm's stubs, which type every slot as string
+        $matchedText = $match[0][0];
+        $matchOffset = (int)$match[0][1];
 
         $open  = $matchOffset + strlen($matchedText) - 1;
         $close = self::matchingParenPos($maskedDefinition, $open);
@@ -800,7 +815,7 @@ class TableInfo
 
         if ($columnName !== null) {
             $colLower = strtolower($columnName);
-            $indexes  = array_filter($indexes, fn($index) => in_array($colLower, array_map('strtolower', $index['cols']), true));
+            $indexes  = array_filter($indexes, static fn($index) => in_array($colLower, array_map('strtolower', $index['cols']), true));
         }
 
         return $indexes;
@@ -844,7 +859,7 @@ class TableInfo
         //   - exact match only, no leftmost-prefix, by design: a composite index that merely starts with the
         //     FK columns was added by the admin (MySQL just reuses it), so it stays visible as isCustom.
         //     Don't "fix" this into a leftmost-prefix match; TableTest pins it
-        $fkColumnSetsLower = array_map(fn($cols) => array_map('strtolower', $cols), $fkColumnSets);
+        $fkColumnSetsLower = array_map(static fn($cols) => array_map('strtolower', $cols), $fkColumnSets);
         foreach ($indexes as $name => &$index) {
             $index['colsCsv']  = implode(', ', $displayCols[$name]);
             $index['isFk']     = !$index['isUnique'] && in_array(array_map('strtolower', $index['cols']), $fkColumnSetsLower, true);
@@ -909,7 +924,7 @@ class TableInfo
 
         if ($columnName !== null) {
             $colLower    = strtolower($columnName);
-            $foreignKeys = array_filter($foreignKeys, fn($fk) => in_array($colLower, array_map('strtolower', $fk['cols']), true));
+            $foreignKeys = array_filter($foreignKeys, static fn($fk) => in_array($colLower, array_map('strtolower', $fk['cols']), true));
         }
 
         return $foreignKeys;

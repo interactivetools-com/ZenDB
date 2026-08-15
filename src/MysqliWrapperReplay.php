@@ -99,19 +99,28 @@ class MysqliWrapperReplay
         $this->queryLogger = $queryLogger;
     }
 
-    /** @disregard P1003 signature mirrors mysqli; parameters unused on purpose (intelephense) */
+    /**
+     * @disregard P1003 signature mirrors mysqli; parameters unused on purpose (intelephense)
+     * @noinspection PhpUnusedParameterInspection
+     */
     public function real_connect(?string $hostname = null, ?string $username = null, ?string $password = null, ?string $database = null, ?int $port = null, ?string $socket = null, int $flags = 0): bool
     {
         return true;
     }
 
-    /** @disregard P1003 signature mirrors mysqli; parameters unused on purpose (intelephense) */
+    /**
+     * @disregard P1003 signature mirrors mysqli; parameters unused on purpose (intelephense)
+     * @noinspection PhpUnusedParameterInspection
+     */
     public function options(int $option, $value): bool
     {
         return true;
     }
 
-    /** @disregard P1003 signature mirrors mysqli; parameters unused on purpose (intelephense) */
+    /**
+     * @disregard P1003 signature mirrors mysqli; parameters unused on purpose (intelephense)
+     * @noinspection PhpUnusedParameterInspection
+     */
     public function select_db(string $database): bool
     {
         return true;
@@ -157,7 +166,10 @@ class MysqliWrapperReplay
     //endregion
     //region Queries
 
-    /** @disregard P1003 signature mirrors mysqli; result mode unused on purpose (intelephense) */
+    /**
+     * @disregard P1003 signature mirrors mysqli; result mode unused on purpose (intelephense)
+     * @noinspection PhpUnusedParameterInspection
+     */
     public function query(string $query, int $result_mode = MYSQLI_STORE_RESULT): MysqliResultReplay|bool
     {
         $this->lastQuery = $query;
@@ -241,13 +253,19 @@ class MysqliWrapperReplay
         ]);
     }
 
-    /** @disregard P1003 signature mirrors mysqli; parameter unused on purpose (intelephense) */
+    /**
+     * @disregard P1003 signature mirrors mysqli; parameter unused on purpose (intelephense)
+     * @noinspection PhpUnusedParameterInspection
+     */
     public function prepare(string $query): never
     {
         throw new RuntimeException("MysqliWrapperReplay doesn't support prepare(); replay recorded outcomes through query() instead.");
     }
 
-    /** @disregard P1003 signature mirrors mysqli; parameters unused on purpose (intelephense) */
+    /**
+     * @disregard P1003 signature mirrors mysqli; parameters unused on purpose (intelephense)
+     * @noinspection PhpUnusedParameterInspection
+     */
     public function execute_query(string $query, ?array $params = null): never
     {
         throw new RuntimeException("MysqliWrapperReplay doesn't support execute_query(); replay recorded outcomes through query() instead.");

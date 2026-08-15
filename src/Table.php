@@ -112,7 +112,7 @@ class Table
         if (!preg_match('/\bDEFAULT /', $masked, $match, PREG_OFFSET_CAPTURE)) {
             return null;
         }
-        $valueOffset = $match[0][1] + strlen('DEFAULT ');
+        $valueOffset = (int)$match[0][1] + strlen('DEFAULT ');
 
         // the value is a parenthesized expression (parens in quoted text are masked, so a plain
         // walk balances them) or a single token: a masked string literal, 0, NULL, current_timestamp()

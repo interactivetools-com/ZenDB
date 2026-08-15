@@ -12,8 +12,8 @@ use mysqli_sql_exception;
  *
  * Everything here is at the Silent stage: it works, PHPStorm shows a
  * strikethrough and one-click rename via #[Deprecated], static analyzers see
- * the @deprecated tag, and there is no runtime signal. See DBDeprecations for
- * the full five-stage ladder these move down in later releases.
+ * each method's deprecation tag, and there is no runtime signal. See
+ * DBDeprecations for the full five-stage ladder these move down in later releases.
  */
 trait ConnectionDeprecations
 {
