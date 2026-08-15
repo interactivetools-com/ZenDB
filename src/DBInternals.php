@@ -59,6 +59,8 @@ trait DBInternals
         '_sessions'   => true,
         '_accesslist' => true,
         '_permalinks' => true,
+        // default CMS Builder table prefix
+        'cmsb_' => true,
     ];
 
     //endregion

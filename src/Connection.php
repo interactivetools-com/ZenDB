@@ -140,7 +140,9 @@ class Connection
             $this->$key = $value;
         }
         unset($config);
-        $this->assertValidTablePrefix();
+        if ($this->tablePrefix !== '') {
+            isset(DB::$safeIdentifiers[$this->tablePrefix]) || DB::assertIdentifier($this->tablePrefix, 'tablePrefix');
+        }
 
         // Connect
         $this->connect();
@@ -326,7 +328,9 @@ class Connection
         foreach ($config as $key => $value) {
             $clone->$key = $value;
         }
-        $clone->assertValidTablePrefix();
+        if ($clone->tablePrefix !== '') {
+            isset(DB::$safeIdentifiers[$clone->tablePrefix]) || DB::assertIdentifier($clone->tablePrefix, 'tablePrefix');
+        }
 
         return $clone;
     }
