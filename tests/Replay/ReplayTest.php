@@ -7,7 +7,9 @@ use Itools\ZenDB\MysqliResultReplay;
 use Itools\ZenDB\MysqliWrapperReplay;
 use Itools\ZenDB\Tests\BaseTestCase;
 use Itools\ZenDB\Tests\Support\Replay\MysqliWrapperRecorder;
+use Itools\ZenDB\Tests\Support\Replay\MysqliWrapperReplayScoped;
 use Itools\ZenDB\Tests\Support\Replay\QueryCorpus;
+use Itools\ZenDB\Tests\Support\Replay\ReplayScope;
 use RuntimeException;
 use mysqli_sql_exception;
 
@@ -142,6 +144,47 @@ class ReplayTest extends BaseTestCase
     }
 
     //endregion
+    //region MysqliWrapperReplayScoped
+
+    public function testScopedReplayServesEachScopeItsOwnOutcomes(): void
+    {
+        $sql     = 'SELECT COUNT(*) FROM t';
+        $wrapper = new MysqliWrapperReplayScoped(['scopes' => [
+            'FooTest::testA' => ['queries' => [$sql => [['type' => 'ok', 'insert_id' => 0, 'affected_rows' => 111]]]],
+            'FooTest::testB' => ['queries' => [$sql => [['type' => 'ok', 'insert_id' => 0, 'affected_rows' => 222]]]],
+        ]]);
+
+        $originalScope = ReplayScope::$current;
+        try {
+            // Same SQL, different scope, different recording - and order doesn't matter
+            ReplayScope::$current = 'FooTest::testB';
+            $wrapper->query($sql);
+            $this->assertSame(222, $wrapper->affected_rows);
+
+            ReplayScope::$current = 'FooTest::testA';
+            $wrapper->query($sql);
+            $this->assertSame(111, $wrapper->affected_rows);
+        } finally {
+            ReplayScope::$current = $originalScope;
+        }
+    }
+
+    public function testScopedReplayNamesTheScopeInUnknownQueryError(): void
+    {
+        $wrapper       = new MysqliWrapperReplayScoped([]);
+        $originalScope = ReplayScope::$current;
+        try {
+            ReplayScope::$current = 'FooTest::testA';
+            $wrapper->query('SELECT missing');
+            $this->fail('Expected RuntimeException');
+        } catch (RuntimeException $e) {
+            $this->assertStringContainsString("under 'FooTest::testA'", $e->getMessage());
+        } finally {
+            ReplayScope::$current = $originalScope;
+        }
+    }
+
+    //endregion
     //region Record → replay round trip (needs live MySQL)
 
     public function testRecordThenReplayReturnsIdenticalData(): void
@@ -167,8 +210,8 @@ class ReplayTest extends BaseTestCase
         }
         $recorder->close();
 
-        // Replay from the corpus, no server involved
-        $replayer = new MysqliWrapperReplay($corpus->toArray());
+        // Replay from the corpus, no server involved; same test = same scope as the recording
+        $replayer = new MysqliWrapperReplayScoped($corpus->toArray());
         $replayer->real_connect('no-such-host', 'nobody', 'wrong');
         $this->assertTrue($replayer->query("CREATE TEMPORARY TABLE replay_roundtrip (id INT AUTO_INCREMENT PRIMARY KEY, txt VARCHAR(50))"));
         $this->assertTrue($replayer->query("INSERT INTO replay_roundtrip (txt) VALUES ('O\\'Brien')"));
@@ -200,8 +243,8 @@ class ReplayTest extends BaseTestCase
     {
         $corpus       = new QueryCorpus();
         $corpus->meta = ['server_info' => '8.0.99-test'];
-        $corpus->addOutcome("SELECT 'O\\'Brien'", ['type' => 'rows', 'fields' => [['name' => 'v']], 'rows' => [["O'Brien"]], 'insert_id' => 0, 'affected_rows' => 1]);
-        $corpus->addMulti('SELECT 1; SELECT 2', [true, false]);
+        $corpus->addOutcome('SomeTest::testSomething', "SELECT 'O\\'Brien'", ['type' => 'rows', 'fields' => [['name' => 'v']], 'rows' => [["O'Brien"]], 'insert_id' => 0, 'affected_rows' => 1]);
+        $corpus->addMulti('SomeTest::testSomething', 'SELECT 1; SELECT 2', [true, false]);
 
         $path = tempnam(sys_get_temp_dir(), 'zendb-corpus-');
         try {

@@ -268,7 +268,7 @@ class MysqliWrapperReplay
     //endregion
     //region Corpus Replay Internals
 
-    private function nextOutcome(string $sql): array
+    protected function nextOutcome(string $sql): array
     {
         $outcomes = $this->queries[$sql] ?? throw new RuntimeException("Replay corpus has no recording for query: $sql\nRe-record the corpus or add this query to it.");
         $cursor   = $this->queryCursor[$sql] ?? 0;
@@ -276,7 +276,7 @@ class MysqliWrapperReplay
         return $outcomes[$cursor] ?? $outcomes[count($outcomes) - 1];   // queue empty: last outcome keeps serving
     }
 
-    private function nextMulti(string $sql): array
+    protected function nextMulti(string $sql): array
     {
         $sequences = $this->multi[$sql] ?? throw new RuntimeException("Replay corpus has no recording for multi_query: $sql\nRe-record the corpus or add this query to it.");
         $cursor    = $this->multiCursor[$sql] ?? 0;

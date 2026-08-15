@@ -10,6 +10,10 @@
          failOnRisky="true"
          beStrictAboutOutputDuringTests="true">
 
+  <extensions>
+    <bootstrap class="Itools\ZenDB\Tests\Support\Replay\ReplayExtension"/>
+  </extensions>
+
   <testsuites>
     <testsuite name="ZenDB Test Suite">
       <directory suffix="Test.php">./tests</directory>

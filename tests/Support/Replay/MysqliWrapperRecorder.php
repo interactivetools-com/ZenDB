@@ -23,6 +23,7 @@ final class MysqliWrapperRecorder extends MysqliWrapper
     /** next_result() returns for the in-progress multi_query(), null when none */
     private ?array $multiSequence = null;
     private string $multiSql = '';
+    private string $multiScope = '';
 
     public function __construct(QueryCorpus $corpus, ?callable $queryLogger = null)
     {
@@ -61,7 +62,7 @@ final class MysqliWrapperRecorder extends MysqliWrapper
         try {
             $result = parent::query($query);
         } catch (mysqli_sql_exception $e) {
-            $this->corpus->addOutcome($query, ['type' => 'error'] + QueryCorpus::errorArray($e));
+            $this->corpus->addOutcome(ReplayScope::$current, $query, ['type' => 'error'] + QueryCorpus::errorArray($e));
             throw $e;
         }
 
@@ -69,7 +70,7 @@ final class MysqliWrapperRecorder extends MysqliWrapper
         $affectedRows = $this->affected_rows;
 
         if ($result instanceof mysqli_result) {
-            $this->corpus->addOutcome($query, [
+            $this->corpus->addOutcome(ReplayScope::$current, $query, [
                 'type'          => 'rows',
                 'fields'        => array_map(static fn(object $f): array => (array)$f, $result->fetch_fields()),
                 'rows'          => $result->fetch_all(MYSQLI_NUM),
@@ -80,7 +81,7 @@ final class MysqliWrapperRecorder extends MysqliWrapper
             return $result;
         }
 
-        $this->corpus->addOutcome($query, ['type' => 'ok', 'insert_id' => $insertId, 'affected_rows' => $affectedRows]);
+        $this->corpus->addOutcome(ReplayScope::$current, $query, ['type' => 'ok', 'insert_id' => $insertId, 'affected_rows' => $affectedRows]);
         return $result;
     }
 
@@ -89,11 +90,12 @@ final class MysqliWrapperRecorder extends MysqliWrapper
         try {
             $result = parent::multi_query($query);
         } catch (mysqli_sql_exception $e) {
-            $this->corpus->addMulti($query, [['throw' => QueryCorpus::errorArray($e)]]);
+            $this->corpus->addMulti(ReplayScope::$current, $query, [['throw' => QueryCorpus::errorArray($e)]]);
             throw $e;
         }
 
         $this->multiSql      = $query;
+        $this->multiScope    = ReplayScope::$current;
         $this->multiSequence = [];
 
         return $result;
@@ -123,7 +125,7 @@ final class MysqliWrapperRecorder extends MysqliWrapper
 
     private function finalizeMulti(): void
     {
-        $this->corpus->addMulti($this->multiSql, $this->multiSequence);
+        $this->corpus->addMulti($this->multiScope, $this->multiSql, $this->multiSequence);
         $this->multiSequence = null;
     }
 }

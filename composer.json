@@ -55,11 +55,11 @@
     "test": "phpunit",
     "test:record": [
       "@putenv ZENDB_QUERY_MODE=record",
-      "phpunit --order-by=default"
+      "phpunit"
     ],
     "test:replay": [
       "@putenv ZENDB_QUERY_MODE=replay",
-      "phpunit --order-by=default"
+      "phpunit"
     ],
     "coverage": [
       "@putenv XDEBUG_MODE=coverage",
