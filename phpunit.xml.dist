@@ -28,4 +28,8 @@
     <env name="DB_PASSWORD" value=""/>
     <env name="DB_DATABASE" value="phpunit_test_db"/>
   </php>
+
+  <!-- Optional: run the suite without a MySQL server. "composer test:record" runs live and
+       saves every query result to tests/Support/Replay/corpus.php; "composer test:replay"
+       serves it back with no server (~10x faster). See tests/Support/Replay/ReplayHarness.php. -->
 </phpunit>

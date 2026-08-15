@@ -53,6 +53,14 @@
   },
   "scripts": {
     "test": "phpunit",
+    "test:record": [
+      "@putenv ZENDB_QUERY_MODE=record",
+      "phpunit --order-by=default"
+    ],
+    "test:replay": [
+      "@putenv ZENDB_QUERY_MODE=replay",
+      "phpunit --order-by=default"
+    ],
     "coverage": [
       "@putenv XDEBUG_MODE=coverage",
       "phpunit --coverage-text"
@@ -60,6 +68,8 @@
   },
   "scripts-descriptions": {
     "test": "Run the test suite",
+    "test:record": "Run the test suite live and save every query result to the replay corpus",
+    "test:replay": "Run the test suite from the recorded corpus, no MySQL server needed",
     "coverage": "Run the test suite with a line-coverage report (requires Xdebug)"
   }
 }
