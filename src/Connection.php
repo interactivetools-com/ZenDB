@@ -189,7 +189,7 @@ class Connection
                 // if database doesn't exist and auto-create enabled, try again and create database
                 $database = $this->secret('database');
                 if ($this->databaseAutoCreate && $e->getCode() === 1049) {
-                    DB::assertIdentifier($database, 'database name');
+                    isset(DB::$safeIdentifiers[$database]) || DB::assertIdentifier($database, 'database name');
                     // CHARACTER SET utf8mb4: without it, MySQL 5.7 creates a latin1 database.
                     // No COLLATE on purpose: each server uses its default utf8mb4 collation,
                     // same as our CREATE TABLE statements, so every table in the database lands
@@ -419,7 +419,7 @@ class Connection
         $this->mysqli->lastQuery = "SELECT * FROM `$fullTable` [WHERE ...]";
 
         // Validate
-        DB::assertIdentifier($baseTable, 'table name');
+        isset(DB::$safeIdentifiers[$baseTable]) || DB::assertIdentifier($baseTable, 'table name');
         $this->logDeprecatedNumericWhere($whereEtc);
 
         // Bind params and build SQL
@@ -453,7 +453,7 @@ class Connection
         $fullTable               = $this->tablePrefix . $baseTable;
         $this->mysqli->lastQuery = "SELECT * FROM `$fullTable` [WHERE ...] LIMIT 1";
 
-        DB::assertIdentifier($baseTable, 'table name');
+        isset(DB::$safeIdentifiers[$baseTable]) || DB::assertIdentifier($baseTable, 'table name');
         $this->logDeprecatedNumericWhere($whereEtc);
         $this->rejectLimitAndOffset($whereEtc);
         $this->rejectPreLimitConflicts($whereEtc);
@@ -484,7 +484,7 @@ class Connection
         $this->mysqli->lastQuery = "INSERT INTO `$fullTable` [SET ...]";
 
         // Validate
-        DB::assertIdentifier($baseTable, 'table name');
+        isset(DB::$safeIdentifiers[$baseTable]) || DB::assertIdentifier($baseTable, 'table name');
 
         // Build SQL
         $this->encryptRow($fullTable, $values);
@@ -513,7 +513,7 @@ class Connection
         $fullTable               = $this->tablePrefix . $baseTable;
         $this->mysqli->lastQuery = "UPDATE `$fullTable` [SET ...] [WHERE ...]";
 
-        DB::assertIdentifier($baseTable, 'table name');
+        isset(DB::$safeIdentifiers[$baseTable]) || DB::assertIdentifier($baseTable, 'table name');
         $this->logDeprecatedNumericWhere($whereEtc);
         $this->rejectEmptyWhere($whereEtc, 'UPDATE');
 
@@ -548,7 +548,7 @@ class Connection
         $fullTable               = $this->tablePrefix . $baseTable;
         $this->mysqli->lastQuery = "DELETE FROM `$fullTable` [WHERE ...]";
 
-        DB::assertIdentifier($baseTable, 'table name');
+        isset(DB::$safeIdentifiers[$baseTable]) || DB::assertIdentifier($baseTable, 'table name');
         $this->logDeprecatedNumericWhere($whereEtc);
         $this->rejectEmptyWhere($whereEtc, 'DELETE');
 
@@ -584,7 +584,7 @@ class Connection
         $fullTable               = $this->tablePrefix . $baseTable;
         $this->mysqli->lastQuery = "SELECT COUNT(*) FROM `$fullTable` [WHERE ...]";
 
-        DB::assertIdentifier($baseTable, 'table name');
+        isset(DB::$safeIdentifiers[$baseTable]) || DB::assertIdentifier($baseTable, 'table name');
         $this->logDeprecatedNumericWhere($whereEtc);
         $this->rejectLimitAndOffset($whereEtc);
 

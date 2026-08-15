@@ -20,12 +20,49 @@ use const MYSQLI_TYPE_BLOB;
  */
 trait DBInternals
 {
-    //region Internals
+    //region Properties
 
     /**
      * The default Connection instance
      */
     private static ?Connection $db = null;
+
+    /**
+     * Names that passed assertIdentifier(), precached with common ones. Call sites
+     * check here first and skip the call for names already seen.
+     *
+     * TODO-PHP83: initializer can become array_flip(['num', 'id', ...]) - same speed
+     *
+     * @internal
+     */
+    public static array $safeIdentifiers = [
+        // primary keys
+        'num' => true,
+        'id'  => true,
+        // CMS Builder system fields, on every table
+        'createdDate'      => true,
+        'createdByUserNum' => true,
+        'updatedDate'      => true,
+        'updatedByUserNum' => true,
+        'dragSortOrder'    => true,
+        // common column names
+        'name'     => true,
+        'title'    => true,
+        'content'  => true,
+        'email'    => true,
+        'username' => true,
+        'status'   => true,
+        'date'     => true,
+        // tables touched on nearly every CMS Builder request
+        'accounts'    => true,
+        'uploads'     => true,
+        '_sessions'   => true,
+        '_accesslist' => true,
+        '_permalinks' => true,
+    ];
+
+    //endregion
+    //region Connection
 
     /**
      * Get the default Connection instance, e.g. to pass somewhere a Connection is expected.
@@ -41,6 +78,9 @@ trait DBInternals
             "No database connection. Call DB::connect() first.",
         );
     }
+
+    //endregion
+    //region Escaping
 
     /**
      * Wrapper for {@see Connection::escape()}
@@ -72,16 +112,23 @@ trait DBInternals
         return self::connection()->escapeCSV($values);
     }
 
+    //endregion
+    //region Validation
+
     /**
      * Throw unless a string is a safe SQL identifier: letters, numbers, _ and - only.
      * Runs on every table and column name ZenDB puts between backticks - the check that
      * matters there, since real_escape_string() doesn't escape backticks, so escaping
      * alone can't make an identifier safe. $what names the value in the error message.
      *
+     * Names that pass are added to `$safeIdentifiers`. Call sites skip already-validated
+     * names by checking that list first - IdentifierValidationTest enforces this form at
+     * every call site:
+     *
+     *     isset(DB::$safeIdentifiers[$column]) || DB::assertIdentifier($column, 'column name');
+     *
      * A few places inline this regex (or a close variant) instead of calling it - grep
      * for [\w- before changing the charset so they all move together.
-     *
-     *     DB::assertIdentifier($fullTable, 'table name'); // throws for 'title; DROP TABLE users'
      *
      * @internal
      * @param string $identifier The string to check
@@ -93,7 +140,11 @@ trait DBInternals
         if (!preg_match('/^[\w-]+\z/', $identifier)) { // \z: $ would also match before a trailing newline
             throw new InvalidArgumentException("Invalid $what '$identifier', allowed characters: a-z, A-Z, 0-9, _, -");
         }
+        self::$safeIdentifiers[$identifier] = true;
     }
+
+    //endregion
+    //region Encryption
 
     /**
      * @see Connection::decryptRows()
@@ -102,6 +153,33 @@ trait DBInternals
     {
         self::connection()->decryptRows($rows, $keysOrFetchFields);
     }
+
+    /**
+     * Detect encrypted columns from field metadata. Returns column names for MEDIUMBLOB fields,
+     * which are the standard storage type for AES_ENCRYPT() data.
+     *
+     * Called automatically by query methods when an encryption key is configured.
+     * You don't normally need to call this directly.
+     *
+     *     $encryptedCols = DB::getEncryptedColumns($result->fetch_fields());
+     *
+     * @param array $fetchFields Field objects from fetch_fields()
+     * @return array<int, string> Detected encrypted columns, keyed by field index (e.g. [0 => 'token', 3 => 'ssn'])
+     */
+    public static function getEncryptedColumns(array $fetchFields): array
+    {
+        $encrypted = [];
+        foreach ($fetchFields as $index => $field) {
+            $isMediumBlob = $field->type === MYSQLI_TYPE_BLOB && $field->charsetnr === 63 && $field->length === 16_777_215;
+            if ($isMediumBlob) {
+                $encrypted[$index] = $field->name;
+            }
+        }
+        return $encrypted;
+    }
+
+    //endregion
+    //region Timezone
 
     /**
      * PHP's current timezone expressed as a value MySQL's SET time_zone accepts.
@@ -129,30 +207,6 @@ trait DBInternals
             '+13:45' => 'Pacific/Chatham',
             default  => $offset,
         };
-    }
-
-    /**
-     * Detect encrypted columns from field metadata. Returns column names for MEDIUMBLOB fields,
-     * which are the standard storage type for AES_ENCRYPT() data.
-     *
-     * Called automatically by query methods when an encryption key is configured.
-     * You don't normally need to call this directly.
-     *
-     *     $encryptedCols = DB::getEncryptedColumns($result->fetch_fields());
-     *
-     * @param array $fetchFields Field objects from fetch_fields()
-     * @return array<int, string> Detected encrypted columns, keyed by field index (e.g. [0 => 'token', 3 => 'ssn'])
-     */
-    public static function getEncryptedColumns(array $fetchFields): array
-    {
-        $encrypted = [];
-        foreach ($fetchFields as $index => $field) {
-            $isMediumBlob = $field->type === MYSQLI_TYPE_BLOB && $field->charsetnr === 63 && $field->length === 16_777_215;
-            if ($isMediumBlob) {
-                $encrypted[$index] = $field->name;
-            }
-        }
-        return $encrypted;
     }
 
     //endregion

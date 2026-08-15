@@ -462,7 +462,7 @@ trait ConnectionInternals
                 throw new InvalidArgumentException("Column names must be strings, got " . get_debug_type($column));
             }
 
-            DB::assertIdentifier($column, 'column name');
+            isset(DB::$safeIdentifiers[$column]) || DB::assertIdentifier($column, 'column name');
 
             if ($value instanceof SmartString) {
                 $value = $value->value(); // unwrap before the type check; SmartString can wrap null/bool
@@ -555,7 +555,7 @@ trait ConnectionInternals
                 throw new InvalidArgumentException("Column names must be strings, got " . get_debug_type($column));
             }
 
-            DB::assertIdentifier($column, 'column name');
+            isset(DB::$safeIdentifiers[$column]) || DB::assertIdentifier($column, 'column name');
 
             if ($value instanceof SmartString) {
                 $value = $value->value(); // unwrap before the type check; SmartString can wrap null/bool
@@ -675,7 +675,7 @@ trait ConnectionInternals
                     if (!is_string($value)) {
                         throw new InvalidArgumentException("Invalid backtick identifier: " . var_export($value, true) . ", expected a string");
                     }
-                    DB::assertIdentifier($value, 'backtick identifier');
+                    isset(DB::$safeIdentifiers[$value]) || DB::assertIdentifier($value, 'backtick identifier');
                     return "`$value`";
                 }
 

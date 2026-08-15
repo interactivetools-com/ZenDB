@@ -298,5 +298,47 @@ class IdentifierValidationTest extends BaseTestCase
         DB::assertIdentifier('title; DROP TABLE users', 'sort column');
     }
 
+    public function testAssertIdentifierAddsValidNamesToSafeIdentifiers(): void
+    {
+        unset(DB::$safeIdentifiers['brand_new_column']);
+        DB::assertIdentifier('brand_new_column');
+        $this->assertArrayHasKey('brand_new_column', DB::$safeIdentifiers);
+    }
+
+    public function testAssertIdentifierRejectsInvalidNameOnRepeatCalls(): void
+    {
+        try {
+            DB::assertIdentifier('bad name');
+        } catch (InvalidArgumentException) {
+            // first call throws; the repeat below must throw too
+        }
+
+        $this->expectException(InvalidArgumentException::class);
+        DB::assertIdentifier('bad name');
+    }
+
+    public function testSafeIdentifiersPrepopulatedNamesAreValid(): void
+    {
+        foreach (array_keys(DB::$safeIdentifiers) as $identifier) {
+            $this->assertMatchesRegularExpression('/^[\w-]+\z/', (string)$identifier, 'assertIdentifier() must agree with every preloaded name');
+        }
+    }
+
+    public function testEveryAssertIdentifierCallSiteChecksSafeIdentifiersFirst(): void
+    {
+        $violations = [];
+        foreach (glob(__DIR__ . '/../../src/*.php') as $file) {
+            if (basename($file) === 'DBInternals.php') { // defines assertIdentifier and shows the form in its docblock
+                continue;
+            }
+            foreach (file($file) as $index => $line) {
+                if (str_contains($line, 'DB::assertIdentifier(') && !str_contains($line, 'isset(DB::$safeIdentifiers[')) {
+                    $violations[] = basename($file) . ':' . ($index + 1);
+                }
+            }
+        }
+        $this->assertSame([], $violations, 'Call sites must skip known names: isset(DB::$safeIdentifiers[$name]) || DB::assertIdentifier($name, \'...\')');
+    }
+
     //endregion
 }
