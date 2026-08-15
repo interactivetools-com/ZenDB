@@ -32,7 +32,7 @@ use function array_unique, class_exists, dirname, file_get_contents, file_put_co
  *     php path/to/NamespacedCallsCheck.php --fix src/
  *
  * Background, and what the saving actually is:
- * micro-optimizations-namespaced-calls.md
+ * micro-optimizations.md
  */
 class NamespacedCallsTest extends TestCase
 {

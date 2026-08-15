@@ -138,9 +138,23 @@ trait ConnectionInternals
     {
         // Valid forms: up to 3 direct values (for ? placeholders), or one array of ':name' => value pairs.
         // Positional values in an array are deprecated and will throw in a future version.
-        $passedAsArray     = count($args) === 1 && is_array($args[0]);
-        $passedAsValues    = empty(array_filter($args, 'is_array'));
-        $isPositionalArray = $passedAsArray && $args[0] !== [] && !array_filter(array_keys($args[0]), 'is_string');
+        $passedAsArray  = count($args) === 1 && is_array($args[0]);
+        $passedAsValues = true;
+        foreach ($args as $arg) {
+            if (is_array($arg)) {
+                $passedAsValues = false;
+                break;
+            }
+        }
+        $isPositionalArray = $passedAsArray && $args[0] !== [];
+        if ($isPositionalArray) {
+            foreach ($args[0] as $key => $unused) {
+                if (is_string($key)) { // any string key means named params, not positional
+                    $isPositionalArray = false;
+                    break;
+                }
+            }
+        }
 
         $this->paramsFromPositionalArray = $isPositionalArray;
         match (true) {
@@ -1161,7 +1175,12 @@ trait ConnectionInternals
 
         // SmartJoins: add qualified names (e.g., 'users.name') and alias names for self-joins (e.g., 'a.name')
         $prefixLen      = strlen($this->tablePrefix);
-        $selfJoinTables = array_filter(array_count_values($aliasToTable), static fn($c) => $c > 1);
+        $selfJoinTables = [];
+        foreach (array_count_values($aliasToTable) as $table => $aliasCount) {
+            if ($aliasCount > 1) {
+                $selfJoinTables[$table] = $aliasCount;
+            }
+        }
 
         foreach ($fetchFields as $index => $field) {
             if (!$field->orgtable || !$field->orgname) {

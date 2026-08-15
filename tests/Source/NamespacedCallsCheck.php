@@ -19,8 +19,8 @@ use const PREG_OFFSET_CAPTURE, PREG_SET_ORDER, STDERR, T_AS, T_ATTRIBUTE, T_CASE
  * same, but scatters the decision across every call site, so the house style is
  * the import. Constants do even better: an unqualified `SORT_STRING` compiles
  * to a runtime fetch with the same fallback, while an imported one is inlined
- * as a literal and costs nothing. See micro-optimizations-namespaced-calls.md
- * for what it is worth.
+ * as a literal and costs nothing. See micro-optimizations.md for what it is
+ * worth.
  *
  * Three things are reported, for built-in functions and constants alike, and
  * the import lines end up listing exactly what the file uses:
