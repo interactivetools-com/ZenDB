@@ -184,7 +184,9 @@ class MysqliWrapperReplay
 
         $this->insert_id     = $outcome['insert_id'];
         $this->affected_rows = $outcome['affected_rows'];
-        $this->logQuery($query, $startTime);
+        if ($this->queryLogger) {
+            $this->logQuery($query, $startTime);
+        }
 
         if ($outcome['type'] === 'rows') {
             return new MysqliResultReplay($outcome['fields'], $outcome['rows']);

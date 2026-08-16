@@ -104,7 +104,9 @@ class MysqliWrapper extends mysqli
         $result    = @parent::real_connect($hostname, $username, $password, $database, $port, $socket, $flags); // hide php hostname lookup warnings (catch block will show them)
 
         // log connection
-        $this->logQuery("real_connect[$this->thread_id]: " . ($_SERVER['REQUEST_METHOD'] ?? '') . ' ' . ($_SERVER['REQUEST_URI'] ?? ''), $startTime);
+        if ($this->queryLogger) {
+            $this->logQuery("real_connect[$this->thread_id]: " . ($_SERVER['REQUEST_METHOD'] ?? '') . ' ' . ($_SERVER['REQUEST_URI'] ?? ''), $startTime);
+        }
 
         return $result;
     }
@@ -133,7 +135,9 @@ class MysqliWrapper extends mysqli
             throw $e;
         }
 
-        $this->logQuery($query, $startTime);
+        if ($this->queryLogger) {
+            $this->logQuery($query, $startTime);
+        }
 
         return $result;
     }
@@ -181,11 +185,15 @@ class MysqliWrapper extends mysqli
         try {
             $result = parent::real_query($query);
         } catch (mysqli_sql_exception $e) {
-            $this->logQuery("real_query: $query", $startTime, $e);
+            if ($this->queryLogger) {
+                $this->logQuery("real_query: $query", $startTime, $e);
+            }
             throw $e;
         }
 
-        $this->logQuery("real_query: $query", $startTime);
+        if ($this->queryLogger) {
+            $this->logQuery("real_query: $query", $startTime);
+        }
 
         return $result;
     }
@@ -211,11 +219,15 @@ class MysqliWrapper extends mysqli
         try {
             $result = parent::multi_query($query);
         } catch (mysqli_sql_exception $e) {
-            $this->logQuery("multi_query: $query", $startTime, $e);
+            if ($this->queryLogger) {
+                $this->logQuery("multi_query: $query", $startTime, $e);
+            }
             throw $e;
         }
 
-        $this->logQuery("multi_query: $query", $startTime);
+        if ($this->queryLogger) {
+            $this->logQuery("multi_query: $query", $startTime);
+        }
 
         return $result;
     }
@@ -275,7 +287,9 @@ class MysqliWrapper extends mysqli
                 throw $e;
             }
 
-            $this->logQuery($query, $startTime);
+            if ($this->queryLogger) {
+                $this->logQuery($query, $startTime);
+            }
 
             return $result;
         }

@@ -148,7 +148,7 @@ trait ConnectionInternals
         }
         $isPositionalArray = $passedAsArray && $args[0] !== [];
         if ($isPositionalArray) {
-            foreach ($args[0] as $key => $unused) {
+            foreach (array_keys($args[0]) as $key) {
                 if (is_string($key)) { // any string key means named params, not positional
                     $isPositionalArray = false;
                     break;
@@ -317,17 +317,17 @@ trait ConnectionInternals
          */
         $sql = preg_replace('/\bLIMIT\s+\d+\s*$/i', '', $sql);
 
-        // Standalone numbers - force use of placeholders
-        if (preg_match('/\b(\d+)\b/', $sql, $matches)) {
-            $n = $matches[1];
-            throw new InvalidArgumentException("Standalone number in template. Replace $n with :n$n and add: [ ':n$n' => $n ]");
-        }
-
-        // Numeric literals that slip past the \b\d+\b check because their digits touch a
-        // letter: hex (0x1AF), binary (0b1010), scientific (1e10). MySQL evaluates each to
-        // a value, so they belong in placeholders like any other literal. Requiring at
-        // least one digit after 0x/0b keeps identifiers like `0boxes` from matching.
-        if (preg_match('/\b0[xb][0-9a-f]+|\b\d+e[+-]?\d+/i', $sql, $matches)) {
+        // Standalone numbers and numeric literals - force use of placeholders. Hex
+        // (0x1AF), binary (0b1010), and scientific (1e10) need their own alternatives
+        // because their digits touch a letter, so \b\d+\b can't match them. MySQL
+        // evaluates each to a value, so they belong in placeholders like any other
+        // literal. Requiring at least one digit after 0x/0b keeps identifiers like
+        // `0boxes` from matching. Group 1 captures only for standalone numbers.
+        if (preg_match('/\b0[xb][0-9a-f]+|\b\d+e[+-]?\d+|\b(\d+)\b/i', $sql, $matches)) {
+            if (isset($matches[1])) {
+                $n = $matches[1];
+                throw new InvalidArgumentException("Standalone number in template. Replace $n with :n$n and add: [ ':n$n' => $n ]");
+            }
             throw new InvalidArgumentException("Numeric literal '$matches[0]' in template. Replace it with a :paramName placeholder.");
         }
 
