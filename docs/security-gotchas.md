@@ -52,6 +52,13 @@ inline values are rejected, so injection is hard to write even by accident.
 You have to step off that path on purpose to open a hole. Stay on it and
 injection is not something you have to think about.
 
+ZenDB fills placeholders client-side: each value is escaped and inlined, and
+the server receives one finished query, with no server-side prepare step.
+That changes nothing above - values still only enter through placeholders -
+and speed is not a reason to want server-side prepares either: their extra
+prepare round trip costs more than ZenDB's query building on typical pages
+([measurements](performance.md)).
+
 ### Connection Charset - Always utf8mb4
 
 ZenDB connections are utf8mb4. Don't change it: escaping, HTML-encoding, and

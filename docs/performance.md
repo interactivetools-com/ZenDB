@@ -1,36 +1,38 @@
-# Performance: Faster than Prepared Statements, Within Microseconds of Raw SQL
+# Performance: Within Microseconds of Raw mysqli + `htmlspecialchars()`
 
 Parameterized queries and encoded output are the safest way to build pages;
 ZenDB does both automatically, at a cost measured in microseconds. This page
-shows the measurements: complete pages from a news site, each timed three
-ways, with the query and every HTML encode included on all sides.
+shows the measurements: complete pages from a news site, each timed both
+ways, with the query and every HTML encode included on both sides.
 
 Pages that HTML-encode their output, the common case.
 
-| Page              | prepared + `htmlspecialchars()` | raw SQL + `htmlspecialchars()` | ZenDB + SmartString |       ZenDB vs raw |
-|-------------------|--------------------------------:|-------------------------------:|--------------------:|-------------------:|
-| Detail, 1 article |                          275 µs |                         168 µs |              164 µs |                tie |
-| Widget, 5 rows    |                          285 µs |                         190 µs |              216 µs | +26 µs (0.000026s) |
-| List, 25 rows     |                          478 µs |                         353 µs |              386 µs | +33 µs (0.000033s) |
-| List, 100 rows    |                        1,045 µs |                         899 µs |              979 µs | +80 µs (0.000080s) |
+| Page              | raw mysqli + `htmlspecialchars()` | ZenDB + SmartString |  difference |
+|-------------------|----------------------------------:|--------------------:|------------:|
+| Detail, 1 article |                          0.047 ms |            0.042 ms | -0.000005 s |
+| Widget, 5 rows    |                          0.065 ms |            0.076 ms | +0.000011 s |
+| List, 25 rows     |                          0.150 ms |            0.169 ms | +0.000020 s |
+| List, 100 rows    |                          0.477 ms |            0.559 ms | +0.000082 s |
 
 Data processing with no HTML output: ZenDB's `->toArray()` returns plain
 arrays and skips the encoding layer.
 
-| Page              | prepared | raw SQL | ZenDB `->toArray()` |        ZenDB vs raw |
-|-------------------|---------:|--------:|--------------------:|--------------------:|
-| Detail, 1 article |   240 µs |  140 µs |              151 µs |  +11 µs (0.000011s) |
-| List, 25 rows     |   408 µs |  301 µs |              345 µs |  +44 µs (0.000044s) |
-| List, 100 rows    |   809 µs |  679 µs |              824 µs | +145 µs (0.000145s) |
+| Page              | raw mysqli | ZenDB `->toArray()` |  difference |
+|-------------------|-----------:|--------------------:|------------:|
+| Detail, 1 article |   0.033 ms |            0.036 ms | +0.000003 s |
+| List, 25 rows     |   0.117 ms |            0.134 ms | +0.000017 s |
+| List, 100 rows    |   0.341 ms |            0.419 ms | +0.000078 s |
 
-These benchmarks ran on PHP 8.5 and MySQL 8.0 on GitHub Actions (full setup
-below), and all other PHP and database versions come out within a few percent.
+Worst case, ZenDB adds 82 millionths of a second to a page. Best case, it's
+faster: the single-article detail page runs faster through ZenDB than through
+hand-written mysqli. For scale, humans start to notice interface delays
+around 100 ms: about 1,200 times the largest difference in these tables.
 
-ZenDB runs faster than prepared statements plus `htmlspecialchars()`, the
-standard safe alternative, on every page, and costs at most 145 µs (0.000145s)
-more than raw SQL, the fastest safe approach, tying the
-single-article detail page. For scale, humans start to notice interface
-delays around 100 ms: about 700 times the largest difference in these tables.
+These benchmarks ran on PHP 8.5 and MariaDB 10.3 on a dedicated Xeon E-2386G
+with the database on the same machine; two full passes agreed within 1%, and
+PHP 8.1 through 8.5 come out within a few percent of each other. Slower
+hosting scales every column up roughly proportionally; the last section shows
+how to rerun everything on your own server.
 
 If those numbers answer your question, you can stop here. The rest of the
 page shows the code behind each column, explains where the microseconds go,
@@ -39,7 +41,7 @@ and ends with how to rerun everything.
 Contents:
 
 - [How We Measured](#how-we-measured)
-- [The List Page, Three Ways](#the-list-page-three-ways)
+- [The List Page, Two Ways](#the-list-page-two-ways)
 - [Why It Comes Out This Way](#why-it-comes-out-this-way)
 - [When to Care](#when-to-care)
 - [The Fine Print](#the-fine-print)
@@ -69,26 +71,10 @@ Each cell in the tables above times the complete page: run the query, fetch
 the rows, HTML-encode every output. The raw-array cells skip the encoding on
 all sides.
 
-## The List Page, Three Ways
+## The List Page, Two Ways
 
 The 25-row list page from the tables above: load the 25 newest articles in a
 category, output title and summary per row.
-
-### Prepared Statements
-
-```php
-$category = $_GET['category'] ?? 'news';
-$query    = "SELECT * FROM news WHERE category = ? ORDER BY created_at DESC LIMIT 25";
-$rows     = $mysqli->execute_query($query, [$category])->fetch_all(MYSQLI_ASSOC);
-
-foreach ($rows as $row) {
-    echo "<h2>" . htmlspecialchars($row['title'], ENT_QUOTES | ENT_SUBSTITUTE | ENT_DISALLOWED | ENT_HTML5, 'UTF-8') . "</h2>";
-    echo "<p>" . htmlspecialchars($row['summary'], ENT_QUOTES | ENT_SUBSTITUTE | ENT_DISALLOWED | ENT_HTML5, 'UTF-8') . "</p>";
-}
-```
-
-The `execute_query()` call (PHP 8.2+) is the same as calling `prepare()`,
-`bind_param()`, and `execute()`.
 
 ### Raw SQL
 
@@ -116,17 +102,15 @@ foreach ($articles as $article) {
 }
 ```
 
-ZenDB is shorter than the fast option and faster than the safe-by-default
-option, and there is nothing to wrap and nothing to remember per field.
+ZenDB is the shorter of the two, and there is nothing to escape, nothing to
+wrap, and nothing to remember per field.
 
 ## Why It Comes Out This Way
 
-**Interpolation skips a round trip.** ZenDB sends one interpolated,
-fully-escaped query; a prepared statement sends `prepare()` and `execute()`
-separately, and that extra round trip is why the prepared column trails on
-every page, worst on the one-article page (275 µs against raw SQL's 168 µs).
-Sending finished SQL does not change the safety model: the API takes
-placeholders only, and templates with inline values are rejected. See
+**One finished query per call.** ZenDB escapes every value and inlines it
+into the SQL before sending, so each query is a single round trip with no
+prepare step. Sending finished SQL does not change the safety model: the API
+takes placeholders only, and templates with inline values are rejected. See
 [Security Gotchas](security-gotchas.md) for the full reasoning.
 
 **Long fields encode faster through SmartString.** SmartString's encoder
@@ -134,18 +118,19 @@ scans first and only transforms text that needs it, so on multi-KB fields it
 runs faster than `htmlspecialchars()` (measurements on
 [SmartString's performance page](https://github.com/interactivetools-com/SmartString/blob/main/docs/performance.md)).
 That saving on the 5 KB content field is what pays for ZenDB's query-building
-work on the detail page: ~11 µs behind on raw arrays, a tie with HTML output.
+work on the detail page: ~3 µs behind on raw arrays, ~5 µs ahead with HTML
+output.
 
 **Row construction sets the list-page gap.** Every row becomes a result
 object, so the difference grows with row count. The raw-array table is the
-clean view, no encoding on either side: ~11 µs at 1 row, ~44 µs at 25 rows,
-~145 µs at 100. On the HTML pages the encoding saving offsets part of that,
+clean view, no encoding on either side: ~3 µs at 1 row, ~17 µs at 25 rows,
+~78 µs at 100. On the HTML pages the encoding saving offsets part of that,
 which is why their gaps run smaller.
 
 ## When to Care
 
-Rarely. The largest difference on any page, ~145 µs (0.000145s), is about a
-sixth of that page's own ~0.8 ms cost and about a 700th of the ~100 ms
+Rarely. The largest difference on any page, ~82 µs (0.000082 s), is about a
+seventh of that page's own ~0.56 ms cost and about a 1,200th of the ~100 ms
 where humans notice. These tests also ran with the database on the same
 machine as PHP; when the database is a separate server, network time is
 added equally to every column and the differences shrink further. If a page
@@ -173,26 +158,22 @@ Benchmark choices, stated plainly.
   safety: `ENT_DISALLOWED` replaces control characters that are invalid in
   HTML, so they never reach the page. The baseline uses the same flags to
   produce identical output. Plain `htmlspecialchars($x)` with PHP's
-  defaults skips that scan and encodes these pages ~6 µs (detail) to
-  ~46 µs (100-row list) faster; against that baseline the gaps grow by the
-  same amounts and the detail-page tie becomes a loss of a few µs.
-- **The prepared cells use the classic form.** `prepare()`, `bind_param()`,
-  `execute()`, fresh per query, which is what per-request PHP pays;
-  `execute_query()` measured the same in a separate five-server comparison.
-- **Not measured: reused prepared statements.** Reusing a statement handle
-  beats re-preparing ~1.8x, but handles don't survive a PHP-FPM request, so
-  no cell compares against reuse; long-running workers that keep statements
-  alive are outside these measurements.
+  defaults skips that scan and encodes these pages ~3 µs (detail) to
+  ~25 µs (100-row list) faster; against that baseline the gaps grow by the
+  same amounts and the detail page stays ~2 µs ahead.
 - **PHP's JIT compiler is off**, matching PHP's default production
   configuration.
 - **The corpus is real-page shaped.** 1,000 rows across 10 categories, with
   real-prose special-character density; the same corpus SmartArray
   benchmarks against.
-- **Ties are real ties.** The suite's noise band is +/-3%, and every run
-  includes a raw-vs-itself calibration cell that must measure ~1.00x.
-- **Scope.** All cells are reads on GitHub Actions Linux x64, PHP 8.5,
-  MySQL 8.0, with no `encryptionKey` set. Write paths and other platforms
-  were not measured.
+- **Ties are real ties.** Every run includes a raw-vs-itself calibration cell
+  that must measure ~1.00x, and the two full passes behind these tables
+  agreed within 1% per cell.
+- **Scope.** All cells are reads on a dedicated Linux x64 server (Intel Xeon
+  E-2386G), PHP 8.5, MariaDB 10.3 on the same machine, with no
+  `encryptionKey` set. Write paths and other platforms were not measured.
+  The same workflow dispatched on GitHub Actions (PHP 8.1-8.5, MySQL 8.0)
+  lands within a few percent on every ratio.
 
 ## Reproducing the Numbers
 
@@ -206,13 +187,12 @@ composer install
 php .github/scripts/escape-zendb-probe.php
 ```
 
-Or fork the repo and dispatch the same workflow CI runs:
-`gh workflow run escape-zendb-matrix.yml`. The published numbers are from
-[run 31272787620](https://github.com/interactivetools-com/ZenDB/actions/runs/31272787620),
-and a variant run on the latest MariaDB with JIT enabled
-([run 31273510581](https://github.com/interactivetools-com/ZenDB/actions/runs/31273510581))
-lands within a few percent of them. The committed grids for every benchmark
-family are in [escape-results.md](../.github/scripts/escape-results.md).
+The published numbers come from this probe on the dedicated server described
+in The Fine Print, run twice with the passes agreeing within 1%. You can also
+fork the repo and dispatch the same workflow on GitHub Actions:
+`gh workflow run escape-zendb-matrix.yml`. CI runs land within a few percent
+on every ratio. The committed grids for every benchmark family are in
+[escape-results.md](../.github/scripts/escape-results.md).
 
 ---
 

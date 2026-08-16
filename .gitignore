@@ -14,7 +14,9 @@ phpunit.xml
 tests/Support/Replay/corpus.php
 
 # IDE and local dev files
+.antigravitycli/
 .claude/
 .idea/
 test.php
 *.sh
+__codex-scan-prompt.md

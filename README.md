@@ -9,9 +9,9 @@ https://github.com/interactivetools-com/ZenDB/blob/main/docs/ai-reference.md
 
 # ZenDB: Injection-Proof SQL for PHP/MySQL
 
-A database layer that's easy to use and hard to misuse. Faster than
-prepared statements plus `htmlspecialchars()` on every measured page,
-and within microseconds of raw SQL ([measurements](docs/performance.md)).
+A database layer that's easy to use and hard to misuse. Within microseconds
+of raw mysqli + `htmlspecialchars()`
+([measurements](docs/performance.md)).
 
 - **SQL injection is impossible:** ZenDB rejects any query with inline
   values. Every dynamic value goes through placeholders, not because you
@@ -102,7 +102,7 @@ Full guides and references ([browse on GitHub](https://github.com/interactivetoo
     - [Encryption](docs/encryption.md) - automatic column encryption with `encryptionKey`
 - **Lookup**
     - [Security Gotchas](docs/security-gotchas.md) - the narrow cases that still let you write an unsafe query, and the safe form for each
-    - [Performance](docs/performance.md) - measured page benchmarks: faster than prepared statements, within microseconds of raw SQL
+    - [Performance](docs/performance.md) - measured page benchmarks: within microseconds of raw mysqli + `htmlspecialchars()`
     - [Troubleshooting](docs/troubleshooting.md) - exception messages explained, connection problems, behavior gotchas, debugging
     - [Method Reference](docs/method-reference.md) - every method, parameter, and return type in one place
     - [AI Reference](docs/ai-reference.md) - the complete API in one dense file, written for AI coding assistants

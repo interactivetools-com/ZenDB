@@ -29,7 +29,7 @@ The rest are standalone: open whichever matches your task.
 ## Lookup
 
 - [Security Gotchas](security-gotchas.md) - The narrow cases that still let you write an unsafe query, and the safe form for each.
-- [Performance](performance.md) - Measured page benchmarks: faster than prepared statements, within microseconds of raw SQL.
+- [Performance](performance.md) - Measured page benchmarks: within microseconds of raw mysqli + `htmlspecialchars()`.
 - [Troubleshooting](troubleshooting.md) - Exception messages explained, connection problems, behavior gotchas, debugging.
 - [Method Reference](method-reference.md) - Every method, parameter, and return type in one place.
 - [AI Reference](ai-reference.md) - The complete API in one dense file, written for AI coding assistants.
