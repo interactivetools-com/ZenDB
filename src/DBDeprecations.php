@@ -166,7 +166,8 @@ trait DBDeprecations
         throw match (strtolower($name)) {
             'like', 'escapelikewildcards' => new InvalidArgumentException("DB::$name() has been removed. Use DB::escape(\$value, true) or DB::likeContains(\$value) instead"),
             'identifier'                  => new InvalidArgumentException("DB::identifier() has been removed for security. Use backtick placeholders instead: `?` or `:name`"),
-            default                       => new InvalidArgumentException("Unknown static method: $name"),
+            // SECURITY: variable-method calls make $name caller data, encode before it can reach page output (match arm, so no room for the $h variable)
+            default                       => new InvalidArgumentException("Unknown static method: " . self::h($name)),
         };
     }
 

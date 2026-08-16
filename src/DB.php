@@ -348,7 +348,8 @@ class DB
     public static function decryptExpr(string $column): string
     {
         if (!preg_match('/^[\w-]+(?:\.[\w-]+)?\z/', $column)) { // column or table.column, one dot at most; assertIdentifier()'s regex each side - keep them in sync
-            throw new InvalidArgumentException("Invalid column name '$column' in decryptExpr(), expected column or table.column with characters: a-z, A-Z, 0-9, _, -");
+            $h = self::h(...); // SECURITY: column failed validation, encode before it can reach page output
+            throw new InvalidArgumentException("Invalid column name '{$h($column)}' in decryptExpr(), expected column or table.column with characters: a-z, A-Z, 0-9, _, -");
         }
         $column = str_replace('.', '`.`', $column); // "blog.title" => "blog`.`title"
         return "AES_DECRYPT(`$column`, @ek)";       // => AES_DECRYPT(`blog`.`title`, @ek)

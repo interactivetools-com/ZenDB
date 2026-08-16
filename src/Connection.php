@@ -135,7 +135,8 @@ class Connection
 
         foreach ($config as $key => $value) {
             if (!in_array($key, $settableKeys, true)) {
-                throw new InvalidArgumentException("Unknown configuration key: '$key'");
+                $h = DB::h(...); // SECURITY: config keys come from the caller, encode before they can reach page output
+                throw new InvalidArgumentException("Unknown configuration key: '{$h($key)}'");
             }
             $this->$key = $value;
         }
@@ -201,7 +202,8 @@ class Connection
                         $this->mysqli->query($dbCreateQuery);
                         $this->mysqli->select_db($database);
                     } catch (mysqli_sql_exception $createErr) {
-                        throw new RuntimeException("Couldn't create/select database '$database': {$createErr->getMessage()}", $createErr->getCode(), $createErr);
+                        $h = DB::h(...); // SECURITY: database name and server message aren't safe by construction, encode before they can reach page output
+                        throw new RuntimeException("Couldn't create/select database '{$h($database)}': {$h($createErr->getMessage())}", $createErr->getCode(), $createErr);
                     }
                 } else {
                     throw $e;
@@ -215,11 +217,12 @@ class Connection
             // Detect WSL + Unix socket failure
             $isWslSocketError = isset($_SERVER['WSL_DISTRO_NAME']) && $errorCode === 2002 && preg_match('/No such file/i', $errorDetail) && preg_match('/^(p:)?localhost\z/i', (string)$this->secret('hostname'));
 
+            $h        = DB::h(...); // SECURITY: server messages echo hostnames and other config, encode before they can reach page output
             $errorMsg = match (true) {
-                $isWslSocketError                        => "'localhost' uses Unix sockets. To connect to Windows MySQL from WSL, use '127.0.0.1' or 'localhost:3306' with WSL mirrored networking.\n$baseErrorMsg: $errorDetail",
-                $errorCode === 2002                      => "Couldn't connect to server, check database server is running and connection settings are correct.\n$baseErrorMsg: $errorDetail",
-                $errorCode === 2006 && $this->requireSSL => "Try disabling 'requireSSL' in database configuration.\n$baseErrorMsg: $errorDetail",
-                default                                  => "$baseErrorMsg: $errorDetail",
+                $isWslSocketError                        => "'localhost' uses Unix sockets. To connect to Windows MySQL from WSL, use '127.0.0.1' or 'localhost:3306' with WSL mirrored networking.\n$baseErrorMsg: {$h($errorDetail)}",
+                $errorCode === 2002                      => "Couldn't connect to server, check database server is running and connection settings are correct.\n$baseErrorMsg: {$h($errorDetail)}",
+                $errorCode === 2006 && $this->requireSSL => "Try disabling 'requireSSL' in database configuration.\n$baseErrorMsg: {$h($errorDetail)}",
+                default                                  => "$baseErrorMsg: {$h($errorDetail)}",
             };
             throw new RuntimeException($errorMsg);
         }
@@ -249,7 +252,8 @@ class Connection
         if ($this->versionRequired) {
             $currentVersion = $this->server->version();
             if (version_compare($this->versionRequired, $currentVersion, '>')) {
-                $error = "This program requires MySQL v$this->versionRequired+ or compatible. This server has {$this->server->vendorName()} v$currentVersion installed.\n";
+                $h     = DB::h(...); // SECURITY: versionRequired comes from caller config, encode before it can reach page output
+                $error = "This program requires MySQL v{$h($this->versionRequired)}+ or compatible. This server has {$this->server->vendorName()} v$currentVersion installed.\n";
                 $error .= "Please ask your server administrator to upgrade.\n";
                 throw new RuntimeException($error);
             }
@@ -318,7 +322,8 @@ class Connection
         $allowedKeys = ['tablePrefix', 'useSmartJoins', 'useSmartStrings'];
         $invalidKeys = array_diff(array_keys($config), $allowedKeys);
         if ($invalidKeys) {
-            throw new InvalidArgumentException("clone() only supports: " . implode(', ', $allowedKeys) . ". Got: " . implode(', ', $invalidKeys));
+            $h = DB::h(...); // SECURITY: config keys come from the caller, encode before they can reach page output
+            throw new InvalidArgumentException("clone() only supports: " . implode(', ', $allowedKeys) . ". Got: {$h(implode(', ', $invalidKeys))}");
         }
 
         $clone = clone $this;
@@ -929,7 +934,8 @@ class Connection
                     $row[$key] = $decrypted;
                 } elseif (!$this->decryptWarned) {
                     $this->decryptWarned = true;
-                    trigger_error("ZenDB: can't decrypt MEDIUMBLOB column '$key', returning raw bytes. Wrong encryptionKey, or the column holds unencrypted data.", E_USER_WARNING);
+                    $h                   = DB::h(...); // SECURITY: column names come from query results (aliases included), encode before they can reach page output
+                    trigger_error("ZenDB: can't decrypt MEDIUMBLOB column '{$h($key)}', returning raw bytes. Wrong encryptionKey, or the column holds unencrypted data.", E_USER_WARNING);
                 }
             }
         }

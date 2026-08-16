@@ -8,8 +8,8 @@ use Itools\SmartString\SmartString;
 use RuntimeException;
 
 // import built-ins so calls resolve at compile time instead of per-call lookups; NamespacedCallsTest keeps this list exact
-use function date, preg_match;
-use const MYSQLI_TYPE_BLOB;
+use function date, htmlspecialchars, preg_match;
+use const ENT_DISALLOWED, ENT_HTML5, ENT_QUOTES, ENT_SUBSTITUTE, MYSQLI_TYPE_BLOB;
 
 /**
  * Internal methods for DB.
@@ -114,6 +114,26 @@ trait DBInternals
         return self::connection()->escapeCSV($values);
     }
 
+    /**
+     * HTML-encode a value for safe output, same name and flags as CMS Builder's h().
+     * ENT_DISALLOWED substitutes code points HTML5 forbids (C1 controls, noncharacters)
+     * with � so they can't hide in page source.
+     *
+     * Every error, warning, or exception message encodes the values it interpolates
+     * (keys, identifiers, method names - anything that isn't safe by construction):
+     * handlers often echo messages into pages. Assign it to a variable to encode
+     * inline in interpolated strings:
+     *
+     *     $h = self::h(...);
+     *     throw new RuntimeException("Unknown key '{$h($key)}', expected a column name");
+     *
+     * @internal
+     */
+    public static function h(string|int|float|null $input): string
+    {
+        return htmlspecialchars((string)$input, ENT_QUOTES | ENT_SUBSTITUTE | ENT_DISALLOWED | ENT_HTML5, 'UTF-8');
+    }
+
     //endregion
     //region Validation
 
@@ -140,7 +160,8 @@ trait DBInternals
     public static function assertIdentifier(string $identifier, string $what = 'identifier'): void
     {
         if (!preg_match('/^[\w-]+\z/', $identifier)) { // \z: $ would also match before a trailing newline
-            throw new InvalidArgumentException("Invalid $what '$identifier', allowed characters: a-z, A-Z, 0-9, _, -");
+            $h = self::h(...); // SECURITY: identifier failed validation, encode before it can reach page output
+            throw new InvalidArgumentException("Invalid $what '{$h($identifier)}', allowed characters: a-z, A-Z, 0-9, _, -");
         }
         self::$safeIdentifiers[$identifier] = true;
     }

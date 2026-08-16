@@ -160,7 +160,8 @@ class MysqliWrapper extends mysqli
     public function set_charset(string $charset): bool
     {
         if ($charset !== 'utf8mb4') {
-            throw new InvalidArgumentException("ZenDB connections are always utf8mb4; set_charset('$charset') is not supported.");
+            $h = DB::h(...); // SECURITY: charset comes from the caller, encode before it can reach page output
+            throw new InvalidArgumentException("ZenDB connections are always utf8mb4; set_charset('{$h($charset)}') is not supported.");
         }
         return parent::set_charset($charset);
     }

@@ -179,7 +179,8 @@ trait ConnectionInternals
             } else {
                 $hasNamed = true;
                 $name     = match (true) {
-                    !preg_match("/^:\w+\z/", $key) => throw new InvalidArgumentException("Invalid param name '$key'. Must start with ':' followed by (a-z, A-Z, 0-9, _)"),
+                    // SECURITY: key failed validation, encode before it can reach page output (match arm, so no room for the $h variable)
+                    !preg_match("/^:\w+\z/", $key) => throw new InvalidArgumentException("Invalid param name '" . DB::h($key) . "'. Must start with ':' followed by (a-z, A-Z, 0-9, _)"),
                     str_starts_with($key, ':_')    => throw new InvalidArgumentException("Invalid param name '$key'. Names can't start with :_ (the deprecated table-prefix syntax); start the name with a letter or digit"),
                     str_starts_with($key, ':zdb_') => throw new InvalidArgumentException("Invalid param name '$key'. Names can't start with :zdb_ (reserved prefix)"),
                     default                        => $key,
@@ -286,8 +287,9 @@ trait ConnectionInternals
          *   // Throws: Quotes not allowed in template. Replace 'Vancouver' with ...
          */
         if (preg_match('/[\'"]/', $sqlForQuoteCheck, $matches)) {
-            $quotedText = preg_match('/(([\'"]).*?\2)/', $sqlForQuoteCheck, $matches) ? $matches[1] : '';
-            if ($quotedText) {
+            if (preg_match('/([\'"])(.*?)\1/', $sqlForQuoteCheck, $matches)) {
+                $h          = DB::h(...); // SECURITY: quoted text can carry interpolated user data, encode before it can reach page output (quote chars stay literal)
+                $quotedText = $matches[1] . $h($matches[2]) . $matches[1];
                 throw new InvalidArgumentException("Quotes not allowed in template. Replace $quotedText with :paramName and add: [ ':paramName' => $quotedText ]");
             }
 
@@ -687,7 +689,8 @@ trait ConnectionInternals
                 // Backtick placeholders: insert safe identifiers (table/column names) unquoted (or throw if unsafe).
                 if ($match[0] === '`') {
                     if (!is_string($value)) {
-                        throw new InvalidArgumentException("Invalid backtick identifier: " . var_export($value, true) . ", expected a string");
+                        $h = DB::h(...); // SECURITY: var_export prints array contents, encode before they can reach page output
+                        throw new InvalidArgumentException("Invalid backtick identifier: {$h(var_export($value, true))}, expected a string");
                     }
                     isset(DB::$safeIdentifiers[$value]) || DB::assertIdentifier($value, 'backtick identifier');
                     return "`$value`";
