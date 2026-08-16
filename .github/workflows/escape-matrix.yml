@@ -120,13 +120,17 @@ jobs:
           DB_USERNAME: root
           DB_PASSWORD: ''
           DB_DATABASE: phpunit_test_db
+          # scale and filter are free-form text: pass them as env vars so the
+          # shell gets them as data, never as script source
+          SCALE: ${{ inputs.scale }}
+          FILTER: ${{ inputs.filter }}
         run: |
           SLUG="${{ matrix.os }}-php${{ matrix.php }}${{ inputs.jit != 'off' && format('-jit-{0}', inputs.jit) || '' }}"
           echo "SLUG=$SLUG" >> "$GITHUB_ENV"
           php .github/scripts/escape-probe.php \
             --json="probe-$SLUG.json" \
-            --scale="${{ inputs.scale }}" \
-            ${{ inputs.filter != '' && format('--filter="{0}"', inputs.filter) || '' }} \
+            --scale="$SCALE" \
+            ${FILTER:+--filter="$FILTER"} \
             >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload probe results

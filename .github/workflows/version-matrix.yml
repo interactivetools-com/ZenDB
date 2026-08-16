@@ -129,8 +129,11 @@ jobs:
         run: composer install --no-interaction --prefer-dist
 
       - name: Install baseline ZenDB ${{ inputs.baseline || '0.9.1' }}
+        # baseline is free-form text: pass it as an env var so the shell gets
+        # it as data, never as script source
+        env:
+          BASELINE: ${{ inputs.baseline || '0.9.1' }}
         run: |
-          BASELINE="${{ inputs.baseline || '0.9.1' }}"
           mkdir -p /tmp/baseline
           cd /tmp/baseline
           composer require "itools/zendb:$BASELINE" --no-interaction --prefer-dist
@@ -151,6 +154,10 @@ jobs:
           DB_USERNAME: root
           DB_PASSWORD: ''
           DB_DATABASE: phpunit_test_db
+          # scale and filter are free-form text: pass them as env vars so the
+          # shell gets them as data, never as script source
+          SCALE: ${{ inputs.scale }}
+          FILTER: ${{ inputs.filter }}
         run: |
           DB_SLUG=$(echo "${{ matrix.database }}" | tr ':/' '--')
           SLUG="version-php${{ matrix.php }}-$DB_SLUG${{ inputs.jit == 'on' && '-jit' || '' }}"
@@ -158,8 +165,8 @@ jobs:
           php .github/scripts/version-probe.php \
             --baseline=/tmp/baseline \
             --json="probe-$SLUG.json" \
-            --scale="${{ inputs.scale }}" \
-            ${{ inputs.filter != '' && format('--filter="{0}"', inputs.filter) || '' }} \
+            --scale="$SCALE" \
+            ${FILTER:+--filter="$FILTER"} \
             >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload probe results
