@@ -18,5 +18,3 @@ tests/Support/Replay/corpus.php
 .claude/
 .idea/
 test.php
-*.sh
-__codex-scan-prompt.md
