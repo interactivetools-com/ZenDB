@@ -531,6 +531,7 @@ class DocsExamplesTest extends BaseTestCase
         $byCity  = DB::select('users', ['status' => 'Suspended'])->groupBy('city');
         $headings = [];
         foreach ($byCity as $city => $cityUsers) {
+            $city       = SmartString::new($city);  // foreach keys come back plain; this makes them encode like fields
             $headings[] = "<h2>$city (" . count($cityUsers) . ")</h2>";
         }
         $this->assertSame([
@@ -1472,6 +1473,14 @@ class DocsExamplesTest extends BaseTestCase
         $this->assertCount(10, $byStatus->Active);
         $this->assertCount(5, $byStatus->Inactive);
         $this->assertCount(5, $byStatus->Suspended);
+
+        // Headings encode the group key like the docs example: wrap the plain foreach key in SmartString
+        $headings = [];
+        foreach ($byStatus as $status => $items) {
+            $status     = SmartString::new($status);
+            $headings[] = "<h2>$status</h2>";
+        }
+        $this->assertSame(['<h2>Active</h2>', '<h2>Inactive</h2>', '<h2>Suspended</h2>'], $headings);
 
         $html = '';
         foreach ($byStatus->Inactive as $item) {

@@ -161,6 +161,8 @@ everything.
 | `$result->groupBy('col')`     | Groups of rows keyed by column value          |
 
 ```php
+use Itools\SmartString\SmartString;
+
 $users = DB::select('users', ['status' => 'active']);
 
 echo count($users) . " active users";
@@ -175,6 +177,7 @@ echo $byId->{'42'}->name;
 // Group rows by a column value
 $byCity = $users->groupBy('city');
 foreach ($byCity as $city => $cityUsers) {
+    $city = SmartString::new($city);  // foreach keys come back plain; this makes them encode like fields
     echo "<h2>$city (" . count($cityUsers) . ")</h2>";
 }
 ```

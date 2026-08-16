@@ -245,12 +245,15 @@ $categories = DB::select('categories', "ORDER BY name");
 Sorting by the group column first keeps each group's items in order:
 
 ```php
+use Itools\SmartString\SmartString;
+
 $products   = DB::select('products', "ORDER BY category, name");
 $byCategory = $products->groupBy('category');
 // ['Books' => [row, row, ...], 'Electronics' => [row, ...]]
 
 foreach ($byCategory as $category => $items) {
-    echo "<h2>" . htmlspecialchars($category) . "</h2><ul>";
+    $category = SmartString::new($category);  // foreach keys come back plain; this makes them encode like fields
+    echo "<h2>$category</h2><ul>";
     foreach ($items as $item) {
         echo "<li>$item->name - {$item->price->numberFormat(2)->prepend('$')}</li>";
     }
@@ -258,9 +261,9 @@ foreach ($byCategory as $category => $items) {
 }
 ```
 
-One encoding note: group keys are PHP array keys, so `$category` is a plain
-string, not a SmartString, and doesn't HTML-encode itself. Encode it yourself
-on output, as above.
+One encoding note: group keys are PHP array keys, so `$category` arrives as a
+plain string that doesn't HTML-encode itself. Wrapping it in
+`SmartString::new()` makes it encode like any other field.
 
 ## Lookup Maps - `column()` and `indexBy()`
 
