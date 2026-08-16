@@ -39,13 +39,13 @@ class LikePatternTest extends BaseTestCase
     public function testLikeContainsEscapesPercent(): void
     {
         $result = DB::likeContains('100%');
-        $this->assertSame("'%100\\%%'", (string) $result);
+        $this->assertSame("'%100\\\\%%'", (string) $result);
     }
 
     public function testLikeContainsEscapesUnderscore(): void
     {
         $result = DB::likeContains('user_name');
-        $this->assertSame("'%user\\_name%'", (string) $result);
+        $this->assertSame("'%user\\\\_name%'", (string) $result);
     }
 
     public function testLikeContainsWithSpecialChars(): void
@@ -91,7 +91,7 @@ class LikePatternTest extends BaseTestCase
     public function testLikeContainsTSVEscapesWildcards(): void
     {
         $result = DB::likeContainsTSV('100%');
-        $this->assertSame("'%\\t100\\%\\t%'", (string) $result);
+        $this->assertSame("'%\\t100\\\\%\\t%'", (string) $result);
     }
 
     //endregion
@@ -106,7 +106,7 @@ class LikePatternTest extends BaseTestCase
     public function testLikeStartsWithEscapesWildcards(): void
     {
         $result = DB::likeStartsWith('100%_start');
-        $this->assertSame("'100\\%\\_start%'", (string) $result);
+        $this->assertSame("'100\\\\%\\\\_start%'", (string) $result);
     }
 
     public function testLikeStartsWithSpecialChars(): void
@@ -127,7 +127,7 @@ class LikePatternTest extends BaseTestCase
     public function testLikeEndsWithEscapesWildcards(): void
     {
         $result = DB::likeEndsWith('_end%');
-        $this->assertSame("'%\\_end\\%'", (string) $result);
+        $this->assertSame("'%\\\\_end\\\\%'", (string) $result);
     }
 
     public function testLikeEndsWithSpecialChars(): void
@@ -222,6 +222,34 @@ class LikePatternTest extends BaseTestCase
         DB::delete('users', ['name' => '1000 Islands']);
     }
 
+    public function testBackslashBeforeWildcardStaysLiteral(): void
+    {
+        // One name with a literal backslash-percent, one control that an active
+        // wildcard (backslash escaped, % left live) would also match
+        DB::insert('users', ['name' => 'save 50\\% today', 'status' => 'Active', 'city' => 'LikeTest']);
+        DB::insert('users', ['name' => 'save 50\\ff today', 'status' => 'Active', 'city' => 'LikeTest']);
+
+        $result = DB::query("SELECT * FROM ::users WHERE name LIKE ?", DB::likeContains('50\\%'));
+        $this->assertCount(1, $result);
+        $this->assertSame('save 50\\% today', $result->first()->get('name')->value());
+
+        DB::delete('users', ['city' => 'LikeTest']);
+    }
+
+    public function testBackslashMatchesItself(): void
+    {
+        // One name with literal backslashes, one control that LIKE would match if the
+        // pattern's backslashes were read as escape characters instead of literals
+        DB::insert('users', ['name' => 'path C:\\temp\\files', 'status' => 'Active', 'city' => 'LikeTest']);
+        DB::insert('users', ['name' => 'path C:tempfiles', 'status' => 'Active', 'city' => 'LikeTest']);
+
+        $result = DB::query("SELECT * FROM ::users WHERE name LIKE ?", DB::likeContains('C:\\temp\\files'));
+        $this->assertCount(1, $result);
+        $this->assertSame('path C:\\temp\\files', $result->first()->get('name')->value());
+
+        DB::delete('users', ['city' => 'LikeTest']);
+    }
+
     //endregion
     //region Data Provider
 
@@ -238,12 +266,12 @@ class LikePatternTest extends BaseTestCase
     {
         return [
             ['likeContains', 'test', "'%test%'"],
-            ['likeContains', 'a%b', "'%a\\%b%'"],
-            ['likeContains', 'a_b', "'%a\\_b%'"],
+            ['likeContains', 'a%b', "'%a\\\\%b%'"],
+            ['likeContains', 'a_b', "'%a\\\\_b%'"],
             ['likeStartsWith', 'test', "'test%'"],
-            ['likeStartsWith', 'a%', "'a\\%%'"],
+            ['likeStartsWith', 'a%', "'a\\\\%%'"],
             ['likeEndsWith', 'test', "'%test'"],
-            ['likeEndsWith', '%end', "'%\\%end'"],
+            ['likeEndsWith', '%end', "'%\\\\%end'"],
             ['likeContainsTSV', 'val', "'%\\tval\\t%'"],
         ];
     }

@@ -137,7 +137,7 @@ which escapes `_` and `%` in its input:
 
 ```php
 $tables = DB::query("SHOW TABLES LIKE ?", DB::likeStartsWith(DB::$tablePrefix . 'user'));
-// SHOW TABLES LIKE 'cms\_user%'
+// SHOW TABLES LIKE 'cms\\_user%'
 ```
 
 ## Type Handling

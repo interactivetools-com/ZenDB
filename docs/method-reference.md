@@ -86,7 +86,7 @@ The `like*()` methods accept `string|int|float|null|SmartString` and escape
 
 ```php
 $news = DB::select('news', "title LIKE ?", DB::likeContains($_GET['q'] ?? ''));
-// for q=50% this runs: WHERE title LIKE '%50\%%'
+// for q=50% this runs: WHERE title LIKE '%50\\%%'
 
 $pageNum = $_GET['page'] ?? 1;
 $users   = DB::select('users', "ORDER BY name :pagingSQL", [

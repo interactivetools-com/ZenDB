@@ -118,13 +118,13 @@ $users  = DB::select('users', "name LIKE ?", DB::likeContains($search));
 | `DB::likeEndsWith('son')`     | `'%son'`          | column ends with the value       |
 | `DB::likeContainsTSV('news')` | `'%\tnews\t%'`    | whole value in a tab-separated column |
 
-All four escape the input for SQL *and* escape the LIKE wildcards `%` and `_`,
-so those characters in user input match literally instead of acting as
-wildcards:
+All four escape the input for SQL *and* escape the LIKE wildcards `%`, `_`,
+and `\`, so every character in user input matches literally - nothing in the
+value can act as a wildcard:
 
 ```php
 $users = DB::select('users', "name LIKE ?", DB::likeContains('50%'));
-// name LIKE '%50\%%' - matches "50% off", not every name containing "50"
+// name LIKE '%50\\%%' - matches "50% off", not every name containing "50"
 ```
 
 `likeContainsTSV()` is for columns that store multiple values separated by

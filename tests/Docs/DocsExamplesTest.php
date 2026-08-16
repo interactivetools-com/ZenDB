@@ -898,10 +898,10 @@ class DocsExamplesTest extends BaseTestCase
 
     public function testPlaceholdersLikeStartsWithEscapesWildcards(): void
     {
-        $this->assertSame("'test\\_user%'", (string)DB::likeStartsWith(DB::$tablePrefix . 'user'));
+        $this->assertSame("'test\\\\_user%'", (string)DB::likeStartsWith(DB::$tablePrefix . 'user'));
 
         $tables = DB::query("SHOW TABLES LIKE ?", DB::likeStartsWith(DB::$tablePrefix . 'user'));
-        $this->assertSame("SHOW TABLES LIKE 'test\\_user%'", $tables->mysqli('query'));
+        $this->assertSame("SHOW TABLES LIKE 'test\\\\_user%'", $tables->mysqli('query'));
     }
 
     public function testPlaceholdersTypeHandling(): void
@@ -1696,7 +1696,7 @@ class DocsExamplesTest extends BaseTestCase
 
         $matches = DB::select('promos', "name LIKE ?", DB::likeContains('50%'));
 
-        $this->assertSame("SELECT * FROM `test_promos` WHERE name LIKE '%50\\%%'", DB::$mysqli->lastQuery);
+        $this->assertSame("SELECT * FROM `test_promos` WHERE name LIKE '%50\\\\%%'", DB::$mysqli->lastQuery);
         $this->assertSame(['50% off'], $matches->pluck('name')->toArray());
 
         $startsWith = DB::select('promos', "name LIKE ?", DB::likeStartsWith('50'));

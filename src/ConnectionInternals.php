@@ -802,9 +802,17 @@ trait ConnectionInternals
      *
      * Escape a string for safe inclusion in raw SQL.
      *
+     * With $escapeLikeWildcards, the result is built for a LIKE pattern: the whole
+     * value matches as literal text, and nothing in it acts as a wildcard. To get
+     * that, % _ and \ are escaped before the SQL escape, because MySQL decodes a
+     * pattern twice (string parser first, then LIKE). The like*() helpers wrap
+     * this; reach for them first.
+     *
+     *     $sql = "name LIKE '%" . $this->escape($search, true) . "%'";  // $search matches literally, even "50%"
+     *
      * @internal
      * @param string|int|float|null|SmartString $input               Value to escape
-     * @param bool                              $escapeLikeWildcards Also escape % and _ for LIKE queries
+     * @param bool                              $escapeLikeWildcards Make the value match as literal text in a LIKE pattern (escapes %, _, and \)
      * @return string Escaped string (without quotes)
      */
     public function escape(string|int|float|null|SmartString $input, bool $escapeLikeWildcards = false): string
@@ -819,15 +827,16 @@ trait ConnectionInternals
             $input = $this->floatToSql($input, 'escape() value');
         }
 
-        // Escape using mysqli
-        $escaped = $this->mysqli->real_escape_string((string)$input);
-
-        // Escape LIKE wildcards if needed
+        // Escape LIKE wildcards first, on the raw value: MySQL decodes a pattern twice
+        // (string parser, then LIKE), and real_escape_string() adapts to the server's
+        // string-parsing mode, so it must run last. Backslash is escaped too so a
+        // literal backslash in the input can't turn a following % or _ into a wildcard.
         if ($escapeLikeWildcards) {
-            $escaped = addcslashes($escaped, '%_');
+            $input = addcslashes((string)$input, '\\%_');
         }
 
-        return $escaped;
+        // Escape using mysqli
+        return $this->mysqli->real_escape_string((string)$input);
     }
 
     /**

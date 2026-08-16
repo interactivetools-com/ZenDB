@@ -801,7 +801,7 @@ class Connection
      * Creates a MySQL LIKE pattern for "column contains value" searches.
      *
      * @param string|int|float|null|SmartString $input Value to search for
-     * @return RawSql Escaped LIKE pattern '%value%'
+     * @return RawSql Escaped LIKE pattern '%value%'; wildcards in the value match literally
      */
     public function likeContains(string|int|float|null|SmartString $input): RawSql
     {
@@ -812,7 +812,7 @@ class Connection
      * Creates a MySQL LIKE pattern for matching values in tab-delimited columns.
      *
      * @param string|int|float|null|SmartString $input Value to search for
-     * @return RawSql Escaped LIKE pattern '%\tValue\t%'
+     * @return RawSql Escaped LIKE pattern '%\tValue\t%'; wildcards in the value match literally
      */
     public function likeContainsTSV(string|int|float|null|SmartString $input): RawSql
     {
@@ -823,7 +823,7 @@ class Connection
      * Creates a MySQL LIKE pattern for "column starts with value" searches.
      *
      * @param string|int|float|null|SmartString $input Value to search for
-     * @return RawSql Escaped LIKE pattern 'value%'
+     * @return RawSql Escaped LIKE pattern 'value%'; wildcards in the value match literally
      */
     public function likeStartsWith(string|int|float|null|SmartString $input): RawSql
     {
@@ -834,7 +834,7 @@ class Connection
      * Creates a MySQL LIKE pattern for "column ends with value" searches.
      *
      * @param string|int|float|null|SmartString $input Value to search for
-     * @return RawSql Escaped LIKE pattern '%value'
+     * @return RawSql Escaped LIKE pattern '%value'; wildcards in the value match literally
      */
     public function likeEndsWith(string|int|float|null|SmartString $input): RawSql
     {
