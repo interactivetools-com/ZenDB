@@ -13,7 +13,7 @@ use mysqli_sql_exception;
 use WeakMap;
 
 // import built-ins so calls resolve at compile time instead of per-call lookups; NamespacedCallsTest keeps this list exact
-use function array_diff, array_flip, array_intersect_key, array_key_first, array_keys, count, defined, hash, implode, in_array, is_float, is_int, is_null, is_object, is_string, mysqli_report, openssl_decrypt, openssl_encrypt, preg_match, reset, rtrim, str_replace, str_starts_with, strlen, substr, trigger_error, version_compare;
+use function array_diff, array_flip, array_key_first, array_keys, array_map, array_values, count, defined, hash, implode, in_array, is_bool, is_float, is_int, is_null, is_object, is_string, mysqli_report, openssl_decrypt, openssl_encrypt, preg_match, reset, rtrim, str_replace, str_starts_with, strlen, strtolower, substr, trigger_error, version_compare;
 use const E_USER_WARNING, MYSQLI_CLIENT_SSL, MYSQLI_OPT_CONNECT_TIMEOUT, MYSQLI_OPT_INT_AND_FLOAT_NATIVE, MYSQLI_OPT_LOCAL_INFILE, MYSQLI_OPT_READ_TIMEOUT, MYSQLI_REPORT_ERROR, MYSQLI_REPORT_STRICT, MYSQLI_SET_CHARSET_NAME, OPENSSL_RAW_DATA;
 
 /**
@@ -126,7 +126,7 @@ class Connection
     public function __construct(#[\SensitiveParameter] array $config = [])
     {
         // Seal credentials into vault (removes credential keys from $config)
-        $this->sealSecrets(config: $config);
+        $this->sealSecrets($config);
 
         // Apply remaining config to properties (sealSecrets() already consumed the credential keys)
         $settableKeys = ['tablePrefix', 'useSmartJoins', 'useSmartStrings', 'usePhpTimezone',
@@ -175,7 +175,7 @@ class Connection
         }
 
         // Pass encryption key callback to MysqliWrapper for automatic @ek session variable setup
-        if (($this->secret('encryptionKey') ?? '') !== '') {
+        if ($this->hasEncryptionKey) {
             $this->mysqli->setEncryptionKeyCallback(fn() => $this->secret('encryptionKey'));
         }
 
@@ -300,6 +300,11 @@ class Connection
         }
         $this->server = null;
         $this->table  = null;
+
+        // Schema can change while disconnected: re-probe encrypted columns and
+        // re-arm the one-per-connection decrypt warning on reconnect
+        $this->encryptedColumnsCache = [];
+        $this->decryptWarned         = false;
     }
 
     /**
@@ -326,8 +331,7 @@ class Connection
             throw new InvalidArgumentException("clone() only supports: " . implode(', ', $allowedKeys) . ". Got: {$h(implode(', ', $invalidKeys))}");
         }
 
-        $clone = clone $this;
-        $clone->sealSecrets(source: $this);
+        $clone = clone $this;   // the copied $vaultKey shares this connection's credential vault entry
 
         foreach ($config as $key => $value) {
             $clone->$key = $value;
@@ -359,6 +363,7 @@ class Connection
 
         // Validate
         $this->assertSafeTemplate($sqlTemplate);
+        $this->clearEncryptedColumnsCacheOnDdl($sqlTemplate);
 
         // Bind params and build SQL
         $this->paramValues = $this->parseParams($params);
@@ -403,6 +408,7 @@ class Connection
         // first() and asHtml()/asRaw() steps
         $this->mysqli->lastQuery = $sqlTemplate;
         $this->assertSafeTemplate($sqlTemplate);
+        $this->clearEncryptedColumnsCacheOnDdl($sqlTemplate);
         $this->paramValues = $this->parseParams($params);
         $sql               = $this->replacePlaceholders($sqlTemplate);
         $result            = $this->mysqli->query($sql);
@@ -946,6 +952,14 @@ class Connection
     private bool $decryptWarned = false;
 
     /**
+     * @var array<string, string[]> Encrypted (MEDIUMBLOB) column names per full table name,
+     * shared by the read (select/selectOne) and write (insert/update) paths so each table is
+     * probed once. Cleared on disconnect() and when query()/queryOne() runs DDL, so schema
+     * changes can't leave a stale list that would write plaintext or skip decryption.
+     */
+    private array $encryptedColumnsCache = [];
+
+    /**
      * Encrypt MEDIUMBLOB-column values in an insert/update values array, in place. Called
      * automatically by DB::insert() and DB::update() before values go to the database.
      *
@@ -958,39 +972,51 @@ class Connection
      * Which mode applies is decided by `encryptionKey`. With it set, every MEDIUMBLOB is
      * encrypted on write and decrypted on read. Without it, every MEDIUMBLOB is raw bytes.
      *
+     * Booleans are rejected for encrypted columns: there's no canonical encrypted form,
+     * and silently writing plaintext TRUE/FALSE would break the "every MEDIUMBLOB is
+     * encrypted" contract.
+     *
      * @param string $fullTable Full table name (with prefix)
      * @param array  $values    Column => value pairs (modified in place)
      */
     private function encryptRow(string $fullTable, array &$values): void
     {
-        if (!$values || !$this->secret('encryptionKey')) {
+        if (!$values || !$this->hasEncryptionKey) {
             return;
         }
 
-        // Cache the encrypted column list per connection per table (one LIMIT 0 query per table, per request)
-        static $tableCache = new WeakMap();
-        if (!isset($tableCache[$this][$fullTable])) {
-            $tableCache[$this]             ??= [];
-            $savedLastQuery                = $this->mysqli->lastQuery;     // preserve caller's template (e.g. "INSERT INTO `t` [SET ...]") so downstream throws report it, not the probe
-            $result                        = $this->mysqli->query("SELECT * FROM `$fullTable` LIMIT 0");
-            $this->mysqli->lastQuery       = $savedLastQuery;
-            $tableCache[$this][$fullTable] = DB::getEncryptedColumns($result->fetch_fields());
+        // Cache the encrypted column list per table (one LIMIT 0 query per table, per connection)
+        if (!isset($this->encryptedColumnsCache[$fullTable])) {
+            $savedLastQuery          = $this->mysqli->lastQuery;     // preserve caller's template (e.g. "INSERT INTO `t` [SET ...]") so downstream throws report it, not the probe
+            $result                  = $this->mysqli->query("SELECT * FROM `$fullTable` LIMIT 0");
+            $this->mysqli->lastQuery = $savedLastQuery;
+
+            $this->encryptedColumnsCache[$fullTable] = array_values(DB::getEncryptedColumns($result->fetch_fields()));
             $result->free();
         }
 
-        /** @noinspection PhpIllegalArrayKeyTypeInspection */
-        $encryptedCols = $tableCache[$this][$fullTable];
+        $encryptedCols = $this->encryptedColumnsCache[$fullTable];
         if (!$encryptedCols) {
             return;
         }
 
-        // Encrypt each targeted value (intersect $values with encrypted columns, skip null / non-scalar)
-        foreach (array_intersect_key($values, array_flip($encryptedCols)) as $col => $value) {
+        // Encrypt each targeted value. Column keys are matched case-insensitively because
+        // MySQL resolves them that way: 'Token' writes to column 'token', so it must
+        // encrypt the same as 'token' would.
+        $encryptedColsLower = array_flip(array_map('strtolower', $encryptedCols));
+        foreach ($values as $col => $value) {
+            if (!isset($encryptedColsLower[strtolower((string)$col)])) {
+                continue;
+            }
             if ($value instanceof SmartString) {
-                $value = $value->value(); // unwrap before the type check; SmartString can wrap null/bool
+                $value = $value->value(); // unwrap before the type checks; SmartString can wrap null/bool
+            }
+            if (is_bool($value)) {
+                $h = DB::h(...); // SECURITY: column names come from the caller, encode before they can reach page output
+                throw new InvalidArgumentException("Can't store boolean in encrypted column '{$h((string)$col)}': booleans aren't auto-encrypted. Pass a string or number instead.");
             }
             if (!is_string($value) && !is_int($value) && !is_float($value)) {
-                continue; // skip null (nothing to encrypt), RawSql, arrays, and other non-scalar types
+                continue; // skip null (nothing to encrypt) and RawSql (deliberate raw SQL); arrays throw in buildSetClause
             }
             $values[$col] = $this->encryptValue($value);
         }
@@ -1004,8 +1030,11 @@ class Connection
     {
         static $cache = new WeakMap();
         if (!isset($cache[$this])) {
-            $encryptionKey = $this->secret('encryptionKey') ?: throw new RuntimeException("aesKey() requires 'encryptionKey' in connection config.");
-            $keyBytes      = hash('sha512', $encryptionKey, true);
+            $encryptionKey = $this->secret('encryptionKey');
+            if ($encryptionKey === null || $encryptionKey === '') {
+                throw new RuntimeException("aesKey() requires 'encryptionKey' in connection config.");
+            }
+            $keyBytes = hash('sha512', $encryptionKey, true);
             $cache[$this]  = substr($keyBytes, 0, 16);
             $cache[$this]  ^= substr($keyBytes, 16, 16);
             $cache[$this]  ^= substr($keyBytes, 32, 16);

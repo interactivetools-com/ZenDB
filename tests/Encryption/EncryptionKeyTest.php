@@ -9,6 +9,7 @@ use Itools\ZenDB\Connection;
 use Itools\ZenDB\MysqliWrapper;
 use Itools\ZenDB\Tests\BaseTestCase;
 use ReflectionProperty;
+use RuntimeException;
 
 /**
  * Tests for the encryptionKey config option and lazy @ek session variable.
@@ -354,6 +355,34 @@ class EncryptionKeyTest extends BaseTestCase
         $debug = $conn->mysqli->__debugInfo();
         $this->assertSame('(set)', $debug['getEncryptionKey']);
         $conn->disconnect();
+    }
+
+    //endregion
+    //region Key Presence Edge Cases
+
+    public function testKeyStringZeroRejectedAtConfig(): void
+    {
+        // "0" is PHP-falsey and never worked as a key, so it's rejected outright rather
+        // than silently enabling encryption for setups that unknowingly ran without it
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage("Config 'encryptionKey' can't be '0'");
+        new Connection(array_merge(self::$configDefaults, ['encryptionKey' => '0']));
+    }
+
+    public function testEmptyStringKeyDisablesEncryption(): void
+    {
+        // '' means "no encryption", same as leaving encryptionKey out
+        $conn = new Connection(array_merge(self::$configDefaults, ['encryptionKey' => '']));
+        $conn->mysqli->query("CREATE TEMPORARY TABLE test_key_empty (num INT PRIMARY KEY, secret MEDIUMBLOB)");
+
+        try {
+            $conn->insert('key_empty', ['num' => 1, 'secret' => 'stored-as-is']);
+
+            $raw = $conn->mysqli->query("SELECT secret FROM test_key_empty WHERE num = 1")->fetch_row()[0];
+            $this->assertSame('stored-as-is', $raw, 'Empty-string key must store the value verbatim');
+        } finally {
+            $conn->disconnect();
+        }
     }
 
     //endregion

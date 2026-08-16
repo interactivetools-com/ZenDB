@@ -13,6 +13,7 @@ use Itools\SmartString\SmartString;
 use Throwable;
 use WeakMap;
 use mysqli_result;
+use stdClass;
 
 // import built-ins so calls resolve at compile time instead of per-call lookups; NamespacedCallsTest keeps this list exact
 use function addcslashes, array_column, array_count_values, array_filter, array_flip, array_is_list, array_key_exists, array_keys, array_map, array_shift, array_unique, array_values, count, get_debug_type, get_object_vars, implode, is_array, is_bool, is_finite, is_float, is_int, is_object, is_string, preg_grep, preg_match, preg_replace, preg_replace_callback, str_contains, str_replace, str_starts_with, strlen, strspn, strtoupper, substr, substr_count, trim, var_export;
@@ -1057,6 +1058,19 @@ trait ConnectionInternals
     }
 
     /**
+     * Forget cached encrypted-column lists when a query template contains DDL, so the
+     * next read/write re-probes the changed schema (e.g. a column altered to MEDIUMBLOB
+     * mid-request would otherwise keep writing plaintext from a stale list).
+     * Called by query() and queryOne(), the only methods that accept DDL.
+     */
+    private function clearEncryptedColumnsCacheOnDdl(string $sqlTemplate): void
+    {
+        if ($this->encryptedColumnsCache && preg_match('/^\s*(ALTER|CREATE|DROP|RENAME|TRUNCATE)\b/i', $sqlTemplate)) {
+            $this->encryptedColumnsCache = [];
+        }
+    }
+
+    /**
      * Fetch result rows with column mapping, smart joins, and auto-decryption.
      *
      * - $singleTable: caller guarantees a single-table `SELECT *` (no duplicate columns or
@@ -1084,12 +1098,10 @@ trait ConnectionInternals
         if ($singleTable) {
             $encryptedCols = [];
             if ($this->hasEncryptionKey) {
-                static $tableCache = new WeakMap();   // connection => [fullTable => encrypted column names]
-                if (!isset($tableCache[$this][$fullTable])) {
-                    $tableCache[$this]             ??= [];
-                    $tableCache[$this][$fullTable] = array_values(DB::getEncryptedColumns($mysqliResult->fetch_fields()));
+                if (!isset($this->encryptedColumnsCache[$fullTable])) {
+                    $this->encryptedColumnsCache[$fullTable] = array_values(DB::getEncryptedColumns($mysqliResult->fetch_fields()));
                 }
-                $encryptedCols = $tableCache[$this][$fullTable];
+                $encryptedCols = $this->encryptedColumnsCache[$fullTable];
             }
             $rows = $mysqliResult->fetch_all(MYSQLI_ASSOC);
             $mysqliResult->free();
@@ -1298,7 +1310,7 @@ trait ConnectionInternals
         $props = get_object_vars($this);
 
         // Restore sealed credentials for debug output
-        foreach (self::$secrets[$this] ?? [] as $key => $value) {
+        foreach (self::$secrets[$this->vaultKey] ?? [] as $key => $value) {
             $props[$key] = $value;
         }
         foreach (['hostname', 'username', 'password', 'encryptionKey'] as $sensitive) {
@@ -1323,26 +1335,29 @@ trait ConnectionInternals
     private static WeakMap $secrets;
 
     /**
+     * Vault lookup token. Secrets are keyed by this empty object rather than the
+     * Connection itself, so PHP's clone operator copies the token and every clone
+     * reads the same vault entry. The entry is freed when the last clone is.
+     */
+    private ?stdClass $vaultKey = null;
+
+    /**
      * Seal credentials into the WeakMap vault and null them on the object.
      * Requires hostname, username, password, and database to be present
-     * in $config (construct) or $source vault (clone), throws otherwise.
+     * in $config, throws otherwise. Clones skip this: they share the
+     * source's vault entry through the copied $vaultKey.
      *
-     *     $this->sealSecrets(config: $config);    // construct: credentials from config
-     *     $clone->sealSecrets(source: $this);     // clone: copy from source vault
-     *
-     * @param self|null $source Source connection to copy secrets from (for clones)
-     * @param array     $config Config array; credential keys are consumed (construct path only)
+     * @param array $config Config array; credential keys are consumed
      * @throws RuntimeException If a required credential is missing, or any credential isn't a string
      */
-    private function sealSecrets(?self $source = null, array &$config = []): void
+    private function sealSecrets(array &$config): void
     {
-        self::$secrets        ??= new WeakMap();
-        self::$secrets[$this] = [];
+        self::$secrets                  ??= new WeakMap();
+        $this->vaultKey                 = new stdClass();
+        self::$secrets[$this->vaultKey] = [];
 
         foreach (self::$secretKeys as $key) {
-            $value = $source
-                ? self::$secrets[$source][$key] ?? null  // clone: copy from source
-                : $config[$key] ?? null;                 // construct: from config
+            $value = $config[$key] ?? null;
 
             if ($value === null && $key !== 'encryptionKey') { // encryptionKey is the one optional secret
                 throw new RuntimeException("Missing required config: '$key'");
@@ -1350,13 +1365,19 @@ trait ConnectionInternals
             if ($value !== null && !is_string($value)) {
                 throw new RuntimeException("Config '$key' must be a string, got " . get_debug_type($value));
             }
-            self::$secrets[$this][$key] = $value;
-            $this->$key                 = null;            // clear property to prevent leakage
+            // '0' never worked as a key (PHP-falsey, presence checks read it as "no key"), so
+            // accepting it now would write ciphertext into tables holding plaintext - reject it
+            if ($key === 'encryptionKey' && $value === '0') {
+                throw new RuntimeException("Config 'encryptionKey' can't be '0'. Use '' to disable encryption, or choose a different key.");
+            }
+            self::$secrets[$this->vaultKey][$key] = $value;
+            $this->$key                           = null;  // clear property to prevent leakage
             unset($config[$key]);                          // consume key so it won't hit the property loop
         }
 
-        // Hoisted so per-query paths can check key presence without a vault lookup
-        $this->hasEncryptionKey = !empty(self::$secrets[$this]['encryptionKey']);
+        // Hoisted so per-query paths can check key presence without a vault lookup.
+        // Strict compare: only null and '' mean "no encryption"
+        $this->hasEncryptionKey = (self::$secrets[$this->vaultKey]['encryptionKey'] ?? '') !== '';
     }
 
     /**
@@ -1364,7 +1385,7 @@ trait ConnectionInternals
      */
     private function secret(string $key): ?string
     {
-        return self::$secrets[$this][$key] ?? null;
+        return self::$secrets[$this->vaultKey][$key] ?? null;
     }
 
     //endregion

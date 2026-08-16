@@ -23,12 +23,14 @@ class DebugInfoTest extends BaseTestCase
      */
     private function injectVaultPassword(Connection $conn, string $password): void
     {
-        $prop = new ReflectionProperty($conn, 'secrets');
+        // The vault is keyed by the connection's clone-shared token, not the connection itself
+        $vaultKey = (new ReflectionProperty($conn, 'vaultKey'))->getValue($conn);
+        $prop     = new ReflectionProperty($conn, 'secrets');
         /** @var WeakMap $secrets */
-        $secrets                    = $prop->getValue();
-        $entry                      = $secrets[$conn];
-        $entry['password']          = $password;
-        $secrets[$conn]             = $entry;
+        $secrets            = $prop->getValue();
+        $entry              = $secrets[$vaultKey];
+        $entry['password']  = $password;
+        $secrets[$vaultKey] = $entry;
     }
 
     public function testDebugInfoMasksNonEmptyPassword(): void
