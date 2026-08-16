@@ -101,7 +101,8 @@ echo $user->apiToken;  // "new-token" - already decrypted
 ```
 
 `NULL` passes through unencrypted in both directions: a `NULL` token is stored
-as `NULL` and read back as `NULL`.
+as `NULL` and read back as `NULL`. Booleans throw: `true`/`false` have no
+encrypted form, so pass a string or number instead.
 
 ## Searching Encrypted Columns - `DB::encryptValue()`
 
@@ -207,12 +208,15 @@ and re-encrypt, not ignore.
 ## Schema Changes Mid-Request
 
 ZenDB reads a table's column types the first time it needs them and caches the
-answer for the life of the connection. Change a table's schema while the same
-PHP process is still running and it keeps using the cached list, so a column
-can stop being encrypted on write or stop being decrypted on read, with no
-warning either way.
+answer for the life of the connection. Schema changes made through the library
+take care of themselves: when `DB::query()` runs DDL (ALTER, CREATE, DROP,
+RENAME, TRUNCATE), ZenDB drops the cached lists and re-reads each table on its
+next query.
 
-Reconnect after a mid-request schema change:
+Schema changes ZenDB can't see keep the stale cache: DDL sent through raw
+`DB::$mysqli`, or another process altering tables while yours is running. A
+column can then stop being encrypted on write or stop being decrypted on read,
+with no warning either way. Reconnect after one:
 
 ```php
 DB::disconnect();

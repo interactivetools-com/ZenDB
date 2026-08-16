@@ -640,7 +640,8 @@ With `encryptionKey` set in `DB::connect()`, every `MEDIUMBLOB` column is
 AES-128-ECB encrypted on `insert()`/`update()` and decrypted on read; no
 query changes needed. That reserves `MEDIUMBLOB` for encrypted data --
 store plain binary (images, files) in `BLOB` or `LONGBLOB`, which are left
-alone; `NULL` passes through unencrypted.
+alone; `NULL` passes through unencrypted. Booleans throw
+`InvalidArgumentException` on encrypted columns -- pass a string or number.
 
 ```php
 // Exact match: encrypt the search value in PHP (encryption is deterministic)
