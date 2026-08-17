@@ -171,8 +171,9 @@ trait DBInternals
 
     /**
      * @see Connection::decryptRows()
+     * @noinspection PhpFullyQualifiedNameUsageInspection - FQN required until PHP 8.2 minimum (can't import)
      */
-    public static function decryptRows(array &$rows, array $keysOrFetchFields): void
+    public static function decryptRows(#[\SensitiveParameter] array &$rows, array $keysOrFetchFields): void
     {
         self::connection()->decryptRows($rows, $keysOrFetchFields);
     }

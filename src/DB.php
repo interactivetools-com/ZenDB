@@ -183,16 +183,18 @@ class DB
 
     /**
      * Wrapper for {@see Connection::insert()}
+     * @noinspection PhpFullyQualifiedNameUsageInspection - FQN required until PHP 8.2 minimum (can't import)
      */
-    public static function insert(string $baseTable, array $values): int
+    public static function insert(string $baseTable, #[\SensitiveParameter] array $values): int
     {
         return self::connection()->insert($baseTable, $values);
     }
 
     /**
      * Wrapper for {@see Connection::update()}
+     * @noinspection PhpFullyQualifiedNameUsageInspection - FQN required until PHP 8.2 minimum (can't import)
      */
-    public static function update(string $baseTable, array $values, int|array|string $whereEtc, ...$params): int
+    public static function update(string $baseTable, #[\SensitiveParameter] array $values, int|array|string $whereEtc, ...$params): int
     {
         return self::connection()->update($baseTable, $values, $whereEtc, ...$params);
     }
@@ -320,8 +322,9 @@ class DB
 
     /**
      * @see Connection::encryptValue()
+     * @noinspection PhpFullyQualifiedNameUsageInspection - FQN required until PHP 8.2 minimum (can't import)
      */
-    public static function encryptValue(string|int|float|null|SmartString $value): string|null
+    public static function encryptValue(#[\SensitiveParameter] string|int|float|null|SmartString $value): string|null
     {
         return self::connection()->encryptValue($value);
     }

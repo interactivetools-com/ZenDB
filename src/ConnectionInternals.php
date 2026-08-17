@@ -1387,8 +1387,9 @@ trait ConnectionInternals
      *
      * @param array $config Config array; credential keys are consumed
      * @throws RuntimeException If a required credential is missing, or any credential isn't a string
+     * @noinspection PhpFullyQualifiedNameUsageInspection - FQN required until PHP 8.2 minimum (can't import)
      */
-    private function sealSecrets(array &$config): void
+    private function sealSecrets(#[\SensitiveParameter] array &$config): void
     {
         self::$secrets                  ??= new WeakMap();
         $this->vaultKey                 = new stdClass();

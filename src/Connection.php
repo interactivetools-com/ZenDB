@@ -491,8 +491,9 @@ class Connection
      * @param array  $values    Column => value pairs
      * @return int Insert ID
      * @throws InvalidArgumentException
+     * @noinspection PhpFullyQualifiedNameUsageInspection - FQN required until PHP 8.2 minimum (can't import)
      */
-    public function insert(string $baseTable, array $values): int
+    public function insert(string $baseTable, #[\SensitiveParameter] array $values): int
     {
         $fullTable               = $this->tablePrefix . $baseTable;
         $this->mysqli->lastQuery = "INSERT INTO `$fullTable` [SET ...]";
@@ -521,8 +522,9 @@ class Connection
      * @param mixed            ...$params Parameters to bind
      * @return int Number of affected rows
      * @throws InvalidArgumentException
+     * @noinspection PhpFullyQualifiedNameUsageInspection - FQN required until PHP 8.2 minimum (can't import)
      */
-    public function update(string $baseTable, array $values, int|array|string $whereEtc, ...$params): int
+    public function update(string $baseTable, #[\SensitiveParameter] array $values, int|array|string $whereEtc, ...$params): int
     {
         $fullTable               = $this->tablePrefix . $baseTable;
         $this->mysqli->lastQuery = "UPDATE `$fullTable` [SET ...] [WHERE ...]";
@@ -867,8 +869,9 @@ class Connection
      *
      * @param string|int|float|null|SmartString $value Plaintext value to encrypt
      * @return string|null Encrypted binary string, or null if value is null
+     * @noinspection PhpFullyQualifiedNameUsageInspection - FQN required until PHP 8.2 minimum (can't import)
      */
-    public function encryptValue(string|int|float|null|SmartString $value): string|null
+    public function encryptValue(#[\SensitiveParameter] string|int|float|null|SmartString $value): string|null
     {
         if ($value instanceof SmartString) {
             $value = $value->value();
@@ -913,8 +916,9 @@ class Connection
      * @param array $rows              Fetched rows (modified in place)
      * @param array $keysOrFetchFields Either a list of row keys (column names for assoc rows, indexes for numeric rows),
      *                                 or field objects from fetch_fields() (auto-detects encrypted cols)
+     * @noinspection PhpFullyQualifiedNameUsageInspection - FQN required until PHP 8.2 minimum (can't import)
      */
-    public function decryptRows(array &$rows, array $keysOrFetchFields): void
+    public function decryptRows(#[\SensitiveParameter] array &$rows, array $keysOrFetchFields): void
     {
         if (!$rows || !$keysOrFetchFields || !$this->hasEncryptionKey) {
             return;
@@ -978,8 +982,9 @@ class Connection
      *
      * @param string $fullTable Full table name (with prefix)
      * @param array  $values    Column => value pairs (modified in place)
+     * @noinspection PhpFullyQualifiedNameUsageInspection - FQN required until PHP 8.2 minimum (can't import)
      */
-    private function encryptRow(string $fullTable, array &$values): void
+    private function encryptRow(string $fullTable, #[\SensitiveParameter] array &$values): void
     {
         if (!$values || !$this->hasEncryptionKey) {
             return;
