@@ -75,7 +75,7 @@ intentionally update every row, pass the literal string `"TRUE"`. Details in
 | Method                                               | Returns  | Description                                                                                                  |
 |------------------------------------------------------|----------|--------------------------------------------------------------------------------------------------------------|
 | `DB::rawSql(string\|int\|float\|null $value)`        | `RawSql` | `DB` only. Mark a value as literal SQL, skipping escaping and quoting (e.g., `NOW()`); `null` becomes `NULL` |
-| `DB::pagingSql(mixed $pageNum, mixed $perPage = 10)` | `RawSql` | `DB` only. `LIMIT $perPage OFFSET ...` clause; zero, empty, or invalid input becomes page 1 / 10 per page    |
+| `DB::pagingSql(mixed $page, mixed $perPage = 10)`    | `RawSql` | `DB` only. `LIMIT $perPage OFFSET ...` clause; zero, empty, or invalid input becomes page 1 / 10 per page    |
 | `DB::likeContains($input)`                           | `RawSql` | Escaped `LIKE` pattern `'%value%'`                                                                           |
 | `DB::likeStartsWith($input)`                         | `RawSql` | Escaped `LIKE` pattern `'value%'`                                                                            |
 | `DB::likeEndsWith($input)`                           | `RawSql` | Escaped `LIKE` pattern `'%value'`                                                                            |
@@ -88,9 +88,9 @@ The `like*()` methods accept `string|int|float|null|SmartString` and escape
 $news = DB::select('news', "title LIKE ?", DB::likeContains($_GET['q'] ?? ''));
 // for q=50% this runs: WHERE title LIKE '%50\\%%'
 
-$pageNum = $_GET['page'] ?? 1;
-$users   = DB::select('users', "ORDER BY name :pagingSQL", [
-    ':pagingSQL' => DB::pagingSql($pageNum, 25),
+$page  = $_GET['page'] ?? 1;
+$users = DB::select('users', "ORDER BY name :pagingSQL", [
+    ':pagingSQL' => DB::pagingSql($page, 25),
 ]);
 // for page 1 this runs: ORDER BY name LIMIT 25 OFFSET 0
 ```

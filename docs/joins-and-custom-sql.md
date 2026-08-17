@@ -275,8 +275,8 @@ placeholder, `DB::pagingSql()` passed through a placeholder (`RawSql` values
 skip escaping), and Smart Join keys on the result:
 
 ```php
-$pageNum = $_GET['page'] ?? 1;
-$rows    = DB::query("
+$page = $_GET['page'] ?? 1;
+$rows = DB::query("
     SELECT u.name, o.orderDate, p.title, oi.qty, (oi.qty * p.price) AS total
       FROM ::users       u
       JOIN ::orders      o  ON o.userId   = u.id
@@ -286,7 +286,7 @@ $rows    = DB::query("
   ORDER BY o.orderDate DESC
   :pagingSQL", [
     ':city'      => 'Vancouver',
-    ':pagingSQL' => DB::pagingSql($pageNum, 25),  // for page 1: LIMIT 25 OFFSET 0
+    ':pagingSQL' => DB::pagingSql($page, 25),  // for page 1: LIMIT 25 OFFSET 0
 ]);
 
 foreach ($rows as $row) {

@@ -513,8 +513,8 @@ $result->mysqli('baseTable');      // Base table name (no prefix)
 ### Pagination
 
 ```php
-DB::pagingSql($pageNum, $perPage = 10)  // Returns RawSql: LIMIT x OFFSET y
-// $pageNum defaults to 1 if zero/non-numeric; negative becomes positive (abs)
+DB::pagingSql($page, $perPage = 10)  // Returns RawSql: LIMIT x OFFSET y
+// $page defaults to 1 if zero/non-numeric; negative becomes positive (abs)
 // $perPage defaults to 10 if zero/non-numeric; negative becomes positive (abs)
 ```
 

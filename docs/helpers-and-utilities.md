@@ -62,7 +62,7 @@ inputs first, so user input can be passed to them directly.
 
 ## Pagination - `DB::pagingSql()`
 
-`DB::pagingSql($pageNum, $perPage = 10)` builds a `LIMIT ... OFFSET ...`
+`DB::pagingSql($page, $perPage = 10)` builds a `LIMIT ... OFFSET ...`
 clause from a page number and page size, returned as a `RawSql` ready to use
 as a placeholder value:
 

@@ -1210,8 +1210,8 @@ class DocsExamplesTest extends BaseTestCase
 
     public function testJoinsPuttingItTogether(): void
     {
-        $pageNum = 1;
-        $rows    = DB::query("
+        $page = 1;
+        $rows = DB::query("
             SELECT u.name, o.order_date, p.product_name, od.quantity, (od.quantity * p.price) AS total
               FROM ::users         u
               JOIN ::orders        o  ON o.user_id    = u.num
@@ -1221,7 +1221,7 @@ class DocsExamplesTest extends BaseTestCase
           ORDER BY o.order_date DESC
           :pagingSQL", [
             ':city'      => 'Ottawa',
-            ':pagingSQL' => DB::pagingSql($pageNum, 25),
+            ':pagingSQL' => DB::pagingSql($page, 25),
         ]);
 
         $sql = preg_replace('/\s+/', ' ', trim(DB::$mysqli->lastQuery));

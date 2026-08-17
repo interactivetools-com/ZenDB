@@ -208,7 +208,7 @@ class ProductionRecipesTest extends BaseTestCase
      */
     public function testPagedListingSecondPage(): void
     {
-        $pageNum = 2;
+        $page    = 2;
         $perPage = 5;
 
         $total      = DB::count('users', ['status' => 'Active']);
@@ -216,7 +216,7 @@ class ProductionRecipesTest extends BaseTestCase
 
         $users = DB::select('users', "status = :status ORDER BY num :paging", [
             ':status' => 'Active',
-            ':paging' => DB::pagingSql($pageNum, $perPage),
+            ':paging' => DB::pagingSql($page, $perPage),
         ]);
 
         $this->assertSame(10, $total);

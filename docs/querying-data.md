@@ -183,9 +183,9 @@ clause from a page number and page size (the full pagination recipe is in
 [Common Patterns](common-patterns.md)):
 
 ```php
-$pageNum = $_GET['page'] ?? 1;
-$users   = DB::select('users', "ORDER BY name :pagingSQL", [
-    ':pagingSQL' => DB::pagingSql($pageNum, 10),
+$page  = $_GET['page'] ?? 1;
+$users = DB::select('users', "ORDER BY name :pagingSQL", [
+    ':pagingSQL' => DB::pagingSql($page, 10),
 ]);
 // for page 1 this runs: SELECT * FROM `users` ORDER BY name LIMIT 10 OFFSET 0
 ```

@@ -267,19 +267,19 @@ class DB
      * million rows and PHP holds them all. Pick that number in your code, not from
      * the request.
      *
-     * @param mixed $pageNum The current page number; zero, empty, or invalid input becomes 1
+     * @param mixed $page The current page number; zero, empty, or invalid input becomes 1
      * @param mixed $perPage Records per page; zero, empty, or invalid input becomes 10
      * @return RawSql LIMIT/OFFSET clause
      */
-    public static function pagingSql(mixed $pageNum, mixed $perPage = 10): RawSql
+    public static function pagingSql(mixed $page, mixed $perPage = 10): RawSql
     {
-        $pageNum = abs((int)$pageNum) ?: 1;
+        $page    = abs((int)$page) ?: 1;
         $perPage = abs((int)$perPage) ?: 10;
-        $pageNum = is_float($pageNum) ? PHP_INT_MAX : $pageNum;          // abs(PHP_INT_MIN) doesn't fit in an int, so abs() returns a float
+        $page    = is_float($page) ? PHP_INT_MAX : $page;             // abs(PHP_INT_MIN) doesn't fit in an int, so abs() returns a float
         $perPage = is_float($perPage) ? PHP_INT_MAX : $perPage;
-        $pageNum = min($pageNum, intdiv(PHP_INT_MAX - 1, $perPage) + 1); // keep (pageNum-1)*perPage an int: overflowing to float writes E-notation, which is a MySQL syntax error
+        $page    = min($page, intdiv(PHP_INT_MAX - 1, $perPage) + 1); // keep (page-1)*perPage an int: overflowing to float writes E-notation, which is a MySQL syntax error
 
-        $offset = ($pageNum - 1) * $perPage;
+        $offset = ($page - 1) * $perPage;
         return self::rawSql("LIMIT $perPage OFFSET $offset");
     }
 

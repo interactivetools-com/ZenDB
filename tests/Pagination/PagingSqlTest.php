@@ -94,7 +94,7 @@ class PagingSqlTest extends BaseTestCase
      */
     public function testExtremeInputsProduceIntegerSql(mixed $page, mixed $perPage): void
     {
-        // Unclamped, these overflow (pageNum-1)*perPage to float and write OFFSET 9.2233720368548E+18: MySQL error 1064
+        // Unclamped, these overflow (page-1)*perPage to float and write OFFSET 9.2233720368548E+18: MySQL error 1064
         $sql = (string) DB::pagingSql($page, $perPage);
         $this->assertMatchesRegularExpression('/^LIMIT \d+ OFFSET \d+$/', $sql);
     }

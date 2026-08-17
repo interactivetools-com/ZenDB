@@ -140,6 +140,24 @@ Full lists of what changed per release: [CHANGELOG.md](CHANGELOG.md).
 > arrays (starting `':` or `":`) are fine - also check calls that pass the
 > SQL in a variable
 
+### Parameter renames
+
+Two parameters have new names. Positional calls work unchanged; a
+named-argument call using the old name throws PHP's "Unknown named
+parameter" error the first time it runs:
+
+```php
+DB::pagingSql(pageNum: 2, perPage: 25);  // throws: Unknown named parameter $pageNum
+DB::pagingSql(page: 2, perPage: 25);     // correct
+```
+
+| Method              | Old named argument | New named argument   |
+|---------------------|--------------------|----------------------|
+| `DB::pagingSql()`   | `pageNum:`         | `page:`              |
+| `DB::decryptRows()` | `fetchFields:`     | `keysOrFetchFields:` |
+
+Search: `pageNum:` and `fetchFields:`
+
 ### Optional renames
 
 No required changes yet: the old names still work, and IDEs and static

@@ -48,6 +48,17 @@ coding assistants. Everything else is hardening and fixes.
   exist so ZenDB and CMS Builder can build their own SQL; placeholders are
   the supported API
 
+### Parameter renames
+
+Only named-argument calls are affected; positional calls work unchanged.
+An old name throws PHP's "Unknown named parameter" error the first time
+the call runs. Search strings in [UPGRADING.md](UPGRADING.md).
+
+| Method              | Old parameter  | New parameter        |
+|---------------------|----------------|----------------------|
+| `DB::pagingSql()`   | `$pageNum`     | `$page`              |
+| `DB::decryptRows()` | `$fetchFields` | `$keysOrFetchFields` |
+
 ### Deprecated
 
 Deprecated calls keep working and raise a notice naming their replacement
