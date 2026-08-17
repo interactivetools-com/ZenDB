@@ -259,11 +259,21 @@ clear about where that ends:
   same key; there's no per-column opt-out.
 - **Deep server access reads the key.** ZenDB sends it to MySQL as a bound
   parameter, so `SHOW PROCESSLIST` and performance_schema statement history
-  only show `SET @ek = UNHEX(SHA2(?, 512))`. The general query log is the
-  exception: it writes bound values inline, so a server running with
-  `general_log` on records the key. And where performance_schema is enabled
-  (on by default in MySQL, off in MariaDB), an account with access to it can
-  read `@ek` for as long as the connection lives.
+  only show `SET @ek = UNHEX(SHA2(?, 512))`. Two places still record it:
+  - **The general query log** (`general_log`) writes every query with its
+    bound values inlined: the key, but also login passwords, password
+    hashes, session tokens, and anything else your queries carry. That's
+    what the log is for, and running it while debugging is fine; just know
+    it captures secrets, and check that only people you'd trust with
+    database admin access can read it (normally already true).
+  - **performance_schema** (on by default in MySQL, off in MariaDB) keeps
+    `@ek` readable for as long as the connection lives, to any account
+    with access to it.
+- **Ordinary data can trigger the key send.** The key goes to the server the
+  first time a query contains `@ek` anywhere in its text, including inside a
+  quoted value, so a stored email at a domain starting with `ek` can trigger
+  it on a connection that never decrypts in SQL. Nothing extra leaks: the
+  exposure is the same log and performance_schema surfaces above.
 
 If you need protection against an attacker who can compare or tamper with
 ciphertext in the live database, encrypt with an authenticated cipher (such as
