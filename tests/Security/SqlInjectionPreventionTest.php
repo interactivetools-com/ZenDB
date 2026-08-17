@@ -212,6 +212,45 @@ class SqlInjectionPreventionTest extends BaseTestCase
         DB::query("SELECT * FROM `?`", "users -- ");
     }
 
+    public function testPlaceholderInsideBlockCommentThrows(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage("Placeholders are not supported inside /* */ comments");
+
+        // A value containing */ would close the comment: /* req: '*/ UNION ... -- ' */
+        DB::query("SELECT * FROM ::users /* req: ? */", "*/ UNION SELECT isAdmin FROM ::users -- ");
+    }
+
+    public function testPlaceholderInsideUnterminatedBlockCommentThrows(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage("Placeholders are not supported inside /* */ comments");
+
+        DB::query("SELECT * FROM ::users /* trailing note: ?", "*/ OR 1=1 -- ");
+    }
+
+    public function testNamedPlaceholderInsideBlockCommentThrows(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage("Placeholders are not supported inside /* */ comments");
+
+        DB::query("SELECT * FROM ::users /* tag :note */ WHERE status = :status", [':note' => 'x', ':status' => 'Active']);
+    }
+
+    public function testBlockCommentWithoutPlaceholderAllowed(): void
+    {
+        // A comment with no placeholder inside must still run.
+        $result = DB::query("SELECT * FROM ::users /* cached lookup */ WHERE status = :status", [':status' => 'Active']);
+        $this->assertGreaterThan(0, count($result));
+    }
+
+    public function testPlaceholderAfterBlockCommentAllowed(): void
+    {
+        // Placeholder is outside the comment, so it expands normally.
+        $result = DB::query("SELECT * FROM ::users /* listing query */ WHERE status = ?", "Active");
+        $this->assertGreaterThan(0, count($result));
+    }
+
     //endregion
     //region Comprehensive Attack Vectors
 

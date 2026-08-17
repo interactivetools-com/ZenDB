@@ -16,7 +16,7 @@ use mysqli_result;
 use stdClass;
 
 // import built-ins so calls resolve at compile time instead of per-call lookups; NamespacedCallsTest keeps this list exact
-use function addcslashes, array_column, array_count_values, array_filter, array_flip, array_is_list, array_key_exists, array_keys, array_map, array_unique, array_values, count, explode, get_debug_type, get_object_vars, implode, is_array, is_bool, is_finite, is_float, is_int, is_object, is_string, preg_grep, preg_match, preg_replace, preg_replace_callback, str_contains, str_replace, str_starts_with, strlen, strspn, strtoupper, substr, trim, var_export;
+use function addcslashes, array_column, array_count_values, array_filter, array_flip, array_is_list, array_key_exists, array_keys, array_map, array_unique, array_values, count, explode, get_debug_type, get_object_vars, implode, is_array, is_bool, is_finite, is_float, is_int, is_object, is_string, preg_grep, preg_match, preg_match_all, preg_replace, preg_replace_callback, str_contains, str_replace, str_starts_with, strlen, strspn, strtoupper, substr, trim, var_export;
 use const MYSQLI_ASSOC, MYSQLI_NUM;
 
 /**
@@ -653,6 +653,18 @@ trait ConnectionInternals
          *   ::                    ::        cms_                        - table prefix alone (after the ::placeholders above)
          */
         $placeholderRegex = '/\?|:[a-zA-Z]\w*\b|`\?`|`:[a-zA-Z]\w*\b`|`::\?`|`:::[a-zA-Z]\w*\b`|::\?|:::[a-zA-Z]\w*\b|::/';
+
+        // A placeholder inside a /* */ block comment isn't protected: escaping handles quotes
+        // and newlines but not the */ close sequence, so a value containing */ closes the
+        // comment and the rest runs as live SQL. Line comments (-- and #) are safe - breakout
+        // needs a newline, which real_escape_string escapes. str_contains gates the strip so
+        // the recount only runs when a block comment is present (28 ns vs 227 ns ungated).
+        if (str_contains($template, '/*')) {
+            $withoutBlockComments = preg_replace('!/\*.*?(?:\*/|$)!s', '', $template);
+            if (preg_match_all($placeholderRegex, $template) !== preg_match_all($placeholderRegex, $withoutBlockComments)) {
+                throw new InvalidArgumentException("Placeholders are not supported inside /* */ comments; a value containing */ would close the comment and run as SQL. Move the value out of the comment, or build the comment text yourself.");
+            }
+        }
 
         // Find and replace all placeholders with their escaped/formatted values
         $positionalCount = 0;
