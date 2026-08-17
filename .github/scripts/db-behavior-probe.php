@@ -1276,6 +1276,236 @@ echo "### Persistent connection reuse\n\n";
 echo mdTable($persistentProbes);
 
 //
+// Persistent connection reuse - locks, flags, and recovery. The probes above cover
+// variables, charset, temp tables, and transactions; these cover the remaining
+// docs/persistent-connections.md claims: the reuse reset also restores autocommit,
+// transaction modes, and the default database, releases named/table/global locks,
+// deallocates prepared statements, and a pooled connection that died (KILL,
+// wait_timeout) is replaced silently at connect time. Lock probes record both halves
+// through the main connection as an outside observer: held while the slot sleeps in
+// the pool, released when it is reused. The KILL and wait_timeout probes expect a
+// NEW server thread - silent replacement is the claim under test
+//
+$openPooled = function () use ($hostname, $username, $password, $database): mysqli {
+    $pooled = mysqli_init();
+    $pooled->real_connect("p:$hostname", $username, $password, $database);
+    return $pooled;
+};
+
+// Dirty the pooled slot, close it, reopen it, and hand the reused connection to
+// $check. A fresh slot would show connect-time defaults with no reset involved, so
+// the value gets a loud prefix when the pool hands back a different server thread
+$probeReuse = function (callable $dirty, callable $check) use ($openPooled): string {
+    $pooled        = $openPooled();
+    $dirtyThreadId = $pooled->thread_id;
+    $dirty($pooled);
+    $pooled->close();
+
+    $reused = $openPooled();
+    $prefix = $reused->thread_id === $dirtyThreadId ? '' : 'NEW THREAD (reflects a fresh connection, not a pool reset); ';
+    $value  = $check($reused);
+    $reused->close();
+    return $prefix . $value;
+};
+
+// The transaction variables were renamed (tx_* -> transaction_*) and each vendor
+// kept a different one: transaction_* is missing on MariaDB thru 11.0, tx_* on
+// MySQL/Percona 8.0+. Read whichever name the server has
+$readEitherVar = function (mysqli $conn, string $scope, string ...$names): string {
+    foreach ($names as $name) {
+        try {
+            return (string)$conn->query("SELECT @@$scope.$name")->fetch_row()[0];
+        } catch (mysqli_sql_exception) {
+            // unknown variable on this server; try the other name
+        }
+    }
+    return 'no such variable';
+};
+
+$persistentStateProbes = [];
+try {
+    $persistentStateProbes['PERSISTENT: autocommit after reuse'] = $probeReuse(
+        fn(mysqli $c) => $c->query("SET autocommit = 0"),
+        function (mysqli $reused): string {
+            $autocommit = (string)$reused->query("SELECT @@autocommit")->fetch_row()[0];
+            return $autocommit === '1' ? 'reset to 1' : "LEAKED: autocommit=$autocommit";
+        },
+    );
+
+    $persistentStateProbes['PERSISTENT: read-only transaction mode after reuse'] = $probeReuse(
+        fn(mysqli $c) => $c->query("SET SESSION TRANSACTION READ ONLY"),
+        function (mysqli $reused) use ($readEitherVar): string {
+            $readOnly = $readEitherVar($reused, 'SESSION', 'transaction_read_only', 'tx_read_only');
+            return $readOnly === '0' ? 'reset to 0 (read-write)' : "LEAKED: read_only=$readOnly";
+        },
+    );
+
+    $persistentStateProbes['PERSISTENT: isolation level after reuse'] = $probeReuse(
+        fn(mysqli $c) => $c->query("SET SESSION TRANSACTION ISOLATION LEVEL SERIALIZABLE"),
+        function (mysqli $reused) use ($readEitherVar): string {
+            $isolation = $readEitherVar($reused, 'SESSION', 'transaction_isolation', 'tx_isolation');
+            $default   = $readEitherVar($reused, 'GLOBAL', 'transaction_isolation', 'tx_isolation');
+            return $isolation === $default ? "reset to server default ($isolation)" : "LEAKED: $isolation (server default $default)";
+        },
+    );
+
+    $persistentStateProbes['PERSISTENT: default database after reuse'] = $probeReuse(
+        fn(mysqli $c) => $c->select_db('information_schema'),
+        function (mysqli $reused) use ($database): string {
+            $currentDb = (string)$reused->query("SELECT DATABASE()")->fetch_row()[0];
+            return $currentDb === $database ? 'reset to connect-time database' : "LEAKED: $currentDb";
+        },
+    );
+
+    // A different thread on reuse leaves the dirtied sleeper - and its lock - in the
+    // pool; KILL it so a stray lock can't block the probes and cleanup below
+    $killLeftover = function (int $threadId) use ($mysqli): void {
+        try {
+            $mysqli->query("KILL $threadId");
+        } catch (mysqli_sql_exception) {
+            // already gone
+        }
+    };
+
+    // GET_LOCK: held by the sleeping slot, released by the reuse reset
+    $pooled        = $openPooled();
+    $dirtyThreadId = $pooled->thread_id;
+    $pooled->query("SELECT GET_LOCK('zdb_probe_lock', 0)");
+    $pooled->close();
+    $freeWhilePooled = (string)$mysqli->query("SELECT IS_FREE_LOCK('zdb_probe_lock')")->fetch_row()[0];
+
+    $reused         = $openPooled();
+    $sameThread     = $reused->thread_id === $dirtyThreadId;
+    $freeAfterReuse = (string)$mysqli->query("SELECT IS_FREE_LOCK('zdb_probe_lock')")->fetch_row()[0];
+    $reused->query("DO RELEASE_LOCK('zdb_probe_lock')");   // no-op when the reset already released it
+    $reused->close();
+    if (!$sameThread) {
+        $killLeftover($dirtyThreadId);
+    }
+    $persistentStateProbes['PERSISTENT: GET_LOCK after reuse'] =
+        ($sameThread ? '' : 'NEW THREAD (reflects a fresh connection, not a pool reset); ')
+        . ($freeWhilePooled === '0' && $freeAfterReuse === '1'
+            ? 'held while pooled, released on reuse'
+            : "IS_FREE_LOCK while pooled=$freeWhilePooled, after reuse=$freeAfterReuse");
+
+    // Table and global locks, observed as an INSERT from the main connection; the
+    // 1-second lock wait turns "blocked" into a fast error instead of a hung probe run
+    $mysqli->query("DROP TABLE IF EXISTS zdb_probe_plock");
+    $mysqli->query("CREATE TABLE zdb_probe_plock (num INT NOT NULL) ENGINE=InnoDB");
+    $mysqli->query("SET SESSION lock_wait_timeout = 1");
+    $tryInsert = function () use ($mysqli): string {
+        try {
+            $mysqli->query("INSERT INTO zdb_probe_plock VALUES (1)");
+            return 'succeeded';
+        } catch (mysqli_sql_exception $e) {
+            return 'blocked (error ' . $e->getCode() . ')';
+        }
+    };
+
+    $lockStyles = [
+        'LOCK TABLES'                 => "LOCK TABLES zdb_probe_plock WRITE",
+        'FLUSH TABLES WITH READ LOCK' => "FLUSH TABLES WITH READ LOCK",
+    ];
+    foreach ($lockStyles as $lockLabel => $lockSql) {
+        $pooled        = $openPooled();
+        $dirtyThreadId = $pooled->thread_id;
+        $pooled->query($lockSql);
+        $pooled->close();
+        $insertWhilePooled = $tryInsert();
+
+        $reused           = $openPooled();
+        $sameThread       = $reused->thread_id === $dirtyThreadId;
+        $insertAfterReuse = $tryInsert();
+        $reused->query("UNLOCK TABLES");   // no-op when the reset already released the lock
+        $reused->close();
+        if (!$sameThread) {
+            $killLeftover($dirtyThreadId);
+        }
+        $persistentStateProbes["PERSISTENT: $lockLabel after reuse"] =
+            ($sameThread ? '' : 'NEW THREAD (reflects a fresh connection, not a pool reset); ')
+            . "INSERT $insertWhilePooled while pooled, $insertAfterReuse after reuse";
+    }
+    $mysqli->query("SET SESSION lock_wait_timeout = DEFAULT");
+    $mysqli->query("DROP TABLE zdb_probe_plock");
+
+    // Prepared statements: server-side PREPARE leaves no client handles behind, so
+    // the pool reset is the only thing that can deallocate them. Prepared_stmt_count
+    // is global, so the observer sees the sleeper's statements too
+    $countPrepared = fn(mysqli $conn): int => (int)$conn->query("SHOW SESSION STATUS LIKE 'Prepared_stmt_count'")->fetch_row()[1];
+
+    $before        = $countPrepared($mysqli);
+    $pooled        = $openPooled();
+    $dirtyThreadId = $pooled->thread_id;
+    foreach ([1, 2, 3] as $i) {
+        $pooled->query("PREPARE zdb_probe_ps$i FROM 'SELECT $i'");
+    }
+    $pooled->close();
+    $whilePooled = $countPrepared($mysqli) - $before;
+
+    $reused     = $openPooled();
+    $sameThread = $reused->thread_id === $dirtyThreadId;
+    $afterReuse = $countPrepared($reused) - $before;
+    $reused->close();
+    $persistentStateProbes['PERSISTENT: prepared statements after reuse'] =
+        ($sameThread ? '' : 'NEW THREAD (reflects a fresh connection, not a pool reset); ')
+        . "$whilePooled while pooled, $afterReuse after reuse";
+
+    // Dead pooled connections: the docs promise replacement with no error, no
+    // warning, and a fresh server thread. Collect PHP warnings too - mysqlnd could
+    // recover but still warn, which would fail the "silent" half of the claim
+    $probeRecovery = function (int $deadThreadId) use ($openPooled): string {
+        $phpWarnings = [];
+        set_error_handler(function (int $errno, string $message) use (&$phpWarnings): bool {
+            $phpWarnings[] = ($errno === E_WARNING ? '' : "severity $errno: ") . $message;
+            return true;
+        });
+        try {
+            $recovered = $openPooled();
+            $value     = $recovered->thread_id !== $deadThreadId
+                ? 'reconnected, new server thread'
+                : 'reconnected, SAME server thread (the old connection never died)';
+            $recovered->close();
+        } catch (mysqli_sql_exception $e) {
+            $value = 'ERROR ' . $e->getCode() . ': ' . $e->getMessage();
+        } finally {
+            restore_error_handler();
+        }
+        return $value . ($phpWarnings ? '; PHP warning: ' . implode(' / ', array_unique($phpWarnings)) : ', no error or warning');
+    };
+
+    // KILLed while pooled (a server restart or an admin cleaning up sleepers)
+    $pooled         = $openPooled();
+    $victimThreadId = $pooled->thread_id;
+    $pooled->close();
+    $mysqli->query("KILL $victimThreadId");
+    usleep(100_000);   // KILL returns after marking the thread; give the server a moment to close the socket
+    $persistentStateProbes['PERSISTENT: reuse after KILL'] = $probeRecovery($victimThreadId);
+
+    // Timed out while pooled (the server's wait_timeout closing an idle sleeper)
+    $pooled         = $openPooled();
+    $victimThreadId = $pooled->thread_id;
+    $pooled->query("SET SESSION wait_timeout = 1");
+    $pooled->close();
+    sleep(2);   // past the 1-second wait_timeout, so the server has closed the sleeper
+    $persistentStateProbes['PERSISTENT: reuse after wait_timeout expiry'] = $probeRecovery($victimThreadId);
+} catch (mysqli_sql_exception $e) {
+    $persistentStateProbes['PERSISTENT locks/flags/recovery probes'] = 'probe failed: ' . $e->getMessage();
+
+    // A failed probe can leave the lock table behind; the 1-second lock wait set
+    // above keeps the DROP from hanging if a sleeper still holds a lock on it
+    try {
+        $mysqli->query("DROP TABLE IF EXISTS zdb_probe_plock");
+        $mysqli->query("SET SESSION lock_wait_timeout = DEFAULT");
+    } catch (mysqli_sql_exception) {
+        // cleanup is best effort; a leftover probe table only affects this run
+    }
+}
+$probes += $persistentStateProbes;
+
+echo "### Persistent connection reuse - locks, flags, and recovery\n\n";
+echo mdTable($persistentStateProbes);
+
+//
 // UNION column attribution - query()'s single-table fast path conservatively rejects
 // UNION templates. The fast path would be safe for UNIONs only if fetch_fields()
 // never attributes union result columns to tables (empty table/orgtable on every
