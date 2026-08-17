@@ -16,7 +16,7 @@ use mysqli_result;
 use stdClass;
 
 // import built-ins so calls resolve at compile time instead of per-call lookups; NamespacedCallsTest keeps this list exact
-use function addcslashes, array_column, array_count_values, array_filter, array_flip, array_is_list, array_key_exists, array_keys, array_map, array_shift, array_unique, array_values, count, get_debug_type, get_object_vars, implode, is_array, is_bool, is_finite, is_float, is_int, is_object, is_string, preg_grep, preg_match, preg_replace, preg_replace_callback, str_contains, str_replace, str_starts_with, strlen, strspn, strtoupper, substr, substr_count, trim, var_export;
+use function addcslashes, array_column, array_count_values, array_filter, array_flip, array_is_list, array_key_exists, array_keys, array_map, array_unique, array_values, count, explode, get_debug_type, get_object_vars, implode, is_array, is_bool, is_finite, is_float, is_int, is_object, is_string, preg_grep, preg_match, preg_replace, preg_replace_callback, str_contains, str_replace, str_starts_with, strlen, strspn, strtoupper, substr, trim, var_export;
 use const MYSQLI_ASSOC, MYSQLI_NUM;
 
 /**
@@ -855,24 +855,41 @@ trait ConnectionInternals
     {
         $this->mysqli || throw new RuntimeException(__METHOD__ . "() called before DB connection established");
 
-        $placeholderCount = substr_count($format, '?');
+        $parts            = explode('?', $format);
+        $placeholderCount = count($parts) - 1;
         $valueCount       = count($values);
         if ($placeholderCount !== $valueCount) {
             throw new InvalidArgumentException("escapef() placeholder count ($placeholderCount) doesn't match value count ($valueCount)");
         }
 
-        return preg_replace_callback('/\?/', function () use (&$values) {
-            $value = array_shift($values);
+        $sql = $parts[0];
+        foreach ($values as $i => $value) {
             if ($value instanceof SmartString) {
                 $value = $value->value(); // unwrap before the type check; SmartString can wrap null/bool
             }
-
-            return match (true) {
-                is_array($value)                 => (string)$this->escapeCSV($value),
-                $value instanceof SmartArrayBase => (string)$this->escapeCSV($value->toArray()),
-                default                          => $this->escapeValue($value, 'escapef() value'),
-            };
-        }, $format);
+            // arms copy escapeValue() output to skip the method call; EscapeParityTest pins them identical
+            if (is_string($value)) {
+                $sql .= "'" . $this->mysqli->real_escape_string($value) . "'";
+            } elseif (is_int($value)) {
+                $sql .= $value;
+            } elseif (is_array($value)) {
+                $sql .= $this->escapeCSV($value);
+            } elseif ($value instanceof SmartArrayBase) {
+                $sql .= $this->escapeCSV($value->toArray());
+            } elseif ($value === null) {
+                $sql .= 'NULL';
+            } elseif (is_float($value)) {
+                $sql .= $this->floatToSql($value, 'escapef() value');
+            } elseif (is_bool($value)) {
+                $sql .= $value ? 'TRUE' : 'FALSE';
+            } elseif ($value instanceof RawSql) {
+                $sql .= $value;
+            } else {
+                throw new InvalidArgumentException("Unsupported type for escapef() value: " . get_debug_type($value));
+            }
+            $sql .= $parts[$i + 1];
+        }
+        return $sql;
     }
 
     /**

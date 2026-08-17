@@ -13,8 +13,8 @@ use ReflectionMethod;
 use ReflectionProperty;
 
 /**
- * whereFromArray(), buildSetClause(), and the replacePlaceholders() fast arms
- * carry inlined copies of escapeValue()'s string/int output for speed. These
+ * whereFromArray(), buildSetClause(), escapef(), and the replacePlaceholders()
+ * fast arms carry inlined copies of escapeValue()'s output for speed. These
  * tests pin every copy byte-identical to escapeValue() so they can't drift:
  * change how one path escapes and the matching test fails.
  */
@@ -99,6 +99,23 @@ class EscapeParityTest extends BaseTestCase
     public function testEscapeCsvMatchesEscapeValue(mixed $value): void
     {
         $this->assertSame((self::$escapeValue)($value), (string)DB::escapeCSV([$value]));
+    }
+
+    #[DataProvider('valueProvider')]
+    public function testEscapefMatchesEscapeValue(mixed $value): void
+    {
+        $this->assertSame((self::$escapeValue)($value), DB::escapef('?', $value));
+    }
+
+    public function testEscapefNullMatchesEscapeValue(): void
+    {
+        $this->assertSame((self::$escapeValue)(null), DB::escapef('?', null));
+    }
+
+    public function testEscapefRawSqlMatchesEscapeValue(): void
+    {
+        $raw = DB::rawSql('NOW()');
+        $this->assertSame((self::$escapeValue)($raw), DB::escapef('?', $raw));
     }
 
     public function testWhereFromArrayNullBecomesIsNull(): void
