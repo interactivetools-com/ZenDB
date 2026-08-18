@@ -134,6 +134,21 @@ Full lists of what changed per release: [CHANGELOG.md](CHANGELOG.md).
 >   (first value only).
 > - `escape()`, `escapef()`, and `escapeCSV()` are marked `@internal` (IDEs
 >   flag them); placeholders are the supported API. No runtime change.
+> - Record numbers as the WHERE argument - `DB::select('users', 5)` - use
+>   `['num' => 5]` instead. Numeric strings used to throw "Numeric string
+>   detected"; now both forms run as `['num' => 5]` and log:
+>
+>   ```php
+>   DB::select('users', 5);            // works, logs a deprecation notice
+>   DB::select('users', '5');          // works, logs a warning (used to throw)
+>   DB::select('users', ['num' => 5]); // current form, nothing logged
+>   ```
+>
+>   Strings log at warning level instead of notice because they usually mean
+>   a query value was passed back in without a cast, and warnings still
+>   reach logs that filter out deprecation notices. Both forms will throw in
+>   a future release. No search needed: each log entry names your file and
+>   line.
 >
 > Regex: `["']\s*,\s*\[\s*(?:["'](?!:)|[^"'\s])` - an array of values right
 > after the SQL template (single- or double-quoted); named-placeholder
@@ -201,8 +216,9 @@ unknown tables where `getColumnDefinitions()` returned `[]`.
 >
 >   ```php
 >   $row = DB::$mysqli->query("SELECT * FROM users LIMIT 1")->fetch_assoc();
->   $row['id'] === '5';         // before: true - after: false ($row['id'] is int 5)
->   (string)$row['id'] === '5'; // works either way
+>   $row['id'] === '5';          // before: true - after: false ($row['id'] is int 5)
+>   $row['id'] === $_GET['id'];  // same - request values are always strings
+>   (string)$row['id'] === '5';  // works either way
 >   ```
 >
 >   The version-by-version history is in CMS Builder's UPGRADING.md, v3.83

@@ -347,17 +347,6 @@ trait ConnectionInternals
     }
 
     /**
-     * Warn when integer WHERE is used (deprecated feature being phased out).
-     * Users should migrate to array syntax: ['num' => $value]
-     */
-    private function logDeprecatedNumericWhere(int|array|string $where): void
-    {
-        if (is_int($where)) {
-            DB::logDeprecation("Numeric WHERE is deprecated, use array syntax instead: ['num' => $where]");
-        }
-    }
-
-    /**
      * Reject LIMIT/OFFSET - these methods add their own LIMIT internally.
      * @throws InvalidArgumentException
      */
@@ -507,6 +496,15 @@ trait ConnectionInternals
      */
     private function whereFromArgs(int|array|string $where): string
     {
+        // Record numbers as the WHERE argument are deprecated; numeric strings (usually an
+        // uncast query value) work like ints but always log a warning. Both will throw in a future release.
+        if (is_string($where) && preg_match('/^\s*\d+\s*$/', $where)) {
+            DB::logWarning("Numeric string '$where' used as record number, cast to int: (int) \$value or use array syntax: ['num' => $where]");
+            $where = (int)$where;
+        } elseif (is_int($where)) {
+            DB::logDeprecation("Numeric WHERE is deprecated, use array syntax instead: ['num' => $where]");
+        }
+
         return match (true) {
             is_string($where) => $this->whereFromString($where),
             is_array($where)  => $this->whereFromArray($where),
@@ -523,13 +521,6 @@ trait ConnectionInternals
     {
         if (trim($where) === '') {
             return '';
-        }
-
-        // Reject numeric strings - must use array syntax or cast to int
-        if (preg_match('/^\s*\d+\s*$/', $where)) {
-            throw new InvalidArgumentException(
-                "Numeric string '$where' detected. Use array syntax: ['num' => $where] or cast to int: (int) \$value",
-            );
         }
 
         // Prepend WHERE if not already present

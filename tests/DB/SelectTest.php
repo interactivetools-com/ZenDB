@@ -119,13 +119,6 @@ class SelectTest extends BaseTestCase
     {
         return [
             [
-                'testName'        => 'numeric string throws',
-                'baseTable'       => 'users',
-                'where'           => "5",
-                'mixedParams'     => [],
-                'expectedMessage' => "Numeric string '5' detected",
-            ],
-            [
                 'testName'        => 'array with invalid column names',
                 'baseTable'       => 'users',
                 'where'           => ['notThere' => null, 'missingColumn' => 'active'],

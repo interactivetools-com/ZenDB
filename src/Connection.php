@@ -434,7 +434,6 @@ class Connection
 
         // Validate
         isset(DB::$safeIdentifiers[$baseTable]) || DB::assertIdentifier($baseTable, 'table name');
-        $this->logDeprecatedNumericWhere($whereEtc);
 
         // Bind params and build SQL
         $this->paramValues = $this->parseParams($params);
@@ -468,7 +467,6 @@ class Connection
         $this->mysqli->lastQuery = "SELECT * FROM `$fullTable` [WHERE ...] LIMIT 1";
 
         isset(DB::$safeIdentifiers[$baseTable]) || DB::assertIdentifier($baseTable, 'table name');
-        $this->logDeprecatedNumericWhere($whereEtc);
         $this->rejectLimitAndOffset($whereEtc);
         $this->rejectPreLimitConflicts($whereEtc);
 
@@ -530,7 +528,6 @@ class Connection
         $this->mysqli->lastQuery = "UPDATE `$fullTable` [SET ...] [WHERE ...]";
 
         isset(DB::$safeIdentifiers[$baseTable]) || DB::assertIdentifier($baseTable, 'table name');
-        $this->logDeprecatedNumericWhere($whereEtc);
         $this->rejectEmptyWhere($whereEtc, 'UPDATE');
 
         // Detect likely reversed arguments: SET ['num' => 5] is almost always a mistake
@@ -565,7 +562,6 @@ class Connection
         $this->mysqli->lastQuery = "DELETE FROM `$fullTable` [WHERE ...]";
 
         isset(DB::$safeIdentifiers[$baseTable]) || DB::assertIdentifier($baseTable, 'table name');
-        $this->logDeprecatedNumericWhere($whereEtc);
         $this->rejectEmptyWhere($whereEtc, 'DELETE');
 
         $this->paramValues = $this->parseParams($params);
@@ -601,7 +597,6 @@ class Connection
         $this->mysqli->lastQuery = "SELECT COUNT(*) FROM `$fullTable` [WHERE ...]";
 
         isset(DB::$safeIdentifiers[$baseTable]) || DB::assertIdentifier($baseTable, 'table name');
-        $this->logDeprecatedNumericWhere($whereEtc);
         $this->rejectLimitAndOffset($whereEtc);
 
         $this->paramValues = $this->parseParams($params);

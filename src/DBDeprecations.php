@@ -9,7 +9,7 @@ use JetBrains\PhpStorm\Deprecated;
 
 // import built-ins so calls resolve at compile time instead of per-call lookups; NamespacedCallsTest keeps this list exact
 use function basename, date, debug_backtrace, dirname, strtolower, time, trigger_error;
-use const DEBUG_BACKTRACE_IGNORE_ARGS, E_USER_DEPRECATED;
+use const DEBUG_BACKTRACE_IGNORE_ARGS, E_USER_DEPRECATED, E_USER_WARNING;
 
 /**
  * Old and retired DB method names, phased out in stages.
@@ -187,17 +187,38 @@ trait DBDeprecations
      */
     public static function logDeprecation(string $message): void
     {
-        // Find first caller outside ZenDB src directory
-        $file = "unknown";
-        $line = "unknown";
+        [$file, $line] = self::externalCaller();
+        @trigger_error("$message in $file:$line", E_USER_DEPRECATED);
+    }
+
+    /**
+     * Log a warning with caller location.
+     *
+     * Same delivery as logDeprecation() but at E_USER_WARNING, for deprecated
+     * forms that usually signal a latent bug (e.g. a query value used as a
+     * record number without a cast). Error handlers that filter out deprecation
+     * notices still receive warnings, so these always reach the log.
+     *
+     * @param string $message Warning message (caller file:line will be appended)
+     * @internal
+     */
+    public static function logWarning(string $message): void
+    {
+        [$file, $line] = self::externalCaller();
+        @trigger_error("$message in $file:$line", E_USER_WARNING);
+    }
+
+    /**
+     * Returns [file, line] of the first caller outside ZenDB's src directory.
+     */
+    private static function externalCaller(): array
+    {
         foreach (debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS) as $caller) {
             if (!empty($caller['file']) && dirname($caller['file']) !== __DIR__) {
-                $file = basename($caller['file']);
-                $line = $caller['line'] ?? "unknown";
-                break;
+                return [basename($caller['file']), $caller['line'] ?? "unknown"];
             }
         }
-        @trigger_error("$message in $file:$line", E_USER_DEPRECATED);
+        return ["unknown", "unknown"];
     }
 
     //endregion

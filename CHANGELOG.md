@@ -67,6 +67,12 @@ and your file and line.
 - **Positional values as a single array** - `"id IN (?)"` with `[1, 2, 3]`
   was silently running as `IN (1)`. Use a named placeholder:
   `"id IN (:ids)"` with `[':ids' => [1, 2, 3]]`
+- **Record numbers as the WHERE argument** - `DB::select('users', 5)` still
+  works but logs a deprecation notice; use `['num' => 5]`. Numeric strings
+  (`'5'`), which used to throw "Numeric string detected", now work the same
+  way and log a warning instead of a notice - a string record number usually
+  means a query value was passed back in without a cast, and warnings still
+  reach logs that filter out deprecation notices
 - **Table helpers** - old names still work, IDE strikethrough only:
 
   | Old name (still works)       | Current name                 |
