@@ -6,7 +6,7 @@ How every supported database server answers the same behavior probes, showing on
     gh run download --dir probes             # pick the latest DB Behavior Matrix run
     php .github/scripts/db-behavior-merge.php probes/*/probe-*.json > docs/internal/db-behavior-matrix.md
 
-Last generated: 2026-08-10 from 22 servers: mysql:5.7, mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, mariadb:10.2, mariadb:10.2.6, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3, percona/percona-server:5.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
+Last generated: 2026-08-17 from 22 servers: mysql:5.7, mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, mariadb:10.2, mariadb:10.2.6, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3, percona/percona-server:5.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
 
 Generated file - don't hand-edit. The "Key differences" summary below is maintained in the heredoc in .github/scripts/db-behavior-merge.php; edit it there.
 
@@ -31,6 +31,7 @@ Stock Docker images with default configs answered these probes. Install-dependen
 - Consistent-snapshot backups: the SET TRANSACTION ISOLATION LEVEL REPEATABLE READ + START TRANSACTION WITH CONSISTENT SNAPSHOT pair holds a point-in-time snapshot on every server, survives statements between the SET and the START, needs no privileges, and reverts after COMMIT. A bare START at READ-COMMITTED never holds one: MySQL/Percona and MariaDB thru 10.5 warn (code 138), MariaDB 10.6+ says nothing, and with the RocksDB plugin loaded (no RocksDB table needed) MariaDB rejects it with error 4062 while Percona MyRocks only warns
 - SET TRANSACTION (next-transaction scope) throws error 1568 whenever a transaction is open, including autocommit=0 after any table read (autocommit=0 alone is fine); the SET SESSION form is accepted mid-transaction on every server
 - The isolation variable splits by vendor: @@transaction_isolation is missing on MariaDB thru 10.11 (added 11.1), @@tx_isolation is missing on MySQL/Percona 8.0+, and neither ever reports the pending one-shot level, so "did the snapshot take" is only observable behaviorally
+- Reusing a pooled (p:) connection the server closed for wait_timeout idling recovers everywhere (fresh connection, new thread, no exception), but MySQL/Percona 8.0+ write a final error packet before closing, so mysqlnd raises "Packets out of order" (E_WARNING) during the reconnect; MariaDB and both 5.7s close the socket silently, and KILL is warning-free on every server (no packet written). ZenDB's connect wrapper @-suppresses the warning
 
 ## Probe results
 
@@ -47,7 +48,7 @@ Stock Docker images with default configs answered these probes. Install-dependen
 - `10.3.39-MariaDB-1:10.3.39+maria~ubu2004` → mariadb:10.3
 - `10.4.34-MariaDB-1:10.4.34+maria~ubu2004` → mariadb:10.4
 - `10.5.29-MariaDB-ubu2004` → mariadb:10.5
-- `10.6.27-MariaDB-ubu2204` → mariadb:10.6
+- `10.6.28-MariaDB-ubu2204` → mariadb:10.6
 - `10.11.18-MariaDB-ubu2204` → mariadb:10.11
 - `11.4.12-MariaDB-ubu2404` → mariadb:11.4
 - `11.8.8-MariaDB-ubu2404` → mariadb:11.8+rocksdb, mariadb:11.8
@@ -78,7 +79,7 @@ Stock Docker images with default configs answered these probes. Install-dependen
 - `10.3.39-MariaDB-1:10.3.39+maria~ubu2004` → mariadb:10.3
 - `10.4.34-MariaDB-1:10.4.34+maria~ubu2004` → mariadb:10.4
 - `10.5.29-MariaDB-ubu2004` → mariadb:10.5
-- `10.6.27-MariaDB-ubu2204` → mariadb:10.6
+- `10.6.28-MariaDB-ubu2204` → mariadb:10.6
 - `10.11.18-MariaDB-ubu2204` → mariadb:10.11
 - `11.4.12-MariaDB-ubu2404` → mariadb:11.4
 - `11.8.8-MariaDB-ubu2404` → mariadb:11.8+rocksdb, mariadb:11.8
@@ -100,7 +101,7 @@ Stock Docker images with default configs answered these probes. Install-dependen
 - `100339` → mariadb:10.3
 - `100434` → mariadb:10.4
 - `100529` → mariadb:10.5
-- `100627` → mariadb:10.6
+- `100628` → mariadb:10.6
 - `101118` → mariadb:10.11
 - `110412` → mariadb:11.4
 - `110808` → mariadb:11.8+rocksdb, mariadb:11.8
@@ -120,7 +121,7 @@ Stock Docker images with default configs answered these probes. Install-dependen
 - `10.3.39` → mariadb:10.3
 - `10.4.34` → mariadb:10.4
 - `10.5.29` → mariadb:10.5
-- `10.6.27` → mariadb:10.6
+- `10.6.28` → mariadb:10.6
 - `10.11.18` → mariadb:10.11
 - `11.4.12` → mariadb:11.4
 - `11.8.8` → mariadb:11.8+rocksdb, mariadb:11.8
@@ -1030,6 +1031,47 @@ Stock Docker images with default configs answered these probes. Install-dependen
 ### PERSISTENT: reuse after SET character_set_*
 
 - all servers: `reused; client latin1, session latin1/latin1/latin1/latin1_swedish_ci`
+
+### PERSISTENT: autocommit after reuse
+
+- all servers: `reset to 1`
+
+### PERSISTENT: read-only transaction mode after reuse
+
+- all servers: `reset to 0 (read-write)`
+
+### PERSISTENT: isolation level after reuse
+
+- all servers: `reset to server default (REPEATABLE-READ)`
+
+### PERSISTENT: default database after reuse
+
+- all servers: `reset to connect-time database`
+
+### PERSISTENT: GET_LOCK after reuse
+
+- all servers: `held while pooled, released on reuse`
+
+### PERSISTENT: LOCK TABLES after reuse
+
+- all servers: `INSERT blocked (error 1205) while pooled, succeeded after reuse`
+
+### PERSISTENT: FLUSH TABLES WITH READ LOCK after reuse
+
+- all servers: `INSERT blocked (error 1205) while pooled, succeeded after reuse`
+
+### PERSISTENT: prepared statements after reuse
+
+- all servers: `3 while pooled, 0 after reuse`
+
+### PERSISTENT: reuse after KILL
+
+- all servers: `reconnected, new server thread, no error or warning`
+
+### PERSISTENT: reuse after wait_timeout expiry
+
+- `reconnected, new server thread, no error or warning` → mysql:5.7, mariadb:10.2, mariadb:10.2.6, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8+rocksdb, mariadb:11.8, mariadb:12.3+rocksdb, mariadb:12.3, percona/percona-server:5.7
+- `reconnected, new server thread; PHP warning: Packets out of order. Expected 1 received 0. Packet size=145` → mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, percona/percona-server:8.0+rocksdb, percona/percona-server:8.0, percona/percona-server:8.4
 
 ### UNION FIELDS: single SELECT control
 

@@ -72,6 +72,7 @@ echo <<<__SUMMARY__
     - Consistent-snapshot backups: the SET TRANSACTION ISOLATION LEVEL REPEATABLE READ + START TRANSACTION WITH CONSISTENT SNAPSHOT pair holds a point-in-time snapshot on every server, survives statements between the SET and the START, needs no privileges, and reverts after COMMIT. A bare START at READ-COMMITTED never holds one: MySQL/Percona and MariaDB thru 10.5 warn (code 138), MariaDB 10.6+ says nothing, and with the RocksDB plugin loaded (no RocksDB table needed) MariaDB rejects it with error 4062 while Percona MyRocks only warns
     - SET TRANSACTION (next-transaction scope) throws error 1568 whenever a transaction is open, including autocommit=0 after any table read (autocommit=0 alone is fine); the SET SESSION form is accepted mid-transaction on every server
     - The isolation variable splits by vendor: @@transaction_isolation is missing on MariaDB thru 10.11 (added 11.1), @@tx_isolation is missing on MySQL/Percona 8.0+, and neither ever reports the pending one-shot level, so "did the snapshot take" is only observable behaviorally
+    - Reusing a pooled (p:) connection the server closed for wait_timeout idling recovers everywhere (fresh connection, new thread, no exception), but MySQL/Percona 8.0+ write a final error packet before closing, so mysqlnd raises "Packets out of order" (E_WARNING) during the reconnect; MariaDB and both 5.7s close the socket silently, and KILL is warning-free on every server (no packet written). ZenDB's connect wrapper @-suppresses the warning
 
     ## Probe results
 
