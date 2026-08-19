@@ -32,7 +32,8 @@
   },
   "autoload-dev": {
     "psr-4": {
-      "Itools\\ZenDB\\Tests\\": "tests/"
+      "Itools\\ZenDB\\Tests\\": "tests/",
+      "Itools\\Standards\\": "tests/Source/"
     }
   },
   "require": {

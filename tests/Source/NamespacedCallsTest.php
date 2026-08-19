@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 namespace Itools\ZenDB\Tests\Source;
 
-use InteractiveTools\Standards\NamespacedCallsCheck;
+use Itools\Standards\NamespacedCallsCheck;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
 

@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace InteractiveTools\Standards;
+namespace Itools\Standards;
 
 use ReflectionFunction;
 
