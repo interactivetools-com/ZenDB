@@ -43,7 +43,7 @@ trait ConnectionInternals
      * Parse variadic query args into a parameter map.
      *
      * Converts positional params (0, 1, 2) to named format (:1, :2, :3).
-     * Validates named params start with ':' and don't use reserved ':zdb_' prefix.
+     * Validates named params start with ':' and don't use reserved ':zdb' prefix.
      * Unwraps SmartString/SmartNull values.
      *
      * Supports:
@@ -87,7 +87,7 @@ trait ConnectionInternals
             foreach ($params as $key => $value) {
                 // Int keys (deprecated positional array, or mixed with named) and invalid
                 // names take the general path, which logs or throws the canonical message
-                if (!is_string($key) || !preg_match('/^:(?!_|zdb_)\w+\z/', $key)) {
+                if (!is_string($key) || !preg_match('/^:(?!_|zdb)\w+\z/', $key)) {
                     return $this->parseParamsGeneral($args);
                 }
                 if ($key[1] <= '9' && strspn($key, '0123456789', 1) === strlen($key) - 1) {
@@ -183,7 +183,7 @@ trait ConnectionInternals
                     // SECURITY: key failed validation, encode before it can reach page output (match arm, so no room for the $h variable)
                     !preg_match("/^:\w+\z/", $key) => throw new InvalidArgumentException("Invalid param name '" . DB::h($key) . "'. Must start with ':' followed by (a-z, A-Z, 0-9, _)"),
                     str_starts_with($key, ':_')    => throw new InvalidArgumentException("Invalid param name '$key'. Names can't start with :_ (the deprecated table-prefix syntax); start the name with a letter or digit"),
-                    str_starts_with($key, ':zdb_') => throw new InvalidArgumentException("Invalid param name '$key'. Names can't start with :zdb_ (reserved prefix)"),
+                    str_starts_with($key, ':zdb')  => throw new InvalidArgumentException("Invalid param name '$key'. Names can't start with :zdb (reserved prefix)"),
                     default                        => $key,
                 };
             }

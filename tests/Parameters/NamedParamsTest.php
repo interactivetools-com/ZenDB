@@ -113,9 +113,17 @@ class NamedParamsTest extends BaseTestCase
     public function testReservedZdbPrefixThrows(): void
     {
         $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage("Names can't start with :zdb_ (reserved prefix)");
+        $this->expectExceptionMessage("Names can't start with :zdb (reserved prefix)");
 
         DB::query("SELECT * FROM ::users WHERE num = :zdb_internal", [':zdb_internal' => 1]);
+    }
+
+    public function testReservedZdbPrefixWithoutUnderscoreThrows(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage("Names can't start with :zdb (reserved prefix)");
+
+        DB::query("SELECT * FROM ::users WHERE num = :zdbTemp", [':zdbTemp' => 1]);
     }
 
     public function testUnderscoreLeadingParamNameThrows(): void
