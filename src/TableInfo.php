@@ -896,16 +896,31 @@ class TableInfo
     {
         isset(DB::$safeIdentifiers[$baseTable]) || DB::assertIdentifier($baseTable, 'table name');
         $escapedFullTable = $this->mysqli->real_escape_string($this->db->tablePrefix . $baseTable);
-        $result           = $this->mysqli->query(
-            "SELECT KCU.CONSTRAINT_NAME, KCU.COLUMN_NAME, KCU.REFERENCED_TABLE_NAME, KCU.REFERENCED_COLUMN_NAME, RC.DELETE_RULE, RC.UPDATE_RULE
-               FROM information_schema.KEY_COLUMN_USAGE AS KCU
-               JOIN information_schema.REFERENTIAL_CONSTRAINTS AS RC
-                 ON RC.CONSTRAINT_SCHEMA = KCU.CONSTRAINT_SCHEMA AND RC.CONSTRAINT_NAME = KCU.CONSTRAINT_NAME AND RC.TABLE_NAME = KCU.TABLE_NAME
-              WHERE KCU.TABLE_SCHEMA = DATABASE() AND KCU.TABLE_NAME = '$escapedFullTable'
-              ORDER BY KCU.CONSTRAINT_NAME, KCU.ORDINAL_POSITION",
+
+        // Two queries, not a KEY_COLUMN_USAGE JOIN REFERENTIAL_CONSTRAINTS: MariaDB only applies
+        // schema/table filters to an information_schema table queried on its own, so the join reads
+        // every foreign key on the server (~460ms on a 1,600-table dev box vs ~1ms for two queries).
+        $result = $this->mysqli->query(
+            "SELECT CONSTRAINT_NAME, COLUMN_NAME, REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME
+               FROM information_schema.KEY_COLUMN_USAGE
+              WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '$escapedFullTable' AND REFERENCED_TABLE_NAME IS NOT NULL
+              ORDER BY CONSTRAINT_NAME, ORDINAL_POSITION",
         );
-        $rows             = $result->fetch_all(MYSQLI_ASSOC);
+        $rows   = $result->fetch_all(MYSQLI_ASSOC);
         $result->free();
+
+        $onDeleteUpdateRules = []; // constraintName => [DELETE_RULE, UPDATE_RULE]
+        if ($rows) {
+            $result = $this->mysqli->query(
+                "SELECT CONSTRAINT_NAME, DELETE_RULE, UPDATE_RULE
+                   FROM information_schema.REFERENTIAL_CONSTRAINTS
+                  WHERE CONSTRAINT_SCHEMA = DATABASE() AND TABLE_NAME = '$escapedFullTable'",
+            );
+            foreach ($result->fetch_all(MYSQLI_ASSOC) as $rule) {
+                $onDeleteUpdateRules[$rule['CONSTRAINT_NAME']] = $rule;
+            }
+            $result->free();
+        }
 
         $foreignKeys = [];
         foreach ($rows as $row) {
@@ -915,8 +930,8 @@ class TableInfo
                 'cols'     => [],
                 'refTable' => $row['REFERENCED_TABLE_NAME'],
                 'refCols'  => [],
-                'onDelete' => $row['DELETE_RULE'],
-                'onUpdate' => $row['UPDATE_RULE'],
+                'onDelete' => $onDeleteUpdateRules[$name]['DELETE_RULE'],
+                'onUpdate' => $onDeleteUpdateRules[$name]['UPDATE_RULE'],
             ];
             $foreignKeys[$name]['cols'][]    = $row['COLUMN_NAME'];
             $foreignKeys[$name]['refCols'][] = $row['REFERENCED_COLUMN_NAME'];
