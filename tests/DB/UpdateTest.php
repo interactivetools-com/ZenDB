@@ -18,12 +18,12 @@ class UpdateTest extends BaseTestCase
     {
         DB::disconnect();
         DB::connect(self::$configDefaults);
-        self::resetTempTestTables();
+        self::resetTestTables();
     }
 
     protected function setUp(): void
     {
-        self::resetTempTestTables();
+        self::resetTestTables();
     }
 
     public function testUpdateSingleRow(): void

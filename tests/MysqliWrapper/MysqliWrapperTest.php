@@ -22,8 +22,9 @@ class MysqliWrapperTest extends BaseTestCase
 {
     public static function setUpBeforeClass(): void
     {
+        self::requiresLiveMysql();   // raw wrapper connections in every test
         self::createDefaultConnection();
-        self::resetTempTestTables();
+        self::resetTestTables();
     }
 
     //region lastQuery
@@ -61,7 +62,7 @@ class MysqliWrapperTest extends BaseTestCase
 
     public function testLastQueryOnUpdate(): void
     {
-        self::resetTempTestTables();
+        self::resetTestTables();
 
         DB::update('users', ['city' => 'Query Test City'], ['num' => 1]);
 
@@ -193,6 +194,9 @@ class MysqliWrapperTest extends BaseTestCase
         $result = $conn->mysqli->execute_query("SELECT * FROM test_native_eq WHERE id = ?", [1]);
 
         $this->assertInstanceOf(\mysqli_result::class, $result);
+        if (PHP_VERSION_ID >= 80200) {
+            $this->assertFalse(self::polyfillRanLast($conn->mysqli), "Flag off on PHP 8.2+: native execute_query() must run, not the polyfill");
+        }
         $row = $result->fetch_assoc();
         $this->assertSame('Alice', $row['name']);
     }
@@ -207,11 +211,24 @@ class MysqliWrapperTest extends BaseTestCase
         $result = $conn->mysqli->execute_query("INSERT INTO test_native_eq2 (name) VALUES (?)", ['Native Test']);
 
         $this->assertTrue($result);
+        if (PHP_VERSION_ID >= 80200) {
+            $this->assertFalse(self::polyfillRanLast($conn->mysqli), "Flag off on PHP 8.2+: native execute_query() must run, not the polyfill");
+        }
         $this->assertSame(1, $conn->mysqli->insert_id);
     }
 
     //endregion
     //region execute_query Polyfill
+
+    /**
+     * True if the last execute_query() ran the polyfill branch; only that branch
+     * assigns the private stmtKeepAlive property, the native branch never touches it.
+     */
+    private static function polyfillRanLast(MysqliWrapper $mysqli): bool
+    {
+        $stmt = (new \ReflectionProperty(MysqliWrapper::class, 'stmtKeepAlive'))->getValue($mysqli);
+        return $stmt instanceof MysqliStmtWrapper;
+    }
 
     public function testForcePolyfillFlag(): void
     {
@@ -229,6 +246,7 @@ class MysqliWrapperTest extends BaseTestCase
             $result = $conn->mysqli->execute_query("SELECT * FROM test_polyfill LIMIT 1");
 
             $this->assertInstanceOf(\mysqli_result::class, $result);
+            $this->assertTrue(self::polyfillRanLast($conn->mysqli), "Flag set: the polyfill branch must run, not native execute_query()");
         } finally {
             // Restore
             MysqliWrapper::$forceExecuteQueryPolyfill = $original;
@@ -256,6 +274,7 @@ class MysqliWrapperTest extends BaseTestCase
             );
 
             $this->assertInstanceOf(\mysqli_result::class, $result);
+            $this->assertTrue(self::polyfillRanLast($conn->mysqli), "Flag set: the polyfill branch must run, not native execute_query()");
             $row = $result->fetch_assoc();
             $this->assertSame('Test', $row['name']);
         } finally {
@@ -390,6 +409,22 @@ class MysqliWrapperTest extends BaseTestCase
 
         $this->assertNotNull($capturedError);
         $this->assertInstanceOf(\mysqli_sql_exception::class, $capturedError);
+    }
+
+    //endregion
+    //region set_charset
+
+    public function testSetCharsetAllowsUtf8mb4(): void
+    {
+        $this->assertTrue(DB::$mysqli->set_charset('utf8mb4'));
+    }
+
+    public function testSetCharsetRejectsOtherCharsets(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage("ZenDB connections are always utf8mb4; set_charset('latin1') is not supported.");
+
+        DB::$mysqli->set_charset('latin1');
     }
 
     //endregion

@@ -126,7 +126,8 @@ echo mdTable($sslProbes);
 //
 // SHOW CREATE TABLE - raw output for a fixture that hits every getColumnDefinitions()
 // normalization: display widths, tinyint(1) variants, year, column-level charset,
-// timestamp default spelling, and a column comment
+// timestamp default spelling, a column comment, and the implicit DEFAULT NULL MariaDB
+// prints on nullable text columns
 //
 $fixtureSql = <<<__SQL__
     CREATE TABLE zdb_probe (
@@ -146,6 +147,7 @@ $fixtureSql = <<<__SQL__
         dtLiteral   DATETIME NOT NULL DEFAULT '2024-01-01 00:00:00',
         bitDefault  BIT(4) NOT NULL DEFAULT b'101',
         numText     VARCHAR(10) NOT NULL DEFAULT 123,
+        body        MEDIUMTEXT,
         keywordText VARCHAR(50) NOT NULL DEFAULT 'save DEFAULT 5 each' COMMENT 'uses CHARACTER SET utf8mb4',
         PRIMARY KEY (num)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
@@ -182,6 +184,7 @@ if (preg_match('/^\).*/m', $createTable, $m)) {
 $createProbes += [
     'SHOW CREATE: oldText VARCHAR(50) CHARSET utf8'  => probeColumnDefinition($mysqli, 'oldText', "CREATE TABLE zdb_probe_special (oldText VARCHAR(50) CHARACTER SET utf8 NOT NULL DEFAULT '')"),
     'SHOW CREATE: code VARCHAR(36) DEFAULT (uuid())' => probeColumnDefinition($mysqli, 'code', "CREATE TABLE zdb_probe_special (code VARCHAR(36) NOT NULL DEFAULT (uuid()))"),
+    "SHOW CREATE: notes MEDIUMTEXT DEFAULT 'abc'"    => probeColumnDefinition($mysqli, 'notes', "CREATE TABLE zdb_probe_special (notes MEDIUMTEXT DEFAULT 'abc')"),
 ];
 $probes += $createProbes;
 
@@ -1092,6 +1095,527 @@ $probes += $zeroDateProbes;
 
 echo "### Zero and invalid dates\n\n";
 echo mdTable($zeroDateProbes);
+
+//
+// Charset in the connection handshake - a proposed connect() change sends utf8mb4
+// inside the handshake packet (options MYSQLI_SET_CHARSET_NAME before real_connect)
+// instead of paying set_charset()'s round trip after connecting. Safe only if both
+// routes leave the session in the same state on every server: same character_set_*
+// values and the same collation_connection (each server resolves its own utf8mb4
+// default collation). The last probe covers the companion change of adding
+// character_set_client/connection/results to the connect-time SET statement: setting
+// character_set_connection must reset collation_connection to the server's utf8mb4
+// default even when another collation was active, the way SET NAMES does
+//
+try {
+    $viaHandshake = mysqli_init();
+    $viaHandshake->options(MYSQLI_SET_CHARSET_NAME, 'utf8mb4');
+    $viaHandshake->real_connect($hostname, $username, $password, $database);
+
+    $viaSetCharset = mysqli_init();
+    $viaSetCharset->real_connect($hostname, $username, $password, $database);
+    $viaSetCharset->set_charset('utf8mb4');
+
+    $stateSql        = "SELECT @@character_set_client, @@character_set_connection, @@character_set_results, @@collation_connection";
+    $handshakeState  = $viaHandshake->query($stateSql)->fetch_row();
+    $setCharsetState = $viaSetCharset->query($stateSql)->fetch_row();
+
+    $handshakeProbes = [
+        'HANDSHAKE CHARSET: client character_set_name()' => $viaHandshake->character_set_name(),
+        'HANDSHAKE CHARSET: session charsets'            => implode(' / ', array_slice($handshakeState, 0, 3)),
+        'HANDSHAKE CHARSET: @@collation_connection'      => $handshakeState[3],
+        'HANDSHAKE CHARSET: same state as set_charset route' => $handshakeState === $setCharsetState && $viaHandshake->character_set_name() === $viaSetCharset->character_set_name()
+            ? 'identical'
+            : 'DIFFERS: handshake ' . implode('/', $handshakeState) . ' vs set_charset ' . implode('/', $setCharsetState),
+    ];
+
+    // DDL with a charset-only clause: does the connect route change what collation new
+    // objects get? connect() skips set_charset on MariaDB/5.7 and auto-creates databases
+    // with CHARACTER SET utf8mb4 and no COLLATE, so both routes must produce identical
+    // databases and tables (charset-only DDL should resolve server-side, ignoring
+    // connection state) - measured here rather than assumed
+    $ddlByRoute = [];
+    foreach ([['handshake', $viaHandshake], ['set_charset', $viaSetCharset]] as [$route, $conn]) {
+        $conn->query("DROP DATABASE IF EXISTS zdb_probe_ddl");
+        $conn->query("CREATE DATABASE zdb_probe_ddl CHARACTER SET utf8mb4");
+        $dbCollation = $conn->query("SELECT DEFAULT_COLLATION_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME = 'zdb_probe_ddl'")->fetch_row()[0];
+        $conn->query("DROP DATABASE zdb_probe_ddl");
+
+        $conn->query("DROP TABLE IF EXISTS zdb_probe_ddl_tbl");
+        $conn->query("CREATE TABLE zdb_probe_ddl_tbl (t VARCHAR(10)) CHARACTER SET utf8mb4");
+        $tblCollation = $conn->query("SELECT TABLE_COLLATION FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'zdb_probe_ddl_tbl'")->fetch_row()[0];
+        $conn->query("DROP TABLE zdb_probe_ddl_tbl");
+
+        $ddlByRoute[$route] = "$dbCollation / $tblCollation";
+        $handshakeProbes["HANDSHAKE DDL: db/table collation via $route route"] = $ddlByRoute[$route];
+    }
+    $handshakeProbes['HANDSHAKE DDL: routes identical'] = $ddlByRoute['handshake'] === $ddlByRoute['set_charset'] ? 'identical' : 'DIFFERS';
+
+    $viaHandshake->query("SET collation_connection = 'utf8mb4_bin'");
+    $viaHandshake->query("SET character_set_client = 'utf8mb4', character_set_connection = 'utf8mb4', character_set_results = 'utf8mb4'");
+    $handshakeProbes['HANDSHAKE CHARSET: collation after SET character_set_* over utf8mb4_bin'] = $viaHandshake->query("SELECT @@collation_connection")->fetch_row()[0];
+
+    // Bonus: DDL on a connection whose collation_connection was forced to utf8mb4_bin -
+    // proves (or disproves) that connection collation never reaches charset-only DDL
+    $viaHandshake->query("SET collation_connection = 'utf8mb4_bin'");
+    $viaHandshake->query("CREATE TABLE zdb_probe_ddl_tbl (t VARCHAR(10)) CHARACTER SET utf8mb4");
+    $handshakeProbes['HANDSHAKE DDL: table collation with collation_connection=utf8mb4_bin'] = $viaHandshake->query("SELECT TABLE_COLLATION FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'zdb_probe_ddl_tbl'")->fetch_row()[0];
+    $viaHandshake->query("DROP TABLE zdb_probe_ddl_tbl");
+
+    $viaHandshake->close();
+    $viaSetCharset->close();
+} catch (mysqli_sql_exception $e) {
+    $handshakeProbes = ['HANDSHAKE CHARSET probes' => 'probe failed: ' . $e->getMessage()];
+}
+$probes += $handshakeProbes;
+
+echo "### Charset in the connection handshake\n\n";
+echo mdTable($handshakeProbes);
+
+//
+// Persistent connections - a p: hostname prefix makes mysqli reuse pooled
+// connections instead of paying TCP setup and auth per request (see
+// docs/persistent-connections.md). ZenDB depends on the pool reset (mysqlnd sends COM_CHANGE_USER on
+// reuse) restoring a clean session: user variables cleared so the lazy @ek SET
+// re-arms, sql_mode and charset back to defaults, temporary tables dropped, open
+// transactions rolled back. The probes dirty all of those on one pooled connection,
+// close it, reopen the same pool slot, and record what the reused session reports.
+// The pool is per-process, so the reopen below reuses the closed connection
+//
+$persistentProbes = [
+    'PERSISTENT: ini mysqli.allow_persistent'         => (string)ini_get('mysqli.allow_persistent'),
+    'PERSISTENT: ini mysqli.rollback_on_cached_plink' => (string)ini_get('mysqli.rollback_on_cached_plink'),
+];
+try {
+    $mysqli->query("DROP TABLE IF EXISTS zdb_probe_plink");
+    $mysqli->query("CREATE TABLE zdb_probe_plink (num INT NOT NULL) ENGINE=InnoDB");
+
+    $dirty = mysqli_init();
+    $dirty->real_connect("p:$hostname", $username, $password, $database);
+    $dirtyThreadId = $dirty->thread_id;
+    $dirty->set_charset('latin1');
+    $dirty->query("SET @zdb_probe_uservar = 'leaked'");
+    $dirty->query("SET SESSION sql_mode = 'ANSI_QUOTES'");
+    $dirty->query("CREATE TEMPORARY TABLE zdb_probe_ptemp (num INT NOT NULL)");
+    $dirty->query("START TRANSACTION");
+    $dirty->query("INSERT INTO zdb_probe_plink VALUES (1)");   // left uncommitted on purpose
+    $dirty->close();
+
+    $reused = mysqli_init();
+    $reused->real_connect("p:$hostname", $username, $password, $database);
+    $persistentProbes['PERSISTENT: pool reuse'] = $reused->thread_id === $dirtyThreadId
+        ? 'reused (same server thread)'
+        : "new server thread ($dirtyThreadId -> $reused->thread_id; resets below reflect a fresh connection, not a pool reset)";
+
+    $userVar = $reused->query("SELECT @zdb_probe_uservar")->fetch_row()[0];
+    $persistentProbes['PERSISTENT: user variable after reuse'] = $userVar === null ? 'cleared (lazy @ek SET re-arms)' : 'LEAKED: ' . displayValue($userVar);
+
+    $sqlModeAfterReuse = $reused->query("SELECT @@SESSION.sql_mode")->fetch_row()[0];
+    $persistentProbes['PERSISTENT: session sql_mode after reuse'] = str_contains($sqlModeAfterReuse, 'ANSI_QUOTES') ? "LEAKED: $sqlModeAfterReuse" : 'reset to server default';
+
+    $persistentProbes['PERSISTENT: charset after reuse'] = $reused->character_set_name() . ' / @@character_set_client ' . $reused->query("SELECT @@character_set_client")->fetch_row()[0];
+
+    try {
+        $reused->query("SELECT COUNT(*) FROM zdb_probe_ptemp");
+        $persistentProbes['PERSISTENT: temporary table after reuse'] = 'STILL EXISTS';
+    } catch (mysqli_sql_exception $e) {
+        $persistentProbes['PERSISTENT: temporary table after reuse'] = 'dropped (error ' . $e->getCode() . ')';
+    }
+
+    // Uncommitted INSERT: the reused session seeing 0 rows means its old transaction is
+    // gone; the main connection distinguishes rolled back (0) from committed (1)
+    $rowsReused = (int)$reused->query("SELECT COUNT(*) FROM zdb_probe_plink")->fetch_row()[0];
+    $rowsOther  = (int)$mysqli->query("SELECT COUNT(*) FROM zdb_probe_plink")->fetch_row()[0];
+    $persistentProbes['PERSISTENT: uncommitted INSERT after reuse'] = match (true) {
+        $rowsReused === 0 && $rowsOther === 0 => 'rolled back',
+        $rowsOther === 1                      => 'COMMITTED',
+        default                               => "open transaction survived (reused sees $rowsReused, other connection sees $rowsOther)",
+    };
+
+    $reused->close();
+
+    // Charset-vs-pool-reuse: pool reuse goes through COM_CHANGE_USER, which has its own
+    // charset field that mysqlnd fills from ITS notion of the connection charset. Each
+    // cycle dirties a pooled slot a different way, then reopens it with the utf8mb4
+    // handshake option (MYSQLI_SET_CHARSET_NAME, the way connect() does) and records
+    // what the reused session actually has. set_charset() changes client and server
+    // state together; the three SQL statements change only the server, so mysqlnd may
+    // unknowingly send the stale or the correct charset on reuse - that's the question.
+    // The answer decides whether a persistent flag needs a set_charset guard on the
+    // servers where fresh connects skip it (MariaDB and pre-8.0)
+    $dirtyStyles = [
+        'set_charset(latin1)'    => fn(mysqli $c) => $c->set_charset('latin1'),
+        'SET NAMES latin1'       => fn(mysqli $c) => $c->query("SET NAMES latin1"),
+        'SET CHARACTER SET'      => fn(mysqli $c) => $c->query("SET CHARACTER SET latin1"),
+        'SET character_set_*'    => fn(mysqli $c) => $c->query("SET character_set_client = 'latin1', character_set_connection = 'latin1', character_set_results = 'latin1'"),
+    ];
+    foreach ($dirtyStyles as $styleLabel => $applyDirty) {
+        $dirtier = mysqli_init();
+        $dirtier->real_connect("p:$hostname", $username, $password, $database);
+        $applyDirty($dirtier);
+        $dirtierThreadId = $dirtier->thread_id;
+        $dirtier->close();
+
+        $optioned = mysqli_init();
+        $optioned->options(MYSQLI_SET_CHARSET_NAME, 'utf8mb4');
+        $optioned->real_connect("p:$hostname", $username, $password, $database);
+        $charsetState = $optioned->query("SELECT @@character_set_client, @@character_set_connection, @@character_set_results, @@collation_connection")->fetch_row();
+        $persistentProbes["PERSISTENT: reuse after $styleLabel"] =
+            ($optioned->thread_id === $dirtierThreadId ? 'reused; ' : 'NEW THREAD (reflects a fresh connection, not a pool reset); ')
+            . 'client ' . $optioned->character_set_name() . ', session ' . implode('/', $charsetState);
+        $optioned->close();
+    }
+
+    $mysqli->query("DROP TABLE IF EXISTS zdb_probe_plink");
+} catch (mysqli_sql_exception $e) {
+    $persistentProbes['PERSISTENT probes'] = 'probe failed: ' . $e->getMessage();
+}
+$probes += $persistentProbes;
+
+echo "### Persistent connection reuse\n\n";
+echo mdTable($persistentProbes);
+
+//
+// Persistent connection reuse - locks, flags, and recovery. The probes above cover
+// variables, charset, temp tables, and transactions; these cover the remaining
+// docs/persistent-connections.md claims: the reuse reset also restores autocommit,
+// transaction modes, and the default database, releases named/table/global locks,
+// deallocates prepared statements, and a pooled connection that died (KILL,
+// wait_timeout) is replaced silently at connect time. Lock probes record both halves
+// through the main connection as an outside observer: held while the slot sleeps in
+// the pool, released when it is reused. The KILL and wait_timeout probes expect a
+// NEW server thread - silent replacement is the claim under test
+//
+$openPooled = function () use ($hostname, $username, $password, $database): mysqli {
+    $pooled = mysqli_init();
+    $pooled->real_connect("p:$hostname", $username, $password, $database);
+    return $pooled;
+};
+
+// Dirty the pooled slot, close it, reopen it, and hand the reused connection to
+// $check. A fresh slot would show connect-time defaults with no reset involved, so
+// the value gets a loud prefix when the pool hands back a different server thread
+$probeReuse = function (callable $dirty, callable $check) use ($openPooled): string {
+    $pooled        = $openPooled();
+    $dirtyThreadId = $pooled->thread_id;
+    $dirty($pooled);
+    $pooled->close();
+
+    $reused = $openPooled();
+    $prefix = $reused->thread_id === $dirtyThreadId ? '' : 'NEW THREAD (reflects a fresh connection, not a pool reset); ';
+    $value  = $check($reused);
+    $reused->close();
+    return $prefix . $value;
+};
+
+// The transaction variables were renamed (tx_* -> transaction_*) and each vendor
+// kept a different one: transaction_* is missing on MariaDB thru 11.0, tx_* on
+// MySQL/Percona 8.0+. Read whichever name the server has
+$readEitherVar = function (mysqli $conn, string $scope, string ...$names): string {
+    foreach ($names as $name) {
+        try {
+            return (string)$conn->query("SELECT @@$scope.$name")->fetch_row()[0];
+        } catch (mysqli_sql_exception) {
+            // unknown variable on this server; try the other name
+        }
+    }
+    return 'no such variable';
+};
+
+$persistentStateProbes = [];
+try {
+    $persistentStateProbes['PERSISTENT: autocommit after reuse'] = $probeReuse(
+        fn(mysqli $c) => $c->query("SET autocommit = 0"),
+        function (mysqli $reused): string {
+            $autocommit = (string)$reused->query("SELECT @@autocommit")->fetch_row()[0];
+            return $autocommit === '1' ? 'reset to 1' : "LEAKED: autocommit=$autocommit";
+        },
+    );
+
+    $persistentStateProbes['PERSISTENT: read-only transaction mode after reuse'] = $probeReuse(
+        fn(mysqli $c) => $c->query("SET SESSION TRANSACTION READ ONLY"),
+        function (mysqli $reused) use ($readEitherVar): string {
+            $readOnly = $readEitherVar($reused, 'SESSION', 'transaction_read_only', 'tx_read_only');
+            return $readOnly === '0' ? 'reset to 0 (read-write)' : "LEAKED: read_only=$readOnly";
+        },
+    );
+
+    $persistentStateProbes['PERSISTENT: isolation level after reuse'] = $probeReuse(
+        fn(mysqli $c) => $c->query("SET SESSION TRANSACTION ISOLATION LEVEL SERIALIZABLE"),
+        function (mysqli $reused) use ($readEitherVar): string {
+            $isolation = $readEitherVar($reused, 'SESSION', 'transaction_isolation', 'tx_isolation');
+            $default   = $readEitherVar($reused, 'GLOBAL', 'transaction_isolation', 'tx_isolation');
+            return $isolation === $default ? "reset to server default ($isolation)" : "LEAKED: $isolation (server default $default)";
+        },
+    );
+
+    $persistentStateProbes['PERSISTENT: default database after reuse'] = $probeReuse(
+        fn(mysqli $c) => $c->select_db('information_schema'),
+        function (mysqli $reused) use ($database): string {
+            $currentDb = (string)$reused->query("SELECT DATABASE()")->fetch_row()[0];
+            return $currentDb === $database ? 'reset to connect-time database' : "LEAKED: $currentDb";
+        },
+    );
+
+    // A different thread on reuse leaves the dirtied sleeper - and its lock - in the
+    // pool; KILL it so a stray lock can't block the probes and cleanup below
+    $killLeftover = function (int $threadId) use ($mysqli): void {
+        try {
+            $mysqli->query("KILL $threadId");
+        } catch (mysqli_sql_exception) {
+            // already gone
+        }
+    };
+
+    // GET_LOCK: held by the sleeping slot, released by the reuse reset
+    $pooled        = $openPooled();
+    $dirtyThreadId = $pooled->thread_id;
+    $pooled->query("SELECT GET_LOCK('zdb_probe_lock', 0)");
+    $pooled->close();
+    $freeWhilePooled = (string)$mysqli->query("SELECT IS_FREE_LOCK('zdb_probe_lock')")->fetch_row()[0];
+
+    $reused         = $openPooled();
+    $sameThread     = $reused->thread_id === $dirtyThreadId;
+    $freeAfterReuse = (string)$mysqli->query("SELECT IS_FREE_LOCK('zdb_probe_lock')")->fetch_row()[0];
+    $reused->query("DO RELEASE_LOCK('zdb_probe_lock')");   // no-op when the reset already released it
+    $reused->close();
+    if (!$sameThread) {
+        $killLeftover($dirtyThreadId);
+    }
+    $persistentStateProbes['PERSISTENT: GET_LOCK after reuse'] =
+        ($sameThread ? '' : 'NEW THREAD (reflects a fresh connection, not a pool reset); ')
+        . ($freeWhilePooled === '0' && $freeAfterReuse === '1'
+            ? 'held while pooled, released on reuse'
+            : "IS_FREE_LOCK while pooled=$freeWhilePooled, after reuse=$freeAfterReuse");
+
+    // Table and global locks, observed as an INSERT from the main connection; the
+    // 1-second lock wait turns "blocked" into a fast error instead of a hung probe run
+    $mysqli->query("DROP TABLE IF EXISTS zdb_probe_plock");
+    $mysqli->query("CREATE TABLE zdb_probe_plock (num INT NOT NULL) ENGINE=InnoDB");
+    $mysqli->query("SET SESSION lock_wait_timeout = 1");
+    $tryInsert = function () use ($mysqli): string {
+        try {
+            $mysqli->query("INSERT INTO zdb_probe_plock VALUES (1)");
+            return 'succeeded';
+        } catch (mysqli_sql_exception $e) {
+            return 'blocked (error ' . $e->getCode() . ')';
+        }
+    };
+
+    $lockStyles = [
+        'LOCK TABLES'                 => "LOCK TABLES zdb_probe_plock WRITE",
+        'FLUSH TABLES WITH READ LOCK' => "FLUSH TABLES WITH READ LOCK",
+    ];
+    foreach ($lockStyles as $lockLabel => $lockSql) {
+        $pooled        = $openPooled();
+        $dirtyThreadId = $pooled->thread_id;
+        $pooled->query($lockSql);
+        $pooled->close();
+        $insertWhilePooled = $tryInsert();
+
+        $reused           = $openPooled();
+        $sameThread       = $reused->thread_id === $dirtyThreadId;
+        $insertAfterReuse = $tryInsert();
+        $reused->query("UNLOCK TABLES");   // no-op when the reset already released the lock
+        $reused->close();
+        if (!$sameThread) {
+            $killLeftover($dirtyThreadId);
+        }
+        $persistentStateProbes["PERSISTENT: $lockLabel after reuse"] =
+            ($sameThread ? '' : 'NEW THREAD (reflects a fresh connection, not a pool reset); ')
+            . "INSERT $insertWhilePooled while pooled, $insertAfterReuse after reuse";
+    }
+    $mysqli->query("SET SESSION lock_wait_timeout = DEFAULT");
+    $mysqli->query("DROP TABLE zdb_probe_plock");
+
+    // Prepared statements: server-side PREPARE leaves no client handles behind, so
+    // the pool reset is the only thing that can deallocate them. Prepared_stmt_count
+    // is global, so the observer sees the sleeper's statements too
+    $countPrepared = fn(mysqli $conn): int => (int)$conn->query("SHOW SESSION STATUS LIKE 'Prepared_stmt_count'")->fetch_row()[1];
+
+    $before        = $countPrepared($mysqli);
+    $pooled        = $openPooled();
+    $dirtyThreadId = $pooled->thread_id;
+    foreach ([1, 2, 3] as $i) {
+        $pooled->query("PREPARE zdb_probe_ps$i FROM 'SELECT $i'");
+    }
+    $pooled->close();
+    $whilePooled = $countPrepared($mysqli) - $before;
+
+    $reused     = $openPooled();
+    $sameThread = $reused->thread_id === $dirtyThreadId;
+    $afterReuse = $countPrepared($reused) - $before;
+    $reused->close();
+    $persistentStateProbes['PERSISTENT: prepared statements after reuse'] =
+        ($sameThread ? '' : 'NEW THREAD (reflects a fresh connection, not a pool reset); ')
+        . "$whilePooled while pooled, $afterReuse after reuse";
+
+    // Dead pooled connections: the docs promise replacement with no error, no
+    // warning, and a fresh server thread. Collect PHP warnings too - mysqlnd could
+    // recover but still warn, which would fail the "silent" half of the claim
+    $probeRecovery = function (int $deadThreadId) use ($openPooled): string {
+        $phpWarnings = [];
+        set_error_handler(function (int $errno, string $message) use (&$phpWarnings): bool {
+            $phpWarnings[] = ($errno === E_WARNING ? '' : "severity $errno: ") . $message;
+            return true;
+        });
+        try {
+            $recovered = $openPooled();
+            $value     = $recovered->thread_id !== $deadThreadId
+                ? 'reconnected, new server thread'
+                : 'reconnected, SAME server thread (the old connection never died)';
+            $recovered->close();
+        } catch (mysqli_sql_exception $e) {
+            $value = 'ERROR ' . $e->getCode() . ': ' . $e->getMessage();
+        } finally {
+            restore_error_handler();
+        }
+        return $value . ($phpWarnings ? '; PHP warning: ' . implode(' / ', array_unique($phpWarnings)) : ', no error or warning');
+    };
+
+    // KILLed while pooled (a server restart or an admin cleaning up sleepers)
+    $pooled         = $openPooled();
+    $victimThreadId = $pooled->thread_id;
+    $pooled->close();
+    $mysqli->query("KILL $victimThreadId");
+    usleep(100_000);   // KILL returns after marking the thread; give the server a moment to close the socket
+    $persistentStateProbes['PERSISTENT: reuse after KILL'] = $probeRecovery($victimThreadId);
+
+    // Timed out while pooled (the server's wait_timeout closing an idle sleeper)
+    $pooled         = $openPooled();
+    $victimThreadId = $pooled->thread_id;
+    $pooled->query("SET SESSION wait_timeout = 1");
+    $pooled->close();
+    sleep(2);   // past the 1-second wait_timeout, so the server has closed the sleeper
+    $persistentStateProbes['PERSISTENT: reuse after wait_timeout expiry'] = $probeRecovery($victimThreadId);
+} catch (mysqli_sql_exception $e) {
+    $persistentStateProbes['PERSISTENT locks/flags/recovery probes'] = 'probe failed: ' . $e->getMessage();
+
+    // A failed probe can leave the lock table behind; the 1-second lock wait set
+    // above keeps the DROP from hanging if a sleeper still holds a lock on it
+    try {
+        $mysqli->query("DROP TABLE IF EXISTS zdb_probe_plock");
+        $mysqli->query("SET SESSION lock_wait_timeout = DEFAULT");
+    } catch (mysqli_sql_exception) {
+        // cleanup is best effort; a leftover probe table only affects this run
+    }
+}
+$probes += $persistentStateProbes;
+
+echo "### Persistent connection reuse - locks, flags, and recovery\n\n";
+echo mdTable($persistentStateProbes);
+
+//
+// UNION column attribution - query()'s single-table fast path conservatively rejects
+// UNION templates. The fast path would be safe for UNIONs only if fetch_fields()
+// never attributes union result columns to tables (empty table/orgtable on every
+// server): then the metadata path can't add SmartJoins keys, and duplicate columns
+// are still caught structurally. The single-SELECT control proves the probe reads
+// attribution correctly; the verdict row is the ship/no-ship answer
+//
+try {
+    $mysqli->query("DROP TABLE IF EXISTS zdb_probe_u1, zdb_probe_u2");
+    $mysqli->query("CREATE TABLE zdb_probe_u1 (id INT NOT NULL, name VARCHAR(10)) ENGINE=InnoDB");
+    $mysqli->query("CREATE TABLE zdb_probe_u2 (id INT NOT NULL, name VARCHAR(10)) ENGINE=InnoDB");
+    $mysqli->query("INSERT INTO zdb_probe_u1 VALUES (1, 'a')");
+    $mysqli->query("INSERT INTO zdb_probe_u2 VALUES (2, 'b')");
+
+    // [per-column description, whether any column carries table/orgtable attribution]
+    $fieldMeta = function (string $sql) use ($mysqli): array {
+        $result = $mysqli->query($sql);
+        $fields = $result->fetch_fields();
+        $result->free();
+        $desc       = implode(', ', array_map(fn($f) => "$f->name(table='$f->table' orgtable='$f->orgtable')", $fields));
+        $attributed = (bool)array_filter($fields, fn($f) => $f->table !== '' || $f->orgtable !== '');
+        return [$desc, $attributed];
+    };
+
+    $unionCases = [
+        'UNION FIELDS: two-table UNION'     => "SELECT id, name FROM zdb_probe_u1 UNION SELECT id, name FROM zdb_probe_u2",
+        'UNION FIELDS: two-table UNION ALL' => "SELECT id, name FROM zdb_probe_u1 UNION ALL SELECT id, name FROM zdb_probe_u2",
+        'UNION FIELDS: aliased tables'      => "SELECT a.id, a.name FROM zdb_probe_u1 a UNION SELECT b.id, b.name FROM zdb_probe_u2 b",
+        'UNION FIELDS: SELECT * both sides' => "SELECT * FROM zdb_probe_u1 UNION SELECT * FROM zdb_probe_u2",
+    ];
+
+    $unionProbes   = ['UNION FIELDS: single SELECT control' => $fieldMeta("SELECT id, name FROM zdb_probe_u1")[0]];
+    $anyAttributed = false;
+    foreach ($unionCases as $label => $sql) {
+        [$desc, $attributed] = $fieldMeta($sql);
+        $unionProbes[$label] = $desc;
+        $anyAttributed       = $anyAttributed || $attributed;
+    }
+    $unionProbes['UNION FIELDS: any union column attributed'] = $anyAttributed ? 'YES - fast path unsafe for UNION' : 'no - all empty';
+
+    $mysqli->query("DROP TABLE zdb_probe_u1, zdb_probe_u2");
+} catch (mysqli_sql_exception $e) {
+    $unionProbes = ['UNION FIELDS probes' => 'probe failed: ' . $e->getMessage()];
+}
+$probes += $unionProbes;
+
+echo "### UNION column attribution\n\n";
+echo mdTable($unionProbes);
+
+//
+// Empty-set subquery - escapeCSV() expands an empty array to
+// IN (SELECT 0 FROM (SELECT 0) empty_set WHERE 0) so that IN matches nothing and NOT IN
+// matches everything. Verifies every server returns the empty-set answers, including for
+// a NULL left operand (NOT IN over an empty set is true even for NULL, unlike NOT IN (NULL))
+//
+try {
+    $row = $mysqli->query(
+        "SELECT 1    IN     (SELECT 0 FROM (SELECT 0) empty_set WHERE 0),
+                1    NOT IN (SELECT 0 FROM (SELECT 0) empty_set WHERE 0),
+                NULL IN     (SELECT 0 FROM (SELECT 0) empty_set WHERE 0),
+                NULL NOT IN (SELECT 0 FROM (SELECT 0) empty_set WHERE 0),
+                0    NOT IN (SELECT 0 FROM (SELECT 0) empty_set WHERE 0)",
+    )->fetch_row();
+    $emptySetProbes = [
+        'EMPTY SET: 1 IN (empty)'        => displayValue($row[0]),
+        'EMPTY SET: 1 NOT IN (empty)'    => displayValue($row[1]),
+        'EMPTY SET: NULL IN (empty)'     => displayValue($row[2]),
+        'EMPTY SET: NULL NOT IN (empty)' => displayValue($row[3]),
+        'EMPTY SET: 0 NOT IN (empty)'    => displayValue($row[4]),
+    ];
+} catch (mysqli_sql_exception $e) {
+    $emptySetProbes = ['EMPTY SET probes' => 'probe failed: ' . $e->getMessage()];
+}
+$probes += $emptySetProbes;
+
+echo "### Empty-set subquery (escapeCSV empty-array expansion)\n\n";
+echo mdTable($emptySetProbes);
+
+//
+// Empty-set spelling candidates - MariaDB 10.2.6/10.2.7 constant-fold
+// IN (SELECT 0 FROM DUAL WHERE 0) into plain `x = 0`, ignoring that the set is empty,
+// so a string column matches every row via string-to-number coercion. Each candidate
+// is checked with the three discriminating cases: '0 NOT IN' and 'NULL NOT IN' expect 1
+// (the fold returns 0/NULL), and the string-column IN expects 0 (the fold returns 1)
+//
+$emptySetCandidates = [
+    'DUAL WHERE 0'          => "SELECT 0 FROM DUAL WHERE 0",
+    'DUAL WHERE 1=0'        => "SELECT 0 FROM DUAL WHERE 1=0",
+    'derived table WHERE 0' => "SELECT 0 FROM (SELECT 0) empty_set WHERE 0",
+    'information_schema'    => "SELECT 0 FROM information_schema.COLLATIONS WHERE 0",
+];
+$candidateProbes = [];
+foreach ($emptySetCandidates as $name => $subquery) {
+    try {
+        $row = $mysqli->query("SELECT 0 NOT IN ($subquery), NULL NOT IN ($subquery), 'Alice' IN ($subquery)")->fetch_row();
+        $candidateProbes["EMPTY SET CANDIDATE: $name"] = sprintf(
+            "0 NOT IN=%s, NULL NOT IN=%s, 'Alice' IN=%s%s",
+            displayValue($row[0]),
+            displayValue($row[1]),
+            displayValue($row[2]),
+            ($row[0] === '1' && $row[1] === '1' && $row[2] === '0') ? ' - correct' : ' - WRONG',
+        );
+    } catch (mysqli_sql_exception $e) {
+        $candidateProbes["EMPTY SET CANDIDATE: $name"] = 'error: ' . $e->getMessage();
+    }
+}
+$probes += $candidateProbes;
+
+echo "### Empty-set spelling candidates\n\n";
+echo mdTable($candidateProbes);
 
 $mysqli->close();
 

@@ -48,8 +48,8 @@ $where     = ['id'   => 123];
 $affected  = DB::update('users', $newValues, $where);
 
 // SQL WHERE with placeholders
-DB::update('users', ['status' => 'inactive'], "lastLogin < ?", '2025-01-01');
-// UPDATE `users` SET `status` = 'inactive' WHERE lastLogin < '2025-01-01'
+DB::update('users', ['status' => 'inactive'], "lastLogin < ?", '2026-01-01');
+// UPDATE `users` SET `status` = 'inactive' WHERE lastLogin < '2026-01-01'
 ```
 
 The WHERE condition takes the same three forms as it does for reads: an array,

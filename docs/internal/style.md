@@ -16,7 +16,16 @@ ZenDB-specific additions only.
 - **Show the generated SQL** as an inline comment on every example that
   produces SQL. "this runs:" separates context from SQL, and long SQL moves
   to its own comment line, aligned with the other SQL comments.
+- **Multi-line SQL in examples:** open the double-quoted string on the call
+  line and align the SQL keywords. The `$sql` variable and heredoc forms are
+  shown once, in Joins and Custom SQL's "Formatting Long Queries"; examples
+  elsewhere don't use them.
 - **Colons are ZenDB syntax** (`:name`, `::`, `:::name`), so the
   punctuation-around-inline-code rules bite hardest here: never `` `code`: ``
   mid-sentence, and headings never end with a dash and a bare syntax token
   (write `` ## Table Prefixes in Raw SQL with `::` ``).
+- **The root README carries the full docs index** (all of docs/README.md's
+  groups, links, and descriptions), not a link to it - every page is one
+  click from landing. docs/README.md keeps the same list for folder
+  browsing. When a page is added, renamed, or re-described, update both;
+  the release cross-artifact check catches drift.

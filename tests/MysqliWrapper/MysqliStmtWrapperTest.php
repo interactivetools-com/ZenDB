@@ -18,6 +18,7 @@ class MysqliStmtWrapperTest extends BaseTestCase
 
     public static function setUpBeforeClass(): void
     {
+        self::requiresLiveMysql();   // raw wrapper connections in every test
         self::createDefaultConnection();
         self::$originalForceExecuteQueryPolyfill = MysqliWrapper::$forceExecuteQueryPolyfill;
     }
@@ -150,16 +151,12 @@ class MysqliStmtWrapperTest extends BaseTestCase
         $stmt = $conn->mysqli->prepare("INSERT INTO stmt_test7 VALUES (?)");
         $stmt->execute([1]);
 
-        // get_result on INSERT returns the polyfill but with no fields
-        $result = $stmt->get_result();
+        // get_result() maps no-field statements to false, matching native mysqlnd
+        $this->assertFalse($stmt->get_result());
 
-        if ($result instanceof MysqliResultPolyfill) {
-            // fetch_array should return null when there are no fields
-            $row = $result->fetch_array();
-            $this->assertNull($row);
-        } else {
-            // If it's false, that's also acceptable for non-SELECT
-            $this->assertFalse($result);
-        }
+        // The fetch_array() no-fields guard is only reachable by constructing the
+        // polyfill directly; result_metadata() is false here so fieldObjects is empty
+        $result = new MysqliResultPolyfill($stmt);
+        $this->assertNull($result->fetch_array());
     }
 }

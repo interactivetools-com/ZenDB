@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Itools\ZenDB\Tests\Escaping;
 
+use InvalidArgumentException;
 use Itools\SmartString\SmartString;
 use Itools\ZenDB\DB;
 use Itools\ZenDB\Tests\BaseTestCase;
@@ -38,6 +39,25 @@ class EscapeTest extends BaseTestCase
     {
         $result = DB::escape(123.45);
         $this->assertSame('123.45', $result);
+    }
+
+    public function testEscapeFloatIsExact(): void
+    {
+        // same literal a placeholder writes: exact digits, no precision-ini rounding
+        $this->assertSame('0.30000000000000004', DB::escape(0.1 + 0.2));
+        $this->assertSame('12345678901234568.0', DB::escape(12345678901234567.0)); // ...567 is not representable
+    }
+
+    public function testEscapeWholeFloatKeepsDecimalPoint(): void
+    {
+        $this->assertSame('2.0', DB::escape(2.0));
+    }
+
+    public function testEscapeNanThrows(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('NAN and INF have no SQL literal');
+        DB::escape(NAN);
     }
 
     public function testEscapeNull(): void
@@ -118,7 +138,7 @@ class EscapeTest extends BaseTestCase
     public function testEscapeLikeWildcardsTrue(): void
     {
         $result = DB::escape('100%', true);
-        $this->assertSame('100\\%', $result);
+        $this->assertSame('100\\\\%', $result);
     }
 
     public function testEscapeLikeWildcardsFalse(): void
@@ -130,19 +150,19 @@ class EscapeTest extends BaseTestCase
     public function testEscapePercentSign(): void
     {
         $result = DB::escape('50% off', true);
-        $this->assertSame('50\\% off', $result);
+        $this->assertSame('50\\\\% off', $result);
     }
 
     public function testEscapeUnderscore(): void
     {
         $result = DB::escape('user_name', true);
-        $this->assertSame('user\\_name', $result);
+        $this->assertSame('user\\\\_name', $result);
     }
 
     public function testEscapeBothLikeWildcards(): void
     {
         $result = DB::escape('%_test_%', true);
-        $this->assertSame('\\%\\_test\\_\\%', $result);
+        $this->assertSame('\\\\%\\\\_test\\\\_\\\\%', $result);
     }
 
     public function testEscapeWildcardsDefaultFalse(): void
@@ -150,6 +170,22 @@ class EscapeTest extends BaseTestCase
         // By default, wildcards should NOT be escaped
         $result = DB::escape('%_test_%');
         $this->assertSame('%_test_%', $result);
+    }
+
+    public function testEscapeBackslashWithWildcards(): void
+    {
+        // A literal backslash must stay literal in the pattern: a\b → a\\b (wildcard pass) → a\\\\b (SQL escape).
+        // Without the wildcard pass escaping backslashes, LIKE would read \b as an escaped 'b' and match "ab".
+        $result = DB::escape('a\\b', true);
+        $this->assertSame('a\\\\\\\\b', $result);
+    }
+
+    public function testEscapeBackslashBeforePercent(): void
+    {
+        // 50\% → 50\\\% (wildcard pass) → 50\\\\\\% (SQL escape). Escaping in the other
+        // order decodes to a literal backslash followed by an ACTIVE wildcard.
+        $result = DB::escape('50\\%', true);
+        $this->assertSame('50' . str_repeat('\\', 6) . '%', $result);
     }
 
     //endregion
@@ -181,7 +217,7 @@ class EscapeTest extends BaseTestCase
     {
         $smart = new SmartString('100%');
         $result = DB::escape($smart, true);
-        $this->assertSame('100\\%', $result);
+        $this->assertSame('100\\\\%', $result);
     }
 
     //endregion
@@ -207,9 +243,9 @@ class EscapeTest extends BaseTestCase
             'null'                 => [null, false, ''],
             'empty'                => ['', false, ''],
             'percent no escape'    => ['50%', false, '50%'],
-            'percent with escape'  => ['50%', true, '50\\%'],
+            'percent with escape'  => ['50%', true, '50\\\\%'],
             'underscore no escape' => ['a_b', false, 'a_b'],
-            'underscore escape'    => ['a_b', true, 'a\\_b'],
+            'underscore escape'    => ['a_b', true, 'a\\\\_b'],
             'complex'              => ["O'Brien said \"hi\"", false, "O\\'Brien said \\\"hi\\\""],
         ];
     }

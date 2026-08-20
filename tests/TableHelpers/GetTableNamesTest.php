@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Itools\ZenDB\Tests\TableHelpers;
 
 use Exception;
+use InvalidArgumentException;
 use Itools\ZenDB\DB;
 use Itools\ZenDB\Table;
 use Itools\ZenDB\Tests\BaseTestCase;
@@ -48,6 +49,10 @@ class GetTableNamesTest extends BaseTestCase
         // Create a table without our prefix
         DB::$mysqli->query("DROP TABLE IF EXISTS other_table_xyz");
         DB::$mysqli->query("CREATE TABLE other_table_xyz (id INT)");
+
+        // Create a table that only matches test_ if the prefix underscore is mistaken for a wildcard
+        DB::$mysqli->query("DROP TABLE IF EXISTS testXwildcard");
+        DB::$mysqli->query("CREATE TABLE testXwildcard (id INT)");
     }
 
     public static function tearDownAfterClass(): void
@@ -61,6 +66,7 @@ class GetTableNamesTest extends BaseTestCase
             DB::$mysqli->query("DROP TABLE IF EXISTS test__underscore");
             DB::$mysqli->query("DROP VIEW IF EXISTS test_get_tables_view");
             DB::$mysqli->query("DROP TABLE IF EXISTS other_table_xyz");
+            DB::$mysqli->query("DROP TABLE IF EXISTS testXwildcard");
             DB::$mysqli->query("DROP TABLE IF EXISTS cms_pages");
         } catch (Exception) {
             // Ignore cleanup errors
@@ -132,6 +138,16 @@ class GetTableNamesTest extends BaseTestCase
         $this->assertNotContains('get_tables_a', $tables);
     }
 
+    public function testDottedPrefixRejected(): void
+    {
+        // A dot in a prefix is ambiguous (database qualifier in most tools, literal name
+        // character otherwise), so config refuses it instead of guessing
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage("Invalid tablePrefix");
+
+        DB::clone(['tablePrefix' => 'v2.cms_']);
+    }
+
     public function testWithEmptyPrefix(): void
     {
         $conn   = DB::clone(['tablePrefix' => '']);
@@ -176,6 +192,9 @@ class GetTableNamesTest extends BaseTestCase
 
             // Wrong prefix - excluded
             'wrong prefix'        => ['other_table_xyz', false],
+
+            // testXwildcard - excluded: the prefix must match exactly, underscore is not a wildcard
+            'underscore literal'  => ['wildcard', false],
         ];
     }
 

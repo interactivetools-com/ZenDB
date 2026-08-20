@@ -7,6 +7,10 @@ use mysqli_result;
 use mysqli_stmt;
 use ValueError;
 
+// import built-ins so calls resolve at compile time instead of per-call lookups; NamespacedCallsTest keeps this list exact
+use function array_fill, count, in_array;
+use const MYSQLI_ASSOC, MYSQLI_BOTH, MYSQLI_NUM;
+
 /**
  * Class MysqliResultPolyfill
  *
@@ -29,6 +33,7 @@ class MysqliResultPolyfill extends mysqli_result
     private mysqli_stmt         $stmt;
     private mysqli_result|false $meta;
     private array               $fieldObjects;
+    private array               $boundValues = [];
 
     /**
      * Returns object that emulates mysqli_result.
@@ -46,6 +51,17 @@ class MysqliResultPolyfill extends mysqli_result
 
         // Buffer rows client-side, matching native get_result(); makes data_seek() valid
         $stmt->store_result();
+
+        // Bind by position, one slot per column. A JOIN can select two columns with the
+        // same name (SELECT a.id, b.id), so name-keyed slots would collapse them and drop
+        // a column. Positional slots keep every column; fetch_array() builds the keyed row.
+        // Bind a local array first: bind_result() on a spread property binds a temp copy,
+        // and with zero fields it throws, so skip binding entirely.
+        if ($this->fieldObjects) {
+            $values = array_fill(0, count($this->fieldObjects), null);
+            $stmt->bind_result(...$values);
+            $this->boundValues = $values;
+        }
     }
 
     /**
@@ -71,13 +87,6 @@ class MysqliResultPolyfill extends mysqli_result
             return null;
         }
 
-        // Bind by position, one slot per column. A JOIN can select two columns with the
-        // same name (SELECT a.id, b.id), so name-keyed slots would collapse them and drop
-        // a column. Positional slots keep every column; we build the keyed row afterward.
-        // Unpacking into bind_result()'s by-reference variadic binds the slots directly.
-        $values = array_fill(0, count($this->fieldObjects), null);
-        $this->stmt->bind_result(...$values);
-
         if (!$this->stmt->fetch()) {
             return null; // No more rows
         }
@@ -87,11 +96,11 @@ class MysqliResultPolyfill extends mysqli_result
         $addNamed   = $mode & MYSQLI_ASSOC;
         foreach ($this->fieldObjects as $i => $column) {
             if ($addNumeric) {
-                $result[$i] = $values[$i];
+                $result[$i] = $this->boundValues[$i];
             }
             if ($addNamed) {
                 // Duplicate names are last-wins, matching native mysqli_result
-                $result[$column->name] = $values[$i];
+                $result[$column->name] = $this->boundValues[$i];
             }
         }
 

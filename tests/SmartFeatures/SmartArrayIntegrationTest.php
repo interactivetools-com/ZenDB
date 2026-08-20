@@ -21,7 +21,7 @@ class SmartArrayIntegrationTest extends BaseTestCase
     public static function setUpBeforeClass(): void
     {
         self::createDefaultConnection();
-        self::resetTempTestTables();
+        self::resetTestTables();
     }
 
     //region ResultSet Behavior
@@ -137,10 +137,9 @@ class SmartArrayIntegrationTest extends BaseTestCase
     {
         $row = DB::selectOne('users', ['num' => 1]);
 
-        // Use isset() or array key exists via offsetExists
-        $this->assertTrue(isset($row['name']));
-        $this->assertTrue(isset($row['num']));
-        $this->assertFalse(isset($row['nonexistent']));
+        $this->assertTrue(isset($row->name));
+        $this->assertTrue(isset($row->num));
+        $this->assertFalse(isset($row->nonexistent));
     }
 
     //endregion
@@ -255,15 +254,6 @@ class SmartArrayIntegrationTest extends BaseTestCase
 
     //endregion
     //region SmartStrings Toggle
-
-    public function testUseSmartStringsTrue(): void
-    {
-        // Default behavior
-        $result = DB::select('users', ['num' => 1]);
-        $row = $result->first();
-
-        $this->assertInstanceOf(SmartString::class, $row->get('name'));
-    }
 
     public function testSmartStringsEnabled(): void
     {

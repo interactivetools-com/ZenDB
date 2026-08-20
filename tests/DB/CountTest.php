@@ -18,7 +18,7 @@ class CountTest extends BaseTestCase
     {
         DB::disconnect();
         DB::connect(self::$configDefaults);
-        self::resetTempTestTables();
+        self::resetTestTables();
     }
 
     public function testCountAllRows(): void

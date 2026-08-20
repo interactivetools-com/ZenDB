@@ -93,7 +93,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # No xdebug (coverage: none), opcache enabled for CLI to match production
       # opcode optimization. JIT is set explicitly both ways: the runner images
@@ -110,7 +110,7 @@ jobs:
             ${{ inputs.jit == 'off' && 'opcache.jit=off, opcache.jit_buffer_size=0' || format('opcache.jit={0}, opcache.jit_buffer_size=64M', inputs.jit) }}
 
       - name: Start MySQL 8.0
-        uses: shogo82148/actions-setup-mysql@076e636c45996ec8cb1a455c65f9f5364aeebd8a # v1.52.1
+        uses: shogo82148/actions-setup-mysql@62da9377d83991fce27b6ed2a397d3306121e41d # v1.53.1
         with:
           mysql-version: '8.0'
 
@@ -120,13 +120,17 @@ jobs:
           DB_USERNAME: root
           DB_PASSWORD: ''
           DB_DATABASE: phpunit_test_db
+          # scale and filter are free-form text: pass them as env vars so the
+          # shell gets them as data, never as script source
+          SCALE: ${{ inputs.scale }}
+          FILTER: ${{ inputs.filter }}
         run: |
           SLUG="${{ matrix.os }}-php${{ matrix.php }}${{ inputs.jit != 'off' && format('-jit-{0}', inputs.jit) || '' }}"
           echo "SLUG=$SLUG" >> "$GITHUB_ENV"
           php .github/scripts/escape-probe.php \
             --json="probe-$SLUG.json" \
-            --scale="${{ inputs.scale }}" \
-            ${{ inputs.filter != '' && format('--filter="{0}"', inputs.filter) || '' }} \
+            --scale="$SCALE" \
+            ${FILTER:+--filter="$FILTER"} \
             >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload probe results
@@ -147,7 +151,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup PHP
         uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2.37.2

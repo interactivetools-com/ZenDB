@@ -52,10 +52,27 @@ inline values are rejected, so injection is hard to write even by accident.
 You have to step off that path on purpose to open a hole. Stay on it and
 injection is not something you have to think about.
 
+ZenDB fills placeholders client-side: each value is escaped and inlined, and
+the server receives one finished query, with no server-side prepare step.
+That changes nothing above - values still only enter through placeholders -
+and speed is not a reason to want server-side prepares either: their extra
+prepare round trip costs more than ZenDB's query building on typical pages
+([measurements](performance.md)).
+
+### Connection Charset - Always utf8mb4
+
+ZenDB connections are utf8mb4. Don't change it: escaping, HTML-encoding, and
+backups all count on it.
+
+Changing it can introduce SQL injection, and that's not a ZenDB quirk. On any
+MySQL connection, escaping works by knowing the charset, so once the client and
+server disagree about it a crafted value can break out of its quotes and run as
+SQL. `SET NAMES` causes exactly that disagreement: it only tells the server.
+
 ### Unencoded Output - `rawHtml()`
 
 Every value from ZenDB HTML-encodes itself in string context, so normal output
-is XSS-safe without effort. `rawHtml()` is the single exception: it returns
+is XSS-safe without effort. The single exception is `rawHtml()`: it returns
 the value unencoded.
 
 ```php
@@ -81,21 +98,8 @@ deliberate opt-outs, not misused reads.
 ## The Empty-Quotes Gap
 
 The template guard rejects quotes, so interpolating a value into quotes you
-wrote yourself throws the first time it runs with real data:
-
-```php
-$name = $_GET['name']; // "Vancouver"
-
-// This throws - the interpolated value puts quotes in the template
-DB::query("SELECT * FROM ::users WHERE name = '$name'");
-// Throws: Quotes not allowed in template. Replace 'Vancouver' with :paramName and add: [ ':paramName' => 'Vancouver' ]
-
-// The placeholder form
-DB::query("SELECT * FROM ::users WHERE name = ?", $name);
-```
-
-You can't ship the wrong form by accident, because it breaks the moment any
-real value reaches it. That is the guard working as designed.
+wrote yourself (`WHERE name = '$name'` instead of `WHERE name = ?`) throws
+the first time it runs with real data; you can't ship that form by accident.
 
 There is one gap. The guard allows the empty-string literal `''` (a common,
 harmless thing to write, as in `WHERE name != ''`). An attacker whose value
@@ -184,4 +188,4 @@ encrypt with an authenticated cipher in your application before storing.
 
 ---
 
-[← Encryption](encryption.md) | [Documentation Index](README.md) | [Next: Troubleshooting →](troubleshooting.md)
+[← Encryption](encryption.md) | [Documentation Index](README.md) | [Next: Performance →](performance.md)

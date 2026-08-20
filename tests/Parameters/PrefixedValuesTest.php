@@ -23,7 +23,7 @@ class PrefixedValuesTest extends BaseTestCase
     public static function setUpBeforeClass(): void
     {
         self::createDefaultConnection();
-        self::resetTempTestTables();
+        self::resetTestTables();
     }
 
     //region Basic Substitution
@@ -148,9 +148,9 @@ class PrefixedValuesTest extends BaseTestCase
         DB::query("SELECT ::? AS val", [['users', 'orders']]);
     }
 
-    public function testPrefixedEmptyArrayBecomesNull(): void
+    public function testPrefixedEmptyArrayMatchesNothing(): void
     {
-        // Same as plain :name - empty array becomes IN (NULL), which matches nothing
+        // Same as plain :name - empty array becomes an empty-set subquery, so IN matches nothing
         $result = DB::query("SELECT COUNT(*) AS cnt FROM ::users WHERE name IN (:::names)", [':names' => []]);
         $this->assertSame(0, (int) $result->first()->get('cnt')->value());
     }
@@ -268,7 +268,7 @@ class PrefixedValuesTest extends BaseTestCase
         } finally {
             // Reconnecting dropped the temp tables, restore both for any tests that run after
             self::createDefaultConnection();
-            self::resetTempTestTables();
+            self::resetTestTables();
         }
     }
 

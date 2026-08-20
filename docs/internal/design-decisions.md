@@ -10,6 +10,25 @@ in signatures, docblocks, the changelog, and tests.
 
 ---
 
+Contents:
+
+- [Design Philosophy](#design-philosophy)
+- [DB::upsert() - DECIDED: Not adding (2026-03)](#dbupsert---decided-not-adding-2026-03)
+- [DB::exists() - DECIDED: Not adding (2026-03)](#dbexists---decided-not-adding-2026-03)
+- [Naming: queryLogger - DECIDED: Keep (2026-03)](#naming-querylogger---decided-keep-2026-03)
+- [DB::clone() - DECIDED: Keep (2026-03)](#dbclone---decided-keep-2026-03)
+- [Config Storage - DECIDED: Keep typed properties + credential vault (2026-03)](#config-storage---decided-keep-typed-properties--credential-vault-2026-03)
+- [Naming: rawHtml() - DECIDED: Only name for unencoded output (2026-07)](#naming-rawhtml---decided-only-name-for-unencoded-output-2026-07)
+- [Positional Parameters - DECIDED: Allowlist, max 3 direct (2026-07)](#positional-parameters---decided-allowlist-max-3-direct-2026-07)
+- [Smart Join Alias Keys - DECIDED: Self-joins only (2026-07)](#smart-join-alias-keys---decided-self-joins-only-2026-07)
+- [Encrypted-Column Qualifiers - DECIDED: `::` works inside `{{}}` (2026-07)](#encrypted-column-qualifiers---decided--works-inside--2026-07)
+- [Dotted Table Prefixes - DECIDED: Banned (2026-08)](#dotted-table-prefixes---decided-banned-2026-08)
+- [HTML Composition - DECIDED: SmartString's appendHtml()/wrapHtml() are the answer (2026-08)](#html-composition---decided-smartstrings-appendhtmlwraphtml-are-the-answer-2026-08)
+- [Undocumented on Purpose - DECIDED (2026-07)](#undocumented-on-purpose---decided-2026-07)
+- [Deprecation Notices - DECIDED: The `@` on `trigger_error()` stays (2026-08)](#deprecation-notices---decided-the--on-trigger_error-stays-2026-08)
+- [Empty-Quotes Gap - DECIDED: Keep allowing `''` (2026-08)](#empty-quotes-gap---decided-keep-allowing--2026-08)
+- [Other Ideas Rejected (2026-03)](#other-ideas-rejected-2026-03)
+
 ## Design Philosophy
 
 - **Convention over configuration** - sensible defaults, minimal setup
@@ -133,7 +152,7 @@ catch attempts to call `unsafe()`, `unescaped()`, `trusted()`, `trustedHtml()`,
 
 Params are valid as (1) up to 3 direct non-array values for `?` placeholders,
 or (2) one array of `':name' => value` pairs. Positional values passed in a
-single array log `E_USER_DEPRECATED`; the max-3 error text points to named
+single array raise `E_USER_DEPRECATED`; the max-3 error text points to named
 placeholders. Unused NAMED params stay allowed so param arrays can be shared
 across queries; known accepted cost: a named value whose SQL half was
 forgotten goes unwarned.
@@ -170,6 +189,65 @@ the marker, and `{{}}` lives inside SQL text.
 
 ---
 
+## Dotted Table Prefixes - DECIDED: Banned (2026-08)
+
+CMS Builder's installer used to accept prefixes like `client2.cms_`, naming
+tables literally (`client2.cms_news`, dot included - CMS Builder quotes full
+names in one backtick pair, so that's the only reading that ever worked
+there). Full literal-dot support was built and working (validation, `::`
+emitting backticked names, `{{::table.column}}`, the test suite on a dotted
+default prefix), then reverted after researching what the rest of the world
+does:
+
+- WordPress hit this exact issue in 2004 (Trac #910) and hard-bans dots:
+  "$table_prefix can only contain numbers, letters, and underscores".
+- Drupal supports dotted prefixes with the OPPOSITE meaning: `'shared.'` is
+  a `database.` qualifier for cross-database table sharing, and identifier
+  quoting for MySQL 8 broke it (#3186120) - the same collision from the
+  other side.
+- Laravel, Doctrine, and CodeIgniter all read a dot in a name as a
+  qualifier. No mainstream library treats it as a literal prefix character.
+
+So a dot in a prefix is ambiguous on arrival - a user writing `'shared.'`
+more likely means cross-database than literal-dot tables - and ZenDB refuses
+at config time instead of guessing. Existing dotted installs migrate with
+RENAME TABLE (steps in UPGRADING.md), reviewed as part of the CMS Builder
+upgrade notes.
+
+Kept from the exploration (correct regardless of dots):
+
+- Base names are validated before the prefix is added; `columns()`,
+  `hasColumn()`/`columnNames()`, and the FOREIGN KEY methods fail fast on
+  invalid names like the other schema helpers.
+- `exists()` and `existsFull()` throw for invalid names, dots included,
+  same as every other method that takes a table name. A dot carve-out for
+  existsFull() was considered and dropped: it was really motivated by our
+  own dotted-prefix support, existsFull() already answered false for other
+  legal MySQL names like `my table`, and both probes only ever see the
+  current database (clone() can't switch databases; a clone shares the
+  mysqli connection, so `USE` would switch the original too). Checking a
+  name ZenDB couldn't have created is an information_schema one-liner,
+  shown in the existsFull() docblock. The deprecated hasTable() and
+  tableExists() shims keep answering false for invalid names.
+- `decryptExpr()` takes one dot at most (column or table.column); a second
+  dot would build a database-qualified reference no caller means.
+
+---
+
+## HTML Composition - DECIDED: SmartString's appendHtml()/wrapHtml() are the answer (2026-08)
+
+The question started here: templates wrapping a query-result field in markup
+only when the field has a value. The ruling lives with the string type:
+SmartString's `appendHtml()`/`wrapHtml()` cover the idiom (missing value
+returns "", so the whole wrapper vanishes), and result fields are
+SmartStrings so they get both directly - ZenDB adds nothing. Rejected across
+the family: a SmartHtml type, encode-on-append, entity-sniffing, and further
+`*Html()` name variants. If richer safe-HTML composition is ever needed, the
+design is a dedicated safe-HTML type (details in SmartString's
+design-decisions entry).
+
+---
+
 ## Undocumented on Purpose - DECIDED (2026-07)
 
 The docs deliberately omit these; the omission is a decision, not a gap
@@ -194,6 +272,58 @@ The docs deliberately omit these; the omission is a decision, not a gap
   plumbing for code that already knows the internals, not regular-use methods.
   Rule of thumb: methods living in DBInternals.php are internal unless ruled
   otherwise.
+
+---
+
+## Deprecation Notices - DECIDED: The `@` on `trigger_error()` stays (2026-08)
+
+`DBDeprecations::logDeprecation()` sends notices as `@trigger_error(...)`. The
+`@` mutes PHP's own display *and* its logging, so only a `set_error_handler()`
+ever sees them. That is the intent: notices are for handlers that collect them
+(CMS Builder's developer log), never for page output or PHP's default error
+log. Don't remove the `@` to make PHP log them.
+
+SmartString and SmartArray follow the same rule and state it at the call site;
+ZenDB's `logDeprecation()` has no comment saying so.
+
+---
+
+## Empty-Quotes Gap - DECIDED: Keep allowing `''` (2026-08)
+
+`assertSafeTemplate()` strips `''` and `""` before the quote check, so
+`WHERE name != ''` runs. That exception is what lets a balanced payload
+through: `' OR name=name #'` interpolated into `WHERE name = '$name'` reaches
+the guard as two empty-string literals and runs as a tautology. Documented in
+[The Empty-Quotes Gap](../security-gotchas.md). Raised again by a 2026-08
+security scan, which proposed rejecting every quote and requiring `''` from a
+placeholder.
+
+Not doing it. The gap needs one specific shape, and it's the only shape that
+survives development:
+
+| Developer wrote | blank value | real value | balanced payload |
+| --- | --- | --- | --- |
+| `WHERE name = $name` | SQL syntax error | Unknown column 'Alice' | runs |
+| `WHERE name = '$name'` | 0 rows, looks fine | guard throws | runs |
+
+Unquoted interpolation is broken for every value a developer would test with,
+so it can't ship. Quoted interpolation throws the moment a real value arrives.
+What's left is a field that is always blank until a user fills it, such as an
+optional filter, where the throw never fires. Digits still throw (`' OR 1=1 #'`
+is caught by the standalone-number check) and mysqli refuses a second
+statement, so the payload has to be digit-free and single-statement too.
+
+Closing it costs more than it buys: CMS Builder core alone has `= ''` and
+`!= ''` in `upload_functions.php`, `upgrade_functions.php`,
+`viewer_functions.php`, and two plugins, all of which would start throwing on
+upgrade, plus every customer template and third-party plugin we can't see or
+fix.
+
+The guard is a tripwire, not a parser. It reads the finished SQL string and
+can't tell which characters the developer typed and which came from a
+variable. It catches the common mistake early and loudly; placeholders are
+what make interpolation safe. Same reason the identifier gap
+(`ORDER BY $sort`) exists and is documented next to this one.
 
 ---
 

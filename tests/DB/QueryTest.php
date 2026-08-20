@@ -19,7 +19,7 @@ class QueryTest extends BaseTestCase
     {
         DB::disconnect();
         DB::connect(self::$configDefaults);
-        self::resetTempTestTables();
+        self::resetTestTables();
     }
 
     public function testQuerySelect(): void

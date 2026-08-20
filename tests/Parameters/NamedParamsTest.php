@@ -21,7 +21,7 @@ class NamedParamsTest extends BaseTestCase
     public static function setUpBeforeClass(): void
     {
         self::createDefaultConnection();
-        self::resetTempTestTables();
+        self::resetTestTables();
     }
 
     //region Basic Named Parameters
@@ -113,9 +113,17 @@ class NamedParamsTest extends BaseTestCase
     public function testReservedZdbPrefixThrows(): void
     {
         $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage("Names can't start with :zdb_ (reserved prefix)");
+        $this->expectExceptionMessage("Names can't start with :zdb (reserved prefix)");
 
         DB::query("SELECT * FROM ::users WHERE num = :zdb_internal", [':zdb_internal' => 1]);
+    }
+
+    public function testReservedZdbPrefixWithoutUnderscoreThrows(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage("Names can't start with :zdb (reserved prefix)");
+
+        DB::query("SELECT * FROM ::users WHERE num = :zdbTemp", [':zdbTemp' => 1]);
     }
 
     public function testUnderscoreLeadingParamNameThrows(): void
@@ -151,6 +159,15 @@ class NamedParamsTest extends BaseTestCase
         $this->expectExceptionMessage("Invalid param name");
 
         DB::query("SELECT * FROM ::users WHERE num = :num", [':user-name' => 'test']);
+    }
+
+    public function testPhpNamedArgumentsThrow(): void
+    {
+        // Legal PHP syntax collects unknown named args into ...$params as string keys
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage("can't be passed as PHP named arguments");
+
+        DB::query("SELECT * FROM ::users WHERE name = :name", name: 'John Doe');
     }
 
     public function testParamNameWithSpaceThrows(): void

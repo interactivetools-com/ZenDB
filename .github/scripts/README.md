@@ -18,11 +18,26 @@ server returns) and merges the results into
 - `db-behavior-probe.php` - probe one server, print markdown (and optional JSON)
 - `db-behavior-merge.php` - merge per-server JSONs into one "who differs" report
 
-**Escape benchmark suite** (`escape-matrix.yml`, `escape-e2e-matrix.yml`) -
+**Version speed test** (`version-matrix.yml`) - the previous release versus the
+working copy on the pages from
+[docs/performance.md](../../docs/performance.md), so a release can say how much
+faster it got.
+
+- `version-probe.php` - composer installs the baseline release into a scratch
+  directory with its namespaces suffixed "Old", loads both versions in one
+  process, and runs their pages interleaved; separate processes drift more than
+  the difference being measured. The baseline pulls the SmartArray and
+  SmartString that release resolves to, so each side is the whole stack as an
+  install gets it. Gated on identical page bytes and identical statements per
+  call, so a difference in the table is PHP-side work and never a round trip
+
+**Escape benchmark suite** (`escape-matrix.yml`, `escape-e2e-matrix.yml`,
+`escape-zendb-matrix.yml`) -
 measures every MySQL escaping candidate and every way values get into queries,
 gated by a byte-identity corpus against a live `real_escape_string()` before any
-timing. Results land in [escape-results.md](escape-results.md); the plan and
-research live in the repo root `__escape-benchmark-plan.md` (untracked).
+timing. Results land in [escape-results.md](escape-results.md); the research,
+suite methodology, and remaining work live in
+[docs/internal/fast-mysql-escape.md](../../docs/internal/fast-mysql-escape.md).
 
 - `escape-corpus.php` - corpus builder, equivalence gates, escape-set canary,
   probe self-check; shared with `tests/Escaping/EscapeEquivalenceTest.php`
@@ -30,9 +45,11 @@ research live in the repo root `__escape-benchmark-plan.md` (untracked).
   ZenDB-shaped query-compile cells; one JSON per OS x PHP cell
 - `escape-e2e-probe.php` - end-to-end family: interpolation vs prepared vs PDO
   vs hex per DB server, round-trip census, reuse crossover, bulk grid
-- `escape-zendb-probe.php` - ZenDB vs raw mysqli (`escape-zendb-matrix.yml`):
-  DB::select/selectOne/query vs hand-written mysqli, whole-query wall time plus
-  per-row wrapping cost; the only escape script that needs composer install
+- `escape-zendb-probe.php` - ZenDB vs raw mysqli vs fresh-prepared mysqli
+  (`escape-zendb-matrix.yml`) on real-world page scenarios: detail page (1
+  row), widget (5), list page (25 and 100), each consumed as HTML output or
+  raw arrays, on news-corpus content; whole-query wall time. The only escape
+  script that needs composer install
 - `escape-merge.php` - merge probe JSONs from either family into one grid
 - `escape-results.md` - committed verdict grid from full CI runs (citable source)
 

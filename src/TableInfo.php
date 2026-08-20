@@ -7,6 +7,10 @@ use InvalidArgumentException;
 use RuntimeException;
 use mysqli_sql_exception;
 
+// import built-ins so calls resolve at compile time instead of per-call lookups; NamespacedCallsTest keeps this list exact
+use function array_column, array_filter, array_keys, array_map, count, explode, implode, in_array, preg_grep, preg_match, preg_replace, preg_replace_callback, str_starts_with, stripos, strlen, strpos, strtolower, strtr, substr, usort;
+use const MYSQLI_ASSOC, PREG_OFFSET_CAPTURE;
+
 /**
  * INTERNAL: Method names and return values may change between releases.
  *
@@ -43,7 +47,7 @@ class TableInfo
     private const DEFAULT_COLLATIONS = [
         'utf8_general_ci',       // legacy utf8 (3-byte) default on every server except MariaDB 11.8+
         'utf8_uca1400_ai_ci',    // legacy utf8 default on MariaDB 11.8+
-        'utf8mb4_general_ci',    // utf8mb4 default: MySQL/Percona 5.7, MariaDB thru 10.11
+        'utf8mb4_general_ci',    // utf8mb4 default: MySQL/Percona 5.7, MariaDB through 10.11
         'utf8mb4_0900_ai_ci',    // utf8mb4 default: MySQL/Percona 8.0+ (unknown to MariaDB before 11.4)
         'utf8mb4_uca1400_ai_ci', // utf8mb4 default: MariaDB 11.4+ (unknown to MySQL, and MariaDB before 10.10)
         'utf8mb4_unicode_ci',    // no server's default; the usual explicit pin, chosen because every server has it
@@ -54,12 +58,14 @@ class TableInfo
     //region Tables
 
     /**
-     * Check whether a table exists. Any name is a fair question, including one MySQL wouldn't
-     * accept as an identifier: "no such table" answers false. Failures that aren't about the
-     * table (dead connection, missing privilege) throw instead of passing as false.
+     * Check whether a table exists and can be queried. An invalid name throws, same as
+     * every other method that takes a table name; a missing table, broken view, or
+     * missing privilege answers false. A connection failure also throws - there's no
+     * answer to report, and every query behaves the same way there.
      *
      *     Table::exists('articles');       // true
      *     Table::exists('no_such_table');  // false
+     *     Table::exists('bad`name');       // throws InvalidArgumentException
      *
      * The check probes the table with a zero-row SELECT instead of reading information_schema,
      * so views and this connection's temporary tables count as existing (information_schema
@@ -68,13 +74,17 @@ class TableInfo
      * macOS servers, case-sensitive on most Linux servers (lower_case_table_names).
      * See docs/internal/db-behavior-matrix.md (2026-07).
      *
-     * For a name that already includes the prefix use existsFull().
+     * For a name that already includes the prefix use existsFull(). For a name ZenDB
+     * couldn't have created (dots, spaces, another database), see existsFull() for the
+     * information_schema query.
      *
      * @param string $baseTable Table name without prefix
      * @return bool True when a table, view, or temporary table by that name exists
+     * @throws InvalidArgumentException For names with characters outside a-z, A-Z, 0-9, _, -
      */
     public function exists(string $baseTable): bool
     {
+        isset(DB::$safeIdentifiers[$baseTable]) || DB::assertIdentifier($baseTable, 'table name');
         return $this->existsFull($this->db->tablePrefix . $baseTable);
     }
 
@@ -86,23 +96,33 @@ class TableInfo
      *     Table::existsFull('cms_articles');  // true
      *     Table::existsFull('articles');      // false (the real name is cms_articles)
      *
+     * An invalid name throws, same as exists(). To check a name ZenDB couldn't have
+     * created (a dotted name another tool made, or a table in another database), ask
+     * information_schema - it just can't see temporary tables:
+     *
+     *     $found = DB::queryOne("
+     *         SELECT COUNT(*) AS cnt FROM information_schema.TABLES
+     *         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?
+     *     ", 'legacy.dotted_name')->cnt->int() > 0;
+     *
      * @param string $fullTable Table name exactly as MySQL knows it
      * @return bool True when a table, view, or temporary table by that name exists
+     * @throws InvalidArgumentException For names with characters outside a-z, A-Z, 0-9, _, -
      */
     public function existsFull(string $fullTable): bool
     {
+        isset(DB::$safeIdentifiers[$fullTable]) || DB::assertIdentifier($fullTable, 'table name'); // guarantees the name is safe between backticks
         try {
-            DB::assertIdentifier($fullTable, 'table name');
-            $escapedFullTable = $this->mysqli->real_escape_string($fullTable);
-            $this->mysqli->query("SELECT 1 FROM `$escapedFullTable` LIMIT 0")->free();
+            $this->mysqli->query("SELECT 1 FROM `$fullTable` LIMIT 0")->free();
             return true;
-        } catch (InvalidArgumentException) {
-            return false; // a name MySQL wouldn't accept can't exist
         } catch (mysqli_sql_exception $e) {
-            if ($e->getCode() === 1146) { // ER_NO_SUCH_TABLE
-                return false;
+            // Codes 2000-2999 are the client library's: the exchange with the server never
+            // completed, so there's no answer to report. Everything else is the server
+            // answering "you can't use that table", which is a "no".
+            if (2000 <= $e->getCode() && $e->getCode() <= 2999) {
+                throw $e;
             }
-            throw $e; // anything else (dead connection, missing privilege) is an error, not a "no"
+            return false;
         }
     }
 
@@ -119,7 +139,7 @@ class TableInfo
     public function names(): array
     {
         $prefixLength = strlen($this->db->tablePrefix);
-        return array_map(fn(string $name) => substr($name, $prefixLength), $this->namesFull());
+        return array_map(static fn(string $name) => substr($name, $prefixLength), $this->namesFull());
     }
 
     /**
@@ -139,7 +159,7 @@ class TableInfo
     public function namesFull(): array
     {
         $prefix        = $this->db->tablePrefix;
-        $prefixLength  = strlen($prefix);
+        $prefixLength  = strlen($prefix); // bytes == characters: the config check limits prefixes to ASCII
         $escapedPrefix = $this->mysqli->real_escape_string($prefix);
         $result        = $this->mysqli->query(
             "SELECT TABLE_NAME
@@ -150,8 +170,8 @@ class TableInfo
         $result->free();
 
         // content tables first, system tables (underscore after the prefix) last, alphabetical within each group
-        $isSystemTable = fn(string $name) => ($name[$prefixLength] ?? '') === '_';
-        usort($names, fn($a, $b) => $isSystemTable($a) <=> $isSystemTable($b) ?: $a <=> $b);
+        $isSystemTable = static fn(string $name) => ($name[$prefixLength] ?? '') === '_';
+        usort($names, static fn($a, $b) => ($isSystemTable($a) <=> $isSystemTable($b)) ?: ($a <=> $b));
 
         return $names;
     }
@@ -170,6 +190,7 @@ class TableInfo
      * @param string $baseTable  Table name without prefix
      * @param string $columnName Column to look for
      * @return bool True when the column exists on the table
+     * @throws InvalidArgumentException For names with characters outside a-z, A-Z, 0-9, _, -
      */
     public function hasColumn(string $baseTable, string $columnName): bool
     {
@@ -200,9 +221,11 @@ class TableInfo
      *
      * @param string $baseTable Table name without prefix
      * @return array<string, array{name: string, type: string, isNullable: bool, extra: string, charset: ?string}> columnName => column details
+     * @throws InvalidArgumentException For names with characters outside a-z, A-Z, 0-9, _, -
      */
     public function columns(string $baseTable): array
     {
+        isset(DB::$safeIdentifiers[$baseTable]) || DB::assertIdentifier($baseTable, 'table name');
         $escapedFullTable = $this->mysqli->real_escape_string($this->db->tablePrefix . $baseTable);
 
         // SELECT * because not every server has every field (e.g. no GENERATION_EXPRESSION before MariaDB 10.2)
@@ -245,6 +268,7 @@ class TableInfo
      *
      * @param string $baseTable Table name without prefix
      * @return list<string> Column names
+     * @throws InvalidArgumentException For names with characters outside a-z, A-Z, 0-9, _, -
      */
     public function columnNames(string $baseTable): array
     {
@@ -283,6 +307,9 @@ class TableInfo
      *     ('DEFAULT uuid()' → 'DEFAULT (uuid())'); CURRENT_TIMESTAMP stays bare per the rule above
      *   - MariaDB's bare numeric defaults are quoted the way MySQL prints them ('DEFAULT 0' → "DEFAULT '0'");
      *     both servers accept either form in DDL, the quoting is spelling, not type
+     *   - the implicit DEFAULT NULL MariaDB prints on nullable text/blob columns is dropped
+     *     ('mediumtext DEFAULT NULL' → 'mediumtext'), matching MySQL's output; real text defaults
+     *     survive, both MariaDB's quoted form (DEFAULT '123') and MySQL's expression form (DEFAULT ('abc'))
      *
      * COMMENT text is never modified: it is split off before normalizing and reattached after.
      *
@@ -296,6 +323,7 @@ class TableInfo
      *
      * @param string $baseTable Table name without prefix
      * @return array<string, string> columnName => definition SQL
+     * @throws InvalidArgumentException For names with characters outside a-z, A-Z, 0-9, _, -
      */
     public function columnDefinitions(string $baseTable): array
     {
@@ -311,8 +339,7 @@ class TableInfo
      */
     private static function parseCreateTableColumns(string $createTableSql): array
     {
-        $createTableSql      = self::stripRedundantCharsetCollate($createTableSql);
-        $defaultCollationsRx = '(?:' . implode('|', self::DEFAULT_COLLATIONS) . ')';
+        $createTableSql = self::stripRedundantCharsetCollate($createTableSql);
 
         // column lines start with a backtick-quoted name; PRIMARY KEY, KEY, and CONSTRAINT lines don't
         $definitions = [];
@@ -323,30 +350,7 @@ class TableInfo
             [, $columnName, $definition] = $match;
             [$definition, $literals]     = self::maskStringLiterals($definition);
 
-            $definition = self::rewriteUtf8mb3ToUtf8($definition);
-
-            // server-default collations are noise: servers disagree on whether they're printed at
-            // all and on which collation is the default, so on replay each server applies its own
-            $definition = preg_replace("/ COLLATE $defaultCollationsRx\\b/", '', $definition);
-
-            $definition = self::cropIntDisplayWidth($definition);
-
-            // MariaDB 10.2+ spells defaults current_timestamp(); MySQL spells them CURRENT_TIMESTAMP
-            $definition = preg_replace('/\b(DEFAULT|ON UPDATE) current_timestamp(?:\(\))?(\(\d+\))?/i', '$1 CURRENT_TIMESTAMP$2', $definition);
-
-            // vendors disagree on expression parens both ways: MySQL wraps generated-column
-            // expressions in a redundant extra pair, and MariaDB prints expression defaults
-            // without the parens MySQL's DDL grammar requires
-            $definition = self::stripRedundantGeneratedParens($definition);
-            $definition = self::parenthesizeExpressionDefault($definition);
-
-            // MariaDB prints numeric-typed defaults bare (DEFAULT 0); MySQL prints them quoted (DEFAULT '0').
-            // Quote bare numeric literals to match MySQL. Numbers only: other bare tokens are keywords (NULL)
-            // or expressions (CURRENT_TIMESTAMP, uuid()) and must stay bare to keep their meaning, and string
-            // defaults are quoted, so they're masked above and can never match
-            $definition = preg_replace("/\bDEFAULT (-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)(?=,| |$)/", "DEFAULT '$1'", $definition);
-
-            $definitions[$columnName] = strtr($definition, $literals);
+            $definitions[$columnName] = strtr(self::normalizeColumnDefinition($definition), $literals);
         }
 
         return $definitions;
@@ -374,11 +378,12 @@ class TableInfo
      *
      * @param string $baseTable Table name without prefix
      * @return string The CREATE TABLE statement
+     * @throws InvalidArgumentException For names with characters outside a-z, A-Z, 0-9, _, -
      */
     public function showCreateTable(string $baseTable): string
     {
-        $fullTable = $this->db->tablePrefix . $baseTable;
-        DB::assertIdentifier($fullTable, 'table name');
+        isset(DB::$safeIdentifiers[$baseTable]) || DB::assertIdentifier($baseTable, 'table name');
+        $fullTable        = $this->db->tablePrefix . $baseTable;
         $escapedFullTable = $this->mysqli->real_escape_string($fullTable);
 
         $result = $this->mysqli->query("SHOW CREATE TABLE `$escapedFullTable`");
@@ -413,7 +418,17 @@ class TableInfo
      *     ('AS ((`num` * 2))' → 'AS (`num` * 2)'): both vendors accept the single pair
      *   - bare expression defaults gain parens ('DEFAULT uuid()' → 'DEFAULT (uuid())'): MariaDB
      *     prints them bare but MySQL's DDL grammar rejects that form, so the bare spelling
-     *     doesn't replay there; current_timestamp defaults keep their printed form
+     *     doesn't replay there; current_timestamp defaults never gain parens (the parenthesized
+     *     form is a syntax error on MySQL 5.7)
+     *   - timestamp defaults are spelled 'CURRENT_TIMESTAMP' ('DEFAULT current_timestamp()' →
+     *     'DEFAULT CURRENT_TIMESTAMP'): MariaDB prints the lowercase call form, MySQL the bare
+     *     keyword, and every supported server accepts the keyword
+     *   - bare numeric defaults are quoted ('DEFAULT 0' → "DEFAULT '0'"): MariaDB prints them
+     *     bare, MySQL prints them quoted, and every supported server accepts the quoted form
+     *   - the implicit DEFAULT NULL MariaDB prints on nullable text/blob columns is dropped
+     *     ('mediumtext DEFAULT NULL' → 'mediumtext'), matching MySQL's output; a nullable column
+     *     defaults to NULL either way, so replay is identical, and real text defaults survive,
+     *     both MariaDB's quoted form (DEFAULT '123') and MySQL's expression form (DEFAULT ('abc'))
      *
      * Engine, charset, and everything else replay as-is: this removes server-version noise,
      * it doesn't upgrade schemas. See docs/internal/db-behavior-matrix.md (2026-07).
@@ -426,8 +441,9 @@ class TableInfo
         // COLUMN CHARSET/COLLATE NOISE - drop clauses that just restate the table's own defaults
         $createTableSql = self::stripRedundantCharsetCollate($createTableSql);
 
-        // SERVER-DEFAULT COLLATIONS - stripped everywhere below, so each server applies its own
-        // default on replay and a statement never names a collation the target doesn't have
+        // SERVER-DEFAULT COLLATIONS - stripped from the table options here (columns strip theirs
+        // in normalizeColumnDefinition()), so each server applies its own default on replay and
+        // a statement never names a collation the target doesn't have
         $defaultCollationsRx = '(?:' . implode('|', self::DEFAULT_COLLATIONS) . ')';
 
         $lines = explode("\n", $createTableSql);
@@ -447,20 +463,64 @@ class TableInfo
             [, $namePart, $definition] = $match;
             [$definition, $literals]   = self::maskStringLiterals($definition); // COMMENT/DEFAULT/enum text stays byte-identical
 
-            $definition = self::rewriteUtf8mb3ToUtf8($definition);
-            $definition = preg_replace("/ COLLATE $defaultCollationsRx\\b/", '', $definition);
-            $definition = self::cropIntDisplayWidth($definition);
-
-            // vendors disagree on expression parens both ways: MySQL's redundant pair on generated
-            // columns is noise, and MariaDB's bare expression defaults don't replay on MySQL
-            $definition = self::stripRedundantGeneratedParens($definition);
-            $definition = self::parenthesizeExpressionDefault($definition);
-
-            $line = $namePart . strtr($definition, $literals);
+            $line = $namePart . strtr(self::normalizeColumnDefinition($definition), $literals);
         }
         unset($line);
 
         return implode("\n", $lines);
+    }
+
+    /**
+     * Normalize one column definition so it reads the same from every supported server and
+     * replays on every supported server. The single pipeline behind columnDefinitions() and
+     * normalizeCreateTable(): both call it, so they always agree on what a column looks like.
+     *
+     *     int(11) NOT NULL DEFAULT 0                      →  int NOT NULL DEFAULT '0'
+     *     mediumtext DEFAULT NULL                         →  mediumtext
+     *     varchar(50) CHARACTER SET utf8mb3 NOT NULL      →  varchar(50) CHARACTER SET utf8 NOT NULL
+     *     timestamp NOT NULL DEFAULT current_timestamp()  →  timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP
+     *
+     * Callers mask string literals first, so quoted text (COMMENT, DEFAULT, enum values) can
+     * never match a rewrite here.
+     *
+     * @param string $maskedDefinition Column definition with string literals already masked
+     * @return string The normalized definition, literals still masked
+     */
+    private static function normalizeColumnDefinition(string $maskedDefinition): string
+    {
+        $definition = self::rewriteUtf8mb3ToUtf8($maskedDefinition);
+
+        // server-default collations are noise: servers disagree on whether they're printed at
+        // all and on which collation is the default, so on replay each server applies its own
+        $defaultCollationsRx = '(?:' . implode('|', self::DEFAULT_COLLATIONS) . ')';
+        $definition          = preg_replace("/ COLLATE $defaultCollationsRx\\b/", '', $definition);
+
+        $definition = self::cropIntDisplayWidth($definition);
+
+        // MariaDB 10.2+ spells defaults current_timestamp(); MySQL spells them CURRENT_TIMESTAMP
+        $definition = preg_replace('/\b(DEFAULT|ON UPDATE) current_timestamp(?:\(\))?(\(\d+\))?/i', '$1 CURRENT_TIMESTAMP$2', $definition);
+
+        // vendors disagree on expression parens both ways: MySQL wraps generated-column
+        // expressions in a redundant extra pair, and MariaDB prints expression defaults
+        // without the parens MySQL's DDL grammar requires
+        $definition = self::stripRedundantGeneratedParens($definition);
+        $definition = self::parenthesizeExpressionDefault($definition);
+
+        // Last two cleanups in one call, one pass each (TableTest pins all of these):
+        //   - strip the DEFAULT NULL MariaDB prints on nullable text/blob columns - MySQL prints
+        //     nothing there, and a nullable column defaults to NULL either way
+        //     ('mediumtext DEFAULT NULL' → 'mediumtext'). Only text/blob: on every other type both
+        //     vendors print DEFAULT NULL, so it's already identical and stays. Real text defaults
+        //     can't match: MariaDB's are quoted (masked by the caller), MySQL's keep their
+        //     expression parens
+        //   - quote bare numeric defaults the way MySQL prints them ('DEFAULT 0' → "DEFAULT '0'") -
+        //     numbers only, since NULL and CURRENT_TIMESTAMP and uuid() must stay bare to keep
+        //     their meaning, and string defaults are masked so they can't match
+        return preg_replace(
+            ['/^((?:tiny|medium|long)?(?:text|blob)\b.*?) DEFAULT NULL\b/', "/\bDEFAULT (-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)(?=,| |$)/"],
+            ['$1',                                                          "DEFAULT '$1'"],
+            $definition,
+        );
     }
 
     /**
@@ -551,6 +611,10 @@ class TableInfo
      * and utf8mb3_* collation names. utf8mb4 can never match, and callers mask string literals
      * first so quoted text is untouched.
      *
+     *     CHARACTER SET utf8mb3 COLLATE utf8mb3_general_ci  →  CHARACTER SET utf8 COLLATE utf8_general_ci
+     *     CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci     →  CHARSET=utf8 COLLATE=utf8_uca1400_ai_ci
+     *     CHARACTER SET utf8mb4 COLLATE utf8mb4_bin         →  (unchanged: utf8mb4 is a different charset)
+     *
      * At a glance (utf8 and utf8mb3 are the same charset, two spellings):
      *
      *   spelling   printed in SHOW CREATE by            accepted in DDL by
@@ -571,8 +635,11 @@ class TableInfo
      */
     private static function rewriteUtf8mb3ToUtf8(string $maskedSql): string
     {
-        $maskedSql = preg_replace('/\b(CHARACTER SET |CHARSET=)utf8mb3\b/', '$1utf8', $maskedSql);
-        return preg_replace('/\b(COLLATE[ =])utf8mb3_/', '$1utf8_', $maskedSql);
+        // One pattern covers both spellings: $1 keeps the clause, and the lookahead accepts a
+        // collation's '_' suffix or a charset clause's word boundary without consuming either.
+        // A bare 'COLLATE utf8mb3' would also match; no server prints one (collation names
+        // always have a suffix), and rewriting it would be correct anyway
+        return preg_replace('/\b(CHARACTER SET |CHARSET=|COLLATE[ =])utf8mb3(?=_|\b)/', '$1utf8', $maskedSql);
     }
 
     /**
@@ -633,8 +700,10 @@ class TableInfo
         if (!preg_match('/\bDEFAULT (?!CURRENT_TIMESTAMP\b)[a-z_]\w*\(/i', $maskedDefinition, $match, PREG_OFFSET_CAPTURE)) {
             return $maskedDefinition;
         }
-        [$matchedText, $matchOffset] = $match[0]; // PREG_OFFSET_CAPTURE: [matched text, byte offset]
-        $matchOffset                 = (int)$matchOffset; // already an int; PhpStorm's stubs type all match slots as string
+        // PREG_OFFSET_CAPTURE: each match slot is [matched text, byte offset]; the (int) cast is
+        // for PhpStorm's stubs, which type every slot as string
+        $matchedText = $match[0][0];
+        $matchOffset = (int)$match[0][1];
 
         $open  = $matchOffset + strlen($matchedText) - 1;
         $close = self::matchingParenPos($maskedDefinition, $open);
@@ -652,7 +721,7 @@ class TableInfo
      * Find the ')' that closes the '(' at $openPos, or null if it never closes.
      * Callers pass masked text, so parens inside string literals can't miscount.
      */
-    private static function matchingParenPos(string $maskedText, int $openPos): ?int
+    public static function matchingParenPos(string $maskedText, int $openPos): ?int
     {
         $depth = 0;
         for ($pos = $openPos, $length = strlen($maskedText); $pos < $length; $pos++) {
@@ -679,11 +748,12 @@ class TableInfo
      *
      * @param string $baseTable Table name without prefix
      * @return string The first PRIMARY KEY column name, or '' when there's none
+     * @throws InvalidArgumentException For names with characters outside a-z, A-Z, 0-9, _, -
      */
     public function primaryKey(string $baseTable): string
     {
-        $fullTable = $this->db->tablePrefix . $baseTable;
-        DB::assertIdentifier($fullTable, 'table name');
+        isset(DB::$safeIdentifiers[$baseTable]) || DB::assertIdentifier($baseTable, 'table name');
+        $fullTable        = $this->db->tablePrefix . $baseTable;
         $escapedFullTable = $this->mysqli->real_escape_string($fullTable);
 
         $result = $this->mysqli->query("SHOW INDEX FROM `$escapedFullTable` WHERE Key_name = 'PRIMARY' AND Seq_in_index = 1");
@@ -726,11 +796,12 @@ class TableInfo
      * @param string      $baseTable  Table name without prefix
      * @param string|null $columnName Only return indexes that include this column
      * @return array<string, array{name: string, cols: list<string>, isAuto: bool, isPrimary: bool, isUnique: bool, indexType: string, isVisible: bool, comment: string, colsCsv: string, isFk: bool, isCustom: bool}> indexName => index details
+     * @throws InvalidArgumentException For names with characters outside a-z, A-Z, 0-9, _, -
      */
     public function indexes(string $baseTable, ?string $columnName = null): array
     {
-        $fullTable = $this->db->tablePrefix . $baseTable;
-        DB::assertIdentifier($fullTable, 'table name');
+        isset(DB::$safeIdentifiers[$baseTable]) || DB::assertIdentifier($baseTable, 'table name');
+        $fullTable        = $this->db->tablePrefix . $baseTable;
         $escapedFullTable = $this->mysqli->real_escape_string($fullTable);
 
         $result = $this->mysqli->query("SHOW INDEX FROM `$escapedFullTable`");
@@ -744,7 +815,7 @@ class TableInfo
 
         if ($columnName !== null) {
             $colLower = strtolower($columnName);
-            $indexes  = array_filter($indexes, fn($index) => in_array($colLower, array_map('strtolower', $index['cols']), true));
+            $indexes  = array_filter($indexes, static fn($index) => in_array($colLower, array_map('strtolower', $index['cols']), true));
         }
 
         return $indexes;
@@ -788,7 +859,7 @@ class TableInfo
         //   - exact match only, no leftmost-prefix, by design: a composite index that merely starts with the
         //     FK columns was added by the admin (MySQL just reuses it), so it stays visible as isCustom.
         //     Don't "fix" this into a leftmost-prefix match; TableTest pins it
-        $fkColumnSetsLower = array_map(fn($cols) => array_map('strtolower', $cols), $fkColumnSets);
+        $fkColumnSetsLower = array_map(static fn($cols) => array_map('strtolower', $cols), $fkColumnSets);
         foreach ($indexes as $name => &$index) {
             $index['colsCsv']  = implode(', ', $displayCols[$name]);
             $index['isFk']     = !$index['isUnique'] && in_array(array_map('strtolower', $index['cols']), $fkColumnSetsLower, true);
@@ -819,20 +890,37 @@ class TableInfo
      * @param string      $baseTable  Table name without prefix
      * @param string|null $columnName Only return constraints that include this column
      * @return array<string, array{name: string, cols: list<string>, refTable: string, refCols: list<string>, onDelete: string, onUpdate: string}> constraintName => constraint details
+     * @throws InvalidArgumentException For names with characters outside a-z, A-Z, 0-9, _, -
      */
     public function foreignKeys(string $baseTable, ?string $columnName = null): array
     {
+        isset(DB::$safeIdentifiers[$baseTable]) || DB::assertIdentifier($baseTable, 'table name');
         $escapedFullTable = $this->mysqli->real_escape_string($this->db->tablePrefix . $baseTable);
-        $result           = $this->mysqli->query(
-            "SELECT KCU.CONSTRAINT_NAME, KCU.COLUMN_NAME, KCU.REFERENCED_TABLE_NAME, KCU.REFERENCED_COLUMN_NAME, RC.DELETE_RULE, RC.UPDATE_RULE
-               FROM information_schema.KEY_COLUMN_USAGE AS KCU
-               JOIN information_schema.REFERENTIAL_CONSTRAINTS AS RC
-                 ON RC.CONSTRAINT_SCHEMA = KCU.CONSTRAINT_SCHEMA AND RC.CONSTRAINT_NAME = KCU.CONSTRAINT_NAME AND RC.TABLE_NAME = KCU.TABLE_NAME
-              WHERE KCU.TABLE_SCHEMA = DATABASE() AND KCU.TABLE_NAME = '$escapedFullTable'
-              ORDER BY KCU.CONSTRAINT_NAME, KCU.ORDINAL_POSITION",
+
+        // Two queries, not a KEY_COLUMN_USAGE JOIN REFERENTIAL_CONSTRAINTS: MariaDB only applies
+        // schema/table filters to an information_schema table queried on its own, so the join reads
+        // every foreign key on the server (~460ms on a 1,600-table dev box vs ~1ms for two queries).
+        $result = $this->mysqli->query(
+            "SELECT CONSTRAINT_NAME, COLUMN_NAME, REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME
+               FROM information_schema.KEY_COLUMN_USAGE
+              WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '$escapedFullTable' AND REFERENCED_TABLE_NAME IS NOT NULL
+              ORDER BY CONSTRAINT_NAME, ORDINAL_POSITION",
         );
-        $rows             = $result->fetch_all(MYSQLI_ASSOC);
+        $rows   = $result->fetch_all(MYSQLI_ASSOC);
         $result->free();
+
+        $onDeleteUpdateRules = []; // constraintName => [DELETE_RULE, UPDATE_RULE]
+        if ($rows) {
+            $result = $this->mysqli->query(
+                "SELECT CONSTRAINT_NAME, DELETE_RULE, UPDATE_RULE
+                   FROM information_schema.REFERENTIAL_CONSTRAINTS
+                  WHERE CONSTRAINT_SCHEMA = DATABASE() AND TABLE_NAME = '$escapedFullTable'",
+            );
+            foreach ($result->fetch_all(MYSQLI_ASSOC) as $rule) {
+                $onDeleteUpdateRules[$rule['CONSTRAINT_NAME']] = $rule;
+            }
+            $result->free();
+        }
 
         $foreignKeys = [];
         foreach ($rows as $row) {
@@ -842,8 +930,8 @@ class TableInfo
                 'cols'     => [],
                 'refTable' => $row['REFERENCED_TABLE_NAME'],
                 'refCols'  => [],
-                'onDelete' => $row['DELETE_RULE'],
-                'onUpdate' => $row['UPDATE_RULE'],
+                'onDelete' => $onDeleteUpdateRules[$name]['DELETE_RULE'],
+                'onUpdate' => $onDeleteUpdateRules[$name]['UPDATE_RULE'],
             ];
             $foreignKeys[$name]['cols'][]    = $row['COLUMN_NAME'];
             $foreignKeys[$name]['refCols'][] = $row['REFERENCED_COLUMN_NAME'];
@@ -851,7 +939,7 @@ class TableInfo
 
         if ($columnName !== null) {
             $colLower    = strtolower($columnName);
-            $foreignKeys = array_filter($foreignKeys, fn($fk) => in_array($colLower, array_map('strtolower', $fk['cols']), true));
+            $foreignKeys = array_filter($foreignKeys, static fn($fk) => in_array($colLower, array_map('strtolower', $fk['cols']), true));
         }
 
         return $foreignKeys;
@@ -872,9 +960,11 @@ class TableInfo
      *
      * @param string $baseTable Table name without prefix
      * @return array<string, array{name: string, fullTable: string, cols: list<string>, refCols: list<string>}> constraintName => constraint details
+     * @throws InvalidArgumentException For names with characters outside a-z, A-Z, 0-9, _, -
      */
     public function foreignKeysReferencing(string $baseTable): array
     {
+        isset(DB::$safeIdentifiers[$baseTable]) || DB::assertIdentifier($baseTable, 'table name');
         $escapedFullTable = $this->mysqli->real_escape_string($this->db->tablePrefix . $baseTable);
         $result           = $this->mysqli->query(
             "SELECT CONSTRAINT_NAME, TABLE_NAME, COLUMN_NAME, REFERENCED_COLUMN_NAME
@@ -928,7 +1018,7 @@ class TableInfo
     private Connection $db;
 
     /** Raw handle for this class's queries: plain-array results, immune to connection settings */
-    private MysqliWrapper $mysqli;
+    private MysqliWrapper|MysqliWrapperReplay $mysqli;
 
     public function __construct(Connection $db)
     {

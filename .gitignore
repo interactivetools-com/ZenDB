@@ -1,6 +1,20 @@
+# Composer
+composer.lock
+composer.bat
+composer.*.json
+composer*.phar
+vendor/
+
+# PHPUnit
+.phpunit.cache/
+.phpunit.result.cache
+phpunit.xml
+
+# Recorded query corpus for replay mode (machine-specific, regenerate with ZENDB_QUERY_MODE=record)
+tests/Support/Replay/corpus.php
+
+# IDE and local dev files
+.antigravitycli/
 .claude/
 .idea/
-.phpunit.result.cache
-composer.lock
-phpunit.xml
-vendor/
+test.php

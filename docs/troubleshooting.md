@@ -158,8 +158,8 @@ DB::select('users', "id IN (:ids)", [':ids' => [1, 2, 3]]);
 ### "This method doesn't support LIMIT or OFFSET"
 
 **What happened:** The template passed to `selectOne()`, `queryOne()`, or
-`count()` contains `LIMIT` or `OFFSET`. `selectOne()` and `queryOne()` append
-`LIMIT 1` themselves, and `count()` returns a single number; a caller-supplied
+`count()` contains `LIMIT` or `OFFSET`; `selectOne()` and `queryOne()` append
+`LIMIT 1` themselves, and `count()` returns a single number, so a caller-supplied
 `LIMIT` conflicts with both.
 
 ```php
@@ -227,16 +227,18 @@ DB::update('users', ['status' => 'active'], ['num' => 5]);
 
 ## Deprecation Warnings
 
-These log `E_USER_DEPRECATED` (with the calling file and line appended) and
-keep working for now, but will throw in a future version. Fix them when they
-show up in your error log.
+These keep working for now but will throw in a future version. Deprecated
+calls raise `E_USER_DEPRECATED` (with the calling file and line appended)
+quietly: PHP's error log stays clean, but a `set_error_handler` callback
+receives them - CMS Builder records them in its Developer Log - and your
+IDE and static analysis flag deprecated calls in code.
 
 ### "Positional values in an array are deprecated. Pass up to 3 values directly for ? placeholders, or use named placeholders: [':name' => $value]"
 
 **What happened:** Values for `?` placeholders were wrapped in an array.
 
 ```php
-// Deprecated - logs a warning, still runs
+// Deprecated - still runs, will throw in a future version
 DB::select('users', "name = ? AND city = ?", ['Alice', 'Vancouver']);
 ```
 
@@ -357,29 +359,35 @@ DB::select('users', "id IN (:ids)", [':ids' => [1, null, 3]]);
 // SELECT * FROM `users` WHERE id IN (1,3)
 ```
 
-Second, an empty array expands to `IN (NULL)`, which matches nothing. For
-`IN`, that's usually what you want; an empty list of wanted ids should return
-no rows:
+Second, an empty array expands to `SELECT 0 FROM (SELECT 0) empty_set WHERE 0`, a subquery
+that returns zero rows: an empty set; `IN` of an empty set matches nothing
+and `NOT IN` of an empty set matches everything, so both directions do what
+an empty list should:
 
 ```php
 $wantedIds = [];  // e.g., no checkboxes ticked
 DB::select('users', "id IN (:ids)", [':ids' => $wantedIds]);
-// SELECT * FROM `users` WHERE id IN (NULL) - returns no rows
+// SELECT * FROM `users` WHERE id IN (SELECT 0 FROM (SELECT 0) empty_set WHERE 0) - returns no rows
+
+$excludeIds = [];  // nothing to exclude
+DB::select('users', "id NOT IN (:ids)", [':ids' => $excludeIds]);
+// SELECT * FROM `users` WHERE id NOT IN (SELECT 0 FROM (SELECT 0) empty_set WHERE 0) - returns all rows
 ```
 
-The trap is `NOT IN`. `NOT IN (NULL)` **also** matches nothing, but an empty
-exclusion list should match everything. The query silently returns zero rows
-instead of all rows. Fix it with a sentinel id that can't exist:
+That subquery is built for `IN` and `NOT IN`. Put an array anywhere else and
+an empty one is a SQL syntax error naming `empty_set`:
 
 ```php
-$excludeIds = [];  // nothing to exclude - should return all rows
+$tags = [];  // nothing selected
+DB::queryOne("SELECT CONCAT_WS(:sep, :tags) AS csv", [':sep' => ',', ':tags' => $tags]);
+// SQL syntax error near 'SELECT 0 FROM (SELECT 0) empty_set WHERE 0)'
+```
 
-// Wrong: NOT IN (NULL) returns no rows
-DB::select('users', "id NOT IN (:ids)", [':ids' => $excludeIds]);
+Pick what an empty list should mean there and pass that instead:
 
-// Right: sentinel keeps the list non-empty
-DB::select('users', "id NOT IN (:ids)", [':ids' => $excludeIds ?: [-1]]);
-// SELECT * FROM `users` WHERE id NOT IN (-1) - returns all rows
+```php
+DB::queryOne("SELECT CONCAT_WS(:sep, :tags) AS csv", [':sep' => ',', ':tags' => $tags ?: '']);
+// SELECT CONCAT_WS(',', '') AS csv - returns an empty string
 ```
 
 ### Booleans Convert to TRUE and FALSE
@@ -429,4 +437,4 @@ edge cases, driver differences), see the CI-generated
 
 ---
 
-[← Security Gotchas](security-gotchas.md) | [Documentation Index](README.md) | [Next: Method Reference →](method-reference.md)
+[← Performance](performance.md) | [Documentation Index](README.md) | [Next: Method Reference →](method-reference.md)

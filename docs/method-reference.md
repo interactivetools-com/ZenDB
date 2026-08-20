@@ -1,8 +1,8 @@
 # Method Reference
 
-`DB::` is a static facade over a default connection; methods below also exist
-on `Connection` instances (`$db->select(...)`) with the same signature, except
-the four marked `DB` only and connecting itself (`new Connection($config)`
+The `DB` class is a static facade over a default connection; methods below also
+exist on `Connection` instances (`$db->select(...)`) with the same signature,
+except the four marked `DB` only and connecting itself (`new Connection($config)`
 connects in the constructor). Method names link to the guide section that
 covers each in depth.
 
@@ -23,7 +23,7 @@ Contents:
 
 | Method                                                                                              | Returns      | Description                                                                                                                               |
 |-----------------------------------------------------------------------------------------------------|--------------|-------------------------------------------------------------------------------------------------------------------------------------------|
-| [`connect(array $config = [])`](getting-started.md#connect-and-fetch-your-first-rows)               | `void`       | Connect and set the default connection. Throws `RuntimeException` if already connected                                                    |
+| [`connect(array $config = [])`](getting-started.md#connecting---dbconnect)                          | `void`       | Connect and set the default connection. Throws `RuntimeException` if already connected                                                    |
 | `isConnected(bool $ping = false)`                                                                   | `bool`       | Check if the default connection is set, optionally pinging the server                                                                     |
 | `disconnect()`                                                                                      | `void`       | Close the default connection and clear `$mysqli` and `$tablePrefix`                                                                       |
 | [`clone(array $config = [])`](multiple-connections.md#same-connection-different-settings---dbclone) | `Connection` | Copy of the default connection sharing the same mysqli link; only `tablePrefix`, `useSmartJoins`, and `useSmartStrings` can be overridden |
@@ -43,7 +43,7 @@ full list of `$config` keys.
 Declared return type is `SmartArrayBase`; the object you get is a
 `SmartArrayHtml` of `SmartString` values by default, or a plain-value
 `SmartArray` when `useSmartStrings` is false. On Smart Join queries,
-`->get('table.column')` reads the dotted keys.
+`->{'table.column'}` reads the dotted keys.
 [Working with Results](working-with-results.md) covers both.
 
 `selectOne()`, `queryOne()`, and `count()` throw if `$where` or the template
@@ -85,7 +85,7 @@ Both return the same result objects as `select()`; see
 | Method                                                                                                   | Returns  | Description                                                                                                  |
 |----------------------------------------------------------------------------------------------------------|----------|--------------------------------------------------------------------------------------------------------------|
 | [`rawSql(string\|int\|float\|null $value)`](helpers-and-utilities.md#trusted-sql-expressions---dbrawsql) | `RawSql` | `DB` only. Mark a value as literal SQL, skipping escaping and quoting (e.g., `NOW()`); `null` becomes `NULL` |
-| [`pagingSql(mixed $pageNum, mixed $perPage = 10)`](helpers-and-utilities.md#pagination---dbpagingsql)    | `RawSql` | `DB` only. `LIMIT $perPage OFFSET ...` clause; zero, empty, or invalid input becomes page 1 / 10 per page    |
+| [`pagingSql(mixed $page, mixed $perPage = 10)`](helpers-and-utilities.md#pagination---dbpagingsql)       | `RawSql` | `DB` only. `LIMIT $perPage OFFSET ...` clause; zero, empty, or invalid input becomes page 1 / 10 per page    |
 | [`likeContains($input)`](helpers-and-utilities.md#like-patterns---dblikecontains-and-friends)            | `RawSql` | Escaped `LIKE` pattern `'%value%'`                                                                           |
 | [`likeStartsWith($input)`](helpers-and-utilities.md#like-patterns---dblikecontains-and-friends)          | `RawSql` | Escaped `LIKE` pattern `'value%'`                                                                            |
 | [`likeEndsWith($input)`](helpers-and-utilities.md#like-patterns---dblikecontains-and-friends)            | `RawSql` | Escaped `LIKE` pattern `'%value'`                                                                            |
@@ -96,11 +96,11 @@ The `like*()` methods accept `string|int|float|null|SmartString` and escape
 
 ```php
 $news = DB::select('news', "title LIKE ?", DB::likeContains($_GET['q'] ?? ''));
-// for q=50% this runs: WHERE title LIKE '%50\%%'
+// for q=50% this runs: WHERE title LIKE '%50\\%%'
 
-$pageNum = $_GET['page'] ?? 1;
-$users   = DB::select('users', "ORDER BY name :pagingSQL", [
-    ':pagingSQL' => DB::pagingSql($pageNum, 25),
+$page  = $_GET['page'] ?? 1;
+$users = DB::select('users', "ORDER BY name :pagingSQL", [
+    ':pagingSQL' => DB::pagingSql($page, 25),
 ]);
 // for page 1 this runs: ORDER BY name LIMIT 25 OFFSET 0
 ```
@@ -113,7 +113,7 @@ read. These helpers cover values that bypass those methods.
 
 | Method                                                                                                               | Returns        | Description                                                                                                                                                                                         |
 |----------------------------------------------------------------------------------------------------------------------|----------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| [`encryptValue($value)`](encryption.md#searching-encrypted-columns---dbencryptvalue)                                 | `string\|null` | Encrypt a value in PHP, matching what `insert()`/`update()` produce; `null` in, `null` out. Throws `RuntimeException` when `encryptionKey` is not set                                               |
+| [`encryptValue($value)`](encryption.md#searching-encrypted-columns---dbencryptvalue)                                 | `string\|null` | Encrypt a value in PHP, matching what `insert()`/`update()` produce; `null` in, `null` out (before any key check). Anything else throws `RuntimeException` when `encryptionKey` is not set          |
 | [`decryptExpr(string $column)`](encryption.md#decrypting-in-mysql-with-column)                                       | `string`       | `DB` only. SQL expression to decrypt a column server-side: `decryptExpr('email')` → `` AES_DECRYPT(`email`, @ek) ``. The `{{column}}` template syntax generates this for you                        |
 | [`decryptRows(array &$rows, array $keysOrFetchFields)`](encryption.md#decrypting-raw-mysqli-results---dbdecryptrows) | `void`         | Decrypt raw mysqli rows in place; pass `$result->fetch_fields()` to auto-detect `MEDIUMBLOB` columns, or name the keys yourself (column names for associative rows, field indexes for numeric rows) |
 | [`getEncryptedColumns(array $fetchFields)`](encryption.md#decrypting-raw-mysqli-results---dbdecryptrows)             | `array`        | `DB` only. The `MEDIUMBLOB` columns in a result, from `$result->fetch_fields()`, keyed by field index: `[2 => 'apiToken']`                                                                          |
@@ -139,10 +139,10 @@ DB::insert('news', ['title' => 'Launch day', 'publishDate' => date(DB::DATETIME)
 
 ## Properties
 
-| Property                                                   | Type             | Description                                                                                                                                       |
-|------------------------------------------------------------|------------------|---------------------------------------------------------------------------------------------------------------------------------------------------|
-| [`$mysqli`](security-gotchas.md#raw-queries---dbmysqli)    | `?MysqliWrapper` | The underlying connection (a `mysqli` subclass) for direct access: `DB::$mysqli->insert_id`, `DB::$mysqli->query($ddl)`. `null` when disconnected |
-| [`$tablePrefix`](getting-started.md#configuration-options) | `string`         | The prefix prepended to table names, as set at connect (`''` by default)                                                                          |
+| Property                                                   | Type             | Description                                                                                                                                                                                                   |
+|------------------------------------------------------------|------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| [`$mysqli`](security-gotchas.md#raw-queries---dbmysqli)    | `?MysqliWrapper` | The underlying connection (a `mysqli` subclass) for direct access: `DB::$mysqli->insert_id`, `DB::$mysqli->query($ddl)`, and `DB::$mysqli->lastQuery` (last SQL sent, for debugging). `null` when disconnected |
+| [`$tablePrefix`](getting-started.md#configuration-options) | `string`         | The prefix prepended to table names, as set at connect (`''` by default)                                                                                                                                      |
 
 ## Parameter Forms
 
@@ -181,9 +181,6 @@ $users = DB::select('users', "city = :city AND status = :status AND age BETWEEN 
     ':min'    => 18,
     ':max'    => 65,
 ]);
-
-// Deprecated - positional values in an array log E_USER_DEPRECATED
-$users = DB::select('users', "status = ? AND age > ?", ['active', 25]);
 ```
 
 Mixing `?` and `:name` in one query throws.

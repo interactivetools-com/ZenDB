@@ -12,8 +12,12 @@ use Itools\SmartArray\SmartNull;
 use Itools\SmartString\SmartString;
 use Throwable;
 use WeakMap;
-use mysqli;
 use mysqli_result;
+use stdClass;
+
+// import built-ins so calls resolve at compile time instead of per-call lookups; NamespacedCallsTest keeps this list exact
+use function addcslashes, array_column, array_count_values, array_filter, array_flip, array_is_list, array_key_exists, array_keys, array_map, array_unique, array_values, count, explode, get_debug_type, get_object_vars, implode, is_array, is_bool, is_finite, is_float, is_int, is_object, is_string, preg_grep, preg_match, preg_match_all, preg_replace, preg_replace_callback, str_contains, str_replace, str_starts_with, strlen, strspn, strtoupper, substr, trim, var_export;
+use const MYSQLI_ASSOC, MYSQLI_NUM;
 
 /**
  * Query building and result processing internals for Connection.
@@ -33,12 +37,13 @@ trait ConnectionInternals
      */
     private array $paramValues = [];
     private bool  $paramsFromPositionalArray = false;  // set by parseParams(), read by the unused-positional check in replacePlaceholders()
+    private int   $positionalParamCount      = 0;      // set by parseParams(): count of :N keys in paramValues, read by replacePlaceholders()
 
     /**
      * Parse variadic query args into a parameter map.
      *
      * Converts positional params (0, 1, 2) to named format (:1, :2, :3).
-     * Validates named params start with ':' and don't use reserved ':zdb_' prefix.
+     * Validates named params start with ':' and don't use reserved ':zdb' prefix.
      * Unwraps SmartString/SmartNull values.
      *
      * Supports:
@@ -46,23 +51,111 @@ trait ConnectionInternals
      *   - query($sql, [':name' => 'Bob', ':age' => 45]) // Named params in array
      *   - query($sql, ['a', 'b', 'c'])                  // Deprecated: positional values in an array (use named placeholders)
      *
+     * The two common shapes (positional values, named array) are handled with plain
+     * typed loops. PHP named arguments (query($sql, name: 'Bob')) are rejected outright;
+     * every other odd shape - arrays mixing int and string keys, the deprecated
+     * positional array, invalid input - goes to parseParamsGeneral(), which owns the
+     * remaining error and deprecation messages.
+     *
      * @param array $args Variadic args from query method
      * @return array Parameter map, e.g. [':1' => 'a', ':2' => 'b'] or [':name' => 'Bob']
      * @throws InvalidArgumentException
      */
     private function parseParams(array $args): array
     {
-        $this->paramsFromPositionalArray = false;  // reset per call; the no-args return below skips the assignment further down
+        $this->paramsFromPositionalArray = false;
+        $this->positionalParamCount      = 0;
 
         if (!$args) {
             return [];
         }
 
+        // PHP collects named arguments (query($sql, name: 'Bob')) into ...$params as
+        // string keys - legal syntax, but not a supported way to pass query params
+        if (!array_is_list($args)) {
+            throw new InvalidArgumentException("Query params can't be passed as PHP named arguments. Pass the array as one argument instead of spreading it: query(\$sql, \$params)");
+        }
+
+        // Named params: single array of ':name' => value pairs
+        if (count($args) === 1 && is_array($args[0])) {
+            $params = $args[0];
+            if (!$params) {
+                return [];
+            }
+            $values          = [];
+            $positionalCount = 0;
+            foreach ($params as $key => $value) {
+                // Int keys (deprecated positional array, or mixed with named) and invalid
+                // names take the general path, which logs or throws the canonical message
+                if (!is_string($key) || !preg_match('/^:(?!_|zdb)\w+\z/', $key)) {
+                    return $this->parseParamsGeneral($args);
+                }
+                if ($key[1] <= '9' && strspn($key, '0123456789', 1) === strlen($key) - 1) {
+                    $positionalCount++;   // ':12'-style keys count as positional for the unused-positional check
+                }
+                $values[$key] = !is_object($value) ? $value : $this->unwrapParamObject($value);
+            }
+            $this->positionalParamCount = $positionalCount;
+            return $values;
+        }
+
+        // Single scalar value (query($sql, 123)): most common positional shape, skip the loop.
+        // Can't be an array here - the named-params branch above handled that.
+        if (count($args) === 1) {
+            $this->positionalParamCount = 1;
+            return [':1' => !is_object($args[0]) ? $args[0] : $this->unwrapParamObject($args[0])];
+        }
+
+        // 2-3 direct values: over the cap or arrays mixed in take the general path (throws)
+        if (count($args) > 3) {
+            return $this->parseParamsGeneral($args);
+        }
+        foreach ($args as $value) {
+            if (is_array($value)) {
+                return $this->parseParamsGeneral($args);
+            }
+        }
+
+        // Positional values become [':1' => v1, ':2' => v2, ...]
+        $values          = [];
+        $positionalCount = 0;
+        foreach ($args as $value) {
+            $values[':' . ++$positionalCount] = !is_object($value) ? $value : $this->unwrapParamObject($value);
+        }
+        $this->positionalParamCount = $positionalCount;
+        return $values;
+    }
+
+    /**
+     * Parser for the shapes parseParams() doesn't fast-path, and the single owner of
+     * every param-shape error and deprecation message. parseParams() has already
+     * handled empty args and reset the per-call state when this runs.
+     *
+     * @param array $args Variadic args from query method
+     * @return array Parameter map, e.g. [':1' => 'a', ':2' => 'b'] or [':name' => 'Bob']
+     * @throws InvalidArgumentException
+     */
+    private function parseParamsGeneral(array $args): array
+    {
         // Valid forms: up to 3 direct values (for ? placeholders), or one array of ':name' => value pairs.
         // Positional values in an array are deprecated and will throw in a future version.
-        $passedAsArray     = count($args) === 1 && is_array($args[0]);
-        $passedAsValues    = empty(array_filter($args, 'is_array'));
-        $isPositionalArray = $passedAsArray && $args[0] !== [] && !array_filter(array_keys($args[0]), 'is_string');
+        $passedAsArray  = count($args) === 1 && is_array($args[0]);
+        $passedAsValues = true;
+        foreach ($args as $arg) {
+            if (is_array($arg)) {
+                $passedAsValues = false;
+                break;
+            }
+        }
+        $isPositionalArray = $passedAsArray && $args[0] !== [];
+        if ($isPositionalArray) {
+            foreach (array_keys($args[0]) as $key) {
+                if (is_string($key)) { // any string key means named params, not positional
+                    $isPositionalArray = false;
+                    break;
+                }
+            }
+        }
 
         $this->paramsFromPositionalArray = $isPositionalArray;
         match (true) {
@@ -87,9 +180,10 @@ trait ConnectionInternals
             } else {
                 $hasNamed = true;
                 $name     = match (true) {
-                    !preg_match("/^:\w+\z/", $key) => throw new InvalidArgumentException("Invalid param name '$key'. Must start with ':' followed by (a-z, A-Z, 0-9, _)"),
+                    // SECURITY: key failed validation, encode before it can reach page output (match arm, so no room for the $h variable)
+                    !preg_match("/^:\w+\z/", $key) => throw new InvalidArgumentException("Invalid param name '" . DB::h($key) . "'. Must start with ':' followed by (a-z, A-Z, 0-9, _)"),
                     str_starts_with($key, ':_')    => throw new InvalidArgumentException("Invalid param name '$key'. Names can't start with :_ (the deprecated table-prefix syntax); start the name with a letter or digit"),
-                    str_starts_with($key, ':zdb_') => throw new InvalidArgumentException("Invalid param name '$key'. Names can't start with :zdb_ (reserved prefix)"),
+                    str_starts_with($key, ':zdb')  => throw new InvalidArgumentException("Invalid param name '$key'. Names can't start with :zdb (reserved prefix)"),
                     default                        => $key,
                 };
             }
@@ -99,15 +193,7 @@ trait ConnectionInternals
                 throw new InvalidArgumentException("Duplicate param name '$name'");
             }
 
-            // Unwrap SmartString/SmartNull/SmartArray, validate type
-            $values[$name] = match (true) {
-                !is_object($value)               => $value,
-                $value instanceof RawSql         => $value,
-                $value instanceof SmartString    => $value->value(),
-                $value instanceof SmartNull      => null,
-                $value instanceof SmartArrayBase => $value->toArray(),
-                default                          => throw new InvalidArgumentException("Parameters cannot be " . get_debug_type($value)),
-            };
+            $values[$name] = !is_object($value) ? $value : $this->unwrapParamObject($value);
         }
 
         // Enforce consistent placeholder style
@@ -115,7 +201,23 @@ trait ConnectionInternals
             throw new InvalidArgumentException("Can't mix positional (?) and named (:param) placeholders. Use one style consistently.");
         }
 
+        $this->positionalParamCount = count(preg_grep('/^:\d+$/', array_keys($values)));
         return $values;
+    }
+
+    /**
+     * Unwrap an object parameter value: RawSql passes through, SmartString/SmartNull/
+     * SmartArray unwrap to their raw values, anything else throws.
+     */
+    private function unwrapParamObject(object $value): mixed
+    {
+        return match (true) {
+            $value instanceof RawSql         => $value,
+            $value instanceof SmartString    => $value->value(),
+            $value instanceof SmartNull      => null,
+            $value instanceof SmartArrayBase => $value->toArray(),
+            default                          => throw new InvalidArgumentException("Parameters cannot be " . get_debug_type($value)),
+        };
     }
 
     //endregion
@@ -165,10 +267,14 @@ trait ConnectionInternals
          * We strip '' and "" from a copy of the SQL before the quote check so they
          * aren't flagged as quoted strings. The original query is NOT modified.
          *
-         * Why this is safe: if a developer writes WHERE city = '$city', the only value
-         * that produces valid '' is an empty string, which carries no payload. Any real
-         * value like "Vancouver" produces WHERE city = 'Vancouver', which throws
-         * immediately, forcing the developer to use placeholders.
+         * What this catches: a developer writing WHERE city = '$city' gets a throw the
+         * moment a real value arrives - "Vancouver" produces WHERE city = 'Vancouver' -
+         * which forces placeholders before the code can work at all.
+         *
+         * What it doesn't: a value carrying its own balanced quotes reaches this check
+         * as nothing but empty strings and passes. That gap is known and documented in
+         * docs/security-gotchas.md; the tradeoff is settled in
+         * docs/internal/design-decisions.md.
          */
         $sqlForQuoteCheck = str_replace(["''", '""'], '', $sql);
 
@@ -182,12 +288,13 @@ trait ConnectionInternals
          *   // Throws: Quotes not allowed in template. Replace 'Vancouver' with ...
          */
         if (preg_match('/[\'"]/', $sqlForQuoteCheck, $matches)) {
-            $quotedText = preg_match('/(([\'"]).*?\2)/', $sqlForQuoteCheck, $matches) ? $matches[1] : '';
-            if ($quotedText) {
+            if (preg_match('/([\'"])(.*?)\1/', $sqlForQuoteCheck, $matches)) {
+                $h          = DB::h(...); // SECURITY: quoted text can carry interpolated user data, encode before it can reach page output (quote chars stay literal)
+                $quotedText = $matches[1] . $h($matches[2]) . $matches[1];
                 throw new InvalidArgumentException("Quotes not allowed in template. Replace $quotedText with :paramName and add: [ ':paramName' => $quotedText ]");
-            } else {
-                throw new InvalidArgumentException("Quotes not allowed in template. Use :paramName placeholder instead.");
             }
+
+            throw new InvalidArgumentException("Quotes not allowed in template. Use :paramName placeholder instead.");
         }
 
         /*
@@ -213,17 +320,17 @@ trait ConnectionInternals
          */
         $sql = preg_replace('/\bLIMIT\s+\d+\s*$/i', '', $sql);
 
-        // Standalone numbers - force use of placeholders
-        if (preg_match('/\b(\d+)\b/', $sql, $matches)) {
-            $n = $matches[1];
-            throw new InvalidArgumentException("Standalone number in template. Replace $n with :n$n and add: [ ':n$n' => $n ]");
-        }
-
-        // Numeric literals that slip past the \b\d+\b check because their digits touch a
-        // letter: hex (0x1AF), binary (0b1010), scientific (1e10). MySQL evaluates each to
-        // a value, so they belong in placeholders like any other literal. Requiring at
-        // least one digit after 0x/0b keeps identifiers like `0boxes` from matching.
-        if (preg_match('/\b0[xb][0-9a-f]+|\b\d+e[+-]?\d+/i', $sql, $matches)) {
+        // Standalone numbers and numeric literals - force use of placeholders. Hex
+        // (0x1AF), binary (0b1010), and scientific (1e10) need their own alternatives
+        // because their digits touch a letter, so \b\d+\b can't match them. MySQL
+        // evaluates each to a value, so they belong in placeholders like any other
+        // literal. Requiring at least one digit after 0x/0b keeps identifiers like
+        // `0boxes` from matching. Group 1 captures only for standalone numbers.
+        if (preg_match('/\b0[xb][0-9a-f]+|\b\d+e[+-]?\d+|\b(\d+)\b/i', $sql, $matches)) {
+            if (isset($matches[1])) {
+                $n = $matches[1];
+                throw new InvalidArgumentException("Standalone number in template. Replace $n with :n$n and add: [ ':n$n' => $n ]");
+            }
             throw new InvalidArgumentException("Numeric literal '$matches[0]' in template. Replace it with a :paramName placeholder.");
         }
 
@@ -236,17 +343,6 @@ trait ConnectionInternals
         };
         if ($error) {
             throw new InvalidArgumentException($error);
-        }
-    }
-
-    /**
-     * Warn when integer WHERE is used (deprecated feature being phased out).
-     * Users should migrate to array syntax: ['num' => $value]
-     */
-    private function logDeprecatedNumericWhere(int|array|string $where): void
-    {
-        if (is_int($where)) {
-            DB::logDeprecation("Numeric WHERE is deprecated, use array syntax instead: ['num' => $where]");
         }
     }
 
@@ -313,8 +409,8 @@ trait ConnectionInternals
      * Reject empty WHERE clause - prevents accidental bulk updates/deletes.
      *
      * Conditions like "num = ?" or "id = :id" are valid (WHERE gets prepended).
-     * We reject empty input or strings starting with ORDER/LIMIT/OFFSET/FOR
-     * which indicate no WHERE condition was provided.
+     * We reject empty input or strings starting with a clause keyword
+     * (ORDER, GROUP, LIMIT, ...) which indicate no WHERE condition was provided.
      *
      * @throws InvalidArgumentException
      */
@@ -328,10 +424,11 @@ trait ConnectionInternals
             return;
         }
 
-        // string - valid if where has content and doesn't start with ORDER/LIMIT/OFFSET/FOR
-        // These clauses without WHERE would affect all rows: "DELETE FROM t ORDER BY id LIMIT 1"
-        // Conditions like "id = ?" are valid because whereFromString() prepends "WHERE "
-        if (is_string($where) && trim($where) && !preg_match('/^\s*(ORDER|LIMIT|OFFSET|FOR)\b/i', $where)) {
+        // string - valid if where has content and doesn't start with a non-condition clause
+        // like ORDER/GROUP/LIMIT: those without WHERE would affect all rows, e.g.
+        // "DELETE FROM t ORDER BY id LIMIT 1". Conditions like "id = ?" are valid
+        // because whereFromString() prepends "WHERE "
+        if (is_string($where) && trim($where) && !preg_match('/^\s*(ORDER|GROUP|HAVING|LIMIT|OFFSET|FOR)\b/i', $where)) {
             return;
         }
 
@@ -349,6 +446,7 @@ trait ConnectionInternals
      *   - null, int, float, bool, string (escaped and quoted)
      *   - RawSql (inserted as-is, for NOW(), UUID(), etc.)
      *   - SmartString (unwrapped via ->value(), then escaped)
+     *   - SmartNull (becomes NULL, same as placeholders)
      *
      * Arrays are not supported: column assignment is single-valued, so
      * callers must serialize (json_encode, implode, etc.) before passing.
@@ -370,12 +468,22 @@ trait ConnectionInternals
                 throw new InvalidArgumentException("Column names must be strings, got " . get_debug_type($column));
             }
 
-            DB::assertIdentifier($column, 'column name');
+            isset(DB::$safeIdentifiers[$column]) || DB::assertIdentifier($column, 'column name');
 
             if ($value instanceof SmartString) {
                 $value = $value->value(); // unwrap before the type check; SmartString can wrap null/bool
             }
-            $setElements[] = "`$column` = " . $this->escapeValue($value, "column '$column'");
+            if ($value instanceof SmartNull) {
+                $value = null; // same as the placeholder path
+            }
+            // string/int arms copy escapeValue() output to skip the method call; EscapeParityTest pins them identical
+            if (is_string($value)) {
+                $setElements[] = "`$column` = '" . $this->mysqli->real_escape_string($value) . "'";
+            } elseif (is_int($value)) {
+                $setElements[] = "`$column` = $value";
+            } else {
+                $setElements[] = "`$column` = " . $this->escapeValue($value, "column '$column'");
+            }
         }
 
         return "SET " . implode(", ", $setElements);
@@ -388,6 +496,15 @@ trait ConnectionInternals
      */
     private function whereFromArgs(int|array|string $where): string
     {
+        // Record numbers as the WHERE argument are deprecated; numeric strings (usually an
+        // uncast query value) work like ints but always log a warning. Both will throw in a future release.
+        if (is_string($where) && preg_match('/^\s*\d+\s*$/', $where)) {
+            DB::logWarning("Numeric string '$where' used as record number, cast to int: (int) \$value or use array syntax: ['num' => $where]");
+            $where = (int)$where;
+        } elseif (is_int($where)) {
+            DB::logDeprecation("Numeric WHERE is deprecated, use array syntax instead: ['num' => $where]");
+        }
+
         return match (true) {
             is_string($where) => $this->whereFromString($where),
             is_array($where)  => $this->whereFromArray($where),
@@ -406,15 +523,8 @@ trait ConnectionInternals
             return '';
         }
 
-        // Reject numeric strings - must use array syntax or cast to int
-        if (preg_match('/^\s*\d+\s*$/', $where)) {
-            throw new InvalidArgumentException(
-                "Numeric string '$where' detected. Use array syntax: ['num' => $where] or cast to int: (int) \$value",
-            );
-        }
-
         // Prepend WHERE if not already present
-        $hasLeadingKeyword = preg_match('/^\s*(WHERE|FOR|ORDER|LIMIT|OFFSET)\b/i', $where);
+        $hasLeadingKeyword = preg_match('/^\s*(WHERE|FOR|ORDER|GROUP|HAVING|LIMIT|OFFSET)\b/i', $where);
         if (!$hasLeadingKeyword) {
             $where = "WHERE $where";
         }
@@ -434,7 +544,7 @@ trait ConnectionInternals
      * Returns complete SQL with values escaped inline.
      *
      * Supported value types:
-     *   - null (becomes IS NULL)
+     *   - null, SmartNull (becomes IS NULL)
      *   - int, float, bool, string (escaped and quoted)
      *   - RawSql (inserted as-is, for NOW(), expressions, etc.)
      *   - SmartString (unwrapped via ->value(), then escaped)
@@ -453,17 +563,28 @@ trait ConnectionInternals
                 throw new InvalidArgumentException("Column names must be strings, got " . get_debug_type($column));
             }
 
-            DB::assertIdentifier($column, 'column name');
+            isset(DB::$safeIdentifiers[$column]) || DB::assertIdentifier($column, 'column name');
 
             if ($value instanceof SmartString) {
                 $value = $value->value(); // unwrap before the type check; SmartString can wrap null/bool
             }
-            $conditions[] = match (true) {
-                is_null($value)                  => "`$column` IS NULL",
-                $value instanceof SmartArrayBase => "`$column` IN (" . $this->escapeCSV($value->toArray()) . ")",
-                is_array($value)                 => "`$column` IN (" . $this->escapeCSV($value) . ")",
-                default                          => "`$column` = " . $this->escapeValue($value, "column '$column'"),
-            };
+            if ($value instanceof SmartNull) {
+                $value = null; // same as the placeholder path
+            }
+            // string/int arms copy escapeValue() output to skip the method call; EscapeParityTest pins them identical
+            if (is_string($value)) {
+                $conditions[] = "`$column` = '" . $this->mysqli->real_escape_string($value) . "'";
+            } elseif (is_int($value)) {
+                $conditions[] = "`$column` = $value";
+            } elseif ($value === null) {
+                $conditions[] = "`$column` IS NULL";
+            } elseif ($value instanceof SmartArrayBase) {
+                $conditions[] = "`$column` IN (" . $this->escapeCSV($value->toArray()) . ")";
+            } elseif (is_array($value)) {
+                $conditions[] = "`$column` IN (" . $this->escapeCSV($value) . ")";
+            } else {
+                $conditions[] = "`$column` = " . $this->escapeValue($value, "column '$column'");
+            }
         }
 
         return "WHERE " . implode(" AND ", $conditions);
@@ -491,41 +612,50 @@ trait ConnectionInternals
     private function replacePlaceholders(string $template): string
     {
         // Normalize :_ to :: (deprecated syntax) - but not ::_ (prefix + underscore table)
-        $template = preg_replace('/(?<!:):_/', '::', $template, -1, $count);
-        if ($count > 0) {
-            DB::logDeprecation(":_ syntax is deprecated, use :: instead");
+        if (str_contains($template, ':_')) {
+            $template = preg_replace('/(?<!:):_/', '::', $template, -1, $count);
+            if ($count > 0) {
+                DB::logDeprecation(":_ syntax is deprecated, use :: instead");
+            }
         }
 
         // {{column}} or {{table.column}} - expand encrypted column references, see decryptExpr().
         // A leading :: applies the table prefix, same as outside the braces: write the column
         // reference as you would unencrypted ({{::users.token}}, {{u.token}}), wrapped in braces.
-        $template = preg_replace_callback(
-            '/\{\{(::)?([\w.-]+)}}/',
-            fn($m) => DB::decryptExpr(($m[1] ? $this->tablePrefix : '') . $m[2]),
-            $template,
-        );
+        if (str_contains($template, '{{')) {
+            $template = preg_replace_callback(
+                '/\{\{(::)?([\w.-]+)}}/',
+                fn($m) => DB::decryptExpr(($m[1] ? $this->tablePrefix : '') . $m[2]),
+                $template,
+            );
+        }
 
-        // Placeholder types
-        $placeholderRegex = '/' . implode("|", [
-                // Values - quoted and escaped
-                "\?",                   // ?         O'Brien → "O\'Brien"
-                ":[a-zA-Z]\w*\b",       // :name     O'Brien → "O\'Brien"
+        /*
+         * Placeholder types, one regex alternative each (in match-priority order):
+         *
+         *   \?                    ?         O'Brien → "O\'Brien"        - value, quoted and escaped
+         *   :[a-zA-Z]\w*\b        :name     O'Brien → "O\'Brien"        - value, quoted and escaped
+         *   `\?`                  `?`       users → `users`             - identifier, unquoted, throws if unsafe chars
+         *   `:[a-zA-Z]\w*\b`      `:name`   users → `users`             - identifier, unquoted, throws if unsafe chars
+         *   `::\?`                `::?`     users → `cms_users`         - identifier with table prefix
+         *   `:::[a-zA-Z]\w*\b`    `:::name` users → `cms_users`         - identifier with table prefix
+         *   ::\?                  ::?       user% → 'cms_user%'         - value with table prefix, quoted and escaped
+         *   :::[a-zA-Z]\w*\b      :::name   user% → 'cms_user%'         - value with table prefix, quoted and escaped
+         *   ::                    ::        cms_                        - table prefix alone (after the ::placeholders above)
+         */
+        $placeholderRegex = '/\?|:[a-zA-Z]\w*\b|`\?`|`:[a-zA-Z]\w*\b`|`::\?`|`:::[a-zA-Z]\w*\b`|::\?|:::[a-zA-Z]\w*\b|::/';
 
-                // `Identifiers` - table/column names (unquoted, unescaped, throws if unsafe chars)
-                "`\?`",                 // `?`       users → `users`
-                "`:[a-zA-Z]\w*\b`",     // `:name`   users → `users`
-
-                // `::Identifiers` - with table prefix (unquoted, unescaped, throws if unsafe chars)
-                "`::\?`",               // `::?`     users → `cms_users`
-                "`:::[a-zA-Z]\w*\b`",   // `:::name` users → `cms_users`
-
-                // ::Values - with table prefix (quoted and escaped)
-                "::\?",                 // ::?       user% → 'cms_user%'
-                ":::[a-zA-Z]\w*\b",     // :::name   user% → 'cms_user%'
-
-                // Table prefix alone (must come after the ::placeholder patterns above)
-                "::",                   // e.g., SELECT * FROM ::users → SELECT * FROM cms_users
-            ]) . '/';
+        // A placeholder inside a /* */ block comment isn't protected: escaping handles quotes
+        // and newlines but not the */ close sequence, so a value containing */ closes the
+        // comment and the rest runs as live SQL. Line comments (-- and #) are safe - breakout
+        // needs a newline, which real_escape_string escapes. str_contains gates the strip so
+        // the recount only runs when a block comment is present (28 ns vs 227 ns ungated).
+        if (str_contains($template, '/*')) {
+            $withoutBlockComments = preg_replace('!/\*.*?(?:\*/|$)!s', '', $template);
+            if (preg_match_all($placeholderRegex, $template) !== preg_match_all($placeholderRegex, $withoutBlockComments)) {
+                throw new InvalidArgumentException("Placeholders are not supported inside /* */ comments; a value containing */ would close the comment and run as SQL. Move the value out of the comment, or build the comment text yourself.");
+            }
+        }
 
         // Find and replace all placeholders with their escaped/formatted values
         $positionalCount = 0;
@@ -533,12 +663,41 @@ trait ConnectionInternals
             pattern : $placeholderRegex,
             callback: function ($matches) use (&$positionalCount) {
                 $match = $matches[0]; // e.g., ?, :name, `?`, etc
+
+                // Fast arms for the dominant shapes: bare ? and :name with int/string values.
+                // Output matches escapeValue() exactly; anything else falls through to the generic path.
+                if ($match === '?') {
+                    $value = $this->paramValues[':' . ($positionalCount + 1)] ?? null;
+                    if (is_int($value)) {
+                        $positionalCount++;
+                        return (string)$value;
+                    }
+                    if (is_string($value)) {
+                        $positionalCount++;
+                        return "'" . $this->mysqli->real_escape_string($value) . "'";
+                    }
+                } elseif ($match[0] === ':' && $match[1] !== ':') {  // :name (not :: or :::name)
+                    $value = $this->paramValues[$match] ?? null;
+                    if (is_int($value)) {
+                        return (string)$value;
+                    }
+                    if (is_string($value)) {
+                        return "'" . $this->mysqli->real_escape_string($value) . "'";
+                    }
+                } elseif ($match === '::') {
+                    return $this->tablePrefix;  // bare table prefix
+                }
+
                 $value = $this->getPlaceholderValue($match, $positionalCount);
 
-                // Backtick placeholders: insert safe identifiers (table/column names) unquoted (or throw if unsafe)
+                // Backtick placeholders: insert safe identifiers (table/column names) unquoted (or throw if unsafe).
                 if ($match[0] === '`') {
-                    $isSafeIdentifier = is_string($value) && preg_match('/^[\w-]+\z/', $value); // + rejects '', \z rejects trailing newline
-                    return $isSafeIdentifier ? "`$value`" : throw new InvalidArgumentException("Invalid backtick identifier: " . var_export($value, true) . ". Only word characters (a-z, 0-9, _, -) allowed.");
+                    if (!is_string($value)) {
+                        $h = DB::h(...); // SECURITY: var_export prints array contents, encode before they can reach page output
+                        throw new InvalidArgumentException("Invalid backtick identifier: {$h(var_export($value, true))}, expected a string");
+                    }
+                    isset(DB::$safeIdentifiers[$value]) || DB::assertIdentifier($value, 'backtick identifier');
+                    return "`$value`";
                 }
 
                 // Regular placeholders: escape and quote values based on type
@@ -552,7 +711,7 @@ trait ConnectionInternals
         // Unused positional values almost always mean a bug, e.g. "IN (?)" with [1, 2, 3] only uses the 1.
         // Skipped when parseParams() already logged the positional-array deprecation for this call.
         // Unused named values stay allowed: passing a shared param array with extras is legitimate.
-        $positionalProvided = count(preg_grep('/^:\d+$/', array_keys($this->paramValues)));
+        $positionalProvided = $this->positionalParamCount;   // recorded by parseParams(); paramValues only ever holds its return value
         if ($positionalCount < $positionalProvided && !$this->paramsFromPositionalArray) {
             DB::logDeprecation("Query has $positionalCount positional (?) placeholder(s) but $positionalProvided values were passed. Unused positional values are deprecated and will throw in a future version. For IN() lists use a named placeholder: ':ids' => [...]");
         }
@@ -646,9 +805,17 @@ trait ConnectionInternals
      *
      * Escape a string for safe inclusion in raw SQL.
      *
+     * With $escapeLikeWildcards, the result is built for a LIKE pattern: the whole
+     * value matches as literal text, and nothing in it acts as a wildcard. To get
+     * that, % _ and \ are escaped before the SQL escape, because MySQL decodes a
+     * pattern twice (string parser first, then LIKE). The like*() helpers wrap
+     * this; reach for them first.
+     *
+     *     $sql = "name LIKE '%" . $this->escape($search, true) . "%'";  // $search matches literally, even "50%"
+     *
      * @internal
      * @param string|int|float|null|SmartString $input               Value to escape
-     * @param bool                              $escapeLikeWildcards Also escape % and _ for LIKE queries
+     * @param bool                              $escapeLikeWildcards Make the value match as literal text in a LIKE pattern (escapes %, _, and \)
      * @return string Escaped string (without quotes)
      */
     public function escape(string|int|float|null|SmartString $input, bool $escapeLikeWildcards = false): string
@@ -658,15 +825,21 @@ trait ConnectionInternals
             $input = $input->value();
         }
 
-        // Escape using mysqli
-        $escaped = $this->mysqli->real_escape_string((string)$input);
-
-        // Escape LIKE wildcards if needed
-        if ($escapeLikeWildcards) {
-            $escaped = addcslashes($escaped, '%_');
+        // Floats get the same exact literal as every other escape path
+        if (is_float($input)) {
+            $input = $this->floatToSql($input, 'escape() value');
         }
 
-        return $escaped;
+        // Escape LIKE wildcards first, on the raw value: MySQL decodes a pattern twice
+        // (string parser, then LIKE), and real_escape_string() adapts to the server's
+        // string-parsing mode, so it must run last. Backslash is escaped too so a
+        // literal backslash in the input can't turn a following % or _ into a wildcard.
+        if ($escapeLikeWildcards) {
+            $input = addcslashes((string)$input, '\\%_');
+        }
+
+        // Escape using mysqli
+        return $this->mysqli->real_escape_string((string)$input);
     }
 
     /**
@@ -685,24 +858,41 @@ trait ConnectionInternals
     {
         $this->mysqli || throw new RuntimeException(__METHOD__ . "() called before DB connection established");
 
-        $placeholderCount = substr_count($format, '?');
+        $parts            = explode('?', $format);
+        $placeholderCount = count($parts) - 1;
         $valueCount       = count($values);
         if ($placeholderCount !== $valueCount) {
             throw new InvalidArgumentException("escapef() placeholder count ($placeholderCount) doesn't match value count ($valueCount)");
         }
 
-        return preg_replace_callback('/\?/', function () use (&$values) {
-            $value = array_shift($values);
+        $sql = $parts[0];
+        foreach ($values as $i => $value) {
             if ($value instanceof SmartString) {
                 $value = $value->value(); // unwrap before the type check; SmartString can wrap null/bool
             }
-
-            return match (true) {
-                is_array($value)                 => (string)$this->escapeCSV($value),
-                $value instanceof SmartArrayBase => (string)$this->escapeCSV($value->toArray()),
-                default                          => $this->escapeValue($value, 'escapef() value'),
-            };
-        }, $format);
+            // arms copy escapeValue() output to skip the method call; EscapeParityTest pins them identical
+            if (is_string($value)) {
+                $sql .= "'" . $this->mysqli->real_escape_string($value) . "'";
+            } elseif (is_int($value)) {
+                $sql .= $value;
+            } elseif (is_array($value)) {
+                $sql .= $this->escapeCSV($value);
+            } elseif ($value instanceof SmartArrayBase) {
+                $sql .= $this->escapeCSV($value->toArray());
+            } elseif ($value === null) {
+                $sql .= 'NULL';
+            } elseif (is_float($value)) {
+                $sql .= $this->floatToSql($value, 'escapef() value');
+            } elseif (is_bool($value)) {
+                $sql .= $value ? 'TRUE' : 'FALSE';
+            } elseif ($value instanceof RawSql) {
+                $sql .= $value;
+            } else {
+                throw new InvalidArgumentException("Unsupported type for escapef() value: " . get_debug_type($value));
+            }
+            $sql .= $parts[$i + 1];
+        }
+        return $sql;
     }
 
     /**
@@ -714,7 +904,8 @@ trait ConnectionInternals
      * NULL values are skipped: NULL never matches inside IN (...), and one NULL in a
      * NOT IN (...) list makes the whole clause return zero rows. Use IS NULL to match
      * NULL rows. Duplicates are removed. An empty list (or one that was all NULLs)
-     * returns the SQL literal NULL, so IN (NULL) matches nothing.
+     * becomes the zero-row subquery SELECT 0 FROM (SELECT 0) empty_set WHERE 0, so
+     * IN matches nothing and NOT IN matches everything.
      *
      * Tip: You probably don't need this! Named placeholders handle arrays
      * automatically, which is simpler and keeps your values in placeholders:
@@ -741,21 +932,35 @@ trait ConnectionInternals
             if ($value instanceof SmartString) {
                 $value = $value->value(); // unwrap before the type check; SmartString can wrap null/bool
             }
-            if ($value === null) {
+            // int/string arms copy escapeValue() output to skip the method call (ints first: ID lists
+            // are the common case); EscapeParityTest pins them identical
+            if (is_int($value)) {
+                $safeValues[] = (string)$value;
+            } elseif (is_string($value)) {
+                $safeValues[] = "'" . $this->mysqli->real_escape_string($value) . "'";
+            } elseif ($value === null) {
                 continue; // NULL never matches in IN and makes NOT IN return zero rows; use IS NULL to match NULLs
+            } else {
+                $safeValues[] = $this->escapeValue($value, 'IN-list value');
             }
-            $safeValues[] = $this->escapeValue($value, 'IN-list value');
         }
 
         // Dedupe the finished SQL literals, not the raw values: array_unique on raw input
         // uses SORT_STRING, which would collapse type-distinct values like '' and false.
         $safeValues = array_unique($safeValues);
-        return new RawSql($safeValues ? implode(',', $safeValues) : 'NULL');
+
+        // Empty list: a zero-row subquery, so IN matches nothing and NOT IN matches everything.
+        // The row source must be a derived table, not DUAL: MySQL before 5.7.8 and early MariaDB 10.2
+        // ignore an impossible WHERE on DUAL inside IN subqueries (MySQL bug #17895), which reads as
+        // `x = 0` and matches every row of a string column via string-to-number coercion
+        return new RawSql($safeValues ? implode(',', $safeValues) : 'SELECT 0 FROM (SELECT 0) empty_set WHERE 0');
     }
 
     /**
      * Convert one PHP value to a SQL literal. Every value ZenDB writes into SQL goes
-     * through here: SET clauses, WHERE arrays, placeholders, escapef(), escapeCSV().
+     * through here or through an inlined copy of the string/int arms in a hot path
+     * (whereFromArray(), buildSetClause(), escapeCSV(), replacePlaceholders() fast
+     * arms); EscapeParityTest pins those copies byte-identical to this function.
      *
      *   "O'Brien"        →  'O\'Brien'    escaped and quoted
      *   42               →  42
@@ -778,42 +983,182 @@ trait ConnectionInternals
      */
     private function escapeValue(mixed $value, string $context = 'value'): string
     {
-        return match (true) {
-            is_null($value)          => 'NULL',
-            is_int($value)           => (string)$value,
-            is_float($value)         => is_finite($value)
-                                        ? var_export($value, true) // shortest exact representation, independent of the precision ini setting
-                                        : throw new InvalidArgumentException("NAN and INF have no SQL literal, can't escape $context"),
-            is_bool($value)          => $value ? 'TRUE' : 'FALSE',
-            $value instanceof RawSql => (string)$value,
-            is_string($value)        => "'" . $this->mysqli->real_escape_string($value) . "'",
-            default                  => throw new InvalidArgumentException("Unsupported type for $context: " . get_debug_type($value)),
-        };
+        // Checked most-common-first: strings and ints cover nearly all real values
+        if (is_string($value)) {
+            return "'" . $this->mysqli->real_escape_string($value) . "'";
+        }
+        if (is_int($value)) {
+            return (string)$value;
+        }
+        if ($value === null) {
+            return 'NULL';
+        }
+        if (is_float($value)) {
+            return $this->floatToSql($value, $context);
+        }
+        if (is_bool($value)) {
+            return $value ? 'TRUE' : 'FALSE';
+        }
+        if ($value instanceof RawSql) {
+            return (string)$value;
+        }
+        throw new InvalidArgumentException("Unsupported type for $context: " . get_debug_type($value));
+    }
+
+    /**
+     * Convert a finite float to the shortest SQL literal that parses back to the
+     * identical double. Every float ZenDB writes into SQL goes through here, so one
+     * value has one spelling on every path: placeholders, SET clauses, IN lists,
+     * escape(), and the like* helpers.
+     *
+     *     0.1 + 0.2            →  0.30000000000000004    the value the variable actually holds
+     *     2.0                  →  2.0
+     *     12345678901234567.0  →  12345678901234568.0    ...567 is not representable; the variable holds ...568
+     *
+     * A plain (string) cast rounds to 14 digits and prints values PHP isn't
+     * actually holding, so writes lose precision and WHERE equality misses
+     * stored values (MySQL reads '0.3' as a number that won't equal the sum).
+     *
+     * The imprecision starts in PHP, not here: floats are binary, so 0.1 + 0.2
+     * is already 0.30000000000000004 before ZenDB sees it. This function writes
+     * exactly what PHP has. To store something else, convert before passing:
+     *
+     *     round(0.1 + 0.2, 2)          →  0.3                    rounded to a precision you chose
+     *     (string)(0.1 + 0.2)          →  '0.3'                  strings pass through untouched...
+     *     (string)12345678901234568.0  →  '1.2345678901235E+16'  ...but the cast E-notates large floats
+     *
+     * For exact values, use ints of the smallest unit (cents, not dollars) or a
+     * DECIMAL column with string input.
+     *
+     * NAN and INF have no SQL literal, so they throw.
+     */
+    private function floatToSql(float $value, string $context = 'value'): string
+    {
+        return is_finite($value)
+            ? var_export($value, true) // exact: php.ini serialize_precision, -1 (shortest round-trip) by default since PHP 7.1
+            : throw new InvalidArgumentException("NAN and INF have no SQL literal, can't escape $context");
     }
 
     //endregion
     //region Result Processing
 
     /**
+     * Whether a query() can only produce columns from one table, so field metadata
+     * isn't needed: no SmartJoins possible, and duplicate columns are detectable
+     * structurally (assoc fetch collapses them).
+     *
+     * Sniffs the template BEFORE placeholder expansion, so escaped string values
+     * (which can legally contain 'join' or commas) can't affect the answer. RawSql
+     * params are the one way SQL text enters after expansion, so their text is
+     * checked too (paramValues is set by the caller, bare or inside IN-list arrays).
+     *
+     * False negatives just take the metadata path; false positives would silently
+     * drop SmartJoins keys, so anything that could involve a second table answers
+     * no: a statement that isn't SELECT or WITH (CALL and EXECUTE run SQL the
+     * template doesn't contain), JOIN, or a comma anywhere after the first FROM
+     * (comma-joins, and conservatively multi-column ORDER BY). RawSql fragments
+     * can land anywhere in the SQL, so they also reject FROM and bare commas;
+     * pagingSql's 'LIMIT x OFFSET y' passes. UNIONs are single-table-equivalent: no server
+     * attributes union result columns in fetch_fields() (table/orgtable empty on
+     * all 22 matrix servers), so SmartJoins can't trigger and duplicate columns
+     * are still caught structurally. See docs/internal/db-behavior-matrix.md.
+     */
+    private function isSingleTableQuery(string $template): bool
+    {
+        if (!preg_match('/^\s*(SELECT|WITH)\b/i', $template)) {
+            return false;   // CALL, EXECUTE, and friends: the tables they read aren't in the template
+        }
+
+        // [^,]* rather than .*: same answer, no backtracking. preg_match returns false when
+        // PCRE gives up, and that has to land on the metadata path, not the fast one.
+        if (preg_match('/join|from[^,]*,/i', $template) !== 0) {
+            return false;
+        }
+
+        foreach ($this->paramValues as $param) {
+            foreach (is_array($param) ? $param : [$param] as $value) {
+                if ($value instanceof RawSql && preg_match('/join|from|,/i', (string)$value)) {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Forget cached encrypted-column lists when a query template contains DDL, so the
+     * next read/write re-probes the changed schema (e.g. a column altered to MEDIUMBLOB
+     * mid-request would otherwise keep writing plaintext from a stale list).
+     * Called by query() and queryOne(), the only methods that accept DDL.
+     */
+    private function clearEncryptedColumnsCacheOnDdl(string $sqlTemplate): void
+    {
+        if ($this->encryptedColumnsCache && preg_match('/^\s*(ALTER|CREATE|DROP|RENAME|TRUNCATE)\b/i', $sqlTemplate)) {
+            $this->encryptedColumnsCache = [];
+        }
+    }
+
+    /**
      * Fetch result rows with column mapping, smart joins, and auto-decryption.
      *
+     * - $singleTable: caller guarantees a single-table `SELECT *` (no duplicate columns or
+     *   SmartJoins possible), skipping metadata checks entirely; $fullTable names the table
+     *   so keyed connections can cache its encrypted-column list
+     * - $sqlTemplate: query()'s pre-expansion template; when it (and any RawSql params)
+     *   can only produce single-table columns, metadata is skipped the same way
      * - Fast path: direct C-level MYSQLI_ASSOC fetch when no remapping is needed
      * - "First wins": duplicate column names use the first occurrence
      * - SmartJoins: multi-table queries add qualified names (e.g., 'users.name')
      * - Self-joins: adds alias-based names (e.g., 'a.name', 'b.name')
      * - Auto-decryption: MEDIUMBLOB columns are decrypted when an encryption key is configured
      */
-    private function fetchMappedRows(mysqli_result|bool $mysqliResult): array
+    private function fetchMappedRows(mysqli_result|MysqliResultReplay|bool $mysqliResult, bool $singleTable = false, string $fullTable = '', string $sqlTemplate = ''): array
     {
         if (is_bool($mysqliResult)) {
             return [];  // INSERT/UPDATE/DELETE return true, not a result set
         }
 
-        // Extract field metadata from result
+        // Single-table `SELECT *` (select/selectOne build that SQL themselves) can't have
+        // duplicate columns or joined tables, so rows need no remapping. Encrypted columns
+        // are looked up once per table per connection: the first select harvests the
+        // MEDIUMBLOB column list from this result's own field metadata, later selects skip
+        // fetch_fields() entirely (it builds a stdClass per column on every call)
+        if ($singleTable) {
+            $encryptedCols = [];
+            if ($this->hasEncryptionKey) {
+                if (!isset($this->encryptedColumnsCache[$fullTable])) {
+                    $this->encryptedColumnsCache[$fullTable] = array_values(DB::getEncryptedColumns($mysqliResult->fetch_fields()));
+                }
+                $encryptedCols = $this->encryptedColumnsCache[$fullTable];
+            }
+            $rows = $mysqliResult->fetch_all(MYSQLI_ASSOC);
+            $mysqliResult->free();
+            $this->decryptRows($rows, $encryptedCols);
+            return $rows;
+        }
+
+        // query() fast path: single-table template on an unkeyed connection. The only
+        // remap trigger left is duplicate SELECT-list columns, and those show up
+        // structurally: assoc fetch collapses them, leaving fewer keys than field_count.
+        if ($sqlTemplate !== '' && !$this->hasEncryptionKey && $this->isSingleTableQuery($sqlTemplate)) {
+            $rows = $mysqliResult->fetch_all(MYSQLI_ASSOC);
+            if (!$rows || count($rows[0]) === $mysqliResult->field_count) {
+                $mysqliResult->free();
+                return $rows;
+            }
+            $mysqliResult->data_seek(0);  // duplicate columns: refetch through the metadata path
+            unset($rows);                 // assoc collapse is last-wins, we return first-wins: unusable, and it would sit here through the numeric fetch
+        }
+
+        // Field metadata finds encrypted columns (when a key is set) plus, for arbitrary
+        // query() SQL, duplicate columns and SmartJoins
         $fetchFields  = $mysqliResult->fetch_fields();
+        $encryptedMap = $this->hasEncryptionKey ? DB::getEncryptedColumns($fetchFields) : [];   // [fieldIndex => colName] for MEDIUMBLOB cols
+
+        // Extract field metadata from result
         $names        = array_column($fetchFields, 'name');
         $aliasToTable = array_filter(array_column($fetchFields, 'orgtable', 'table'));      // e.g., ['u' => 'users']
-        $encryptedMap = DB::getEncryptedColumns($fetchFields);                              // [fieldIndex => colName] for MEDIUMBLOB cols
 
         // Fast path: no duplicate columns and no SmartJoins needed - use C-level associative fetch
         $hasDuplicateCols = count($names) !== count(array_flip($names));
@@ -874,7 +1219,12 @@ trait ConnectionInternals
 
         // SmartJoins: add qualified names (e.g., 'users.name') and alias names for self-joins (e.g., 'a.name')
         $prefixLen      = strlen($this->tablePrefix);
-        $selfJoinTables = array_filter(array_count_values($aliasToTable), fn($c) => $c > 1);
+        $selfJoinTables = [];
+        foreach (array_count_values($aliasToTable) as $table => $aliasCount) {
+            if ($aliasCount > 1) {
+                $selfJoinTables[$table] = $aliasCount;
+            }
+        }
 
         foreach ($fetchFields as $index => $field) {
             if (!$field->orgtable || !$field->orgname) {
@@ -911,7 +1261,36 @@ trait ConnectionInternals
                 'insert_id'     => $this->mysqli->insert_id,
             ],
         ];
-        return $this->useSmartStrings ? new SmartArrayHtml($rows, $properties) : new SmartArray($rows, $properties);
+
+        // fromDatabaseRows() trusts the rows are flat scalar/null arrays - guaranteed here,
+        // every fetchMappedRows() path returns mysqli-shaped rows - and skips the
+        // constructor's per-field scan; toArray() then returns the same rows without rebuilding
+        return $this->useSmartStrings
+            ? SmartArrayHtml::fromDatabaseRows($rows, $properties)
+            : SmartArray::fromDatabaseRows($rows, $properties);
+    }
+
+    /**
+     * Single-row version of toSmartArray() for selectOne()/queryOne(): builds the same
+     * result set but returns its first row (an empty collection when there are no rows),
+     * skipping the first() and asHtml()/asRaw() conversion steps. root() on the row
+     * returns the full result set.
+     */
+    private function toSmartArrayRow(array $rows, string $sql, string $baseTable = ''): SmartArrayBase
+    {
+        $properties = [
+            'loadHandler' => $this->loadHandler,
+            'mysqli'      => [
+                'query'         => $sql,
+                'baseTable'     => $baseTable,
+                'affected_rows' => $this->mysqli->affected_rows,
+                'insert_id'     => $this->mysqli->insert_id,
+            ],
+        ];
+
+        return $this->useSmartStrings
+            ? SmartArrayHtml::fromDatabaseRow($rows, $properties)
+            : SmartArray::fromDatabaseRow($rows, $properties);
     }
 
     //endregion
@@ -939,7 +1318,7 @@ trait ConnectionInternals
      */
     public function __destruct()
     {
-        if ($this->mysqli instanceof mysqli) {
+        if ($this->mysqli !== null) {
             try {
                 // Drain any pending result sets to leave connection in clean state
                 while ($this->mysqli->more_results() && $this->mysqli->next_result()) {
@@ -960,7 +1339,7 @@ trait ConnectionInternals
         $props = get_object_vars($this);
 
         // Restore sealed credentials for debug output
-        foreach (self::$secrets[$this] ?? [] as $key => $value) {
+        foreach (self::$secrets[$this->vaultKey] ?? [] as $key => $value) {
             $props[$key] = $value;
         }
         foreach (['hostname', 'username', 'password', 'encryptionKey'] as $sensitive) {
@@ -985,36 +1364,50 @@ trait ConnectionInternals
     private static WeakMap $secrets;
 
     /**
+     * Vault lookup token. Secrets are keyed by this empty object rather than the
+     * Connection itself, so PHP's clone operator copies the token and every clone
+     * reads the same vault entry. The entry is freed when the last clone is.
+     */
+    private ?stdClass $vaultKey = null;
+
+    /**
      * Seal credentials into the WeakMap vault and null them on the object.
      * Requires hostname, username, password, and database to be present
-     * in $config (construct) or $source vault (clone), throws otherwise.
+     * in $config, throws otherwise. Clones skip this: they share the
+     * source's vault entry through the copied $vaultKey.
      *
-     *     $this->sealSecrets(config: $config);    // construct: credentials from config
-     *     $clone->sealSecrets(source: $this);     // clone: copy from source vault
-     *
-     * @param self|null $source Source connection to copy secrets from (for clones)
-     * @param array     $config Config array; credential keys are consumed (construct path only)
-     * @throws RuntimeException If any required credential is missing
+     * @param array $config Config array; credential keys are consumed
+     * @throws RuntimeException If a required credential is missing, or any credential isn't a string
+     * @noinspection PhpFullyQualifiedNameUsageInspection - FQN required until PHP 8.2 minimum (can't import)
      */
-    private function sealSecrets(?self $source = null, array &$config = []): void
+    private function sealSecrets(#[\SensitiveParameter] array &$config): void
     {
-        self::$secrets        ??= new WeakMap();
-        self::$secrets[$this] = [];
-
-        $optional = ['encryptionKey'];
+        self::$secrets                  ??= new WeakMap();
+        $this->vaultKey                 = new stdClass();
+        self::$secrets[$this->vaultKey] = [];
 
         foreach (self::$secretKeys as $key) {
-            $value = $source
-                ? self::$secrets[$source][$key] ?? null  // clone: copy from source
-                : $config[$key] ?? null;                 // construct: from config
+            $value = $config[$key] ?? null;
 
-            if ($value === null && !in_array($key, $optional, true)) {
+            if ($value === null && $key !== 'encryptionKey') { // encryptionKey is the one optional secret
                 throw new RuntimeException("Missing required config: '$key'");
             }
-            self::$secrets[$this][$key] = $value;
-            $this->$key                 = null;            // clear property to prevent leakage
+            if ($value !== null && !is_string($value)) {
+                throw new RuntimeException("Config '$key' must be a string, got " . get_debug_type($value));
+            }
+            // '0' never worked as a key (PHP-falsey, presence checks read it as "no key"), so
+            // accepting it now would write ciphertext into tables holding plaintext - reject it
+            if ($key === 'encryptionKey' && $value === '0') {
+                throw new RuntimeException("Config 'encryptionKey' can't be '0'. Use '' to disable encryption, or choose a different key.");
+            }
+            self::$secrets[$this->vaultKey][$key] = $value;
+            $this->$key                           = null;  // clear property to prevent leakage
             unset($config[$key]);                          // consume key so it won't hit the property loop
         }
+
+        // Hoisted so per-query paths can check key presence without a vault lookup.
+        // Strict compare: only null and '' mean "no encryption"
+        $this->hasEncryptionKey = (self::$secrets[$this->vaultKey]['encryptionKey'] ?? '') !== '';
     }
 
     /**
@@ -1022,7 +1415,7 @@ trait ConnectionInternals
      */
     private function secret(string $key): ?string
     {
-        return self::$secrets[$this][$key] ?? null;
+        return self::$secrets[$this->vaultKey][$key] ?? null;
     }
 
     //endregion
@@ -1035,6 +1428,9 @@ trait ConnectionInternals
     private ?string $password      = null;
     private ?string $database      = null;
     private ?string $encryptionKey = null;
+
+    /** @var bool True when a non-empty `encryptionKey` is sealed in the vault (set by sealSecrets) */
+    private bool $hasEncryptionKey = false;
 
     // Result handling
     /** @var callable|null Custom handler for loading results */

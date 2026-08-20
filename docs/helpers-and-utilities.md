@@ -62,7 +62,7 @@ inputs first, so user input can be passed to them directly.
 
 ## Pagination - `DB::pagingSql()`
 
-`DB::pagingSql($pageNum, $perPage = 10)` builds a `LIMIT ... OFFSET ...`
+`DB::pagingSql($page, $perPage = 10)` builds a `LIMIT ... OFFSET ...`
 clause from a page number and page size, returned as a `RawSql` ready to use
 as a placeholder value:
 
@@ -86,6 +86,10 @@ DB::pagingSql(0);          // LIMIT 10 OFFSET 0   (page 0 becomes page 1)
 DB::pagingSql('abc');      // LIMIT 10 OFFSET 0   (non-numeric becomes page 1)
 DB::pagingSql(-3, 25);     // LIMIT 25 OFFSET 50  (negative becomes positive)
 ```
+
+Take the page number from the URL, but pick the page size yourself. Nothing
+caps it, so `?perPage=1000000` really does ask for a million rows, and PHP
+holds every one of them in memory.
 
 To show "page 3 of 12", pair it with `DB::count()` on the same WHERE condition
 and divide by the page size:
@@ -114,13 +118,13 @@ $users  = DB::select('users', "name LIKE ?", DB::likeContains($search));
 | `DB::likeEndsWith('son')`     | `'%son'`          | column ends with the value       |
 | `DB::likeContainsTSV('news')` | `'%\tnews\t%'`    | whole value in a tab-separated column |
 
-All four escape the input for SQL *and* escape the LIKE wildcards `%` and `_`,
-so those characters in user input match literally instead of acting as
-wildcards:
+All four escape the input for SQL *and* escape the LIKE wildcards `%`, `_`,
+and `\`, so every character in user input matches literally - nothing in the
+value can act as a wildcard:
 
 ```php
 $users = DB::select('users', "name LIKE ?", DB::likeContains('50%'));
-// name LIKE '%50\%%' - matches "50% off", not every name containing "50"
+// name LIKE '%50\\%%' - matches "50% off", not every name containing "50"
 ```
 
 `likeContainsTSV()` is for columns that store multiple values separated by

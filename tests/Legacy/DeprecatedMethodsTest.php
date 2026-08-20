@@ -11,9 +11,10 @@ use Itools\ZenDB\RawSql;
 use Itools\ZenDB\Tests\BaseTestCase;
 
 /**
- * Tests for deprecated static methods via __callStatic
+ * Tests for deprecated DB static methods: Logged-stage declared methods and the
+ * Fatal-stage __callStatic dispatch (see DBDeprecations for the ladder).
  *
- * @covers \Itools\ZenDB\DB::__callStatic
+ * @covers \Itools\ZenDB\DB
  */
 class DeprecatedMethodsTest extends BaseTestCase
 {
@@ -22,7 +23,7 @@ class DeprecatedMethodsTest extends BaseTestCase
     public static function setUpBeforeClass(): void
     {
         self::createDefaultConnection();
-        self::resetTempTestTables();
+        self::resetTestTables();
 
         // Capture deprecation warnings
         set_error_handler(function($errno, $errstr) {
@@ -191,15 +192,19 @@ class DeprecatedMethodsTest extends BaseTestCase
     //endregion
     //region Case Insensitivity
 
-    public function testMethodNamesCaseInsensitive(): void
+    public function testCallStaticMatchesNamesCaseInsensitively(): void
     {
-        // All case variations should resolve to the same method
-        $result1 = @DB::raw('NOW()');
-        $result2 = @DB::RAW('NOW()');
-        $result3 = @DB::RaW('NOW()');
-
-        $this->assertSame((string)$result1, (string)$result2);
-        $this->assertSame((string)$result2, (string)$result3);
+        // raw()/RAW() resolve to the declared method (PHP method names are case-insensitive)
+        // and never reach __callStatic; like() is removed, so every casing goes through
+        // __callStatic, which lowercases before matching its removed-method arms
+        foreach (['like', 'LIKE', 'LiKe'] as $name) {
+            try {
+                DB::$name('test');
+                $this->fail("DB::$name() should throw");
+            } catch (InvalidArgumentException $e) {
+                $this->assertStringContainsString('has been removed', $e->getMessage(), "DB::$name() must hit the removed-method arm, not unknown-method");
+            }
+        }
     }
 
     //endregion

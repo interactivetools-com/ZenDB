@@ -23,26 +23,14 @@ class DebugInfoTest extends BaseTestCase
      */
     private function injectVaultPassword(Connection $conn, string $password): void
     {
-        $prop = new ReflectionProperty($conn, 'secrets');
+        // The vault is keyed by the connection's clone-shared token, not the connection itself
+        $vaultKey = (new ReflectionProperty($conn, 'vaultKey'))->getValue($conn);
+        $prop     = new ReflectionProperty($conn, 'secrets');
         /** @var WeakMap $secrets */
-        $secrets                    = $prop->getValue();
-        $entry                      = $secrets[$conn];
-        $entry['password']          = $password;
-        $secrets[$conn]             = $entry;
-    }
-
-    public function testDebugInfoMasksPassword(): void
-    {
-        // configDefaults has password '' which is empty and won't be masked
-        // Use a separate connection with a real password to test masking
-        $conn = new Connection(self::$configDefaults);
-
-        // Inject a non-empty password into the vault to test masking
-        $debugInfo = $conn->__debugInfo();
-        $this->assertArrayHasKey('password', $debugInfo);
-
-        // With empty password, should NOT be masked
-        $this->assertSame('', $debugInfo['password']);
+        $secrets            = $prop->getValue();
+        $entry              = $secrets[$vaultKey];
+        $entry['password']  = $password;
+        $secrets[$vaultKey] = $entry;
     }
 
     public function testDebugInfoMasksNonEmptyPassword(): void
@@ -114,6 +102,8 @@ class DebugInfoTest extends BaseTestCase
 
     public function testDebugInfoIncludesMysqli(): void
     {
+        self::requiresLiveMysql();
+
         $conn = new Connection(self::$configDefaults);
 
         $debugInfo = $conn->__debugInfo();

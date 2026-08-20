@@ -4,27 +4,67 @@ declare(strict_types=1);
 namespace Itools\ZenDB;
 
 use InvalidArgumentException;
-use Itools\SmartArray\SmartArrayBase;
 use Itools\SmartString\SmartString;
-use JetBrains\PhpStorm\Deprecated;
 use RuntimeException;
 
+// import built-ins so calls resolve at compile time instead of per-call lookups; NamespacedCallsTest keeps this list exact
+use function date, htmlspecialchars, preg_match;
+use const ENT_DISALLOWED, ENT_HTML5, ENT_QUOTES, ENT_SUBSTITUTE, MYSQLI_TYPE_BLOB;
+
 /**
- * Internal methods and deprecation support for DB.
+ * Internal methods for DB.
  *
  * Handles:
  * - Default connection management
  * - Escape methods (escape, escapef, escapeCSV)
- * - Deprecated method support
  */
 trait DBInternals
 {
-    //region Internals
+    //region Properties
 
     /**
      * The default Connection instance
      */
     private static ?Connection $db = null;
+
+    /**
+     * Names that passed assertIdentifier(), precached with common ones. Call sites
+     * check here first and skip the call for names already seen.
+     *
+     * TODO-PHP83: initializer can become array_flip(['num', 'id', ...]) - same speed
+     *
+     * @internal
+     */
+    public static array $safeIdentifiers = [
+        // primary keys
+        'num' => true,
+        'id'  => true,
+        // CMS Builder system fields, on every table
+        'createdDate'      => true,
+        'createdByUserNum' => true,
+        'updatedDate'      => true,
+        'updatedByUserNum' => true,
+        'dragSortOrder'    => true,
+        // common column names
+        'name'     => true,
+        'title'    => true,
+        'content'  => true,
+        'email'    => true,
+        'username' => true,
+        'status'   => true,
+        'date'     => true,
+        // tables touched on nearly every CMS Builder request
+        'accounts'    => true,
+        'uploads'     => true,
+        '_sessions'   => true,
+        '_accesslist' => true,
+        '_permalinks' => true,
+        // default CMS Builder table prefix
+        'cmsb_' => true,
+    ];
+
+    //endregion
+    //region Connection
 
     /**
      * Get the default Connection instance, e.g. to pass somewhere a Connection is expected.
@@ -40,6 +80,9 @@ trait DBInternals
             "No database connection. Call DB::connect() first.",
         );
     }
+
+    //endregion
+    //region Escaping
 
     /**
      * Wrapper for {@see Connection::escape()}
@@ -72,12 +115,42 @@ trait DBInternals
     }
 
     /**
+     * HTML-encode a value for safe output, same name and flags as CMS Builder's h().
+     * ENT_DISALLOWED substitutes code points HTML5 forbids (C1 controls, noncharacters)
+     * with � so they can't hide in page source.
+     *
+     * Every error, warning, or exception message encodes the values it interpolates
+     * (keys, identifiers, method names - anything that isn't safe by construction):
+     * handlers often echo messages into pages. Assign it to a variable to encode
+     * inline in interpolated strings:
+     *
+     *     $h = self::h(...);
+     *     throw new RuntimeException("Unknown key '{$h($key)}', expected a column name");
+     *
+     * @internal
+     */
+    public static function h(string|int|float|null $input): string
+    {
+        return htmlspecialchars((string)$input, ENT_QUOTES | ENT_SUBSTITUTE | ENT_DISALLOWED | ENT_HTML5, 'UTF-8');
+    }
+
+    //endregion
+    //region Validation
+
+    /**
      * Throw unless a string is a safe SQL identifier: letters, numbers, _ and - only.
      * Runs on every table and column name ZenDB puts between backticks - the check that
      * matters there, since real_escape_string() doesn't escape backticks, so escaping
      * alone can't make an identifier safe. $what names the value in the error message.
      *
-     *     DB::assertIdentifier($fullTable, 'table name'); // throws for 'title; DROP TABLE users'
+     * Names that pass are added to `$safeIdentifiers`. Call sites skip already-validated
+     * names by checking that list first - IdentifierValidationTest enforces this form at
+     * every call site:
+     *
+     *     isset(DB::$safeIdentifiers[$column]) || DB::assertIdentifier($column, 'column name');
+     *
+     * A few places inline this regex (or a close variant) instead of calling it - grep
+     * for [\w- before changing the charset so they all move together.
      *
      * @internal
      * @param string $identifier The string to check
@@ -87,44 +160,22 @@ trait DBInternals
     public static function assertIdentifier(string $identifier, string $what = 'identifier'): void
     {
         if (!preg_match('/^[\w-]+\z/', $identifier)) { // \z: $ would also match before a trailing newline
-            throw new InvalidArgumentException("Invalid $what '$identifier', allowed characters: a-z, A-Z, 0-9, _, -");
+            $h = self::h(...); // SECURITY: identifier failed validation, encode before it can reach page output
+            throw new InvalidArgumentException("Invalid $what '{$h($identifier)}', allowed characters: a-z, A-Z, 0-9, _, -");
         }
+        self::$safeIdentifiers[$identifier] = true;
     }
+
+    //endregion
+    //region Encryption
 
     /**
      * @see Connection::decryptRows()
+     * @noinspection PhpFullyQualifiedNameUsageInspection - FQN required until PHP 8.2 minimum (can't import)
      */
-    public static function decryptRows(array &$rows, array $fetchFields): void
+    public static function decryptRows(#[\SensitiveParameter] array &$rows, array $keysOrFetchFields): void
     {
-        self::connection()->decryptRows($rows, $fetchFields);
-    }
-
-    /**
-     * PHP's current timezone expressed as a value MySQL's SET time_zone accepts.
-     * Used at connect when `usePhpTimezone` is set; call it yourself after changing
-     * PHP's timezone mid-request to bring the database session back in step:
-     *
-     *     date_default_timezone_set('Pacific/Kiritimati');
-     *     DB::query("SET time_zone = ?", DB::phpTimezoneForMysql());
-     *
-     * Returns PHP's UTC offset (e.g. "-08:00"), except offsets past +13:00 (Kiritimati
-     * +14:00, Chatham +13:45 in DST), which MariaDB and MySQL before 8.0.19 reject with
-     * error 1298 (bug #63685). Those return an IANA name instead, which needs the
-     * mysql.time_zone tables: Linux servers ship them loaded, Windows installs ship them
-     * empty and reject the name with "Unknown or incorrect time zone" until they're
-     * loaded (import MySQL's downloadable timezone package into the mysql schema and
-     * restart: https://dev.mysql.com/downloads/timezones.html).
-     *
-     * @internal
-     * @return string A UTC offset like "+02:00", or an IANA zone name for offsets past +13:00
-     */
-    public static function phpTimezoneForMysql(): string
-    {
-        return match ($offset = date('P')) {
-            '+14:00' => 'Etc/GMT-14',
-            '+13:45' => 'Pacific/Chatham',
-            default  => $offset,
-        };
+        self::connection()->decryptRows($rows, $keysOrFetchFields);
     }
 
     /**
@@ -152,106 +203,34 @@ trait DBInternals
     }
 
     //endregion
-    //region Deprecations
+    //region Timezone
 
     /**
-     * @deprecated Use Table::exists() instead
-     * @see        Table::exists()
-     * @noinspection PhpDeprecationInspection deliberate delegation, hasTable() keeps the isPrefixed flag working
-     */
-    #[Deprecated(reason: 'use Table::exists() instead')]
-    public static function tableExists(string $table, bool $isPrefixed = false): bool
-    {
-        self::logDeprecation("DB::tableExists() is deprecated, use Table::exists() instead");
-        return self::connection()->hasTable($table, $isPrefixed);
-    }
-
-    /**
-     * @deprecated Use Table::exists() instead
-     * @see        Table::exists()
-     * @noinspection PhpDeprecationInspection deliberate delegation, Connection::hasTable() keeps the isPrefixed flag working
-     */
-    #[Deprecated(reason: 'use Table::exists() instead')]
-    public static function hasTable(string $table, bool $isPrefixed = false): bool
-    {
-        self::logDeprecation("DB::hasTable() is deprecated, use Table::exists() instead");
-        return self::connection()->hasTable($table, $isPrefixed);
-    }
-
-    /**
-     * @deprecated Use Table::names() or Table::namesFull() instead
-     * @see        Table::names()
-     * @see        Table::namesFull()
-     */
-    #[Deprecated(reason: 'use Table::names() or Table::namesFull() instead')]
-    public static function getTableNames(bool $withPrefix = false): array
-    {
-        self::logDeprecation("DB::getTableNames() is deprecated, use Table::names() or Table::namesFull() instead");
-        return $withPrefix ? Table::namesFull() : Table::names();
-    }
-
-    /**
-     * @deprecated Use Table::columnDefinitions() instead; note it throws for unknown tables
-     *             and invalid names where this returns []
-     * @see        TableInfo::columnDefinitions()
-     * @noinspection PhpDeprecationInspection deliberate delegation, Connection::getColumnDefinitions() keeps the []-on-error contract
-     */
-    #[Deprecated(reason: 'use Table::columnDefinitions() instead')]
-    public static function getColumnDefinitions(string $baseTable): array
-    {
-        self::logDeprecation("DB::getColumnDefinitions() is deprecated, use Table::columnDefinitions() instead");
-        return self::connection()->getColumnDefinitions($baseTable);
-    }
-
-    /**
-     * @deprecated Use DB::selectOne() instead
-     * @see        DB::selectOne()
-     */
-    #[Deprecated(replacement: 'DB::selectOne(%parametersList%)')]
-    public static function get(string $baseTable, int|array|string $whereEtc = [], ...$params): SmartArrayBase
-    {
-        self::logDeprecation("DB::get() is deprecated, use DB::selectOne() instead");
-        return self::connection()->selectOne($baseTable, $whereEtc, ...$params);
-    }
-
-    /**
-     * Handle legacy static method calls.
-     * @noinspection SpellCheckingInspection for lowercase method names
-     */
-    public static function __callStatic(string $name, array $args): mixed
-    {
-        [$replacement, $result] = match (strtolower($name)) {
-            'like', 'escapelikewildcards' => throw new InvalidArgumentException("DB::$name() has been removed. Use DB::escape(\$value, true) or DB::likeContains(\$value) instead"),
-            'identifier'                  => throw new InvalidArgumentException("DB::identifier() has been removed for security. Use backtick placeholders instead: `?` or `:name`"),
-            'gettableprefix'              => ["DB::\$tablePrefix", self::$tablePrefix],
-            'israwsql'                    => ["\$value instanceof RawSql", ($args[0] ?? null) instanceof RawSql],
-            'raw'                         => ["DB::rawSql()", self::rawSql(...$args)],
-            'datetime'                    => ["date('Y-m-d H:i:s', \$time)", date('Y-m-d H:i:s', ($args[0] ?? time()))],
-            default                       => throw new InvalidArgumentException("Unknown static method: $name"),
-        };
-        self::logDeprecation("DB::$name() is deprecated, use $replacement instead");
-
-        return $result;
-    }
-
-    /**
-     * Log a deprecation warning with caller location.
+     * PHP's current timezone expressed as a value MySQL's SET time_zone accepts.
+     * Used at connect when `usePhpTimezone` is set; call it yourself after changing
+     * PHP's timezone mid-request to bring the database session back in step:
      *
-     * @param string $message Deprecation message (caller file:line will be appended)
+     *     date_default_timezone_set('Pacific/Kiritimati');
+     *     DB::query("SET time_zone = ?", DB::phpTimezoneForMysql());
+     *
+     * Returns PHP's UTC offset (e.g. "-08:00"), except offsets past +13:00 (Kiritimati
+     * +14:00, Chatham +13:45 in DST), which MariaDB and MySQL before 8.0.19 reject with
+     * error 1298 (bug #63685). Those return an IANA name instead, which needs the
+     * mysql.time_zone tables: Linux servers ship them loaded, Windows installs ship them
+     * empty and reject the name with "Unknown or incorrect time zone" until they're
+     * loaded (import MySQL's downloadable timezone package into the mysql schema and
+     * restart: https://dev.mysql.com/downloads/timezones.html).
+     *
+     * @internal
+     * @return string A UTC offset like "+02:00", or an IANA zone name for offsets past +13:00
      */
-    public static function logDeprecation(string $message): void
+    public static function phpTimezoneForMysql(): string
     {
-        // Find first caller outside ZenDB src directory
-        $file = "unknown";
-        $line = "unknown";
-        foreach (debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS) as $caller) {
-            if (!empty($caller['file']) && dirname($caller['file']) !== __DIR__) {
-                $file = basename($caller['file']);
-                $line = $caller['line'] ?? "unknown";
-                break;
-            }
-        }
-        @trigger_error("$message in $file:$line", E_USER_DEPRECATED);
+        return match ($offset = date('P')) {
+            '+14:00' => 'Etc/GMT-14',
+            '+13:45' => 'Pacific/Chatham',
+            default  => $offset,
+        };
     }
 
     //endregion

@@ -19,7 +19,7 @@ class GetColumnDefinitionsTest extends BaseTestCase
     public static function setUpBeforeClass(): void
     {
         self::createDefaultConnection();
-        self::resetTempTestTables();
+        self::resetTestTables();
     }
 
     //endregion
@@ -75,14 +75,16 @@ class GetColumnDefinitionsTest extends BaseTestCase
 
     public function testStripsDefaultCharset(): void
     {
-        $columns = DB::getColumnDefinitions('users');
+        // A column that explicitly repeats the table's default charset: SHOW CREATE TABLE
+        // prints it, and the normalizer must strip it as redundant
+        DB::$mysqli->query("DROP TEMPORARY TABLE IF EXISTS test_charset_strip");
+        DB::$mysqli->query("CREATE TEMPORARY TABLE test_charset_strip (
+            note VARCHAR(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
 
-        // Default charset/collation should be stripped
-        foreach ($columns as $definition) {
-            // Common default charset patterns that should be removed
-            $this->assertStringNotContainsString('CHARACTER SET utf8mb4', $definition);
-            $this->assertStringNotContainsString('COLLATE utf8mb4_unicode_ci', $definition);
-        }
+        $columns = DB::getColumnDefinitions('charset_strip');
+        $this->assertStringNotContainsString('CHARACTER SET', $columns['note']);
+        $this->assertStringNotContainsString('COLLATE', $columns['note']);
     }
 
     public function testNonExistingTableReturnsEmpty(): void
@@ -116,9 +118,13 @@ class GetColumnDefinitionsTest extends BaseTestCase
     {
         $columns = DB::getColumnDefinitions('users');
 
-        // isAdmin is TINYINT(1) NULL
+        // isAdmin is nullable; a bare 'NULL' check would also match 'NOT NULL'
         $isAdminDef = $columns['isAdmin'] ?? '';
-        $this->assertStringContainsString('NULL', $isAdminDef);
+        $this->assertStringContainsString('DEFAULT NULL', $isAdminDef);
+        $this->assertStringNotContainsString('NOT NULL', $isAdminDef);
+
+        // And the contrast: num is NOT NULL
+        $this->assertStringContainsString('NOT NULL', $columns['num'] ?? '');
     }
 
     public function testAutoIncrementInfo(): void
@@ -128,17 +134,6 @@ class GetColumnDefinitionsTest extends BaseTestCase
         // num should have AUTO_INCREMENT
         $numDef = $columns['num'] ?? '';
         $this->assertStringContainsStringIgnoringCase('auto_increment', $numDef);
-    }
-
-    public function testPrimaryKeyColumn(): void
-    {
-        // Primary key info might be in the column definition
-        $columns = DB::getColumnDefinitions('users');
-        $numDef = $columns['num'] ?? '';
-
-        // Either has PRIMARY KEY in definition or auto_increment (which implies PK for InnoDB)
-        $hasPrimaryInfo = stripos($numDef, 'auto_increment') !== false;
-        $this->assertTrue($hasPrimaryInfo);
     }
 
     //endregion
@@ -256,6 +251,24 @@ class GetColumnDefinitionsTest extends BaseTestCase
         $columns = DB::getColumnDefinitions('schema_ts');
 
         $this->assertSame('datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP', $columns['created']);
+    }
+
+    public function testStripsImplicitTextDefaultNull(): void
+    {
+        // MariaDB 10.2+ prints 'mediumtext DEFAULT NULL' for a nullable text column, MySQL
+        // prints just 'mediumtext'; both must read back the same. Other types print
+        // DEFAULT NULL on both vendors, so theirs stays
+        DB::$mysqli->query("DROP TEMPORARY TABLE IF EXISTS test_schema_textnull");
+        DB::$mysqli->query("CREATE TEMPORARY TABLE test_schema_textnull (
+            body MEDIUMTEXT,
+            data BLOB,
+            age  INT
+        )");
+        $columns = DB::getColumnDefinitions('schema_textnull');
+
+        $this->assertSame('mediumtext', $columns['body']);
+        $this->assertSame('blob', $columns['data']);
+        $this->assertSame('int DEFAULT NULL', $columns['age']);
     }
 
     //endregion

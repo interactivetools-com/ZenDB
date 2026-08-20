@@ -14,14 +14,14 @@ Contents:
 - [Insert, Then Load the New Row - `DB::insert()`](#insert-then-load-the-new-row---dbinsert)
 - [Search, Sort, and Paginate - `DB::likeContains()` and `DB::pagingSql()`](#search-sort-and-paginate---dblikecontains-and-dbpagingsql)
 - [HTML Table from Query Results](#html-table-from-query-results)
-- [An HTML Table from Any Query - `sprintf()` and `implode()`](#an-html-table-from-any-query---sprintf-and-implode)
+- [An HTML Table from Any Query - `keys()`](#an-html-table-from-any-query---keys)
 - [Select Dropdown from Query Results](#select-dropdown-from-query-results)
 - [Grouped Display - `groupBy()`](#grouped-display---groupby)
-- [Lookup Maps - `pluck()` and `indexBy()`](#lookup-maps---pluck-and-indexby)
+- [Lookup Maps - `column()` and `indexBy()`](#lookup-maps---column-and-indexby)
 - [Checking a Column for a Value - `contains()`](#checking-a-column-for-a-value---contains)
 - [Default Missing Numbers to Zero - `or()`](#default-missing-numbers-to-zero---or)
 - [Calculations in Templates - `divide()`, `subtract()`, and `percentOf()`](#calculations-in-templates---divide-subtract-and-percentof)
-- [Address Lines That Skip Empty Fields - `and()`](#address-lines-that-skip-empty-fields---and)
+- [Address Lines That Skip Empty Fields - `append()`](#address-lines-that-skip-empty-fields---append)
 - [Values in URLs and JavaScript - `urlEncode()` and `jsonEncode()`](#values-in-urls-and-javascript---urlencode-and-jsonencode)
 - [Click-to-Call Phone Links - `pregReplace()`](#click-to-call-phone-links---pregreplace)
 - [Displaying Trusted HTML - `rawHtml()`](#displaying-trusted-html---rawhtml)
@@ -29,7 +29,7 @@ Contents:
 ## Record Detail with 404 - `or404()`
 
 Load a single record, or send a `404 Not Found` response and exit if it
-doesn't exist. `or404()` returns the row when the result has data, so it
+doesn't exist. When the result has data, `or404()` returns the row, so it
 chains directly onto a `selectOne()` call:
 
 ```php
@@ -39,7 +39,7 @@ $user = DB::selectOne('users', ['id' => $id])->or404();
 
 echo "<h1>$user->name</h1>";
 echo "<p>Member since {$user->createdAt->dateFormat('M j, Y')}</p>";
-echo "<p>{$user->bio->textToHtml()}</p>";
+echo "<p>{$user->bio->nl2br()}</p>";
 ```
 
 `or404()` takes an optional message: `->or404("That user no longer exists")`.
@@ -81,7 +81,7 @@ if ($emailInUse) {
 
 ## One Value from a Query - `DB::queryOne()`
 
-Aggregates return one row with one column. `queryOne()` returns that row
+Aggregates return one row with one column; `queryOne()` returns that row
 directly, so the value chains right off the call:
 
 ```php
@@ -91,21 +91,21 @@ $newest = DB::queryOne("SELECT MAX(createdAt) AS newest FROM ::users")->newest;
 echo "Newest signup: {$newest->dateFormat('M j, Y')}";
 ```
 
-For columns whose names are awkward to type, read by position with `nth()`.
+For columns whose names are awkward to type, read by position with `at()` -
 `SHOW CREATE TABLE` returns a column literally named `Create Table`:
 
 ```php
-$createSql = DB::queryOne("SHOW CREATE TABLE ::users")->nth(1)->value();
-// by name instead: ->get('Create Table')->value()
+$createSql = DB::queryOne("SHOW CREATE TABLE ::users")->at(1)->value();
+// by name instead: ->{'Create Table'}->value()
 ```
 
-The same trick works on whole result sets. `pluckNth()` extracts a column by
+The same trick works on whole result sets; `columnAt()` extracts a column by
 position when the column name varies:
 
 ```php
-$tables = DB::query("SHOW TABLES")->pluckNth(0)->toArray();
+$tables = DB::query("SHOW TABLES")->columnAt(0)->toArray();
 // SHOW TABLES names its column after the database ("Tables_in_myapp"), so
-// pluck by position: ['categories', 'orders', 'products', 'users']
+// extract by position: ['categories', 'orders', 'products', 'users']
 ```
 
 ## Insert, Then Load the New Row - `DB::insert()`
@@ -154,8 +154,8 @@ echo "$total results, page $page of $totalPages";
 ```
 
 Both helpers sanitize their own inputs, so `$_GET` values can be passed
-straight in. `likeContains()` escapes quotes and the LIKE wildcards `%` and
-`_`, so a search for `50%` matches the literal text `50%`. `pagingSql()`
+straight in: `likeContains()` escapes quotes and the LIKE wildcards `%` and
+`_`, so a search for `50%` matches the literal text `50%`; `pagingSql()`
 casts the page number to `int` and falls back to page 1 on anything empty or
 non-numeric.
 
@@ -191,23 +191,30 @@ $users = DB::select('users', ['status' => 'active']);
 </table>
 ```
 
-## An HTML Table from Any Query - `sprintf()` and `implode()`
+## An HTML Table from Any Query - `keys()`
 
 When the columns aren't fixed (admin tools, debug pages, ad-hoc SQL), build
-the cells from the data itself. `sprintf()` formats every element of a
-collection with a `{value}` placeholder, HTML-encoding each one, and
-`implode()` joins the results:
+the cells from the data itself. Header names and cell values both HTML-encode
+themselves on output:
 
 ```php
 $rows = DB::query("SHOW TABLE STATUS");
 ?>
 <table>
     <thead>
-        <tr><?= $rows->first()->keys()->sprintf("<th>{value}</th>")->implode("\n") ?></tr>
+        <tr>
+            <?php foreach ($rows->first()->keys() as $name): ?>
+                <th><?= $name ?></th>
+            <?php endforeach ?>
+        </tr>
     </thead>
     <tbody>
         <?php foreach ($rows as $row): ?>
-            <tr><?= $row->sprintf("<td>{value}</td>")->implode("\n") ?></tr>
+            <tr>
+                <?php foreach ($row as $value): ?>
+                    <td><?= $value ?></td>
+                <?php endforeach ?>
+            </tr>
         <?php endforeach ?>
     </tbody>
 </table>
@@ -238,35 +245,39 @@ $categories = DB::select('categories', "ORDER BY name");
 Sorting by the group column first keeps each group's items in order:
 
 ```php
+use Itools\SmartString\SmartString;
+
 $products   = DB::select('products', "ORDER BY category, name");
 $byCategory = $products->groupBy('category');
 // ['Books' => [row, row, ...], 'Electronics' => [row, ...]]
 
 foreach ($byCategory as $category => $items) {
-    echo "<h2>" . htmlspecialchars($category) . "</h2><ul>";
+    $category = SmartString::new($category);  // foreach keys come back plain; this makes them encode like fields
+    echo "<h2>$category</h2><ul>";
     foreach ($items as $item) {
-        echo "<li>$item->name - {$item->price->numberFormat(2)->andPrefix('$')}</li>";
+        echo "<li>$item->name - {$item->price->numberFormat(2)->prepend('$')}</li>";
     }
     echo "</ul>";
 }
 ```
 
-One encoding note: group keys are PHP array keys, so `$category` is a plain
-string, not a
+One encoding note: group keys are PHP array keys, so `$category` arrives as a
+plain string, not a
 [SmartString](https://github.com/interactivetools-com/SmartString), and doesn't
-HTML-encode itself. Encode it yourself on output, as above.
+HTML-encode itself. Wrapping it in `SmartString::new()` makes it encode like
+any other field.
 
-## Lookup Maps - `pluck()` and `indexBy()`
+## Lookup Maps - `column()` and `indexBy()`
 
-Both turn a result set into a keyed lookup. Two-argument `pluck()` keeps one
-column, reading as "pluck the name, keyed by id":
+Both turn a result set into a keyed lookup. Two-argument `column()` keeps one
+column, reading as "the name column, keyed by id":
 
 ```php
-$categoryNames = DB::select('categories')->pluck('name', 'id');
+$categoryNames = DB::select('categories')->column('name', 'id');
 // [1 => 'Books', 2 => 'Electronics', 3 => 'Toys', ...]
 
 foreach (DB::select('products') as $product) {
-    echo "<li>$product->name - {$categoryNames->get($product->categoryId->int())}</li>";
+    echo "<li>$product->name - {$categoryNames->{$product->categoryId->int()}}</li>";
 }
 ```
 
@@ -274,19 +285,19 @@ When later code needs more than one column, `indexBy()` keeps the whole row:
 
 ```php
 $categoriesById = DB::select('categories')->indexBy('id');
-echo $categoriesById->get(3)->name;   // get() reads keys object syntax can't, like numbers
+echo $categoriesById->{'3'}->name;   // the ->{'...'} syntax reads keys plain property syntax can't, like numbers
 ```
 
 ## Checking a Column for a Value - `contains()`
 
-With rows already loaded, `pluck()` plus `contains()` answers "is this value
+With rows already loaded, `column()` plus `contains()` answers "is this value
 in that column" without another query:
 
 ```php
 $email  = $_POST['email'] ?? '';
 $admins = DB::select('users', ['isAdmin' => 1]);
 
-if ($admins->pluck('email')->contains($email)) {
+if ($admins->column('email')->contains($email)) {
     echo "That email belongs to an admin";
 }
 ```
@@ -294,11 +305,11 @@ if ($admins->pluck('email')->contains($email)) {
 Metadata queries work too:
 
 ```php
-$hasEmailIndex = DB::query("SHOW INDEX FROM ::users")->pluck('Column_name')->contains('email');
+$hasEmailIndex = DB::query("SHOW INDEX FROM ::users")->column('Column_name')->contains('email');
 ```
 
 For a one-off check straight against the database, `DB::count()` above is
-the better tool. `contains()` earns its keep when the collection is already
+the better tool; `contains()` earns its keep when the collection is already
 in hand, or when several values get tested against the same one.
 
 ## Default Missing Numbers to Zero - `or()`
@@ -347,11 +358,11 @@ echo $thisYear->sales
     ->subtract($lastYear->sales)
     ->percentOf($lastYear->sales)
     ->ifNull('-')
-    ->apply(fn(string $v) => str_starts_with($v, '-') ? $v : "+$v");
+    ->map(fn(string $v) => str_starts_with($v, '-') ? $v : "+$v");
 // 120 vs 100 → "+20%",  100 vs 120 → "-17%",  no last year → "-"
 ```
 
-The `apply()` on the end runs any callable on the raw value; the result
+The `map()` on the end runs any callable on the raw value; the result
 still HTML-encodes on output.
 
 For rates stored as fractions, `percent()` multiplies by 100, and its second
@@ -362,22 +373,22 @@ echo $plan->completionRate->percent(1);        // 0.254 → "25.4%"
 echo $plan->completionRate->percent(0, '-');   // 0 → "-"
 ```
 
-## Address Lines That Skip Empty Fields - `and()`
+## Address Lines That Skip Empty Fields - `append()`
 
-`and()` appends its argument only when the value is present, so separators
+`append()` adds its argument only when the value is present, so separators
 after optional fields disappear with the field, no `if` statements needed:
 
 ```php
-echo $user->city->and(', ') . $user->region->and(' ') . $user->postalCode;
+echo $user->city->append(', ') . $user->region->append(' ') . $user->postalCode;
 // "Vancouver, BC V6B 1A1" - or "Vancouver, V6B 1A1" when region is empty
 ```
 
-`andPrefix()` is the same idea in front: `$user->balance->andPrefix('$')`
+`prepend()` is the same idea in front: `$user->balance->prepend('$')`
 prints `$0` for a zero balance and nothing for null (zero counts as present,
 null and `''` do not).
 
 The appended text becomes part of the value, so it HTML-encodes on output
-with everything else. Keep separators plain text; a `<br>` inside `and()`
+with everything else. Keep separators plain text; a `<br>` inside `append()`
 prints as literal text, not a line break.
 
 ## Values in URLs and JavaScript - `urlEncode()` and `jsonEncode()`
@@ -396,8 +407,8 @@ echo "<script>let userName = {$user->name->jsonEncode()};</script>";
 ## Click-to-Call Phone Links - `pregReplace()`
 
 A `tel:` link needs bare digits; the displayed number keeps its formatting.
-`pregReplace()` runs a regex on the raw value and returns a new value that
-HTML-encodes on output like any other:
+To get both, `pregReplace()` runs a regex on the raw value and returns a new
+value that HTML-encodes on output like any other:
 
 ```php
 <a href="tel:<?= $user->phone->pregReplace('/\D/', '') ?>"><?= $user->phone ?></a>

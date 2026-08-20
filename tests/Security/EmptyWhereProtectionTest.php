@@ -20,13 +20,13 @@ class EmptyWhereProtectionTest extends BaseTestCase
     public static function setUpBeforeClass(): void
     {
         self::createDefaultConnection();
-        self::resetTempTestTables();
+        self::resetTestTables();
     }
 
     protected function setUp(): void
     {
         // Reset tables before each test to ensure clean state
-        self::resetTempTestTables();
+        self::resetTestTables();
     }
 
     //region UPDATE Protection

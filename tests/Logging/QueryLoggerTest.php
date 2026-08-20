@@ -36,6 +36,8 @@ class QueryLoggerTest extends BaseTestCase
 
     public function testLoggerCallbackInvoked(): void
     {
+        self::requiresLiveMysql();
+
         $logs = [];
         $conn = new Connection(array_merge(self::$configDefaults, [
             'queryLogger' => function($query, $duration, $error) use (&$logs) {
@@ -63,12 +65,10 @@ class QueryLoggerTest extends BaseTestCase
 
     public function testLoggerReceivesQueryString(): void
     {
-        $capturedQuery = null;
+        $queries = [];
         $conn = new Connection(array_merge(self::$configDefaults, [
-            'queryLogger' => function($query, $duration, $error) use (&$capturedQuery) {
-                if (str_contains($query, 'SELECT') && str_contains($query, 'test_q')) {
-                    $capturedQuery = $query;
-                }
+            'queryLogger' => function($query, $duration, $error) use (&$queries) {
+                $queries[] = $query;
             }
         ]));
 
@@ -76,29 +76,27 @@ class QueryLoggerTest extends BaseTestCase
         $conn->query("CREATE TEMPORARY TABLE test_q_table (num INT)");
         $conn->query("SELECT * FROM test_q_table WHERE num = ?", 1);
 
-        $this->assertNotNull($capturedQuery);
-        $this->assertStringContainsString('test_q', $capturedQuery);
-        $this->assertStringContainsString('num', $capturedQuery);
+        // The logger receives the final interpolated SQL, values in place
+        $this->assertContains('SELECT * FROM test_q_table WHERE num = 1', $queries);
     }
 
     public function testLoggerReceivesDuration(): void
     {
-        $capturedDuration = null;
+        self::requiresLiveMysql();
+
+        $logs = [];
         $conn = new Connection(array_merge(self::$configDefaults, [
-            'queryLogger' => function($query, $duration, $error) use (&$capturedDuration) {
-                if (str_contains($query, 'SELECT') && str_contains($query, 'duration_test')) {
-                    $capturedDuration = $duration;
-                }
+            'queryLogger' => function($query, $duration, $error) use (&$logs) {
+                $logs[] = [$query, $duration];
             }
         ]));
 
-        $conn->query("DROP TEMPORARY TABLE IF EXISTS duration_test");
-        $conn->query("CREATE TEMPORARY TABLE duration_test (id INT)");
-        $conn->query("SELECT * FROM duration_test LIMIT 1");
+        // SLEEP gives the query a known minimum runtime, so the duration must reflect it
+        $conn->query("SELECT SLEEP(?)", 0.01);
 
-        $this->assertNotNull($capturedDuration);
-        $this->assertIsFloat($capturedDuration);
-        $this->assertGreaterThanOrEqual(0, $capturedDuration);
+        $sleepLogs = array_values(array_filter($logs, fn($log) => str_contains($log[0], 'SLEEP')));
+        $this->assertCount(1, $sleepLogs);
+        $this->assertGreaterThan(0.005, $sleepLogs[0][1], 'Duration must measure the query, not default to zero');
     }
 
     public function testLoggerReceivesNullOnSuccess(): void
@@ -147,15 +145,15 @@ class QueryLoggerTest extends BaseTestCase
             'queryLogger' => null
         ]));
 
+        // The wrapper is what invokes the logger; null must reach it for logging to be off
+        $this->assertNull($conn->mysqli->queryLogger);
+
         // Create test table using raw mysqli (bypasses template validation for DDL)
         $conn->mysqli->query("DROP TEMPORARY TABLE IF EXISTS test_logger_null_test");
         $conn->mysqli->query("CREATE TEMPORARY TABLE test_logger_null_test (id INT)");
 
-        // Should not call logger (null disables it)
-        $conn->query("SELECT * FROM ::logger_null_test LIMIT 1");
-
-        // Just verify query succeeded
-        $this->assertTrue($conn->isConnected());
+        // And queries still work without a logger
+        $this->assertCount(0, $conn->query("SELECT * FROM ::logger_null_test LIMIT 1"));
     }
 
     public function testLoggerMultipleQueries(): void
@@ -185,12 +183,10 @@ class QueryLoggerTest extends BaseTestCase
 
     public function testLoggerWithInsert(): void
     {
-        $capturedQuery = null;
+        $queries = [];
         $conn = new Connection(array_merge(self::$configDefaults, [
-            'queryLogger' => function($query, $duration, $error) use (&$capturedQuery) {
-                if (str_contains($query, 'INSERT') && str_contains($query, 'insert_log_test')) {
-                    $capturedQuery = $query;
-                }
+            'queryLogger' => function($query, $duration, $error) use (&$queries) {
+                $queries[] = $query;
             }
         ]));
 
@@ -199,19 +195,18 @@ class QueryLoggerTest extends BaseTestCase
         $conn->mysqli->query("CREATE TEMPORARY TABLE test_insert_log_test (name VARCHAR(255), status VARCHAR(50), city VARCHAR(100))");
         $conn->insert('insert_log_test', ['name' => 'Logger Test', 'status' => 'Active', 'city' => 'Test']);
 
-        $this->assertNotNull($capturedQuery);
-        $this->assertStringContainsString('INSERT', $capturedQuery);
-        $this->assertStringContainsString('Logger Test', $capturedQuery);
+        $inserts = array_values(array_filter($queries, fn($q) => str_starts_with($q, 'INSERT')));
+        $this->assertCount(1, $inserts, 'insert() must log exactly one INSERT');
+        $this->assertStringContainsString('test_insert_log_test', $inserts[0]);
+        $this->assertStringContainsString('Logger Test', $inserts[0]);
     }
 
     public function testLoggerWithUpdate(): void
     {
-        $capturedQuery = null;
+        $queries = [];
         $conn = new Connection(array_merge(self::$configDefaults, [
-            'queryLogger' => function($query, $duration, $error) use (&$capturedQuery) {
-                if (str_contains($query, 'UPDATE') && str_contains($query, 'update_log_test')) {
-                    $capturedQuery = $query;
-                }
+            'queryLogger' => function($query, $duration, $error) use (&$queries) {
+                $queries[] = $query;
             }
         ]));
 
@@ -221,18 +216,18 @@ class QueryLoggerTest extends BaseTestCase
         $conn->mysqli->query("INSERT INTO test_update_log_test VALUES (1, 'Old City')");
         $conn->update('update_log_test', ['city' => 'Logged City'], ['num' => 1]);
 
-        $this->assertNotNull($capturedQuery);
-        $this->assertStringContainsString('UPDATE', $capturedQuery);
+        $updates = array_values(array_filter($queries, fn($q) => str_starts_with($q, 'UPDATE')));
+        $this->assertCount(1, $updates, 'update() must log exactly one UPDATE');
+        $this->assertStringContainsString('test_update_log_test', $updates[0]);
+        $this->assertStringContainsString('Logged City', $updates[0]);
     }
 
     public function testLoggerWithDelete(): void
     {
-        $capturedQuery = null;
+        $queries = [];
         $conn = new Connection(array_merge(self::$configDefaults, [
-            'queryLogger' => function($query, $duration, $error) use (&$capturedQuery) {
-                if (str_contains($query, 'DELETE') && str_contains($query, 'delete_log_test')) {
-                    $capturedQuery = $query;
-                }
+            'queryLogger' => function($query, $duration, $error) use (&$queries) {
+                $queries[] = $query;
             }
         ]));
 
@@ -242,7 +237,9 @@ class QueryLoggerTest extends BaseTestCase
         $conn->insert('delete_log_test', ['name' => 'To Delete', 'status' => 'Active', 'city' => 'Test']);
         $conn->delete('delete_log_test', ['name' => 'To Delete']);
 
-        $this->assertNotNull($capturedQuery);
-        $this->assertStringContainsString('DELETE', $capturedQuery);
+        $deletes = array_values(array_filter($queries, fn($q) => str_starts_with($q, 'DELETE')));
+        $this->assertCount(1, $deletes, 'delete() must log exactly one DELETE');
+        $this->assertStringContainsString('test_delete_log_test', $deletes[0]);
+        $this->assertStringContainsString('To Delete', $deletes[0]);
     }
 }

@@ -19,7 +19,7 @@ class SmartJoinsTest extends BaseTestCase
     public static function setUpBeforeClass(): void
     {
         self::createDefaultConnection();
-        self::resetTempTestTables();
+        self::resetTestTables();
     }
 
     //region Single Table (No Smart Joins)
@@ -121,8 +121,8 @@ class SmartJoinsTest extends BaseTestCase
         );
         $row = $result->first();
 
-        // With SmartJoins disabled, qualified names should NOT be added
-        // Only the raw column names should be accessible
+        // With SmartJoins disabled, only the raw column names are accessible
+        $this->assertFalse(isset($row['users.name']), "Qualified keys must not be added when useSmartJoins is false");
         $this->assertSame('Dave Williams', $row->get('name')->value());
         $this->assertSame('80.00', $row->get('total_amount')->value());
     }

@@ -8,6 +8,7 @@ namespace Itools\ZenDB\Tests\Connection;
 use Itools\ZenDB\DB;
 use Itools\ZenDB\Connection;
 use Itools\ZenDB\Tests\BaseTestCase;
+use PHPUnit\Framework\Attributes\DataProvider;
 use InvalidArgumentException;
 use RuntimeException;
 
@@ -47,6 +48,8 @@ class LifecycleTest extends BaseTestCase
 
     public function testConnectionBackwardsCompatMysqli(): void
     {
+        self::requiresLiveMysql();
+
         DB::connect(self::$configDefaults);
         $this->assertInstanceOf(\mysqli::class, DB::$mysqli);
     }
@@ -59,6 +62,8 @@ class LifecycleTest extends BaseTestCase
 
     public function testConnectWithInvalidHostname(): void
     {
+        self::requiresLiveMysql();
+
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage("MySQL Error");
         $config = array_merge(self::$configDefaults, ['hostname' => 'invalid_value']);
@@ -67,6 +72,8 @@ class LifecycleTest extends BaseTestCase
 
     public function testConnectWithInvalidUsername(): void
     {
+        self::requiresLiveMysql();
+
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage("MySQL Error");
         $config = array_merge(self::$configDefaults, ['username' => 'invalid_value']);
@@ -75,6 +82,8 @@ class LifecycleTest extends BaseTestCase
 
     public function testConnectWithInvalidPassword(): void
     {
+        self::requiresLiveMysql();
+
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage("MySQL Error");
         $config = array_merge(self::$configDefaults, ['password' => 'invalid_value']);
@@ -88,6 +97,16 @@ class LifecycleTest extends BaseTestCase
         new Connection();
     }
 
+    public function testConnectWithNonStringEncryptionKey(): void
+    {
+        // getenv() returns false when the env var is unset; fail with the config key's
+        // name instead of a TypeError from the vault that mentions neither
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage("Config 'encryptionKey' must be a string, got bool");
+        $config = array_merge(self::$configDefaults, ['encryptionKey' => false]);
+        DB::connect($config);
+    }
+
     public function testConnectWithAutoCreateDatabase(): void
     {
         $database = "testplan_test_auto_create_database";
@@ -96,6 +115,11 @@ class LifecycleTest extends BaseTestCase
 
         $selectedDatabase = DB::$mysqli->query("SELECT DATABASE() as db")->fetch_assoc()['db'];
         $this->assertSame($database, $selectedDatabase);
+
+        // utf8mb4 with no COLLATE pinned: the collation is the server's own utf8mb4 default
+        [$charset, $collation] = DB::$mysqli->query("SELECT DEFAULT_CHARACTER_SET_NAME, DEFAULT_COLLATION_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME = '$database'")->fetch_row();
+        $this->assertSame('utf8mb4', $charset);
+        $this->assertStringStartsWith('utf8mb4_', $collation);
 
         DB::$mysqli->query("DROP DATABASE `$database`") or throw new RuntimeException("Error dropping database");
     }
@@ -123,6 +147,31 @@ class LifecycleTest extends BaseTestCase
         DB::connect($config);
     }
 
+    /**
+     * Config keys are checked against an explicit list, not property_exists(), which is true
+     * for private properties too. Setting hasEncryptionKey desyncs encrypt from decrypt: writes
+     * encrypt, reads hand back raw ciphertext, and saving that value back double-encrypts it.
+     */
+    #[DataProvider('provideInternalPropertyNames')]
+    public function testInternalPropertiesRejectedAsConfigKeys(string $key, mixed $value): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage("Unknown configuration key: '$key'");
+        $config = array_merge(self::$configDefaults, [$key => $value]);
+        DB::connect($config);
+    }
+
+    public static function provideInternalPropertyNames(): array
+    {
+        return [
+            'private flag'   => ['hasEncryptionKey', false],
+            'private state'  => ['decryptWarned', true],
+            'private params' => ['paramValues', []],
+            'public mysqli'  => ['mysqli', null],
+            'public table'   => ['table', null],
+        ];
+    }
+
     public function testDisconnect(): void
     {
         DB::connect(self::$configDefaults);
@@ -144,11 +193,29 @@ class LifecycleTest extends BaseTestCase
 
     public function testIndependentConnectionDestructorClosesConnection(): void
     {
+        self::requiresLiveMysql();
+
         DB::connect(self::$configDefaults);
 
         $independent = new Connection(self::$configDefaults);
+        $threadId    = $independent->mysqli->thread_id;
         unset($independent);
 
+        // Connection and its TableInfo reference each other, so unset() alone doesn't free
+        // the object; the handle closes when the cycle collector runs
+        gc_collect_cycles();
+
+        // The independent connection's server thread is gone (allow a brief lag)
+        $gone = false;
+        for ($i = 0; $i < 100 && !$gone; $i++) {
+            $gone = DB::$mysqli->query("SELECT 1 FROM information_schema.processlist WHERE id = $threadId")->num_rows === 0;
+            if (!$gone) {
+                usleep(10_000);
+            }
+        }
+        $this->assertTrue($gone, "Destructor must close the independent connection");
+
+        // And the default connection is untouched
         $this->assertTrue(DB::isConnected(true));
     }
 
@@ -166,6 +233,8 @@ class LifecycleTest extends BaseTestCase
 
     public function testConnectWithQueryLogger(): void
     {
+        self::requiresLiveMysql();
+
         $logs = [];
         $config = array_merge(self::$configDefaults, [
             'queryLogger' => function($query, $duration, $error) use (&$logs) {
@@ -221,7 +290,8 @@ class LifecycleTest extends BaseTestCase
             $this->assertSame('Etc/GMT-14', DB::phpTimezoneForMysql());
 
             date_default_timezone_set('Pacific/Chatham');    // +12:45 passes through; +13:45 during DST (Sep-Apr) remaps
-            $this->assertContains(DB::phpTimezoneForMysql(), ['+12:45', 'Pacific/Chatham']);
+            $expected = date('P') === '+12:45' ? '+12:45' : 'Pacific/Chatham';
+            $this->assertSame($expected, DB::phpTimezoneForMysql());
         } finally {
             date_default_timezone_set($originalTz);
         }
@@ -256,6 +326,8 @@ class LifecycleTest extends BaseTestCase
 
     public function testConnectWithoutPhpTimezone(): void
     {
+        self::requiresLiveMysql();
+
         $config = array_merge(self::$configDefaults, ['usePhpTimezone' => false]);
 
         DB::connect($config);
@@ -298,19 +370,26 @@ class LifecycleTest extends BaseTestCase
         $this->assertTrue(version_compare(DB::$server->version(), '5.0.0', '>='));  // same normalized value the versionRequired check compares
     }
 
-    public function testRequireSSLOption(): void
+    public function testRequireSSLConnectsEncrypted(): void
     {
-        // Note: This may fail on systems without SSL configured
-        // We just test that the option is accepted
-        $config = array_merge(self::$configDefaults, ['requireSSL' => false]);
+        self::requiresLiveMysql();
 
-        DB::connect($config);
+        try {
+            $conn = new Connection(array_merge(self::$configDefaults, ['requireSSL' => true]));
+        } catch (RuntimeException $e) {
+            // A server built without SSL refuses MYSQLI_CLIENT_SSL outright; if the flag
+            // silently regressed to 0 we would connect in plaintext and fail below instead
+            $this->markTestSkipped("Server refused SSL connection: {$e->getMessage()}");
+        }
 
-        $this->assertTrue(DB::isConnected());
+        $cipher = $conn->mysqli->query("SHOW SESSION STATUS LIKE 'Ssl_cipher'")->fetch_row()[1];
+        $this->assertNotSame('', $cipher, "requireSSL => true must negotiate an encrypted connection");
     }
 
     public function testDatabaseAutoCreateOption(): void
     {
+        self::requiresLiveMysql();
+
         $config = array_merge(self::$configDefaults, ['databaseAutoCreate' => false]);
 
         DB::connect($config);
@@ -333,6 +412,8 @@ class LifecycleTest extends BaseTestCase
 
     public function testIsConnectedAfterServerGone(): void
     {
+        self::requiresLiveMysql();
+
         DB::connect(self::$configDefaults);
 
         // isConnected without ping just checks mysqli exists

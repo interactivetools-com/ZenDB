@@ -22,7 +22,7 @@ class EncryptValueTest extends BaseTestCase
     public static function setUpBeforeClass(): void
     {
         self::$conn = self::createDefaultConnection(['encryptionKey' => 'test-encrypt-value-key']);
-        self::resetTempTestTables();
+        self::resetTestTables();
 
         // Create a table with MEDIUMBLOB columns for encryption testing
         self::$conn->mysqli->query("DROP TEMPORARY TABLE IF EXISTS test_enc_users");
@@ -584,6 +584,48 @@ class EncryptValueTest extends BaseTestCase
         $keyBytes = hash('sha512', 'test-encrypt-value-key', true);
         $chunks   = str_split($keyBytes, 16);
         return $chunks[0] ^ $chunks[1] ^ $chunks[2] ^ $chunks[3];
+    }
+
+    //endregion
+    //region Auto-Encrypt Guards
+
+    public function testCaseVariantColumnKeyStillEncrypts(): void
+    {
+        // MySQL matches 'Token' to column 'token', so encryption must match the same way
+        self::$conn->insert('enc_users', ['num' => 160, 'name' => 'Case Variant', 'Token' => 'case-variant-secret']);
+
+        $raw = self::$conn->mysqli->query("SELECT token FROM test_enc_users WHERE num = 160")->fetch_row()[0];
+        $this->assertNotSame('case-variant-secret', $raw, 'Case-variant column key must still encrypt');
+
+        $row = self::$conn->selectOne('enc_users', ['num' => 160]);
+        $this->assertSame('case-variant-secret', $row->get('token')->value());
+    }
+
+    public function testBooleanForEncryptedColumnThrows(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage("Can't store boolean in encrypted column 'token'");
+        self::$conn->insert('enc_users', ['num' => 161, 'name' => 'Bool', 'token' => true]);
+    }
+
+    public function testSmartStringBooleanForEncryptedColumnThrows(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage("Can't store boolean in encrypted column 'token'");
+        self::$conn->insert('enc_users', ['num' => 162, 'name' => 'Bool', 'token' => SmartString::new(false)]);
+    }
+
+    public function testNativeCloneStillEncrypts(): void
+    {
+        // PHP's clone operator copies the vault token, so a native clone keeps the key
+        $copy = clone self::$conn;
+        $copy->insert('enc_users', ['num' => 163, 'name' => 'Native Clone', 'token' => 'native-clone-secret']);
+
+        $raw = self::$conn->mysqli->query("SELECT token FROM test_enc_users WHERE num = 163")->fetch_row()[0];
+        $this->assertSame(self::$conn->encryptValue('native-clone-secret'), $raw, 'Native clone must encrypt with the same key');
+
+        $row = $copy->selectOne('enc_users', ['num' => 163]);
+        $this->assertSame('native-clone-secret', $row->get('token')->value());
     }
 
     //endregion

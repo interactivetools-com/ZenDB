@@ -11,6 +11,11 @@ Contents:
 - [Same Connection, Different Settings - `DB::clone()`](#same-connection-different-settings---dbclone)
 - [A Second Database - `new Connection()`](#a-second-database---new-connection)
 
+Contents:
+
+- [Same Connection, Different Settings - `DB::clone()`](#same-connection-different-settings---dbclone)
+- [A Second Database - `new Connection()`](#a-second-database---new-connection)
+
 ## Same Connection, Different Settings - `DB::clone()`
 
 `DB::clone()` returns a new `Connection` object that shares the default

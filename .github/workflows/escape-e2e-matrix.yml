@@ -37,6 +37,10 @@ on:
         description: 'Comma-separated test ids (blank = all)'
         required: false
         default: ''
+      php-version:
+        description: 'PHP version (default = the 8.1 floor; 8.2+ enables the execute_query test)'
+        required: false
+        default: '8.1'
 
 jobs:
   db-matrix:
@@ -46,7 +50,7 @@ jobs:
       databases: ${{ steps.load.outputs.databases }}
     steps:
       - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # Subset filter over the canonical list: representative servers only
       # (channel rankings are round-trip-shaped; a full 19-image sweep repeats them)
@@ -91,14 +95,15 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # The probe uses plain mysqli/PDO with no dependencies, so no composer install.
-      # Pinned to the minimum supported PHP so the script can't drift past it
+      # Defaults to the minimum supported PHP so the script can't drift past it;
+      # the php-version input exists because mysqli::execute_query() is 8.2+
       - name: Setup PHP
         uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2.37.2
         with:
-          php-version: '8.1'
+          php-version: '${{ inputs.php-version }}'
           extensions: mysqli, pdo_mysql
           coverage: none
           # JIT set explicitly: runner images ship a non-zero jit_buffer_size, so
@@ -121,13 +126,17 @@ jobs:
           DB_PASSWORD: ''
           DB_DATABASE: phpunit_test_db
           DB_LABEL: ${{ matrix.database }}
+          # scale and filter are free-form text: pass them as env vars so the
+          # shell gets them as data, never as script source
+          SCALE: ${{ inputs.scale }}
+          FILTER: ${{ inputs.filter }}
         run: |
           SLUG=$(echo "${{ matrix.database }}" | tr ':/+' '---')
           echo "SLUG=$SLUG" >> "$GITHUB_ENV"
           php .github/scripts/escape-e2e-probe.php \
             --json="probe-e2e-$SLUG.json" \
-            --scale="${{ inputs.scale }}" \
-            ${{ inputs.filter != '' && format('--filter="{0}"', inputs.filter) || '' }} \
+            --scale="$SCALE" \
+            ${FILTER:+--filter="$FILTER"} \
             >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload probe results
@@ -148,7 +157,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup PHP
         uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2.37.2

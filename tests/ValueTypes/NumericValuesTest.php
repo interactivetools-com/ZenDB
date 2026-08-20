@@ -20,7 +20,7 @@ class NumericValuesTest extends BaseTestCase
     public static function setUpBeforeClass(): void
     {
         self::createDefaultConnection();
-        self::resetTempTestTables();
+        self::resetTestTables();
     }
 
     //region Integer Handling
@@ -155,12 +155,14 @@ class NumericValuesTest extends BaseTestCase
     {
         // Greater than
         $gt = DB::query("SELECT * FROM ::users WHERE age > ?", 40);
+        $this->assertCount(6, $gt); // 0 rows would skip the loop below
         foreach ($gt as $row) {
             $this->assertGreaterThan(40, $row->get('age')->value());
         }
 
         // Less than
         $lt = DB::query("SELECT * FROM ::users WHERE age < ?", 30);
+        $this->assertCount(5, $lt);
         foreach ($lt as $row) {
             $this->assertLessThan(30, $row->get('age')->value());
         }

@@ -1,0 +1,178 @@
+name: Version Speed Test
+
+# Manual-only: never runs on push. Dispatch from the Actions tab ("Run workflow") or
+# with: gh workflow run version-matrix.yml
+#
+# The previous release versus the working copy, on the pages from
+# docs/performance.md. Composer installs the baseline release into a scratch
+# directory, its namespaces get an "Old" suffix, and the probe loads both
+# versions in one process so their pages run interleaved. Separate processes
+# drift more than the difference being measured.
+#
+# The baseline pulls the SmartArray and SmartString that release resolves to, so
+# each side is the whole stack as an install gets it.
+#
+# Runs every PHP version against one database image per vendor by default. The
+# work being measured is client-side, so the server mostly cancels out, but the
+# spread shows the ratio holds; database: all widens it to db-matrix.json.
+on:
+  workflow_dispatch:
+    inputs:
+      baseline:
+        description: 'Baseline version to compare against (a released ZenDB version)'
+        required: false
+        default: '0.9.1'
+      php:
+        description: 'PHP version (blank = every supported version)'
+        required: false
+        type: choice
+        options: ['', '8.1', '8.2', '8.3', '8.4', '8.5']
+      scale:
+        description: 'Iteration scale (1.0 = full, 0.3 = quick)'
+        required: false
+        default: '1.0'
+      filter:
+        description: 'Comma-separated test ids (blank = all)'
+        required: false
+        default: ''
+      database:
+        description: 'Database image (blank = one per vendor, all = every image in db-matrix.json)'
+        required: false
+        type: choice
+        options: ['', 'all', 'mysql:5.7', 'mysql:8.0', 'mysql:9.7', 'mariadb:10.11', 'mariadb:12.3', 'percona/percona-server:8.0']
+      jit:
+        description: 'PHP JIT (default off, matching production)'
+        required: false
+        type: choice
+        options: ['off', 'on']
+        default: 'off'
+
+jobs:
+  matrix:
+    name: Load matrix
+    runs-on: ubuntu-latest
+    outputs:
+      php: ${{ steps.load.outputs.php }}
+      databases: ${{ steps.load.outputs.databases }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # The library's work is client-side, so the server mostly cancels out: both
+      # versions query the same one in the same process. The default spread is
+      # one image per vendor, old and new, enough to show the ratio holds.
+      - name: Build matrix from inputs
+        id: load
+        run: |
+          if [ -n "${{ inputs.php }}" ]; then
+            echo 'php=["${{ inputs.php }}"]' >> "$GITHUB_OUTPUT"
+          else
+            echo 'php=["8.1", "8.2", "8.3", "8.4", "8.5"]' >> "$GITHUB_OUTPUT"
+          fi
+
+          case "${{ inputs.database }}" in
+            '')    echo 'databases=["mysql:8.0", "mysql:9.7", "mariadb:10.11", "mariadb:12.3", "percona/percona-server:8.0"]' >> "$GITHUB_OUTPUT" ;;
+            all)   echo "databases=$(jq -c . .github/db-matrix.json)" >> "$GITHUB_OUTPUT" ;;
+            *)     echo 'databases=["${{ inputs.database }}"]' >> "$GITHUB_OUTPUT" ;;
+          esac
+
+  probe:
+    name: PHP ${{ matrix.php }} / ${{ matrix.database }}
+    runs-on: ubuntu-latest
+    needs: matrix
+    timeout-minutes: 15
+
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ${{ fromJSON(needs.matrix.outputs.php) }}
+        database: ${{ fromJSON(needs.matrix.outputs.databases) }}
+
+    services:
+      database:
+        image: ${{ matrix.database }}
+        env:
+          MYSQL_ALLOW_EMPTY_PASSWORD: yes
+          MYSQL_ROOT_HOST: '%'
+          # MariaDB-specific (ignored by MySQL)
+          MARIADB_ALLOW_EMPTY_ROOT_PASSWORD: yes
+          MARIADB_ROOT_HOST: '%'
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --innodb_initialized || mysqladmin ping -h 127.0.0.1 --silent"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+          --security-opt seccomp=unconfined
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # composer.json path repositories point at ../SmartString and ../SmartArray
+      - name: Checkout SmartString and SmartArray
+        run: |
+          git clone --depth 1 https://github.com/interactivetools-com/SmartString.git ../SmartString
+          git clone --depth 1 https://github.com/interactivetools-com/SmartArray.git ../SmartArray
+
+      - name: Setup PHP ${{ matrix.php }}
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2.37.2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: mysqli, mbstring
+          coverage: none
+          # JIT set explicitly either way: runner images ship a non-zero jit_buffer_size
+          ini-values: ${{ inputs.jit == 'on' && 'opcache.enable_cli=1, opcache.jit=tracing, opcache.jit_buffer_size=128M' || 'opcache.enable_cli=1, opcache.jit=off, opcache.jit_buffer_size=0' }}
+
+      - name: Install dependencies
+        run: composer install --no-interaction --prefer-dist
+
+      - name: Install baseline ZenDB ${{ inputs.baseline || '0.9.1' }}
+        # baseline is free-form text: pass it as an env var so the shell gets
+        # it as data, never as script source
+        env:
+          BASELINE: ${{ inputs.baseline || '0.9.1' }}
+        run: |
+          mkdir -p /tmp/baseline
+          cd /tmp/baseline
+          composer require "itools/zendb:$BASELINE" --no-interaction --prefer-dist
+          # Suffix the namespaces so the baseline and the working copy load side by side
+          find vendor/itools -name '*.php' -print0 \
+            | xargs -0 perl -pi -e 's/Itools(\\+)(ZenDB|SmartArray|SmartString)\b/Itools${1}${2}Old/g'
+
+      - name: Wait for database
+        run: |
+          for i in $(seq 1 30); do
+            mysqladmin ping -h 127.0.0.1 -u root --silent 2>/dev/null && break
+            sleep 1
+          done
+
+      - name: Run probe
+        env:
+          DB_HOSTNAME: 127.0.0.1
+          DB_USERNAME: root
+          DB_PASSWORD: ''
+          DB_DATABASE: phpunit_test_db
+          # scale and filter are free-form text: pass them as env vars so the
+          # shell gets them as data, never as script source
+          SCALE: ${{ inputs.scale }}
+          FILTER: ${{ inputs.filter }}
+        run: |
+          DB_SLUG=$(echo "${{ matrix.database }}" | tr ':/' '--')
+          SLUG="version-php${{ matrix.php }}-$DB_SLUG${{ inputs.jit == 'on' && '-jit' || '' }}"
+          echo "SLUG=$SLUG" >> "$GITHUB_ENV"
+          php .github/scripts/version-probe.php \
+            --baseline=/tmp/baseline \
+            --json="probe-$SLUG.json" \
+            --scale="$SCALE" \
+            ${FILTER:+--filter="$FILTER"} \
+            >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload probe results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: probe-${{ env.SLUG }}
+          path: probe-*.json
+          if-no-files-found: ignore

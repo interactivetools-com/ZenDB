@@ -9,6 +9,10 @@ use Itools\SmartString\SmartString;
 use RuntimeException;
 use Throwable;
 
+// import built-ins so calls resolve at compile time instead of per-call lookups; NamespacedCallsTest keeps this list exact
+use function abs, intdiv, is_float, is_null, min, preg_match, str_replace;
+use const PHP_INT_MAX;
+
 /**
  * DB is a static facade for ZenDB that provides convenient static methods for database access.
  *
@@ -23,6 +27,7 @@ use Throwable;
 class DB
 {
     use DBInternals;
+    use DBDeprecations;
 
     //region Constants
 
@@ -41,12 +46,14 @@ class DB
     /**
      * The raw mysqli connection instance for direct database access.
      */
-    public static ?MysqliWrapper $mysqli = null;
+    public static MysqliWrapper|MysqliWrapperReplay|null $mysqli = null;
 
     /**
      * Identity facts about the connected database server. Set at connect, null when disconnected.
      *
      *     DB::$server->version();  // "10.6.27"
+     *
+     * @internal API may change between releases
      */
     public static ?Server $server = null;
 
@@ -54,6 +61,16 @@ class DB
      * Table prefix prepended to table names (e.g., 'cms_')
      */
     public static string $tablePrefix = '';
+
+    /**
+     * Queries sent since the request started, across all connections. Each query,
+     * prepared-statement execute, and multi_query call counts as one, including
+     * ZenDB's own connection-setup queries; connects don't count. Failed queries
+     * count too. Assign 0 to restart the count.
+     *
+     * @internal API may change between releases
+     */
+    public static int $queryCount = 0;
 
     //endregion
     //region Connection
@@ -80,7 +97,7 @@ class DB
      *     databaseAutoCreate?:    bool,        // Create database if missing (default: false)
      *     connectTimeout?:        int,         // Connection timeout in seconds (default: 3)
      *     readTimeout?:           int,         // Read timeout in seconds (default: 60)
-     *     queryLogger?:           callable,    // fn(string $query, float $secs, ?Throwable $exception) - $query is resolved SQL with values inlined, so logs can contain user data
+     *     queryLogger?:           callable,    // fn(string $query, float $secs, ?Throwable $exception) - logged queries have values inlined, so redacting sensitive data is the callback's job
      *     sqlMode?:               string,      // MySQL SQL mode
      *     encryptionKey?:         string,      // AES encryption key, sets MySQL @ek session variable on first use
      * } $config
@@ -176,16 +193,18 @@ class DB
 
     /**
      * Wrapper for {@see Connection::insert()}
+     * @noinspection PhpFullyQualifiedNameUsageInspection - FQN required until PHP 8.2 minimum (can't import)
      */
-    public static function insert(string $baseTable, array $values): int
+    public static function insert(string $baseTable, #[\SensitiveParameter] array $values): int
     {
         return self::connection()->insert($baseTable, $values);
     }
 
     /**
      * Wrapper for {@see Connection::update()}
+     * @noinspection PhpFullyQualifiedNameUsageInspection - FQN required until PHP 8.2 minimum (can't import)
      */
-    public static function update(string $baseTable, array $values, int|array|string $whereEtc, ...$params): int
+    public static function update(string $baseTable, #[\SensitiveParameter] array $values, int|array|string $whereEtc, ...$params): int
     {
         return self::connection()->update($baseTable, $values, $whereEtc, ...$params);
     }
@@ -252,16 +271,27 @@ class DB
     /**
      * Generates a LIMIT/OFFSET SQL clause for pagination.
      *
-     * @param mixed $pageNum The current page number; zero, empty, or invalid input becomes 1
+     * Both numbers are cast to int, so a page number straight from a URL can't put
+     * anything in your SQL. A page number too big to multiply out gets capped so the
+     * OFFSET stays a whole number; pages past the end of the data return nothing.
+     *
+     * Nothing caps the page size. Ask for a million per page and MySQL returns a
+     * million rows and PHP holds them all. Pick that number in your code, not from
+     * the request.
+     *
+     * @param mixed $page The current page number; zero, empty, or invalid input becomes 1
      * @param mixed $perPage Records per page; zero, empty, or invalid input becomes 10
      * @return RawSql LIMIT/OFFSET clause
      */
-    public static function pagingSql(mixed $pageNum, mixed $perPage = 10): RawSql
+    public static function pagingSql(mixed $page, mixed $perPage = 10): RawSql
     {
-        $pageNum = abs((int)$pageNum) ?: 1;
+        $page    = abs((int)$page) ?: 1;
         $perPage = abs((int)$perPage) ?: 10;
+        $page    = is_float($page) ? PHP_INT_MAX : $page;             // abs(PHP_INT_MIN) doesn't fit in an int, so abs() returns a float
+        $perPage = is_float($perPage) ? PHP_INT_MAX : $perPage;
+        $page    = min($page, intdiv(PHP_INT_MAX - 1, $perPage) + 1); // keep (page-1)*perPage an int: overflowing to float writes E-notation, which is a MySQL syntax error
 
-        $offset = ($pageNum - 1) * $perPage;
+        $offset = ($page - 1) * $perPage;
         return self::rawSql("LIMIT $perPage OFFSET $offset");
     }
 
@@ -302,8 +332,9 @@ class DB
 
     /**
      * @see Connection::encryptValue()
+     * @noinspection PhpFullyQualifiedNameUsageInspection - FQN required until PHP 8.2 minimum (can't import)
      */
-    public static function encryptValue(string|int|float|null|SmartString $value): string|null
+    public static function encryptValue(#[\SensitiveParameter] string|int|float|null|SmartString $value): string|null
     {
         return self::connection()->encryptValue($value);
     }
@@ -311,20 +342,27 @@ class DB
     /**
      * Returns the SQL expression to decrypt an encrypted column using the session encryption key (@ek).
      * Used internally by the {{column}} template syntax and available for custom query building.
-     * The template layer expands a leading :: to the table prefix ({{::users.email}}) before
-     * this method builds the expression; this method itself takes names as-is.
      *
-     *     DB::decryptExpr('email')       // "AES_DECRYPT(`email`, @ek)"
-     *     DB::decryptExpr('blog.title')  // "AES_DECRYPT(`blog`.`title`, @ek)"
+     * Takes a column name ('apiToken') or table.column ('users.apiToken') - one dot at most.
+     * Don't pass a table name alone; it would be treated as a column called that.
+     * Names go into the SQL exactly as written: the table half is the real table name or a
+     * join alias, and `tablePrefix` is never added. Need the prefix? Write it out
+     * ('cms_users.apiToken') or use the {{::table.column}} template form.
      *
-     * @param string $column Column name, optionally dot-qualified (e.g., "table.column")
+     *     DB::decryptExpr('email')                // "AES_DECRYPT(`email`, @ek)"
+     *     DB::decryptExpr('blog.title')           // "AES_DECRYPT(`blog`.`title`, @ek)"
+     *     DB::decryptExpr('u.email')              // "AES_DECRYPT(`u`.`email`, @ek)" - join alias
+     *     DB::decryptExpr('cms_users.apiToken')   // "AES_DECRYPT(`cms_users`.`apiToken`, @ek)" - prefix written in
+     *
+     * @param string $column Column name, optionally table-qualified ("table.column", one dot max)
      * @return string SQL expression
      * @see Connection::encryptValue() for the write side (AES_ENCRYPT)
      */
     public static function decryptExpr(string $column): string
     {
-        if (!preg_match('/^[\w-]+(?:\.[\w-]+)*\z/', $column)) {
-            throw new InvalidArgumentException("Invalid column name '$column' in decryptExpr(), allowed characters: a-z, A-Z, 0-9, _, -, .");
+        if (!preg_match('/^[\w-]+(?:\.[\w-]+)?\z/', $column)) { // column or table.column, one dot at most; assertIdentifier()'s regex each side - keep them in sync
+            $h = self::h(...); // SECURITY: column failed validation, encode before it can reach page output
+            throw new InvalidArgumentException("Invalid column name '{$h($column)}' in decryptExpr(), expected column or table.column with characters: a-z, A-Z, 0-9, _, -");
         }
         $column = str_replace('.', '`.`', $column); // "blog.title" => "blog`.`title"
         return "AES_DECRYPT(`$column`, @ek)";       // => AES_DECRYPT(`blog`.`title`, @ek)

@@ -20,7 +20,7 @@ class SqlInjectionPreventionTest extends BaseTestCase
     public static function setUpBeforeClass(): void
     {
         self::createDefaultConnection();
-        self::resetTempTestTables();
+        self::resetTestTables();
     }
 
     //region Value-Based Injection Prevention
@@ -212,6 +212,45 @@ class SqlInjectionPreventionTest extends BaseTestCase
         DB::query("SELECT * FROM `?`", "users -- ");
     }
 
+    public function testPlaceholderInsideBlockCommentThrows(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage("Placeholders are not supported inside /* */ comments");
+
+        // A value containing */ would close the comment: /* req: '*/ UNION ... -- ' */
+        DB::query("SELECT * FROM ::users /* req: ? */", "*/ UNION SELECT isAdmin FROM ::users -- ");
+    }
+
+    public function testPlaceholderInsideUnterminatedBlockCommentThrows(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage("Placeholders are not supported inside /* */ comments");
+
+        DB::query("SELECT * FROM ::users /* trailing note: ?", "*/ OR 1=1 -- ");
+    }
+
+    public function testNamedPlaceholderInsideBlockCommentThrows(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage("Placeholders are not supported inside /* */ comments");
+
+        DB::query("SELECT * FROM ::users /* tag :note */ WHERE status = :status", [':note' => 'x', ':status' => 'Active']);
+    }
+
+    public function testBlockCommentWithoutPlaceholderAllowed(): void
+    {
+        // A comment with no placeholder inside must still run.
+        $result = DB::query("SELECT * FROM ::users /* cached lookup */ WHERE status = :status", [':status' => 'Active']);
+        $this->assertGreaterThan(0, count($result));
+    }
+
+    public function testPlaceholderAfterBlockCommentAllowed(): void
+    {
+        // Placeholder is outside the comment, so it expands normally.
+        $result = DB::query("SELECT * FROM ::users /* listing query */ WHERE status = ?", "Active");
+        $this->assertGreaterThan(0, count($result));
+    }
+
     //endregion
     //region Comprehensive Attack Vectors
 
@@ -223,24 +262,24 @@ class SqlInjectionPreventionTest extends BaseTestCase
         // All these attempts should be safely handled via escaping
         $result = DB::query("SELECT * FROM ::users WHERE name = ?", $maliciousValue);
 
-        // Query executes safely - just returns no results
-        $this->assertInstanceOf(\Itools\SmartArray\SmartArrayHtml::class, $result, "Failed: $description");
+        // Escaped, the payload is a literal name that matches no rows.
+        // Unescaped, the OR-true payloads match all 20 rows and fail here.
+        $this->assertCount(0, $result, "Failed: $description");
 
         // Verify we can still query the table (it wasn't dropped)
-        $count = DB::count('users');
-        $this->assertSame(20, $count, "Table destroyed or rows lost after: $description");
+        $this->assertSame(20, DB::count('users'), "Table destroyed or rows lost after: $description");
     }
 
     public static function provideInjectionAttempts(): array
     {
         return [
-            'basic union'            => ['Basic UNION', "' UNION SELECT * FROM users --"],
+            'basic union'            => ['Basic UNION', "' UNION SELECT * FROM test_users --"],
             'or true'                => ['OR 1=1', "' OR '1'='1"],
             'comment out'            => ['Comment out', "admin'--"],
-            'semicolon'              => ['Multiple statements', "'; DELETE FROM users; --"],
-            'drop table'             => ['DROP TABLE', "'; DROP TABLE users; --"],
-            'update injection'       => ['UPDATE injection', "'; UPDATE users SET isAdmin=1; --"],
-            'stacked queries'        => ['Stacked queries', "a'; SELECT * FROM users WHERE '1'='1"],
+            'semicolon'              => ['Multiple statements', "'; DELETE FROM test_users; --"],
+            'drop table'             => ['DROP TABLE', "'; DROP TABLE test_users; --"],
+            'update injection'       => ['UPDATE injection', "'; UPDATE test_users SET isAdmin=1; --"],
+            'stacked queries'        => ['Stacked queries', "a'; SELECT * FROM test_users WHERE '1'='1"],
             'hex encoding'           => ['Hex encoding', "0x27204f52202731273d2731"],
             'null byte'              => ['NULL byte injection', "test\x00' OR '1'='1"],
             'unicode normalization'  => ['Unicode', "test\u{0027} OR 1=1 --"],
@@ -250,23 +289,24 @@ class SqlInjectionPreventionTest extends BaseTestCase
     /**
      * @dataProvider provideInvalidTemplates
      */
-    public function testInvalidTemplatesRejected(string $description, string $template): void
+    public function testInvalidTemplatesRejected(string $expectedMessage, string $template): void
     {
         $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage("in template");
+        $this->expectExceptionMessage($expectedMessage);
 
         DB::query($template, 1);
     }
 
     public static function provideInvalidTemplates(): array
     {
+        // [expected message fragment, template] - each row pins its own guard
         return [
-            'hardcoded string'         => ['Hardcoded value', "SELECT * FROM ::users WHERE name = 'admin'"],
-            'hardcoded number'         => ['Hardcoded number', "SELECT * FROM ::users WHERE num = 1"],
-            'concatenated'             => ['Concatenated value', 'SELECT * FROM ::users WHERE num = ' . '5'],
-            'hex literal'              => ['Hex literal', 'SELECT * FROM ::users WHERE num = 0xDEAD'],
-            'binary literal'           => ['Binary literal', 'SELECT * FROM ::users WHERE num = 0b1010'],
-            'scientific literal'       => ['Scientific literal', 'SELECT * FROM ::users WHERE num = 1e10'],
+            'hardcoded string'         => ["Quotes not allowed in template",          "SELECT * FROM ::users WHERE name = 'admin'"],
+            'hardcoded number'         => ["Standalone number in template",           "SELECT * FROM ::users WHERE num = 1"],
+            'concatenated'             => ["Standalone number in template",           'SELECT * FROM ::users WHERE num = ' . '5'],
+            'hex literal'              => ["Numeric literal '0xDEAD' in template",    'SELECT * FROM ::users WHERE num = 0xDEAD'],
+            'binary literal'           => ["Numeric literal '0b1010' in template",    'SELECT * FROM ::users WHERE num = 0b1010'],
+            'scientific literal'       => ["Numeric literal '1e10' in template",      'SELECT * FROM ::users WHERE num = 1e10'],
         ];
     }
 

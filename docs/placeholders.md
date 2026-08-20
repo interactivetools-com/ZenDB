@@ -137,7 +137,7 @@ which escapes `_` and `%` in its input:
 
 ```php
 $tables = DB::query("SHOW TABLES LIKE ?", DB::likeStartsWith(DB::$tablePrefix . 'user'));
-// SHOW TABLES LIKE 'cms\_user%'
+// SHOW TABLES LIKE 'cms\\_user%'
 ```
 
 ## Type Handling
@@ -167,6 +167,10 @@ DB::select('users', "LIMIT ?", "10");   // LIMIT '10'     - MySQL syntax error
 and [SmartArray](https://github.com/interactivetools-com/SmartArray)
 parameters unwrap to their underlying values automatically, so passing
 `$row->name` as a parameter just works.
+The same applies in WHERE arrays and in `insert()`/`update()` values: a
+SmartNull becomes SQL `NULL`, so a field read from a row that wasn't found
+matches `IS NULL` or writes `NULL` instead of erroring. If "row not found"
+should stop the operation, check the lookup result first.
 
 Arrays expand to comma-separated values for `IN` lists, and require a named
 placeholder (`?` would be ambiguous). The expansion skips `null` elements and
@@ -188,11 +192,11 @@ DB::select('users', "name = ? AND city = ?", 'John');
 
 // Positional values in an array (deprecated form)
 DB::select('users', "id IN (?)", [1, 2, 3]);
-// Runs as IN (1) and logs a deprecation; arrays need a named placeholder: ':ids' => [1, 2, 3]
+// Runs as IN (1) but is deprecated; arrays need a named placeholder: ':ids' => [1, 2, 3]
 
 // More direct values than ? placeholders
 DB::select('users', "num = ?", 1, 999);
-// Runs as num = 1 and logs a deprecation; an extra value usually means a missing ?
+// Runs as num = 1 but is deprecated; an extra value usually means a missing ?
 
 // Quotes in the template
 DB::select('users', "name = 'John'");
@@ -209,12 +213,12 @@ Four non-errors worth knowing:
   as-is: `"ORDER BY name LIMIT 10"`.
 - Empty string literals are allowed: `"email != ''"` runs as-is. The quote
   check only rejects quotes with content between them.
-- An empty array in an `IN` list expands to `NULL`, and `IN (NULL)` matches
-  nothing, which is usually what an empty list should do. Watch `NOT IN`
-  though: `NOT IN (NULL)` *also* matches nothing (a NULL comparison rule in
-  MySQL), when an empty exclusion list should match everything. If the list
-  can be empty, substitute a value that can't match:
-  `[':ids' => $excludeIds ?: [-1]]`.
+- An empty array expands to the zero-row subquery
+  `SELECT 0 FROM (SELECT 0) empty_set WHERE 0`, an empty set; `IN` of an empty set matches
+  nothing and `NOT IN` of an empty set matches everything, so an empty
+  want-list returns no rows and an empty exclusion list returns all rows.
+  That subquery only fits `IN` and `NOT IN`; to use an array elsewhere, pass
+  your own value when the list is empty (`':tags' => $tags ?: ''`).
 - Unused *named* parameters are allowed, so you can build one params array
   and pass it to several related queries. Unused *positional* values are
   deprecated (they usually mean a missing `?`) and log a warning.

@@ -18,7 +18,7 @@ class InsertTest extends BaseTestCase
     {
         DB::disconnect();
         DB::connect(self::$configDefaults);
-        self::resetTempTestTables();
+        self::resetTestTables();
     }
 
     public function testInsertSequence(): void
@@ -51,7 +51,7 @@ class InsertTest extends BaseTestCase
 
     public function testInsertReturnsAutoIncrement(): void
     {
-        self::resetTempTestTables();
+        self::resetTestTables();
 
         $insertId = DB::insert('users', [
             'name'    => 'New User',

@@ -6,28 +6,32 @@ declare(strict_types=1);
 
 namespace Itools\ZenDB\Tests\Legacy;
 
-use InvalidArgumentException;
 use Itools\ZenDB\DB;
 use Itools\ZenDB\Tests\BaseTestCase;
 
 /**
  * Tests for deprecated numeric WHERE clause handling
  *
- * @covers \Itools\ZenDB\ConnectionInternals::logDeprecatedNumericWhere
+ * @covers \Itools\ZenDB\ConnectionInternals::whereFromArgs
  */
 class NumericWhereDeprecationTest extends BaseTestCase
 {
     private static array $deprecations = [];
+    private static array $warnings     = [];
 
     public static function setUpBeforeClass(): void
     {
         self::createDefaultConnection();
-        self::resetTempTestTables();
+        self::resetTestTables();
 
-        // Capture deprecation warnings
+        // Capture deprecation and warning messages
         set_error_handler(function($errno, $errstr) {
             if ($errno === E_USER_DEPRECATED) {
                 self::$deprecations[] = $errstr;
+                return true;
+            }
+            if ($errno === E_USER_WARNING) {
+                self::$warnings[] = $errstr;
                 return true;
             }
             return false;
@@ -42,6 +46,7 @@ class NumericWhereDeprecationTest extends BaseTestCase
     protected function setUp(): void
     {
         self::$deprecations = [];
+        self::$warnings     = [];
     }
 
     //region Integer WHERE
@@ -73,7 +78,7 @@ class NumericWhereDeprecationTest extends BaseTestCase
 
     public function testIntegerWhereInUpdate(): void
     {
-        self::resetTempTestTables();
+        self::resetTestTables();
 
         @DB::update('users', ['city' => 'Int Where City'], 1);
 
@@ -108,39 +113,94 @@ class NumericWhereDeprecationTest extends BaseTestCase
         $this->assertStringContainsString('Numeric WHERE', implode("\n", self::$deprecations));
     }
 
+    public function testIntegerWhereDoesNotAlsoLogWarning(): void
+    {
+        @DB::select('users', 5);
+
+        $this->assertCount(0, self::$warnings);
+    }
+
     //endregion
     //region Numeric String WHERE
 
-    public function testNumericStringThrows(): void
+    public function testNumericStringWarnsAndWorks(): void
     {
-        $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage("Numeric string");
+        $result = @DB::select('users', '5');
 
-        DB::select('users', '5');
+        $this->assertCount(1, self::$warnings);
+        $this->assertStringContainsString("Numeric string '5'", self::$warnings[0]);
+        $this->assertCount(1, $result);
+        $this->assertSame('Charlie Brown', $result->first()->get('name')->value());
     }
 
-    public function testNumericStringWithSpacesThrows(): void
+    public function testNumericStringWithSpacesWarnsAndWorks(): void
     {
-        $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage("Numeric string");
+        $result = @DB::select('users', '  5  ');
 
-        DB::select('users', '  5  ');
+        $this->assertCount(1, self::$warnings);
+        $this->assertCount(1, $result);
+        $this->assertSame('Charlie Brown', $result->first()->get('name')->value());
     }
 
-    public function testNumericStringInUpdateThrows(): void
+    public function testNumericStringInSelectOneWarnsAndWorks(): void
     {
-        $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage("Numeric string");
+        $result = @DB::selectOne('users', '5');
 
-        DB::update('users', ['city' => 'Test'], '1');
+        $this->assertCount(1, self::$warnings);
+        $this->assertFalse($result->isEmpty());
+        $this->assertSame('Charlie Brown', $result->get('name')->value());
     }
 
-    public function testNumericStringInDeleteThrows(): void
+    public function testNumericStringInCountWarnsAndWorks(): void
     {
-        $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage("Numeric string");
+        $count = @DB::count('users', '1');
 
-        DB::delete('users', '1');
+        $this->assertSame(1, $count);
+        $this->assertCount(1, self::$warnings);
+    }
+
+    public function testNumericStringInUpdateWarnsAndWorks(): void
+    {
+        self::resetTestTables();
+
+        @DB::update('users', ['city' => 'String Where City'], '1');
+
+        $this->assertStringContainsString('Numeric string', implode("\n", self::$warnings));
+
+        // Verify update worked
+        $row = DB::selectOne('users', ['num' => 1]);
+        $this->assertSame('String Where City', $row->get('city')->value());
+    }
+
+    public function testNumericStringInDeleteWarnsAndWorks(): void
+    {
+        // Insert a row to delete
+        $insertId = DB::insert('users', ['name' => 'To Delete Str', 'status' => 'Active', 'city' => 'Test']);
+
+        self::$warnings = [];
+        @DB::delete('users', (string)$insertId);
+
+        $this->assertStringContainsString('Numeric string', implode("\n", self::$warnings));
+
+        // Verify delete worked
+        $result = DB::selectOne('users', ['num' => $insertId]);
+        $this->assertTrue($result->isEmpty());
+    }
+
+    public function testNumericStringWarningSuggestsCastAndArraySyntax(): void
+    {
+        @DB::select('users', '5');
+
+        $this->assertCount(1, self::$warnings);
+        $this->assertStringContainsString('(int)', self::$warnings[0]);
+        $this->assertStringContainsString('array syntax', self::$warnings[0]);
+    }
+
+    public function testNumericStringDoesNotAlsoLogDeprecation(): void
+    {
+        @DB::select('users', '5');
+
+        $this->assertCount(0, self::$deprecations);
     }
 
     //endregion
@@ -150,16 +210,16 @@ class NumericWhereDeprecationTest extends BaseTestCase
     {
         DB::select('users', ['num' => 5]);
 
-        // Should not have deprecation warnings
-        $this->assertStringNotContainsString('Numeric WHERE', implode("\n", self::$deprecations));
+        $this->assertCount(0, self::$deprecations);
+        $this->assertCount(0, self::$warnings);
     }
 
     public function testStringWhereWithPlaceholderDoesNotTriggerDeprecation(): void
     {
         DB::select('users', 'num = ?', 5);
 
-        // Should not have deprecation warnings
-        $this->assertStringNotContainsString('Numeric WHERE', implode("\n", self::$deprecations));
+        $this->assertCount(0, self::$deprecations);
+        $this->assertCount(0, self::$warnings);
     }
 
     //endregion

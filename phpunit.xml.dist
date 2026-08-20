@@ -4,9 +4,15 @@
          bootstrap="tests/bootstrap.php"
          colors="true"
          executionOrder="depends,defects"
-         beStrictAboutOutputDuringTests="true"
+         failOnWarning="true"
+         failOnNotice="true"
+         failOnDeprecation="true"
          failOnRisky="true"
-         failOnWarning="true">
+         beStrictAboutOutputDuringTests="true">
+
+  <extensions>
+    <bootstrap class="Itools\ZenDB\Tests\Support\Replay\ReplayExtension"/>
+  </extensions>
 
   <testsuites>
     <testsuite name="ZenDB Test Suite">
@@ -26,4 +32,8 @@
     <env name="DB_PASSWORD" value=""/>
     <env name="DB_DATABASE" value="phpunit_test_db"/>
   </php>
+
+  <!-- Optional: run the suite without a MySQL server. "composer test:record" runs live and
+       saves every query result to tests/Support/Replay/corpus.php; "composer test:replay"
+       serves it back with no server (~10x faster). See tests/Support/Replay/ReplayHarness.php. -->
 </phpunit>

@@ -8,6 +8,7 @@ namespace Itools\ZenDB\Tests\Connection;
 use Itools\ZenDB\DB;
 use Itools\ZenDB\Connection;
 use Itools\ZenDB\Tests\BaseTestCase;
+use Itools\SmartString\SmartString;
 use InvalidArgumentException;
 
 /**
@@ -20,7 +21,7 @@ class CloneTest extends BaseTestCase
     public static function setUpBeforeClass(): void
     {
         self::$conn = self::createDefaultConnection();
-        self::resetTempTestTables();
+        self::resetTestTables();
     }
 
     protected function tearDown(): void
@@ -72,30 +73,34 @@ class CloneTest extends BaseTestCase
 
     public function testCloneHasIndependentUseSmartJoins(): void
     {
-        $this->assertTrue(self::$conn->useSmartJoins);
+        $joinSql = "SELECT u.name, o.total_amount FROM ::users u JOIN ::orders o ON u.num = o.user_id WHERE u.num = ?";
 
-        $clone = DB::clone(['useSmartJoins' => false]);
+        $clone     = DB::clone(['useSmartJoins' => false]);
+        $cloneRow  = $clone->query($joinSql, 6)->first();
+        $parentRow = self::$conn->query($joinSql, 6)->first();
 
-        $this->assertFalse($clone->useSmartJoins);
-        $this->assertTrue(self::$conn->useSmartJoins);
+        $this->assertFalse(isset($cloneRow['users.name']), "Clone with useSmartJoins=false must not add qualified keys");
+        $this->assertSame('Dave Williams', $parentRow->get('users.name')->value(), "Parent keeps smart joins enabled");
     }
 
     public function testCloneHasIndependentUseSmartStrings(): void
     {
-        $this->assertTrue(self::$conn->useSmartStrings);
-
         $clone = DB::clone(['useSmartStrings' => false]);
 
-        $this->assertFalse($clone->useSmartStrings);
-        $this->assertTrue(self::$conn->useSmartStrings);
+        $this->assertIsString($clone->select('users', ['num' => 1])->first()->name, "Clone with useSmartStrings=false must return raw values");
+        $this->assertInstanceOf(SmartString::class, self::$conn->select('users', ['num' => 1])->first()->name, "Parent keeps SmartString values");
     }
 
     public function testCloneHasIndependentTablePrefix(): void
     {
+        // A same-name table under a different prefix; only the reprefixed clone should reach it
+        self::$conn->mysqli->query("CREATE TEMPORARY TABLE other_users (num INT PRIMARY KEY, name VARCHAR(255))");
+        self::$conn->mysqli->query("INSERT INTO other_users VALUES (1, 'Other Olive')");
+
         $clone = DB::clone(['tablePrefix' => 'other_']);
 
-        $this->assertSame('other_', $clone->tablePrefix);
-        $this->assertSame('test_', self::$conn->tablePrefix);
+        $this->assertSame('Other Olive', $clone->select('users', ['num' => 1])->first()->name->value(), "Clone must prefix table names with its own tablePrefix");
+        $this->assertSame('John Doe', self::$conn->select('users', ['num' => 1])->first()->name->value(), "Parent keeps its own tablePrefix");
     }
 
     public function testChangingCloneSettingsDoesNotAffectParent(): void
@@ -170,8 +175,9 @@ class CloneTest extends BaseTestCase
     public function testInstanceCloneWithOverrides(): void
     {
         $clone = self::$conn->clone(['useSmartJoins' => false]);
+        $row   = $clone->query("SELECT u.name, o.total_amount FROM ::users u JOIN ::orders o ON u.num = o.user_id WHERE u.num = ?", 6)->first();
 
-        $this->assertFalse($clone->useSmartJoins);
+        $this->assertFalse(isset($row['users.name']), "Instance clone with useSmartJoins=false must not add qualified keys");
         $this->assertTrue(self::$conn->useSmartJoins);
     }
 

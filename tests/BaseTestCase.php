@@ -11,9 +11,13 @@ use RuntimeException;
 use PHPUnit\Framework\TestCase;
 use Itools\ZenDB\DB;
 use Itools\ZenDB\Connection;
+use Itools\ZenDB\MysqliWrapperReplay;
+use Itools\ZenDB\Tests\Support\SharedTestHelpers;
 
 abstract class BaseTestCase extends TestCase
 {
+    use SharedTestHelpers;
+
     protected static array $configDefaults = [
         'hostname'           => '127.0.0.1',
         'username'           => 'root',
@@ -25,9 +29,33 @@ abstract class BaseTestCase extends TestCase
         'versionRequired'    => '5.7.32',
         'requireSSL'         => false,
         'databaseAutoCreate' => true,
-        'connectTimeout'     => 1,
+        'connectTimeout'     => 10, // local MySQL can take over a second to accept a connection under load; short timeouts fail good runs
         'readTimeout'        => 60,
     ];
+
+    /**
+     * Skip the current test when the suite is replaying from a corpus (no MySQL server).
+     * Call first thing from tests that need a real server: raw mysqli connections,
+     * wrapper internals, or queries whose SQL differs on every run.
+     */
+    protected static function requiresLiveMysql(): void
+    {
+        // Ask the factory what connections will get; no side effects on the global connection
+        $factory = Connection::$mysqliWrapperFactory;
+        if ($factory !== null && $factory(null) instanceof MysqliWrapperReplay) {
+            self::markTestSkipped('Needs a live MySQL server');
+        }
+    }
+
+    /**
+     * Run $fn collecting E_USER_DEPRECATED messages. Returns [result, messages].
+     *
+     * @return array{0: mixed, 1: string[]}
+     */
+    protected function captureDeprecations(callable $fn): array
+    {
+        return $this->captureErrors($fn, E_USER_DEPRECATED);
+    }
 
     /**
      * Helper method to create a new default connection with test config.
@@ -42,9 +70,35 @@ abstract class BaseTestCase extends TestCase
         return DB::clone();
     }
 
-    public static function resetTempTestTables(): void {
+    /**
+     * Recreate the test tables with fresh data. Most are TEMPORARY (cheap to create,
+     * gone on disconnect), but test_employees and test_products are regular tables:
+     * MySQL can't reference a TEMPORARY table twice in one query, and the docs examples
+     * self-join employees and subquery products. Regular tables are dropped when the
+     * run ends. If a new example needs to reference another table twice, move that
+     * table to the regular list here and in the cleanup below.
+     */
+    public static function resetTestTables(): void {
 
-        // create temporary tables with test data
+        // drop the regular tables when the run ends
+        static $cleanupRegistered = false;
+        if (!$cleanupRegistered) {
+            $cleanupRegistered = true;
+            register_shutdown_function(static function (): void {
+                mysqli_report(MYSQLI_REPORT_OFF); // cleanup is best-effort; the server may already be gone
+                $c  = self::$configDefaults;
+                $db = @new \mysqli($c['hostname'], $c['username'], $c['password'], $c['database']);
+                if ($db->connect_errno) {
+                    return;
+                }
+                foreach (['test_employees', 'test_products'] as $table) {
+                    $db->query("DROP TABLE IF EXISTS `$table`");
+                }
+                $db->close();
+            });
+        }
+
+        // create tables with test data
         $sql = <<<__SQL__
 DROP TEMPORARY TABLE IF EXISTS test_users;
 CREATE TEMPORARY TABLE test_users (num INT PRIMARY KEY AUTO_INCREMENT,
@@ -54,7 +108,7 @@ CREATE TEMPORARY TABLE test_users (num INT PRIMARY KEY AUTO_INCREMENT,
   city VARCHAR(255),
   dob DATE,
   age INT
-);
+) ENGINE=InnoDB;
 
 INSERT INTO test_users (num, name, isAdmin, status, city, dob, age) VALUES
     (1, 'John Doe', 1, 'Active', 'Vancouver', '1985-04-10', 38),
@@ -78,14 +132,14 @@ INSERT INTO test_users (num, name, isAdmin, status, city, dob, age) VALUES
     (19, 'Quentin Adams', NULL, 'Active', 'Charlottetown', '1991-03-31', 32),
     (20, 'Rachel Carter', 0, 'Suspended', 'Yellowknife', '1979-07-04', 44);
 
--- Create temporary table for test_orders
+-- Create table for test_orders
 DROP TEMPORARY TABLE IF EXISTS test_orders;
 CREATE TEMPORARY TABLE test_orders (
     order_id INT PRIMARY KEY AUTO_INCREMENT,
     user_id INT,
     order_date DATE,
     total_amount DECIMAL(10, 2)
-);
+) ENGINE=InnoDB;
 
 -- Insert additional sample data into test_orders
 INSERT INTO test_orders (user_id, order_date, total_amount) VALUES
@@ -100,13 +154,13 @@ INSERT INTO test_orders (user_id, order_date, total_amount) VALUES
     (14, '2024-02-12', 30.25),
     (15, '2024-03-08', 95.75);
 
--- Create temporary table for products
-DROP TEMPORARY TABLE IF EXISTS test_products;
-CREATE TEMPORARY TABLE test_products (
+-- Create table for products (regular, not TEMPORARY: subquery examples reference it twice in one query)
+DROP TABLE IF EXISTS test_products;
+CREATE TABLE test_products (
     product_id INT PRIMARY KEY AUTO_INCREMENT,
     product_name VARCHAR(255),
     price DECIMAL(8, 2)
-);
+) ENGINE=InnoDB;
 
 -- Insert sample data into test_products
 INSERT INTO test_products (product_name, price) VALUES
@@ -116,14 +170,14 @@ INSERT INTO test_products (product_name, price) VALUES
     ('Product D', 8.25),
     ('Product E', 15.99);
 
--- Create temporary table for order details
+-- Create table for order details
 DROP TEMPORARY TABLE IF EXISTS test_order_details;
 CREATE TEMPORARY TABLE test_order_details (
     order_detail_id INT PRIMARY KEY AUTO_INCREMENT,
     order_id INT,
     product_id INT,
     quantity INT
-);
+) ENGINE=InnoDB;
 
 -- Insert sample data into test_order_details with 30 records
 INSERT INTO test_order_details (order_id, product_id, quantity) VALUES
@@ -158,14 +212,14 @@ INSERT INTO test_order_details (order_id, product_id, quantity) VALUES
     (29, 4, 3),
     (30, 5, 2);
 
--- Table for self-join tests (employees with managers)
-DROP TEMPORARY TABLE IF EXISTS test_employees;
-CREATE TEMPORARY TABLE test_employees (
+-- Table for self-join tests (employees with managers; regular, not TEMPORARY, so it can appear twice in one query)
+DROP TABLE IF EXISTS test_employees;
+CREATE TABLE test_employees (
     id INT PRIMARY KEY AUTO_INCREMENT,
     name VARCHAR(255),
     manager_id INT NULL,
     department VARCHAR(100)
-);
+) ENGINE=InnoDB;
 
 INSERT INTO test_employees (id, name, manager_id, department) VALUES
     (1, 'CEO', NULL, 'Executive'),
@@ -181,7 +235,7 @@ CREATE TEMPORARY TABLE test_special_chars (
     id INT PRIMARY KEY AUTO_INCREMENT,
     content TEXT,
     html_content TEXT
-);
+) ENGINE=InnoDB;
 
 INSERT INTO test_special_chars (content, html_content) VALUES
     ('O''Reilly', '<script>alert("xss")</script>'),

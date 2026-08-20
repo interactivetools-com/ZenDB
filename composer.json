@@ -1,13 +1,16 @@
 {
   "name": "itools/zendb",
   "description": "Injection-proof PHP/MySQL database layer with automatic XSS-safe output",
-  "keywords": ["database", "mysql", "mysqli", "sql", "dbal", "crud", "secure", "parameterized-queries", "injection-proof", "database-layer"],
+  "keywords": ["php", "mysql", "mariadb", "mysqli", "database", "database-layer", "sql", "dbal", "crud", "placeholders", "prepared-statements", "parameterized-queries", "sql-injection", "injection-proof", "security", "xss", "html-encoding", "transactions", "encryption", "smartarray", "smartstring"],
   "type": "library",
   "homepage": "https://github.com/interactivetools-com/ZenDB",
   "license": "MIT",
+  "readme": "README.md",
   "config": {
     "platform": {"php": "8.1.0"}
   },
+  "minimum-stability": "dev",
+  "prefer-stable": true,
   "support": {
     "issues": "https://github.com/interactivetools-com/ZenDB/issues",
     "source": "https://github.com/interactivetools-com/ZenDB"
@@ -18,6 +21,10 @@
       "homepage": "https://interactivetools.com/"
     }
   ],
+  "repositories": [
+    {"type": "path", "url": "../SmartString", "options": {"symlink": true}},
+    {"type": "path", "url": "../SmartArray", "options": {"symlink": true}}
+  ],
   "autoload": {
     "psr-4": {
       "Itools\\ZenDB\\": "src/"
@@ -25,17 +32,45 @@
   },
   "autoload-dev": {
     "psr-4": {
-      "Itools\\ZenDB\\Tests\\": "tests/"
+      "Itools\\ZenDB\\Tests\\": "tests/",
+      "Itools\\Standards\\": "tests/Source/"
     }
   },
   "require": {
     "php": "^8.1",
     "ext-mysqli": "*",
     "ext-openssl": "*",
-    "itools/smartarray": "^2.6.6",
-    "itools/smartstring": "^2.6.2"
+    "itools/smartarray": "^3.0",
+    "itools/smartstring": "^3.0"
   },
   "require-dev": {
+    "jetbrains/phpstorm-attributes": "^1.2",
     "phpunit/phpunit": "^10.5"
+  },
+  "extra": {
+    "branch-alias": {
+      "dev-main": "1.x-dev"
+    }
+  },
+  "scripts": {
+    "test": "phpunit",
+    "test:record": [
+      "@putenv ZENDB_QUERY_MODE=record",
+      "phpunit"
+    ],
+    "test:replay": [
+      "@putenv ZENDB_QUERY_MODE=replay",
+      "phpunit"
+    ],
+    "coverage": [
+      "@putenv XDEBUG_MODE=coverage",
+      "phpunit --coverage-text"
+    ]
+  },
+  "scripts-descriptions": {
+    "test": "Run the test suite",
+    "test:record": "Run the test suite live and save every query result to the replay corpus",
+    "test:replay": "Run the test suite from the recorded corpus, no MySQL server needed",
+    "coverage": "Run the test suite with a line-coverage report (requires Xdebug)"
   }
 }

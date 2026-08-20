@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Itools\ZenDB\Tests\Table;
 
+use InvalidArgumentException;
 use Itools\ZenDB\DB;
 use Itools\ZenDB\Table;
 use Itools\ZenDB\Tests\BaseTestCase;
@@ -44,7 +45,9 @@ class TableIntegrationTest extends BaseTestCase
 
     protected function setUp(): void
     {
-        $this->baseTable = 'ztest_mysqltable_' . getmypid();
+        // Fixed name, not a per-run suffix: record/replay needs identical SQL across runs,
+        // and dropFixture() below already handles leftovers from a dead prior run
+        $this->baseTable = 'ztest_mysqltable_fixture';
         $this->fullTable = DB::$tablePrefix . $this->baseTable;
 
         $this->dropFixture(); // in case a prior run died before tearDown
@@ -142,12 +145,19 @@ class TableIntegrationTest extends BaseTestCase
     }
 
     #[Test]
-    public function existsReturnsFalseForInvalidNamesInsteadOfThrowing(): void
+    public function existsThrowsForInvalidNames(): void
     {
-        $this->assertFalse(Table::exists('bad`name'), 'backtick fails the identifier check');
-        $this->assertFalse(Table::exists('bad name'), 'space fails the identifier check');
-        $this->assertFalse(Table::exists('users; DROP TABLE users'), 'injection attempt fails the identifier check');
-        $this->assertFalse(Table::exists(''), 'empty name is the bare prefix at best, never a real table');
+        // same rule as every other method that takes a table name; the deprecated
+        // hasTable()/tableExists() shims keep answering false (HasTableTest pins that)
+        $badNames = ['bad`name', 'bad name', 'users; DROP TABLE users', '', 'no.dots'];
+        foreach ($badNames as $badName) {
+            try {
+                Table::exists($badName);
+                $this->fail("Table::exists('$badName') should throw");
+            } catch (InvalidArgumentException $e) {
+                $this->assertStringContainsString('Invalid table name', $e->getMessage());
+            }
+        }
     }
 
     #[Test]
@@ -155,19 +165,35 @@ class TableIntegrationTest extends BaseTestCase
     {
         $this->assertTrue(Table::existsFull($this->fullTable), 'the real full name matches');
         $this->assertFalse(Table::existsFull($this->fullTable . '_no_such_table'));
-        $this->assertFalse(Table::existsFull('bad`name'), 'invalid names return false, like exists()');
         if (DB::$tablePrefix !== '') {
             $this->assertFalse(Table::existsFull($this->baseTable), 'the base name alone is not the MySQL name');
         }
     }
 
     #[Test]
+    public function existsFullThrowsForInvalidNames(): void
+    {
+        // dots included: ZenDB can't create a dotted name, so asking about one is a coding
+        // mistake; the existsFull() docblock shows the information_schema query for tables
+        // other tools created
+        $badNames = ['bad`name', 'no_such.dotted_table', ''];
+        foreach ($badNames as $badName) {
+            try {
+                Table::existsFull($badName);
+                $this->fail("Table::existsFull('$badName') should throw");
+            } catch (InvalidArgumentException $e) {
+                $this->assertStringContainsString('Invalid table name', $e->getMessage());
+            }
+        }
+    }
+
+    #[Test]
     public function cloneChecksTablesUnderItsOwnPrefix(): void
     {
-        // the fixture's full name is prefix + "ztest_mysqltable_<pid>"; a clone with the longer
+        // the fixture's full name is prefix + "ztest_mysqltable_fixture"; a clone with the longer
         // prefix finds it under the shorter base name, while the default connection doesn't
         $clone     = DB::clone(['tablePrefix' => DB::$tablePrefix . 'ztest_']);
-        $shortBase = 'mysqltable_' . getmypid();
+        $shortBase = 'mysqltable_fixture';
 
         $this->assertTrue($clone->table->exists($shortBase), "clone's exists() uses the clone's prefix");
         $this->assertFalse(Table::exists($shortBase), "default connection's exists() still uses its own prefix");
@@ -184,17 +210,16 @@ class TableIntegrationTest extends BaseTestCase
     }
 
     #[Test]
-    public function existsThrowsForErrorsOtherThanNoSuchTable(): void
+    public function existsAnswersFalseWhenTheServerRejectsTheTable(): void
     {
-        // a view whose base table was dropped still exists, but probing it fails with error 1356,
-        // not 1146; only "no such table" answers false, every other error surfaces to the caller
+        // a view whose base table was dropped fails with error 1356, not 1146; the server
+        // answered "you can't use that table", so exists() reports false instead of throwing
         // (dropFixture() sweeps the broken view: information_schema still lists it as a VIEW)
         $this->createSideTable('_vbase', 'num INT');
         DB::$mysqli->query("CREATE VIEW `{$this->fullTable}_vbroken` AS SELECT num FROM `{$this->fullTable}_vbase`");
         DB::$mysqli->query("DROP TABLE `{$this->fullTable}_vbase`");
 
-        $this->expectException(mysqli_sql_exception::class);
-        Table::exists($this->baseTable . '_vbroken');
+        $this->assertFalse(Table::exists($this->baseTable . '_vbroken'));
     }
 
     //endregion
@@ -213,10 +238,21 @@ class TableIntegrationTest extends BaseTestCase
     #[Test]
     public function namesSortSystemTablesAfterContentTablesEachGroupAlphabetical(): void
     {
-        $names = Table::names();
+        // The suite fixture has no _system tables, so without probes the system half
+        // asserts over an empty array; create two in reverse alphabetical order
+        DB::$mysqli->query("CREATE TABLE `" . DB::$tablePrefix . "_zz_probe` (num INT)");
+        DB::$mysqli->query("CREATE TABLE `" . DB::$tablePrefix . "_aa_probe` (num INT)");
+        try {
+            $names = Table::names();
+        } finally {
+            DB::$mysqli->query("DROP TABLE IF EXISTS `" . DB::$tablePrefix . "_zz_probe`");
+            DB::$mysqli->query("DROP TABLE IF EXISTS `" . DB::$tablePrefix . "_aa_probe`");
+        }
         $content   = array_values(array_filter($names, fn($name) => !str_starts_with($name, '_')));
         $system    = array_values(array_filter($names, fn($name) => str_starts_with($name, '_')));
 
+        $this->assertContains('_aa_probe', $system);
+        $this->assertContains('_zz_probe', $system);
         $this->assertSame([...$content, ...$system], $names, 'content tables first, then _system tables');
 
         $sortedContent = $content;
@@ -256,6 +292,24 @@ class TableIntegrationTest extends BaseTestCase
 
     //endregion
     //region columns()
+
+    #[Test]
+    public function columnsThrowsForInvalidNames(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('Invalid table name');
+
+        Table::columns('bad`name');
+    }
+
+    #[Test]
+    public function foreignKeysThrowsForInvalidNames(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('Invalid table name');
+
+        Table::foreignKeys('users; DROP TABLE users');
+    }
 
     #[Test]
     public function columnsReportsEveryColumnInTableOrder(): void
@@ -450,13 +504,20 @@ class TableIntegrationTest extends BaseTestCase
     #[Test]
     public function hiddenIndexReportsIsVisibleFalse(): void
     {
-        // MySQL 8 calls a hidden index INVISIBLE, MariaDB 10.6+ calls it IGNORED; older servers have neither
+        // MySQL 8 calls a hidden index INVISIBLE, MariaDB 10.6+ calls it IGNORED; older servers
+        // have neither and answer 1064 (parse error). Anything else is a real failure.
         try {
             DB::query("ALTER TABLE `?` ALTER INDEX idx_single INVISIBLE", $this->fullTable);
-        } catch (Throwable) {
+        } catch (mysqli_sql_exception $e) {
+            if ($e->getCode() !== 1064) {
+                throw $e;
+            }
             try {
                 DB::query("ALTER TABLE `?` ALTER INDEX idx_single IGNORED", $this->fullTable);
-            } catch (Throwable) {
+            } catch (mysqli_sql_exception $e) {
+                if ($e->getCode() !== 1064) {
+                    throw $e;
+                }
                 $this->markTestSkipped('Server supports neither INVISIBLE (MySQL 8) nor IGNORED (MariaDB 10.6+) indexes.');
             }
         }
@@ -469,11 +530,15 @@ class TableIntegrationTest extends BaseTestCase
     #[Test]
     public function functionalIndexColsShowTheExpression(): void
     {
-        // functional index parts are MySQL 8.0.13+ only; MariaDB uses virtual columns instead
+        // functional index parts are MySQL 8.0.13+ only; MariaDB and older MySQL answer
+        // 1064 (parse error). Anything else is a real failure.
         $extraBase = $this->createSideTable('_extra', 'email VARCHAR(50) NOT NULL');
         try {
             DB::query("ALTER TABLE `?` ADD INDEX idx_lower ((lower(email)))", DB::$tablePrefix . $extraBase);
-        } catch (Throwable) {
+        } catch (mysqli_sql_exception $e) {
+            if ($e->getCode() !== 1064) {
+                throw $e;
+            }
             $this->markTestSkipped('Server does not support functional index parts (MySQL 8.0.13+ only).');
         }
 

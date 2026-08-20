@@ -7,6 +7,7 @@ Joins, the table-qualified keys ZenDB adds to multi-table results.
 Contents:
 
 - [Custom SQL - `DB::query()` and `DB::queryOne()`](#custom-sql---dbquery-and-dbqueryone)
+- [Formatting Long Queries](#formatting-long-queries)
 - [Table Prefixes in Raw SQL with `::`](#table-prefixes-in-raw-sql-with-)
 - [Smart Joins](#smart-joins)
 - [Self-Joins](#self-joins)
@@ -18,7 +19,7 @@ Contents:
 
 `DB::query()` runs SQL you write yourself, with the same protections as
 `select()`. The template guard still rejects quotes and inline numbers, and
-values still enter through placeholders. `DB::queryOne()` works the same way
+values still enter through placeholders; `DB::queryOne()` works the same way
 but returns only the first row:
 
 ```php
@@ -42,6 +43,46 @@ Differences from the table-based methods:
 `queryOne()` appends its own `LIMIT 1`, so it doesn't accept a template with
 `LIMIT` or `OFFSET`. For your own `LIMIT`, or clauses that go after it like
 `FOR UPDATE`, use `DB::query(...)->first()`.
+
+## Formatting Long Queries
+
+The examples above open the string on the call line and align the SQL
+keywords on the lines below; that is the form used throughout these docs,
+and it needs no special syntax. Two variations help as queries grow.
+
+Moving the template into a variable keeps the call short when it also
+carries parameters:
+
+```php
+$sql = "
+    SELECT u.name, o.total
+      FROM ::users  u
+      JOIN ::orders o ON o.userId = u.id
+     WHERE o.total > :minTotal
+  ORDER BY o.total DESC";
+
+$rows = DB::query($sql, [':minTotal' => 100]);
+// SELECT u.name, o.total FROM users u JOIN orders o ON o.userId = u.id ...
+```
+
+Heredoc syntax does the same job if you prefer it: `<<<__SQL__` starts a
+multi-line string that ends at the closing marker, whose indentation is
+stripped from every line (so it can't be indented deeper than the
+least-indented line). ZenDB templates contain no quotes and no `$`
+variables, so heredoc and double quotes produce identical strings here;
+use whichever reads better to you:
+
+```php
+$sql = <<<__SQL__
+    SELECT u.name, o.total
+      FROM ::users  u
+      JOIN ::orders o ON o.userId = u.id
+     WHERE o.total > :minTotal
+  ORDER BY o.total DESC
+  __SQL__;
+
+$rows = DB::query($sql, [':minTotal' => 100]);
+```
 
 ## Table Prefixes in Raw SQL with `::`
 
@@ -80,13 +121,13 @@ $rows = DB::query("SELECT * FROM ::users JOIN ::orders ON ::orders.userId = ::us
 
 foreach ($rows as $row) {
     echo $row->name;               // plain key
-    echo $row->get('users.id');    // always the users table's id
-    echo $row->get('orders.id');   // always the orders table's id
+    echo $row->{'users.id'};       // always the users table's id
+    echo $row->{'orders.id'};      // always the orders table's id
 }
 ```
 
-Qualified keys contain a dot, which PHP object syntax can't type, so read
-them with `get()`, covered in [Working with Results](working-with-results.md).
+Qualified keys contain a dot, which plain property syntax can't type, so read
+them with `->{'...'}`, covered in [Working with Results](working-with-results.md).
 
 Here is every key one joined row contains. Plain keys come first, one per
 column name in SELECT order; the qualified keys follow:
@@ -114,7 +155,7 @@ print_r($row);
 // [orders.total]     => 100.00
 ```
 
-Qualified keys follow one rule: reading the key should tell you the source.
+Qualified keys follow one rule: reading the key should tell you the source -
 `users.id` means the `id` column of the `users` table, no query context
 needed. That's why the prefix is dropped (`cms_users` still produces
 `users.id`), why aliases don't get keys (`FROM ::users u` also produces
@@ -144,7 +185,7 @@ the first table wins:
 $row = DB::queryOne("SELECT * FROM ::users JOIN ::orders ON ::orders.userId = ::users.id");
 
 echo $row->id;                // 1    - users comes first, so this is the users id
-echo $row->get('orders.id');  // 7001 - the orders id is still there, under its qualified key
+echo $row->{'orders.id'};     // 7001 - the orders id is still there, under its qualified key
 ```
 
 This is deliberate: your main table comes first in the query, so joining
@@ -161,10 +202,10 @@ that table:
 $rows = DB::query("SELECT * FROM ::employees a JOIN ::employees b ON a.managerId = b.id");
 
 foreach ($rows as $row) {
-    echo $row->get('a.name');   // the employee
-    echo $row->get('b.name');   // their manager
+    echo $row->{'a.name'};      // the employee
+    echo $row->{'b.name'};      // their manager
 }
-// $row->get('employees.name') also exists and holds the first occurrence (alias a)
+// $row->{'employees.name'} also exists and holds the first occurrence (alias a)
 ```
 
 ## Turning Smart Joins Off - `DB::clone()`
@@ -234,8 +275,8 @@ placeholder, `DB::pagingSql()` passed through a placeholder (`RawSql` values
 skip escaping), and Smart Join keys on the result:
 
 ```php
-$pageNum = $_GET['page'] ?? 1;
-$rows    = DB::query("
+$page = $_GET['page'] ?? 1;
+$rows = DB::query("
     SELECT u.name, o.orderDate, p.title, oi.qty, (oi.qty * p.price) AS total
       FROM ::users       u
       JOIN ::orders      o  ON o.userId   = u.id
@@ -245,7 +286,7 @@ $rows    = DB::query("
   ORDER BY o.orderDate DESC
   :pagingSQL", [
     ':city'      => 'Vancouver',
-    ':pagingSQL' => DB::pagingSql($pageNum, 25),  // for page 1: LIMIT 25 OFFSET 0
+    ':pagingSQL' => DB::pagingSql($page, 25),  // for page 1: LIMIT 25 OFFSET 0
 ]);
 
 foreach ($rows as $row) {

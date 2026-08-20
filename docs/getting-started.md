@@ -6,7 +6,8 @@ this page you will have selected, inserted, updated, and deleted rows.
 Contents:
 
 - [Installation](#installation)
-- [Connect and Fetch Your First Rows](#connect-and-fetch-your-first-rows)
+- [Connecting - `DB::connect()`](#connecting---dbconnect)
+- [Your First Query - `DB::select()`](#your-first-query---dbselect)
 - [The Mental Model](#the-mental-model)
 - [What Queries Return](#what-queries-return)
 - [Fetching One Row - `DB::selectOne()`](#fetching-one-row---dbselectone)
@@ -19,8 +20,8 @@ Contents:
 
 ## Installation
 
-Using CMS Builder? ZenDB is already installed and connected; skip ahead to
-[The Mental Model](#the-mental-model).
+**Using CMS Builder?** ZenDB is already installed and connected; skip ahead to
+[Your First Query](#your-first-query---dbselect).
 
 ```bash
 composer require itools/zendb
@@ -32,9 +33,9 @@ equivalent MariaDB. Composer also installs
 [SmartString](https://github.com/interactivetools-com/SmartString), the two
 libraries behind ZenDB's result sets and values.
 
-## Connect and Fetch Your First Rows
+## Connecting - `DB::connect()`
 
-Call `DB::connect()` once at startup, then query with the `DB::` static methods:
+Call `DB::connect()` once at startup:
 
 ```php
 use Itools\ZenDB\DB;
@@ -45,13 +46,6 @@ DB::connect([
     'password' => 'secret',    // use '' for none
     'database' => 'my_app',
 ]);
-
-$users = DB::select('users', ['status' => 'active']);
-// SELECT * FROM `users` WHERE `status` = 'active'
-
-foreach ($users as $user) {
-    echo "<li>$user->name from $user->city</li>";  // values HTML-encode themselves
-}
 ```
 
 All four config keys are required; a missing one throws `RuntimeException`
@@ -59,6 +53,20 @@ with the key name, and a failed connection throws with the MySQL error.
 Those four are enough for most apps; for all `DB::connect()`
 arguments (timeouts, `tablePrefix`, SSL, encryption), see
 [Configuration Options](#configuration-options) at the bottom of this page.
+
+## Your First Query - `DB::select()`
+
+`DB::select()` returns every matching row; loop the result with `foreach`
+and echo fields with property syntax:
+
+```php
+$users = DB::select('users', ['status' => 'active']);
+// SELECT * FROM `users` WHERE `status` = 'active'
+
+foreach ($users as $user) {
+    echo "<li>$user->name from $user->city</li>";  // values HTML-encode themselves
+}
+```
 
 ## The Mental Model
 
@@ -87,7 +95,7 @@ $users = DB::select('users', "status = ?", 'active');
 // SELECT * FROM `users` WHERE status = 'active'
 
 echo count($users);                          // row count
-echo $users->pluck('email')->implode(', ');  // one column, joined
+echo $users->column('email')->implode(', ');  // one column, joined
 
 $user = $users->first();
 echo $user->joinDate->dateFormat('M j, Y');  // Mar 16, 2026
@@ -199,7 +207,7 @@ try {
     $user = DB::selectOne('users', ['id' => 1]);
     echo "Hello, $user->name!";
 } catch (\Exception $e) {
-    echo "Database error: " . $e->getMessage();
+    echo "Database error: " . htmlspecialchars($e->getMessage()); // exception text is a plain string, not a SmartString, so encode it yourself
 }
 ```
 
@@ -227,7 +235,7 @@ rather than being silently ignored.
 | **Connection Options** |        |                 |                                                                                       |
 | `connectTimeout`       | int    | `3`             | Connection timeout in seconds                                                         |
 | `readTimeout`          | int    | `60`            | Read timeout in seconds                                                               |
-| `requireSSL`           | bool   | `false`         | Require SSL for the database connection                                               |
+| `requireSSL`           | bool   | `false`         | Encrypt the database connection; no certificate verification                          |
 | `versionRequired`      | string | `'5.7.32'`      | Minimum MySQL version or compatible; connecting to an older server throws             |
 | `usePhpTimezone`       | bool   | `true`          | Set the MySQL session timezone to PHP's timezone                                      |
 | `sqlMode`              | string | *(shown right)* | `STRICT_ALL_TABLES,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION` |

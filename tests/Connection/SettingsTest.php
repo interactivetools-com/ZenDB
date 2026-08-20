@@ -18,7 +18,7 @@ class SettingsTest extends BaseTestCase
     public static function setUpBeforeClass(): void
     {
         self::$conn = self::createDefaultConnection();
-        self::resetTempTestTables();
+        self::resetTestTables();
     }
 
     protected function tearDown(): void
@@ -38,7 +38,10 @@ class SettingsTest extends BaseTestCase
     public function testUseSmartJoinsCanBeDisabled(): void
     {
         self::$conn->useSmartJoins = false;
-        $this->assertFalse(self::$conn->useSmartJoins);
+
+        $row = self::$conn->query("SELECT u.name, o.total_amount FROM ::users u JOIN ::orders o ON u.num = o.user_id WHERE u.num = ?", 6)->first();
+        $this->assertFalse(isset($row['users.name']), "Qualified keys must not be added with useSmartJoins disabled");
+        $this->assertSame('Dave Williams', $row->get('name')->value());
     }
 
     //endregion
@@ -52,7 +55,8 @@ class SettingsTest extends BaseTestCase
     public function testUseSmartStringsCanBeDisabled(): void
     {
         self::$conn->useSmartStrings = false;
-        $this->assertFalse(self::$conn->useSmartStrings);
+
+        $this->assertIsString(self::$conn->select('users', ['num' => 1])->first()->name, "Raw values must come back with useSmartStrings disabled");
     }
 
     //endregion
@@ -61,6 +65,31 @@ class SettingsTest extends BaseTestCase
     public function testTablePrefixDefaultValue(): void
     {
         $this->assertSame('test_', self::$conn->tablePrefix);
+    }
+
+    public function testMultibyteTablePrefixThrowsBeforeConnecting(): void
+    {
+        // PHP counts prefix bytes where MySQL's LEFT() counts characters, so a multibyte
+        // prefix would make Table::names() silently return no tables; rejected at config
+        // time instead. Fake credentials prove the throw happens before any connection attempt
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('allowed characters');
+
+        new Connection([
+            'hostname'    => 'localhost',
+            'username'    => 'unused',
+            'password'    => 'unused',
+            'database'    => 'unused',
+            'tablePrefix' => "caf\u{e9}_",
+        ]);
+    }
+
+    public function testCloneRejectsMultibyteTablePrefix(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('allowed characters');
+
+        self::$conn->clone(['tablePrefix' => "caf\u{e9}_"]);
     }
 
     //endregion

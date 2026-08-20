@@ -1,8 +1,11 @@
 # ZenDB Documentation
 
-Guides and reference for ZenDB, a PHP/MySQL database library that's easy to use
-and hard to misuse. New to ZenDB? Read the first six pages in order; each builds
-on the one before. The rest are standalone: open whichever matches your task.
+Welcome to the ZenDB docs. ZenDB is a PHP/MySQL database layer that's easy to
+use and hard to misuse: every dynamic value goes through placeholders, and
+query results HTML-encode themselves on output.
+
+New to ZenDB? Read the first six pages in order; each builds on the one before.
+The rest are standalone: open whichever matches your task.
 
 ## The Basics (read in order)
 
@@ -26,6 +29,7 @@ on the one before. The rest are standalone: open whichever matches your task.
 ## Lookup
 
 - [Security Gotchas](security-gotchas.md) - The narrow cases that still let you write an unsafe query, and the safe form for each.
+- [Performance](performance.md) - Measured page benchmarks: within microseconds of raw mysqli + `htmlspecialchars()`.
 - [Troubleshooting](troubleshooting.md) - Exception messages explained, connection problems, behavior gotchas, debugging.
 - [Method Reference](method-reference.md) - Every method, parameter, and return type in one place.
 - [AI Reference](ai-reference.md) - The complete API in one dense file, written for AI coding assistants.

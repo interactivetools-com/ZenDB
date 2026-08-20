@@ -83,8 +83,9 @@ class EscapefTest extends BaseTestCase
 
     public function testEscapefEmptyArray(): void
     {
+        // Empty arrays expand to a zero-row subquery: IN matches nothing, NOT IN matches everything
         $result = DB::escapef("id IN (?)", []);
-        $this->assertSame("id IN (NULL)", $result);
+        $this->assertSame("id IN (SELECT 0 FROM (SELECT 0) empty_set WHERE 0)", $result);
     }
 
     public function testEscapefSmartArray(): void
@@ -143,6 +144,66 @@ class EscapefTest extends BaseTestCase
             "UPDATE users SET name = 'Bob', age = 25, active = FALSE, notes = NULL WHERE id = 1",
             $result
         );
+    }
+
+    //endregion
+    //region Placeholder Positions
+
+    public function testEscapefPlaceholderAtStart(): void
+    {
+        $result = DB::escapef("? = name", 'John');
+        $this->assertSame("'John' = name", $result);
+    }
+
+    public function testEscapefFormatIsOnlyPlaceholder(): void
+    {
+        $result = DB::escapef("?", 42);
+        $this->assertSame("42", $result);
+    }
+
+    public function testEscapefAdjacentPlaceholders(): void
+    {
+        $result = DB::escapef("??", 1, 2);
+        $this->assertSame("12", $result);
+    }
+
+    public function testEscapefAdjacentPlaceholdersNoSpaces(): void
+    {
+        $result = DB::escapef("(?,?,?)", 1, 2, 3);
+        $this->assertSame("(1,2,3)", $result);
+    }
+
+    public function testEscapefValueContainingQuestionMarkStaysLiteral(): void
+    {
+        // a ? inside a value is data, not a placeholder, and must not shift later placeholders
+        $result = DB::escapef("a = ? AND b = ?", 'x?y', 'end?');
+        $this->assertSame("a = 'x?y' AND b = 'end?'", $result);
+    }
+
+    public function testEscapefValueOfOnlyQuestionMarks(): void
+    {
+        $result = DB::escapef("a = ? AND b = ?", '?', '??');
+        $this->assertSame("a = '?' AND b = '??'", $result);
+    }
+
+    public function testEscapefEmptyFormat(): void
+    {
+        $result = DB::escapef("");
+        $this->assertSame("", $result);
+    }
+
+    public function testEscapefMultibyteTextAroundPlaceholders(): void
+    {
+        $result = DB::escapef("café = ? AND 中文 = ?", 'crème', '值');
+        $this->assertSame("café = 'crème' AND 中文 = '值'", $result);
+    }
+
+    public function testEscapefManyPlaceholdersInOrder(): void
+    {
+        $format   = implode(' AND ', array_fill(0, 50, 'c = ?'));
+        $values   = range(1, 50);
+        $expected = implode(' AND ', array_map(fn($i) => "c = $i", $values));
+        $this->assertSame($expected, DB::escapef($format, ...$values));
     }
 
     //endregion

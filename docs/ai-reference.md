@@ -132,7 +132,7 @@ $affected = DB::update('users',
 );
 
 // SQL WHERE
-DB::update('users', ['status' => 'Inactive'], "lastLogin < ?", '2025-01-01');
+DB::update('users', ['status' => 'Inactive'], "lastLogin < ?", '2026-01-01');
 
 // Update all rows (must be explicit)
 DB::update('users', ['status' => 'archived'], "TRUE");
@@ -211,15 +211,17 @@ Named placeholders can be reused in the same query.
 
 ### Positional `?`
 
-Max 3, passed as separate arguments. For 4 or more values, use named
-placeholders. Never pass positional values as a single array (deprecated),
-and arrays cannot be used as `?` values (ambiguous) -- use named placeholders.
+Max 3, passed as separate arguments. For 4 or more values, or any array
+value, use named placeholders.
 
 ```php
 DB::select('users', "name = ? AND city = ?", 'John', 'Vancouver');
 
-// Arrays require named placeholders
-DB::select('users', "id IN (:ids)", [':ids' => [1, 2, 3]]);
+// WRONG - PDO habit, one array of positional values: deprecated, and only the first element is used
+DB::select('users', "id IN (?)", [1, 2, 3]);                // runs as: id IN (1)
+
+// RIGHT - arrays go through named placeholders
+DB::select('users', "id IN (:ids)", [':ids' => [1, 2, 3]]); // runs as: id IN (1,2,3)
 ```
 
 ### Named `:name`
@@ -258,19 +260,37 @@ DB::query("SELECT * FROM `::?`", 'users');
 DB::query("SELECT * FROM `:::table`", [':table' => 'users']); // same
 ```
 
+### Prefixed Value Placeholders `::?` / `:::name`
+
+No backticks: the table prefix goes inside the quoted value, for matching
+table names as strings. Strings only (or arrays of strings); anything else
+throws `InvalidArgumentException`.
+
+```php
+// with tablePrefix 'cms_' this runs: SHOW TABLES LIKE 'cms_user%'
+DB::query("SHOW TABLES LIKE ::?", 'user%');
+
+// with tablePrefix 'cms_' this runs: ... WHERE TABLE_NAME = 'cms_users'
+DB::query("SELECT * FROM information_schema.TABLES WHERE TABLE_NAME = :::table", [':table' => 'users']);
+
+// with tablePrefix 'cms_' this runs: ... WHERE TABLE_NAME IN ('cms_users', 'cms_orders')
+DB::query("SELECT * FROM information_schema.TABLES WHERE TABLE_NAME IN (:::tables)", [':tables' => ['users', 'orders']]);
+```
+
 ---
 
 ## Type Handling
 
-| PHP Type | SQL Output             | Example  |
-|----------|------------------------|----------|
-| `string` | Quoted and escaped     | `'John'` |
-| `int`    | Unquoted               | `42`     |
-| `float`  | Unquoted               | `9.5`    |
-| `null`   | `NULL`                 | `NULL`   |
-| `bool`   | `TRUE` / `FALSE`       | `TRUE`   |
-| `array`  | Comma-separated values | `1,2,3`  |
-| `RawSql` | As-is (no escaping)    | `NOW()`  |
+| PHP Type                    | SQL Output              | Example                           |
+|-----------------------------|-------------------------|-----------------------------------|
+| `string`                    | Quoted and escaped      | `'John'`                          |
+| `int`                       | Unquoted                | `42`                              |
+| `float`                     | Unquoted                | `9.5`                             |
+| `null`                      | `NULL`                  | `NULL`                            |
+| `bool`                      | `TRUE` / `FALSE`        | `TRUE`                            |
+| `array` in WHERE or `:name` | Comma-separated IN list | `1,2,3`                           |
+| `array` anywhere else       | Throws                  | `implode()`/`json_encode()` first |
+| `RawSql`                    | As-is (no escaping)     | `NOW()`                           |
 
 **Critical:** String `"10"` becomes `'10'` (quoted). Integer `10` becomes `10`
 (unquoted). This matters for LIMIT -- always use int, not string.
@@ -278,7 +298,7 @@ DB::query("SELECT * FROM `:::table`", [':table' => 'users']); // same
 SmartString, SmartNull, and SmartArray values are auto-unwrapped to their
 underlying types before processing.
 
-### $values Type Handling (INSERT/UPDATE)
+### `$values` Type Handling (INSERT/UPDATE)
 
 ```php
 DB::insert('users', [
@@ -296,8 +316,8 @@ DB::insert('users', [
 
 ## DB::query() / DB::queryOne() -- Custom SQL
 
-Full SQL with all safety checks still enforced. `query()` returns
-`SmartArrayHtml` collection. `queryOne()` returns the first row only.
+Full SQL with all safety checks still enforced; `query()` returns
+`SmartArrayHtml` collection; `queryOne()` returns the first row only.
 Auto-adds `LIMIT 1` (for SELECT/WITH). **Throws if you add LIMIT or OFFSET.**
 
 ```php
@@ -319,15 +339,15 @@ echo $row->max_price;
 
 When a query returns columns from multiple tables and `useSmartJoins` is `true`
 (default), ZenDB adds qualified `table.column` keys alongside the plain keys.
-Qualified keys contain a dot, so read them with `get()`.
+Qualified keys contain a dot, so read them with `->{'table.column'}` syntax.
 
 ```php
 $rows = DB::query("SELECT * FROM ::users u JOIN ::orders o ON u.id = o.user_id");
 
 foreach ($rows as $row) {
     $row->id;                  // plain key: duplicate names keep the FIRST column's value
-    $row->get('users.id');     // always the users table's id
-    $row->get('orders.id');    // always the orders table's id
+    $row->{'users.id'};        // always the users table's id
+    $row->{'orders.id'};       // always the orders table's id
 }
 ```
 
@@ -335,8 +355,8 @@ Qualified keys use the base table name: no prefix (`users.name`, never
 `cms_users.name`) and never the alias (`FROM ::users u` still produces
 `users.name`, not `u.name`). Computed columns (`AS alias`) get only their
 alias, no qualified key. Self-joins are the one exception: when the same
-table appears twice, alias keys are added too (`$row->get('a.name')`,
-`$row->get('b.name')`).
+table appears twice, alias keys are added too (`$row->{'a.name'}`,
+`$row->{'b.name'}`).
 
 ### DB::clone() -- Override Settings
 
@@ -369,6 +389,10 @@ echo $row->name->value();           // Raw original value and type
 echo $row->name->rawHtml();         // Alias for value() (trusted HTML)
 ```
 
+With `useSmartStrings => false` (connect or clone), results are plain
+`SmartArray` collections of raw values - nothing auto-HTML-encodes, so
+encode on output yourself.
+
 ### Value Access & Encoding
 
 | Expression                    | Result                                                               |
@@ -382,7 +406,7 @@ echo $row->name->rawHtml();         // Alias for value() (trusted HTML)
 | `$row->name->int()`           | Cast to int                                                          |
 | `$row->name->float()`         | Cast to float                                                        |
 | `$row->name->string()`        | Cast to string (unencoded)                                           |
-| `$row->get('col', 'default')` | Fallback applies only when the key is missing, never to stored NULLs |
+| `$row->col ?? 'default'`      | Fallback when the key is missing or the value is NULL                |
 
 ### Text Methods
 
@@ -391,7 +415,7 @@ echo $row->name->rawHtml();         // Alias for value() (trusted HTML)
 | `->textOnly()`           | Strip HTML, decode entities, trim            |
 | `->maxChars(100, '...')` | Limit to N chars with suffix                 |
 | `->maxWords(20, '...')`  | Limit to N words with suffix                 |
-| `->textToHtml()`         | Encode + newlines to `<br>` (returns string) |
+| `->nl2br()`              | Encode + newlines to `<br>` (returns string) |
 | `->trim()`               | Trim whitespace                              |
 
 ### Formatting & Conditionals
@@ -403,10 +427,9 @@ echo $row->name->rawHtml();         // Alias for value() (trusted HTML)
 | `->or('N/A')`            | Fallback if null or empty string (zero stays) |
 | `->ifZero('None')`       | Fallback if zero                              |
 | `->ifNull('N/A')`        | Fallback if null                              |
-| `->ifBlank('Empty')`     | Fallback if empty string                      |
-| `->and(' more')`         | Append if present                             |
-| `->andPrefix('$')`       | Prepend if present                            |
-| `->apply($callback)`     | Apply arbitrary function to value             |
+| `->append(' more')`      | Append if present                             |
+| `->prepend('$')`         | Prepend if present                            |
+| `->map($callback)`       | Apply arbitrary function to value             |
 
 ### Validation & Error Handling
 
@@ -422,10 +445,10 @@ echo $row->name->rawHtml();         // Alias for value() (trusted HTML)
 | `->orRedirect($url)` | Redirect if missing                     |
 
 ```php
-echo $row->price->numberFormat(2)->andPrefix('$');      // "$1,234.56"
+echo $row->price->numberFormat(2)->prepend('$');        // "$1,234.56"
 echo $row->bio->textOnly()->maxChars(200, '...');       // truncated preview
 echo $row->nickname->or('Anonymous');                   // fallback
-echo $row->created_at->dateFormat('M j, Y');            // "Sep 10, 2025"
+echo $row->created_at->dateFormat('M j, Y');            // "Sep 10, 2026"
 
 // Validation and error handling
 $user = DB::selectOne('users', ['id' => $id])->or404();     // 404 if not found
@@ -439,11 +462,10 @@ if ($row->name->isMissing()) { echo "No name"; }
 | `count($resultSet)`            | int - row count                                                                                |
 | `$rs->first()`                 | First row, or `SmartNull` if the set is empty (chaining works, but it is not a SmartArrayHtml) |
 | `$rs->last()`                  | Last row, or `SmartNull` if the set is empty                                                   |
-| `$rs->nth($index)`             | Row by position (0-based, negative counts from end)                                            |
+| `$rs->at($index)`              | Row by position (0-based, negative counts from end)                                            |
 | `$rs->toArray()`               | Array of raw PHP arrays (no encoding)                                                          |
-| `$rs->pluck('col')`            | Flat collection of one column                                                                  |
-| `$rs->pluckNth($index)`        | Extract value at position from each row                                                        |
-| `$rs->column('col', 'keyCol')` | Extract column, optionally keyed by another                                                    |
+| `$rs->column('col', 'keyCol')` | Flat collection of one column, optionally keyed by another                                     |
+| `$rs->columnAt($index)`        | Extract value at position from each row                                                        |
 | `$rs->sortBy('col')`           | Sorted result set                                                                              |
 | `$rs->filter(fn)`              | Filtered result set                                                                            |
 | `$rs->where('col', $val)`      | Rows where column matches (chain for multiple)                                                 |
@@ -451,13 +473,14 @@ if ($row->name->isMissing()) { echo "No name"; }
 | `$rs->indexBy('col')`          | Lookup keyed by column                                                                         |
 | `$rs->groupBy('col')`          | Grouped by column value                                                                        |
 | `$rs->implode(', ')`           | Join values into string                                                                        |
-| `$rs->sprintf($format)`        | Format each element of a flat collection; `{value}`/`{key}` placeholders, HTML-encodes both    |
 | `$rs->or404()`                 | Send 404 if empty result set                                                                   |
 | `$rs->orThrow($msg)`           | Throw RuntimeException if empty                                                                |
 
 ```php
-// sprintf() works on flat collections only - pluck a column first (on a row set it throws)
-echo $users->pluck('name')->sprintf('<li>{value}</li>')->implode("\n");
+// build HTML lists with foreach - $user->name HTML-encodes in the string
+foreach ($users as $user) {
+    echo "<li>$user->name</li>\n";
+}
 ```
 
 ### Loop Position Helpers (on rows inside foreach)
@@ -493,8 +516,8 @@ $result->mysqli('baseTable');      // Base table name (no prefix)
 ### Pagination
 
 ```php
-DB::pagingSql($pageNum, $perPage = 10)  // Returns RawSql: LIMIT x OFFSET y
-// $pageNum defaults to 1 if zero/non-numeric; negative becomes positive (abs)
+DB::pagingSql($page, $perPage = 10)  // Returns RawSql: LIMIT x OFFSET y
+// $page defaults to 1 if zero/non-numeric; negative becomes positive (abs)
 // $perPage defaults to 10 if zero/non-numeric; negative becomes positive (abs)
 ```
 
@@ -552,14 +575,14 @@ DB::connect([
     'database'             => 'my_app',       // Required (use '' for none)
     'tablePrefix'          => 'cms_',         // Default: ''
     'useSmartJoins'        => true,           // Add table.column keys to JOIN results
-    'useSmartStrings'      => true,           // Return SmartString values (auto HTML-encode)
+    'useSmartStrings'      => true,           // Return SmartString values (auto HTML-encode); false = raw values, no encoding
     'usePhpTimezone'       => true,           // Sync MySQL timezone with PHP
     'versionRequired'      => '5.7.32',       // Minimum MySQL version or compatible
-    'requireSSL'           => false,          // Require SSL connection
+    'requireSSL'           => false,          // Encrypt connection; no cert verification
     'databaseAutoCreate'   => false,          // Create database if missing
     'connectTimeout'       => 3,              // Seconds
     'readTimeout'          => 60,             // Seconds
-    'encryptionKey'        => '',             // Encrypt/decrypt MEDIUMBLOB columns (see Encryption)
+    'encryptionKey'        => null,           // Encrypt/decrypt MEDIUMBLOB columns (see Encryption)
     'sqlMode'              => 'STRICT_ALL_TABLES,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION',
 ]);
 ```
@@ -572,7 +595,7 @@ DB::isConnected(true)      // also pings the server to verify
 DB::disconnect()           // Close the default connection
 ```
 
-### Raw mysqli Access -- DB::$mysqli
+### Raw mysqli Access - `DB::$mysqli`
 
 `DB::$mysqli` is the underlying mysqli connection (a mysqli subclass that
 adds query logging and `lastQuery`). Required for DDL: templates reject
@@ -589,6 +612,11 @@ DB::$mysqli->affected_rows;
 
 Returns `mysqli_result|true`, not ZenDB collections; failures throw
 `mysqli_sql_exception`. Results skip auto-decryption (see Encryption).
+
+Connections are always utf8mb4. Never change it. `set_charset()` throws on any
+other charset. Raw SQL (`SET NAMES`, `SET CHARACTER SET`) is not blocked but
+defeats escaping and allows SQL injection: mysqli keeps escaping for utf8mb4
+while the server switches.
 
 ### Multiple Connections
 
@@ -613,9 +641,10 @@ Each Connection has the same methods as `DB::` (`select`, `selectOne`,
 
 With `encryptionKey` set in `DB::connect()`, every `MEDIUMBLOB` column is
 AES-128-ECB encrypted on `insert()`/`update()` and decrypted on read; no
-query changes needed. `MEDIUMBLOB` is then reserved for encrypted data --
+query changes needed. That reserves `MEDIUMBLOB` for encrypted data --
 store plain binary (images, files) in `BLOB` or `LONGBLOB`, which are left
-alone. `NULL` passes through unencrypted.
+alone; `NULL` passes through unencrypted. Booleans throw
+`InvalidArgumentException` on encrypted columns -- pass a string or number.
 
 ```php
 // Exact match: encrypt the search value in PHP (encryption is deterministic)
@@ -630,10 +659,11 @@ DB::decryptRows($rows, $result->fetch_fields());
 ```
 
 `DB::encryptValue()` produces the same ciphertext as `insert()`/`update()`,
-so it also writes encrypted values through raw SQL. `{{table.column}}` works
-in joins: write the column reference as you would unencrypted, wrapped in
-braces. `::` applies `tablePrefix` inside `{{}}` (`{{::users.apiToken}}`
-matches `FROM ::users`); alias qualifiers stay as written (`{{u.apiToken}}`).
+so it also writes encrypted values through raw SQL. For joins, write the
+column reference as you would unencrypted, wrapped in braces
+(`{{table.column}}`). Inside `{{}}`, `::` applies `tablePrefix`
+(`{{::users.apiToken}}` matches `FROM ::users`); alias qualifiers stay as
+written (`{{u.apiToken}}`).
 
 ```php
 // Build decrypt expressions for SQL you assemble yourself ({{column}} expands to this)
@@ -675,21 +705,21 @@ template by hand are not; the guard has no schema to check them against.
 
 ## Common Errors Quick Reference
 
-| Error                                                                                   | Fix                                                        |
-|-----------------------------------------------------------------------------------------|------------------------------------------------------------|
-| "Quotes not allowed in template"                                                        | Use placeholder: `"name = ?", 'John'`                      |
-| "Standalone number in template"                                                         | Use placeholder: `"age > ?", 21`                           |
-| "Max 3 positional arguments allowed"                                                    | Use named placeholders: `[':a' => 1, ':b' => 2, ...]`      |
-| "UPDATE requires a WHERE condition to prevent accidental bulk UPDATE" (same for DELETE) | Add WHERE or use `"TRUE"` for all rows                     |
-| "Suspicious SET clause"                                                                 | Check argument order: `update($table, $values, $whereEtc)` |
-| "Missing value for ? parameter at position N"                                           | Pass enough values for all `?` placeholders                |
-| "Missing value for ':name' parameter"                                                   | Add missing key to params array                            |
-| "Arrays not allowed with positional ? placeholders"                                     | Use named: `"IN (:ids)"`, `[':ids' => [1,2,3]]`            |
-| "Can't mix positional (?) and named (:param) placeholders"                              | Use one placeholder style for the whole query              |
-| "This method doesn't support LIMIT or OFFSET"                                           | Use `select()` not `selectOne()` for custom LIMIT          |
+| Error                                                                                   | Fix                                                                              |
+|-----------------------------------------------------------------------------------------|----------------------------------------------------------------------------------|
+| "Quotes not allowed in template"                                                        | Use placeholder: `"name = ?", 'John'`                                            |
+| "Standalone number in template"                                                         | Use placeholder: `"age > ?", 21`                                                 |
+| "Max 3 positional arguments allowed"                                                    | Use named placeholders: `[':a' => 1, ':b' => 2, ...]`                            |
+| "UPDATE requires a WHERE condition to prevent accidental bulk UPDATE" (same for DELETE) | Add WHERE or use `"TRUE"` for all rows                                           |
+| "Suspicious SET clause"                                                                 | Check argument order: `update($table, $values, $whereEtc)`                       |
+| "Missing value for ? parameter at position N"                                           | Pass enough values for all `?` placeholders                                      |
+| "Missing value for ':name' parameter"                                                   | Add missing key to params array                                                  |
+| "Arrays not allowed with positional ? placeholders"                                     | Use named: `"IN (:ids)"`, `[':ids' => [1,2,3]]`                                  |
+| "Can't mix positional (?) and named (:param) placeholders"                              | Use one placeholder style for the whole query                                    |
+| "This method doesn't support LIMIT or OFFSET"                                           | Use `select()` not `selectOne()` for custom LIMIT                                |
 | "This method doesn't support FOR UPDATE" (also FOR SHARE, LOCK IN SHARE MODE)           | Use `query(...)->first()`; queryOne()'s LIMIT 1 must come before locking clauses |
-| "This method appends LIMIT 1 automatically"                                             | Remove the trailing `--`/`#` comment or `;`, or use `query(...)->first()` |
-| "Invalid table/column name"                                                             | Only `a-z, A-Z, 0-9, _, -` allowed                         |
+| "This method appends LIMIT 1 automatically"                                             | Remove the trailing `--`/`#` comment or `;`, or use `query(...)->first()`        |
+| "Invalid table name '...', allowed characters: a-z, A-Z, 0-9, _, -" (also column name)  | Only `a-z, A-Z, 0-9, _, -` allowed                                               |
 
 ## Gotchas
 
@@ -699,10 +729,11 @@ template by hand are not; the guard has no schema to check them against.
 - **String numbers in LIMIT:** `"LIMIT ?", "10"` (string) quotes it. Use `"LIMIT ?", 10` (int).
 - **selectOne() auto-adds LIMIT 1.** Don't add your own LIMIT or OFFSET.
 - **count() rejects LIMIT/OFFSET** too. Use `select()` if you need them.
-- **Empty arrays in IN():** `[':ids' => []]` becomes `IN (NULL)`, matching nothing.
+- **Empty arrays in IN():** `[':ids' => []]` becomes `IN (SELECT 0 FROM (SELECT 0) empty_set WHERE 0)`, an
+  empty set: `IN` matches nothing, `NOT IN` matches everything.
   Expansion also skips `null` elements and removes duplicates: `[1, null, 1, 2]` → `IN (1,2)`.
 - **Boolean values:** `true`/`false` become SQL `TRUE`/`FALSE` keywords.
-- **Param forms:** up to 3 direct values for `?` placeholders, or one array of `:name` params. Never pass positional values as an array, e.g. `("a = ? AND b = ?", [1, 2])` -- that form is deprecated and will throw in a future version.
+- **Param forms:** up to 3 direct values for `?` placeholders, or one array of `:name` params. Positional values in one array are deprecated (see Positional `?` under Placeholders & Parameters).
 - **Interpolated identifiers are the one injection path.** The guard flags quotes and
   numbers, which every real *value* carries, so `"WHERE city = $city"` throws on the
   first real value. An identifier carries neither, so `"ORDER BY $sort"` passes the

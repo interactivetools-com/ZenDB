@@ -7,7 +7,7 @@ name: Escape ZenDB Matrix
 # mysqli doing identical work, whole-query wall time. Loads the real library, so
 # unlike the other escape workflows this one runs composer install. The
 # difference is client-side PHP, so the matrix dimension is PHP version on one
-# fixed server.
+# server per run (default mysql:8.0; the database and jit inputs override).
 on:
   workflow_dispatch:
     inputs:
@@ -24,6 +24,17 @@ on:
         description: 'Comma-separated test ids (blank = all)'
         required: false
         default: ''
+      database:
+        description: 'Database image (blank = mysql:8.0)'
+        required: false
+        type: choice
+        options: ['', 'mysql:8.0', 'mysql:8.4', 'mariadb:11.8', 'mariadb:12.3']
+      jit:
+        description: 'PHP JIT (default off, matching production)'
+        required: false
+        type: choice
+        options: ['off', 'on']
+        default: 'off'
 
 jobs:
   matrix:
@@ -54,21 +65,31 @@ jobs:
 
     services:
       database:
-        image: mysql:8.0
+        image: ${{ inputs.database || 'mysql:8.0' }}
         env:
           MYSQL_ALLOW_EMPTY_PASSWORD: yes
           MYSQL_ROOT_HOST: '%'
+          # MariaDB-specific (ignored by MySQL)
+          MARIADB_ALLOW_EMPTY_ROOT_PASSWORD: yes
+          MARIADB_ROOT_HOST: '%'
         ports:
           - 3306:3306
         options: >-
-          --health-cmd="mysqladmin ping -h 127.0.0.1 --silent"
+          --health-cmd="healthcheck.sh --innodb_initialized || mysqladmin ping -h 127.0.0.1 --silent"
           --health-interval=10s
           --health-timeout=5s
           --health-retries=5
+          --security-opt seccomp=unconfined
 
     steps:
       - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # composer.json path repositories point at ../SmartString and ../SmartArray
+      - name: Checkout SmartString and SmartArray
+        run: |
+          git clone --depth 1 https://github.com/interactivetools-com/SmartString.git ../SmartString
+          git clone --depth 1 https://github.com/interactivetools-com/SmartArray.git ../SmartArray
 
       - name: Setup PHP ${{ matrix.php }}
         uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2.37.2
@@ -76,8 +97,8 @@ jobs:
           php-version: ${{ matrix.php }}
           extensions: mysqli, mbstring
           coverage: none
-          # JIT set explicitly: runner images ship a non-zero jit_buffer_size
-          ini-values: opcache.enable_cli=1, opcache.jit=off, opcache.jit_buffer_size=0
+          # JIT set explicitly either way: runner images ship a non-zero jit_buffer_size
+          ini-values: ${{ inputs.jit == 'on' && 'opcache.enable_cli=1, opcache.jit=tracing, opcache.jit_buffer_size=128M' || 'opcache.enable_cli=1, opcache.jit=off, opcache.jit_buffer_size=0' }}
 
       - name: Install dependencies
         run: composer install --no-interaction --prefer-dist
@@ -95,13 +116,18 @@ jobs:
           DB_USERNAME: root
           DB_PASSWORD: ''
           DB_DATABASE: phpunit_test_db
+          # scale and filter are free-form text: pass them as env vars so the
+          # shell gets them as data, never as script source
+          SCALE: ${{ inputs.scale }}
+          FILTER: ${{ inputs.filter }}
         run: |
-          SLUG="zendb-php${{ matrix.php }}"
+          DB_SLUG=$(echo "${{ inputs.database || 'mysql:8.0' }}" | tr ':/' '--')
+          SLUG="zendb-php${{ matrix.php }}-$DB_SLUG${{ inputs.jit == 'on' && '-jit' || '' }}"
           echo "SLUG=$SLUG" >> "$GITHUB_ENV"
           php .github/scripts/escape-zendb-probe.php \
             --json="probe-$SLUG.json" \
-            --scale="${{ inputs.scale }}" \
-            ${{ inputs.filter != '' && format('--filter="{0}"', inputs.filter) || '' }} \
+            --scale="$SCALE" \
+            ${FILTER:+--filter="$FILTER"} \
             >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload probe results
@@ -120,7 +146,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup PHP
         uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2.37.2

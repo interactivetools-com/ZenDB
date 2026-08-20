@@ -21,6 +21,7 @@ class MysqliResultPolyfillTest extends BaseTestCase
 
     public static function setUpBeforeClass(): void
     {
+        self::requiresLiveMysql();   // raw wrapper connections in every test
         self::createDefaultConnection();
 
         // Save original state
@@ -274,10 +275,12 @@ class MysqliResultPolyfillTest extends BaseTestCase
     public function testFreeReleasesResources(): void
     {
         $result = $this->conn->mysqli->execute_query("SELECT * FROM polyfill_test LIMIT 1");
-
-        // free() should complete without throwing
-        $this->expectNotToPerformAssertions();
         $result->free();
+
+        // The buffered rows are gone: fetching after free() fails on the freed statement
+        // (native mysqli throws "already closed" here; the polyfill surfaces the stmt error)
+        $this->expectException(\mysqli_sql_exception::class);
+        $result->fetch_assoc();
     }
 
     public function testEmptyResultSet(): void

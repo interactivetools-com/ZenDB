@@ -20,7 +20,7 @@ class NullValuesTest extends BaseTestCase
     public static function setUpBeforeClass(): void
     {
         self::createDefaultConnection();
-        self::resetTempTestTables();
+        self::resetTestTables();
     }
 
     //region NULL in INSERT
@@ -143,6 +143,10 @@ class NullValuesTest extends BaseTestCase
         // isAdmin = 0 should NOT match NULL
         $zeros = DB::select('users', ['isAdmin' => 0]);
         $nulls = DB::select('users', ['isAdmin' => null]);
+
+        // Row counts first: if either query matched nothing, the loops below assert nothing
+        $this->assertCount(8, $zeros);
+        $this->assertCount(4, $nulls);
 
         // No overlap between the two sets
         foreach ($zeros as $row) {

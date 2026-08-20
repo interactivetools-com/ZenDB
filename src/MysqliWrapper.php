@@ -4,12 +4,17 @@ declare(strict_types=1);
 namespace Itools\ZenDB;
 
 use Closure;
+use InvalidArgumentException;
 use ReturnTypeWillChange;
 use Throwable;
 use mysqli;
 use mysqli_result;
 use mysqli_sql_exception;
 use mysqli_stmt;
+
+// import built-ins so calls resolve at compile time instead of per-call lookups; NamespacedCallsTest keeps this list exact
+use function get_object_vars, microtime, str_contains;
+use const MYSQLI_STORE_RESULT, PHP_VERSION_ID;
 
 /**
  * Class MysqliWrapper
@@ -28,6 +33,8 @@ class MysqliWrapper extends mysqli
     /**
      * Whether a transaction is currently active on this connection.
      * Used by Connection::transaction() to detect accidental nesting.
+     *
+     * @internal API may change between releases
      */
     public bool $inTransaction = false;
 
@@ -47,6 +54,12 @@ class MysqliWrapper extends mysqli
 
     /**
      * Query logger callback: fn(string $query, float $duration, ?Throwable $exception): void
+     *
+     * Runs mid-query, before the calling code has read its results, so a logger must not
+     * query this connection. Doing so overwrites what ZenDB is about to read: insert()
+     * returns 0 instead of the new id, update() and delete() report the logger's row
+     * count, and joined queries lose their table-qualified keys. To log to MySQL, give
+     * the logger its own connection. Reading properties like thread_id is fine.
      */
     public mixed $queryLogger = null;
 
@@ -66,7 +79,7 @@ class MysqliWrapper extends mysqli
 
     /**
      * @param callable|null $queryLogger Query logger: fn(string $query, float $duration, ?Throwable $exception): void
-     *                                   $query is the resolved SQL with values inlined, so logged queries can contain user data.
+     *                                   Logged queries have values inlined, so redacting sensitive data is the callback's job.
      */
     public function __construct(?callable $queryLogger = null)
     {
@@ -87,11 +100,13 @@ class MysqliWrapper extends mysqli
         int                            $flags = 0,
     ): bool {
         // connect
-        $startTime = microtime(true);
+        $startTime = $this->queryLogger ? microtime(true) : 0.0;   // only needed for logger
         $result    = @parent::real_connect($hostname, $username, $password, $database, $port, $socket, $flags); // hide php hostname lookup warnings (catch block will show them)
 
         // log connection
-        $this->logQuery("real_connect[$this->thread_id]: " . ($_SERVER['REQUEST_METHOD'] ?? '') . ' ' . ($_SERVER['REQUEST_URI'] ?? ''), $startTime);
+        if ($this->queryLogger) {
+            $this->logQuery("real_connect[$this->thread_id] ($this->host_info): " . ($_SERVER['REQUEST_METHOD'] ?? '') . ' ' . ($_SERVER['REQUEST_URI'] ?? ''), $startTime);
+        }
 
         return $result;
     }
@@ -109,8 +124,9 @@ class MysqliWrapper extends mysqli
     public function query(string $query, int $result_mode = MYSQLI_STORE_RESULT): mysqli_result|bool
     {
         $this->lastQuery = $query;
+        DB::$queryCount++;
         $this->ensureEncryptionKey($query);
-        $startTime = microtime(true);
+        $startTime = $this->queryLogger ? microtime(true) : 0.0;   // only needed for logger
 
         // execute query
         try {
@@ -120,9 +136,35 @@ class MysqliWrapper extends mysqli
             throw $e;
         }
 
-        $this->logQuery($query, $startTime);
+        if ($this->queryLogger) {
+            $this->logQuery($query, $startTime);
+        }
 
         return $result;
+    }
+
+    /**
+     * mysqli::set_charset() restricted to utf8mb4. ZenDB connections are always utf8mb4:
+     * escaping, SmartString encoding, and backups all assume it, and a changed charset
+     * survives pooled-connection reuse into later requests. Throws on any other charset
+     * so an accidental change fails loudly instead of corrupting data.
+     *
+     * This only covers the method. "SET NAMES" through query() switches the server while
+     * mysqli keeps escaping for utf8mb4, which allows SQL injection; see docs/security-gotchas.md.
+     *
+     * @see mysqli::set_charset()
+     *
+     * @param string $charset Must be 'utf8mb4'
+     * @return bool True on success; throws on any other charset
+     * @throws InvalidArgumentException When $charset isn't utf8mb4
+     */
+    public function set_charset(string $charset): bool
+    {
+        if ($charset !== 'utf8mb4') {
+            $h = DB::h(...); // SECURITY: charset comes from the caller, encode before it can reach page output
+            throw new InvalidArgumentException("ZenDB connections are always utf8mb4; set_charset('{$h($charset)}') is not supported.");
+        }
+        return parent::set_charset($charset);
     }
 
     /**
@@ -139,17 +181,22 @@ class MysqliWrapper extends mysqli
     public function real_query(string $query): bool
     {
         $this->lastQuery = $query;
+        DB::$queryCount++;
         $this->ensureEncryptionKey($query);
-        $startTime = microtime(true);
+        $startTime = $this->queryLogger ? microtime(true) : 0.0;   // only needed for logger
 
         try {
             $result = parent::real_query($query);
         } catch (mysqli_sql_exception $e) {
-            $this->logQuery("real_query: $query", $startTime, $e);
+            if ($this->queryLogger) {
+                $this->logQuery("real_query: $query", $startTime, $e);
+            }
             throw $e;
         }
 
-        $this->logQuery("real_query: $query", $startTime);
+        if ($this->queryLogger) {
+            $this->logQuery("real_query: $query", $startTime);
+        }
 
         return $result;
     }
@@ -169,17 +216,22 @@ class MysqliWrapper extends mysqli
     public function multi_query(string $query): bool
     {
         $this->lastQuery = $query;
+        DB::$queryCount++;
         $this->ensureEncryptionKey($query);
-        $startTime = microtime(true);
+        $startTime = $this->queryLogger ? microtime(true) : 0.0;   // only needed for logger
 
         try {
             $result = parent::multi_query($query);
         } catch (mysqli_sql_exception $e) {
-            $this->logQuery("multi_query: $query", $startTime, $e);
+            if ($this->queryLogger) {
+                $this->logQuery("multi_query: $query", $startTime, $e);
+            }
             throw $e;
         }
 
-        $this->logQuery("multi_query: $query", $startTime);
+        if ($this->queryLogger) {
+            $this->logQuery("multi_query: $query", $startTime);
+        }
 
         return $result;
     }
@@ -199,7 +251,7 @@ class MysqliWrapper extends mysqli
     {
         $this->lastQuery = $query;
         $this->ensureEncryptionKey($query);
-        $startTime = microtime(true);
+        $startTime = $this->queryLogger ? microtime(true) : 0.0;   // only needed for logger
 
         try {
             $result = new MysqliStmtWrapper($this, $query, $startTime);
@@ -229,8 +281,9 @@ class MysqliWrapper extends mysqli
         // Use native execute_query() if available (PHP 8.2+) and not forcing polyfill
         if (PHP_VERSION_ID >= 80200 && !self::$forceExecuteQueryPolyfill) {
             $this->lastQuery = $query;
+            DB::$queryCount++;
             $this->ensureEncryptionKey($query);
-            $startTime = microtime(true);
+            $startTime = $this->queryLogger ? microtime(true) : 0.0;   // only needed for logger
 
             try {
                 $result = parent::execute_query($query, $params);
@@ -239,7 +292,9 @@ class MysqliWrapper extends mysqli
                 throw $e;
             }
 
-            $this->logQuery($query, $startTime);
+            if ($this->queryLogger) {
+                $this->logQuery($query, $startTime);
+            }
 
             return $result;
         }
@@ -298,13 +353,19 @@ class MysqliWrapper extends mysqli
     /**
      * Lazily SET the MySQL @ek session variable on the first query that uses it.
      *
-     * Sent as a prepared statement so the key travels as bound data, not query
-     * text: SHOW PROCESSLIST and performance_schema statement history only ever
-     * see "SET @ek = UNHEX(SHA2(?, 512))". The general query log is the known
-     * exception: its Execute lines inline bound values, so general_log=ON
-     * captures the key (along with every other query value on the server).
-     * Once set, the derived key is readable for the life of the connection by
-     * accounts with performance_schema access (user_variables_by_thread).
+     * Sent as a prepared statement so the key travels as bound data, not query text.
+     * Where it can still be read on the server:
+     *
+     * - General query log: Execute lines inline bound values, so general_log=ON
+     *   records the key, along with every other query value on that server.
+     * - performance_schema.user_variables_by_thread: holds the derived key for the
+     *   life of the connection, readable by any account with access. On by default
+     *   in MySQL, off by default in MariaDB.
+     *
+     * Where it doesn't appear: SHOW PROCESSLIST and performance_schema statement
+     * history see only "SET @ek = UNHEX(SHA2(?, 512))", and the binary log gets no
+     * User_var event because @ek is only ever read (AES_DECRYPT) - writes encrypt
+     * in PHP.
      *
      * Uses parent::prepare() to bypass the logging wrapper and avoid recursion.
      */
@@ -314,7 +375,8 @@ class MysqliWrapper extends mysqli
             return;
         }
 
-        $startTime = microtime(true);
+        DB::$queryCount++;
+        $startTime = $this->queryLogger ? microtime(true) : 0.0;   // only needed for logger
         $stmt      = parent::prepare("SET @ek = UNHEX(SHA2(?, 512))");
         $stmt->execute([($this->getEncryptionKey)()]);
         $stmt->close();

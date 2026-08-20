@@ -6,8 +6,11 @@ namespace Itools\ZenDB;
 use mysqli_result;
 use mysqli_sql_exception;
 use mysqli_stmt;
-use PHPUnit\Framework\TestCase;
 use RuntimeException;
+
+// import built-ins so calls resolve at compile time instead of per-call lookups; NamespacedCallsTest keeps this list exact
+use function class_exists, json_encode, method_exists;
+use const JSON_INVALID_UTF8_SUBSTITUTE, JSON_UNESCAPED_SLASHES, JSON_UNESCAPED_UNICODE;
 
 /**
  * Wraps mysqli_stmt to add query logging support.
@@ -27,7 +30,7 @@ class MysqliStmtWrapper extends mysqli_stmt
      */
     public static function enableTestResultPolyfill(bool $enable): void
     {
-        if (!class_exists(TestCase::class, false)) {
+        if (!class_exists('PHPUnit\Framework\TestCase', false)) {
             throw new RuntimeException("forceResultPolyfill can only be set in test environment");
         }
         self::$forceResultPolyfill = $enable;
@@ -44,7 +47,13 @@ class MysqliStmtWrapper extends mysqli_stmt
 
     public function execute(?array $params = null): bool
     {
-        $paramsJson = $params ? json_encode($params) : '[]';
+        DB::$queryCount++;
+
+        // logging must never break the query: bad UTF-8 logs as U+FFFD instead of throwing
+        $paramsJson = '[]';
+        if ($params) {
+            $paramsJson = json_encode($params, JSON_INVALID_UTF8_SUBSTITUTE | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) ?: '(params not JSON-encodable)';
+        }
 
         try {
             $result = parent::execute($params);

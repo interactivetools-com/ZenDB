@@ -100,18 +100,17 @@ transformations chain:
 echo $article->body->textOnly()->maxChars(100);
 
 // Format a number and prepend a currency symbol (a blank price stays blank, no stray $)
-echo $product->price->numberFormat(2)->andPrefix('$');   // $1,234.56
+echo $product->price->numberFormat(2)->prepend('$');     // $1,234.56
 
-// Format a date; null and invalid dates fall through to the or()
-// (a zero date like 0000-00-00 doesn't: it formats as 'Nov 30, -0001')
+// Format a date; supports years 1000-9999, anything else
+// (null, invalid, zero dates like 0000-00-00) falls through to the or()
 echo $user->lastLogin->dateFormat('M j, Y')->or('Never');
 ```
 
 ## Debugging with `print_r()`
 
-The result objects describe themselves when inspected. `print_r()` shows the
-data; `->debug()` adds the executed SQL and MySQL metadata, and `->help()`
-prints the available methods with examples:
+The result objects describe themselves when inspected; `print_r()` shows the
+data, and `->debug()` adds the executed SQL and MySQL metadata:
 
 ```php
 print_r($users);        // rows and values
@@ -119,7 +118,6 @@ print_r($user);         // one row's columns and values
 print_r($user->name);   // one value's raw data
 
 $users->debug();        // the executed SQL, rows, and MySQL metadata
-$users->help();         // available methods with examples
 ```
 
 CMS Builder users: `showme()` does the same thing as `print_r()`, wrapped in
@@ -141,7 +139,7 @@ $result = DB::query("INSERT INTO ::users SET name = ?", 'Alice');
 $newId  = $result->mysqli('insert_id');
 ```
 
-That's for inserts written as raw SQL. `DB::insert()` returns the new ID
+That's for inserts written as raw SQL; `DB::insert()` returns the new ID
 directly, no metadata call needed.
 
 ## Result Methods (Collections)
@@ -156,7 +154,7 @@ everything.
 | `count($result)`              | Number of rows (`$result->count()` works too) |
 | `$result->first()`            | First row (`SmartNull` when the result is empty; chaining still works) |
 | `$result->toArray()`          | Plain array of raw row arrays                 |
-| `$result->pluck('col')`       | One column as a new collection                |
+| `$result->column('col')`      | One column as a new collection                |
 | `$result->sortBy('col')`      | Sort rows by column                           |
 | `$result->filter(fn)`         | Keep rows where the callback returns true     |
 | `$result->where('col', $val)` | Keep rows where the column matches a value    |
@@ -165,20 +163,23 @@ everything.
 | `$result->groupBy('col')`     | Groups of rows keyed by column value          |
 
 ```php
+use Itools\SmartString\SmartString;
+
 $users = DB::select('users', ['status' => 'active']);
 
 echo count($users) . " active users";
 
 // One column
-$names = $users->pluck('name');   // collection: ['Alice', 'Bob', 'Charlie', ...]
+$names = $users->column('name');  // collection: ['Alice', 'Bob', 'Charlie', ...]
 
-// Lookup by primary key - get() reads keys PHP object syntax can't, like numbers
+// Lookup by primary key - the ->{'...'} syntax reads keys plain property syntax can't, like numbers
 $byId = $users->indexBy('id');
-echo $byId->get(42)->name;
+echo $byId->{'42'}->name;
 
 // Group rows by a column value
 $byCity = $users->groupBy('city');
 foreach ($byCity as $city => $cityUsers) {
+    $city = SmartString::new($city);  // foreach keys come back plain; this makes them encode like fields
     echo "<h2>$city (" . count($cityUsers) . ")</h2>";
 }
 ```
@@ -190,7 +191,7 @@ Each row in a collection, and the return value of `DB::selectOne()`.
 | Method                    | Description                                                              |
 |---------------------------|--------------------------------------------------------------------------|
 | `$row->columnName`        | Column value as SmartString                                              |
-| `$row->get('users.name')` | Column whose key PHP syntax can't type: Smart Join keys, numeric indexes |
+| `$row->{'users.name'}`    | Column whose key plain syntax can't type: Smart Join keys, numeric indexes |
 | `$row->keys()`            | Column names                                                             |
 | `$row->values()`          | Column values                                                            |
 | `$row->toArray()`         | Raw associative array                                                    |
@@ -207,7 +208,7 @@ Each column value is a SmartString. These are the most used methods.
 | `->textOnly()`    | Remove HTML tags, decode entities, trim |
 | `->maxChars(100)` | Shorten to N characters with ellipsis   |
 | `->maxWords(20)`  | Shorten to N words with ellipsis        |
-| `->textToHtml()`  | HTML-encode, then newlines to `<br>` (returns a plain string) |
+| `->nl2br()`       | HTML-encode, then newlines to `<br>` (returns a plain string) |
 | `->trim()`        | Trim whitespace                         |
 
 **Formatting**
@@ -223,11 +224,10 @@ Each column value is a SmartString. These are the most used methods.
 | Method               | Applies when                                    |
 |----------------------|-------------------------------------------------|
 | `->or('N/A')`        | Value is null or `''` (zero stays)              |
-| `->ifBlank('Empty')` | Value is `''`                                   |
 | `->ifNull('N/A')`    | Value is null                                   |
 | `->ifZero('Free')`   | Value is numeric zero                           |
-| `->and(' items')`    | Appends when value is present (including zero)  |
-| `->andPrefix('$')`   | Prepends when value is present (including zero) |
+| `->append(' items')` | Appends when value is present (including zero)  |
+| `->prepend('$')`     | Prepends when value is present (including zero) |
 
 ## Full References
 

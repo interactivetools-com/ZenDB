@@ -6,6 +6,9 @@ namespace Itools\ZenDB;
 use mysqli;
 use stdClass;
 
+// import built-ins so calls resolve at compile time instead of per-call lookups; NamespacedCallsTest keeps this list exact
+use function implode, in_array, preg_match, preg_replace, rtrim, str_contains, stripos, strtolower;
+
 /**
  * INTERNAL: Method names and return values may change between releases.
  *
@@ -115,6 +118,17 @@ class Server
     }
 
     /**
+     * Whether the server is MariaDB. Free: MariaDB names itself in the connect
+     * handshake, so unlike vendor() this can never cost a query.
+     *
+     *     DB::$server->isMariaDb();  // true on "10.6.27-MariaDB-ubu2204"
+     */
+    public function isMariaDb(): bool
+    {
+        return stripos($this->mysqli->server_info, 'mariadb') !== false;
+    }
+
+    /**
      * Display name of the database product and its hosting, ready for server info pages.
      *
      *     DB::$server->vendorName();                                  // "MariaDB"
@@ -165,8 +179,8 @@ class Server
      *                  TLS is always on with auto-generated certificates   → true
      *
      * Built to gate "encrypt the connection" UI: false only when enabling `requireSSL`
-     * is guaranteed to fail. True means the server side will accept TLS - the client
-     * can still reject an untrusted certificate, so success isn't guaranteed.
+     * is guaranteed to fail. True means the server side will accept TLS. ZenDB doesn't
+     * verify certificates, so a self-signed or expired one still connects.
      *
      * @see docs/internal/db-behavior-matrix.md how every supported server answers the TLS probes
      */
@@ -224,7 +238,7 @@ class Server
     {
         if ($this->isGeneralQueryLogActive === null) {
             [$generalLog, $logOutput]      = $this->mysqli->query("SELECT @@GLOBAL.general_log, @@GLOBAL.log_output")->fetch_row();
-            $this->isGeneralQueryLogActive = $generalLog === '1' && !str_contains($logOutput, 'NONE');
+            $this->isGeneralQueryLogActive = (int)$generalLog === 1 && !str_contains($logOutput, 'NONE');
         }
         return $this->isGeneralQueryLogActive;
     }
@@ -232,8 +246,8 @@ class Server
     //endregion
     //region Internals
 
-    /** Live connection, or a stdClass with a server_info property in tests */
-    public mysqli|stdClass $mysqli;
+    /** Live connection, a MysqliWrapperReplay, or a stdClass with a server_info property in tests */
+    public mysqli|MysqliWrapperReplay|stdClass $mysqli;
 
     /** Cached vendor() answer, so the fingerprint query runs at most once per connection */
     private ?string $vendor = null;
@@ -263,7 +277,7 @@ class Server
         return $this->vendorStrings;
     }
 
-    public function __construct(mysqli|stdClass $mysqli)
+    public function __construct(mysqli|MysqliWrapperReplay|stdClass $mysqli)
     {
         $this->mysqli = $mysqli;
     }

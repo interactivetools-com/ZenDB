@@ -23,7 +23,7 @@ class SelectTest extends BaseTestCase
     {
         DB::disconnect();
         DB::connect(self::$configDefaults);
-        self::resetTempTestTables();
+        self::resetTestTables();
     }
 
     //region DB::select() Tests
@@ -93,6 +93,15 @@ class SelectTest extends BaseTestCase
                 'mixedParams'    => [],
                 'expectedResult' => [],
             ],
+            [
+                // GROUP BY can start the string like ORDER BY can; group by every column so
+                // SELECT * stays legal under ONLY_FULL_GROUP_BY on every server
+                'testName'       => 'leading GROUP BY without where keyword',
+                'baseTable'      => 'users',
+                'where'          => 'GROUP BY num, name, isAdmin, status, city, dob, age HAVING num = :num',
+                'mixedParams'    => [[':num' => 5]],
+                'expectedResult' => [['num' => 5, 'name' => 'Charlie Brown', 'isAdmin' => 1, 'status' => 'Active', 'city' => 'Edmonton', 'dob' => '1989-11-11', 'age' => 34]],
+            ],
         ];
     }
 
@@ -109,13 +118,6 @@ class SelectTest extends BaseTestCase
     public static function provideInvalidQueries(): array
     {
         return [
-            [
-                'testName'        => 'numeric string throws',
-                'baseTable'       => 'users',
-                'where'           => "5",
-                'mixedParams'     => [],
-                'expectedMessage' => "Numeric string '5' detected",
-            ],
             [
                 'testName'        => 'array with invalid column names',
                 'baseTable'       => 'users',

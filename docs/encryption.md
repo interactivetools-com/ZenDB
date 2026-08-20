@@ -14,6 +14,7 @@ Contents:
 - [Decrypting in MySQL with `{{column}}`](#decrypting-in-mysql-with-column)
 - [Decrypting Raw mysqli Results - `DB::decryptRows()`](#decrypting-raw-mysqli-results---dbdecryptrows)
 - [When Decryption Fails](#when-decryption-fails)
+- [Schema Changes Mid-Request](#schema-changes-mid-request)
 - [How the Keys Line Up](#how-the-keys-line-up)
 - [What This Protects](#what-this-protects)
 
@@ -32,7 +33,7 @@ DB::connect([
     'username'      => 'dbuser',
     'password'      => 'secret',
     'database'      => 'my_app',
-    'encryptionKey' => getenv('DB_ENCRYPTION_KEY'),
+    'encryptionKey' => $encryptionKey, // from an env variable or secrets manager, not hardcoded
 ]);
 ```
 
@@ -40,6 +41,22 @@ Store the key outside your code (environment variable or secrets manager).
 Like your database password, it's kept in the connection's credential vault, so
 it doesn't show up in `var_dump()` output or stack traces, and it's masked as
 `********` in logged SQL.
+
+If the connection to MySQL crosses the public internet or any network
+shared with people you don't trust, also set `requireSSL` so the
+connection is encrypted. ZenDB sends `encryptionKey` to MySQL once per
+connection (as a query parameter, so it stays out of SQL text and logs),
+and on an unencrypted connection anyone who can watch that traffic can
+read it, along with every query and result. On `localhost`, or a database
+server on your own or your hosting provider's internal network, anyone
+positioned to watch the traffic already has access to the servers
+themselves, so `requireSSL` adds nothing there.
+
+`requireSSL` encrypts the connection but doesn't verify the server's
+certificate. That stops someone reading the traffic in transit; it doesn't
+stop someone who can point your connection at a server they control. ZenDB
+has no certificate-verification option, so if that's part of your threat
+model, reach the database over a private network or an SSH tunnel instead.
 
 ZenDB decides which columns to encrypt by column type: every `MEDIUMBLOB` is
 encrypted, everything else is left alone (including `TINYBLOB`, `BLOB`, and
@@ -67,7 +84,7 @@ encryption box on an existing field.
 
 ## Writing and Reading Encrypted Data
 
-With the key set, nothing about your queries changes. `insert()` and
+With the key set, nothing about your queries changes: `insert()` and
 `update()` encrypt `MEDIUMBLOB` values before they reach MySQL, and every read
 method (`select()`, `selectOne()`, `query()`, `queryOne()`) decrypts them in
 the results:
@@ -84,7 +101,8 @@ echo $user->apiToken;  // "new-token" - already decrypted
 ```
 
 `NULL` passes through unencrypted in both directions: a `NULL` token is stored
-as `NULL` and read back as `NULL`.
+as `NULL` and read back as `NULL`. Booleans throw: `true`/`false` have no
+encrypted form, so pass a string or number instead.
 
 ## Searching Encrypted Columns - `DB::encryptValue()`
 
@@ -107,10 +125,10 @@ DB::query("UPDATE ::users SET apiToken = ? WHERE id = ?", DB::encryptValue('new-
 // UPDATE users SET apiToken = '<ciphertext>' WHERE id = 1
 ```
 
-`NULL` input returns `NULL`, and
+`NULL` input returns `NULL` (before any key check), and
 [`SmartString`](https://github.com/interactivetools-com/SmartString) values
-unwrap automatically.
-Calling it on a connection without `encryptionKey` throws `RuntimeException`.
+unwrap automatically. Calling it with anything else on a connection without
+`encryptionKey` throws `RuntimeException`.
 
 Determinism is also the tradeoff: anyone who can read the table can see which
 rows share a value, without knowing what the value is. See
@@ -177,7 +195,7 @@ e.g. `[2 => 'apiToken', 3 => 'ssn']`.
 
 A value that fails to decrypt (wrong `encryptionKey`, or the column holds data
 that was never encrypted) passes through as its raw bytes, and the first
-failure triggers one `E_USER_WARNING` per connection:
+failure triggers an `E_USER_WARNING`:
 
 ```
 ZenDB: can't decrypt MEDIUMBLOB column 'apiToken', returning raw bytes. Wrong encryptionKey, or the column holds unencrypted data.
@@ -187,6 +205,27 @@ One warning, not one per row, so a table of pre-encryption data doesn't flood
 the log. If you see this warning, either the key changed or the column still
 holds unencrypted rows from before encryption was turned on; both mean stop
 and re-encrypt, not ignore.
+
+## Schema Changes Mid-Request
+
+ZenDB reads a table's column types the first time it needs them and caches the
+answer for the life of the connection. Schema changes made through the library
+take care of themselves: when `DB::query()` runs DDL (ALTER, CREATE, DROP,
+RENAME, TRUNCATE), ZenDB drops the cached lists and re-reads each table on its
+next query.
+
+Schema changes ZenDB can't see keep the stale cache: DDL sent through raw
+`DB::$mysqli`, or another process altering tables while yours is running. A
+column can then stop being encrypted on write or stop being decrypted on read,
+with no warning either way. Reconnect after one:
+
+```php
+DB::disconnect();
+DB::connect($config);
+```
+
+Import and upgrade scripts are where this comes up. Normal page requests don't
+change schemas, so the cached list stays correct for the whole request.
 
 ## How the Keys Line Up
 
@@ -214,9 +253,28 @@ clear about where that ends:
   the table can tell which rows share a value and can spot repeated 16-byte
   blocks inside a value.
 - **No integrity check.** ECB is unauthenticated; nothing detects ciphertext
-  that was modified in place.
+  that was modified in place or copied from another row. An attacker with
+  write access can swap two rows' encrypted values and both still decrypt
+  cleanly.
 - **One key for everything.** Every `MEDIUMBLOB` on the connection uses the
   same key; there's no per-column opt-out.
+- **Deep server access reads the key.** ZenDB sends it to MySQL as a bound
+  parameter, so `SHOW PROCESSLIST` and performance_schema statement history
+  only show `SET @ek = UNHEX(SHA2(?, 512))`. Two places still record it:
+  - **The general query log** (`general_log`) writes every query with its
+    bound values inlined: the key, but also login passwords, password
+    hashes, session tokens, and anything else your queries carry. That's
+    what the log is for, and running it while debugging is fine; just know
+    it captures secrets, and check that only people you'd trust with
+    database admin access can read it (normally already true).
+  - **performance_schema** (on by default in MySQL, off in MariaDB) keeps
+    `@ek` readable for as long as the connection lives, to any account
+    with access to it.
+- **Ordinary data can trigger the key send.** The key goes to the server the
+  first time a query contains `@ek` anywhere in its text, including inside a
+  quoted value, so a stored email at a domain starting with `ek` can trigger
+  it on a connection that never decrypts in SQL. Nothing extra leaks: the
+  exposure is the same log and performance_schema surfaces above.
 
 If you need protection against an attacker who can compare or tamper with
 ciphertext in the live database, encrypt with an authenticated cipher (such as

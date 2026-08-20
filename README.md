@@ -7,9 +7,11 @@ Reading this on the web instead? Same file:
 https://github.com/interactivetools-com/ZenDB/blob/main/docs/ai-reference.md
 -->
 
-# ZenDB: PHP/MySQL Database Library
+# ZenDB: Injection-Proof SQL for PHP/MySQL
 
-A PHP/MySQL database layer that's easy to use and hard to misuse.
+A database layer that's easy to use and hard to misuse. Within microseconds
+of raw mysqli + `htmlspecialchars()`
+([measurements](docs/performance.md)).
 
 - **SQL injection is designed out:** Quotes and numbers written into a
   query are rejected before it runs. Values go through placeholders, not
@@ -32,16 +34,6 @@ complicated thing that replaces SQL. Just use SQL and make it safe.**
 ZenDB. The library handles the security (placeholders, escaping,
 validation) so you can write the SQL you already know without
 worrying about injection.
-
-## What's Inside
-
-Guides and references ([browse on GitHub](https://github.com/interactivetools-com/ZenDB)):
-
-- [30-Second Quickstart](#30-second-quickstart)
-- [Getting Started](docs/getting-started.md) - Installation, connection, first queries
-- [Documentation Index](docs/README.md) - Every page: querying, results, joins, placeholders, and more
-- [Method Reference](docs/method-reference.md) - Every method, parameter type, and return value
-- [AI Quick Reference](docs/ai-reference.md) - Single-page reference for AI assistants and humans alike
 
 ## 30-Second Quickstart
 
@@ -91,6 +83,30 @@ $rows = DB::query("SELECT name, city FROM ::users WHERE status = :status AND cit
 ]);
 ```
 
+## Documentation
+
+Full guides and references ([browse on GitHub](https://github.com/interactivetools-com/ZenDB)):
+
+- **The Basics** (read in order)
+    - [Getting Started](docs/getting-started.md) - install, connect, and fetch your first rows
+    - [Querying Data](docs/querying-data.md) - WHERE conditions, sorting, and pagination with `select()`, `selectOne()`, and `count()`
+    - [Working with Results](docs/working-with-results.md) - result sets, rows, and values: HTML-safe output by default, raw access when you need it
+    - [Modifying Data](docs/modifying-data.md) - `insert()`, `update()`, and `delete()`, plus transactions and SQL expressions like `NOW()`
+    - [Placeholders](docs/placeholders.md) - every placeholder type and when to use each
+    - [Joins and Custom SQL](docs/joins-and-custom-sql.md) - full SQL with `query()` and `queryOne()`, keeping the same safety guarantees
+- **Everyday Use**
+    - [Common Patterns](docs/common-patterns.md) - copy-paste recipes: record-or-404, search filters, paginated lists
+    - [Helpers and Utilities](docs/helpers-and-utilities.md) - raw SQL expressions, pagination SQL, LIKE pattern builders, table prefix conversion
+- **Advanced Setup**
+    - [Multiple Connections](docs/multiple-connections.md) - connecting to more than one database, or one database with different settings
+    - [Encryption](docs/encryption.md) - automatic column encryption with `encryptionKey`
+- **Lookup**
+    - [Security Gotchas](docs/security-gotchas.md) - the narrow cases that still let you write an unsafe query, and the safe form for each
+    - [Performance](docs/performance.md) - measured page benchmarks: within microseconds of raw mysqli + `htmlspecialchars()`
+    - [Troubleshooting](docs/troubleshooting.md) - exception messages explained, connection problems, behavior gotchas, debugging
+    - [Method Reference](docs/method-reference.md) - every method, parameter, and return type in one place
+    - [AI Reference](docs/ai-reference.md) - the complete API in one dense file, written for AI coding assistants
+
 ## When you might NOT want ZenDB
 
 - You need an ORM with models, migrations, or an ActiveRecord pattern
@@ -104,8 +120,8 @@ Read queries return SmartArrays, and the values inside them are SmartStrings.
 Both are installed with ZenDB. Documentation for those libraries is in their
 own GitHub repos:
 
-- [SmartArray](https://github.com/interactivetools-com/SmartArray)
-- [SmartString](https://github.com/interactivetools-com/SmartString)
+- [SmartArray](https://github.com/interactivetools-com/SmartArray) - the collections your query results arrive as, with chainable filtering, sorting, and grouping.
+- [SmartString](https://github.com/interactivetools-com/SmartString) - the fields inside those results: strings that HTML-encode themselves on echo, with chainable formatting, date, and number methods.
 
 ## Questions?
 

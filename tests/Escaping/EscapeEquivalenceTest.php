@@ -38,6 +38,8 @@ class EscapeEquivalenceTest extends BaseTestCase
      */
     public function testEscapeSetCanary(): void
     {
+        self::requiresLiveMysql();
+
         $this->assertSame(ZENDB_ESCAPE_CANARY_EXPECTED, escape_set_canary(DB::$mysqli));
     }
 
@@ -47,6 +49,8 @@ class EscapeEquivalenceTest extends BaseTestCase
      */
     public function testByteIdentityOnCorpus(): void
     {
+        self::requiresLiveMysql();
+
         $corpus = escape_corpus();
         foreach (['str_replace' => static fn(string $s): string => str_replace(ZENDB_ESCAPE_FROM, ZENDB_ESCAPE_TO, $s),
                   'strtr'       => static fn(string $s): string => strtr($s, ZENDB_ESCAPE_MAP)] as $name => $escaper) {
@@ -109,6 +113,8 @@ class EscapeEquivalenceTest extends BaseTestCase
      */
     public function testProbeCatchesSqlModeFlip(): void
     {
+        self::requiresLiveMysql();
+
         $mysqli = DB::$mysqli;
         $this->assertTrue(escape_fast_path_ok($mysqli), 'probe must pass on a fresh default connection');
 
@@ -127,7 +133,16 @@ class EscapeEquivalenceTest extends BaseTestCase
      */
     public function testGbkNegativeControl(): void
     {
-        $mysqli = DB::$mysqli;
+        self::requiresLiveMysql();
+
+        // Raw mysqli on purpose: MysqliWrapper::set_charset() rejects non-utf8mb4, and this
+        // test needs a genuinely-gbk connection to prove the fast-path check catches one
+        $mysqli = new \mysqli(
+            self::$configDefaults['hostname'],
+            self::$configDefaults['username'],
+            self::$configDefaults['password'],
+            self::$configDefaults['database'],
+        );
         try {
             $mysqli->set_charset('gbk');
         } catch (mysqli_sql_exception) {

@@ -6,8 +6,10 @@ declare(strict_types=1);
 namespace Itools\ZenDB\Tests\Encryption;
 
 use Itools\ZenDB\Connection;
+use Itools\ZenDB\MysqliWrapper;
 use Itools\ZenDB\Tests\BaseTestCase;
 use ReflectionProperty;
+use RuntimeException;
 
 /**
  * Tests for the encryptionKey config option and lazy @ek session variable.
@@ -21,7 +23,7 @@ class EncryptionKeyTest extends BaseTestCase
     public static function setUpBeforeClass(): void
     {
         self::$conn = self::createDefaultConnection(['encryptionKey' => 'test-secret-key']);
-        self::resetTempTestTables();
+        self::resetTestTables();
     }
 
     /**
@@ -30,7 +32,9 @@ class EncryptionKeyTest extends BaseTestCase
      */
     private static function getEkDirect(Connection $conn): ?string
     {
-        $flagProp = new ReflectionProperty($conn->mysqli, 'encryptionKeySet');
+        // Reflect on MysqliWrapper explicitly: $conn->mysqli can be a recording subclass,
+        // and a subclass reflection can't see the parent's private property
+        $flagProp = new ReflectionProperty(MysqliWrapper::class, 'encryptionKeySet');
         $original = $flagProp->getValue($conn->mysqli);
         $flagProp->setValue($conn->mysqli, true);  // bypass ensureEncryptionKey
 
@@ -47,7 +51,9 @@ class EncryptionKeyTest extends BaseTestCase
      */
     private static function resetEk(Connection $conn): void
     {
-        $flagProp = new ReflectionProperty($conn->mysqli, 'encryptionKeySet');
+        // Reflect on MysqliWrapper explicitly: $conn->mysqli can be a recording subclass,
+        // and a subclass reflection can't see the parent's private property
+        $flagProp = new ReflectionProperty(MysqliWrapper::class, 'encryptionKeySet');
         $flagProp->setValue($conn->mysqli, true);  // bypass so "SET @ek = NULL" doesn't trigger ensureEncryptionKey
         $conn->mysqli->query("SET @ek = NULL");
         $flagProp->setValue($conn->mysqli, false);
@@ -58,6 +64,8 @@ class EncryptionKeyTest extends BaseTestCase
 
     public function testEkIsNullBeforeFirstUse(): void
     {
+        self::requiresLiveMysql();
+
         $conn = new Connection(array_merge(self::$configDefaults, ['encryptionKey' => 'fresh-key']));
 
         // Check directly via mysqli - bypasses ensureEncryptionKey
@@ -67,6 +75,8 @@ class EncryptionKeyTest extends BaseTestCase
 
     public function testEkNotSetByQueriesWithoutIt(): void
     {
+        self::requiresLiveMysql();
+
         self::resetEk(self::$conn);
 
         // Run queries that don't reference @ek
@@ -103,6 +113,8 @@ class EncryptionKeyTest extends BaseTestCase
 
     public function testEkSetOnFirstQueryContainingIt(): void
     {
+        self::requiresLiveMysql();
+
         $conn = new Connection(array_merge(self::$configDefaults, ['encryptionKey' => 'my-key']));
 
         // Verify @ek is NULL before
@@ -118,6 +130,8 @@ class EncryptionKeyTest extends BaseTestCase
 
     public function testEkValueMatchesExpectedHash(): void
     {
+        self::requiresLiveMysql();
+
         $key  = 'deterministic-test-key';
         $conn = new Connection(array_merge(self::$configDefaults, ['encryptionKey' => $key]));
 
@@ -136,6 +150,8 @@ class EncryptionKeyTest extends BaseTestCase
 
     public function testEkNotResetOnSubsequentQueries(): void
     {
+        self::requiresLiveMysql();
+
         $conn = new Connection(array_merge(self::$configDefaults, ['encryptionKey' => 'once-only']));
 
         // First query triggers SET @ek
@@ -153,6 +169,8 @@ class EncryptionKeyTest extends BaseTestCase
 
     public function testChangingCallbackAfterFirstUseHasNoEffect(): void
     {
+        self::requiresLiveMysql();
+
         $conn = new Connection(array_merge(self::$configDefaults, ['encryptionKey' => 'original-key']));
 
         // Trigger @ek SET
@@ -160,7 +178,7 @@ class EncryptionKeyTest extends BaseTestCase
         $originalValue = self::getEkDirect($conn);
 
         // Change the callback via reflection (bypasses setter which resets flag)
-        $keyProp = new ReflectionProperty($conn->mysqli, 'getEncryptionKey');
+        $keyProp = new ReflectionProperty(MysqliWrapper::class, 'getEncryptionKey');
         $keyProp->setValue($conn->mysqli, fn() => 'different-key');
 
         // Run another @ek query - should NOT re-SET because encryptionKeySet is still true
@@ -172,6 +190,8 @@ class EncryptionKeyTest extends BaseTestCase
 
     public function testResettingFlagCausesReSet(): void
     {
+        self::requiresLiveMysql();
+
         $conn = new Connection(array_merge(self::$configDefaults, ['encryptionKey' => 'original-key']));
 
         // Trigger @ek SET
@@ -179,10 +199,12 @@ class EncryptionKeyTest extends BaseTestCase
         $originalValue = self::getEkDirect($conn);
 
         // Change the callback AND reset the flag
-        $keyProp = new ReflectionProperty($conn->mysqli, 'getEncryptionKey');
+        $keyProp = new ReflectionProperty(MysqliWrapper::class, 'getEncryptionKey');
         $keyProp->setValue($conn->mysqli, fn() => 'new-key');
 
-        $flagProp = new ReflectionProperty($conn->mysqli, 'encryptionKeySet');
+        // Reflect on MysqliWrapper explicitly: $conn->mysqli can be a recording subclass,
+        // and a subclass reflection can't see the parent's private property
+        $flagProp = new ReflectionProperty(MysqliWrapper::class, 'encryptionKeySet');
         $flagProp->setValue($conn->mysqli, false);
 
         // Now @ek should be re-SET with the new key
@@ -200,6 +222,8 @@ class EncryptionKeyTest extends BaseTestCase
 
     public function testEkTriggeredBySelectWithRawSqlWhere(): void
     {
+        self::requiresLiveMysql();
+
         self::resetEk(self::$conn);
 
         // @ek in a string WHERE clause via select()
@@ -268,16 +292,9 @@ class EncryptionKeyTest extends BaseTestCase
         $result->free();
 
         // The failed decrypt triggers the once-per-connection warning; capture it
-        $warnings = [];
-        set_error_handler(function (int $errno, string $errstr) use (&$warnings): bool {
-            $warnings[] = $errstr;
-            return $errno === E_USER_WARNING;
-        }, E_USER_WARNING);
-        try {
+        [, $warnings] = $this->captureErrors(function () use (&$rows, $fields) {
             self::$conn->decryptRows($rows, $fields);
-        } finally {
-            restore_error_handler();
-        }
+        }, E_USER_WARNING);
 
         $this->assertSame($binaryData, $rows[0]['data'], 'Non-encrypted binary data should be left untouched');
         $this->assertStringContainsString("can't decrypt", $warnings[0] ?? '', 'Failed decrypt should trigger the warning');
@@ -332,10 +349,40 @@ class EncryptionKeyTest extends BaseTestCase
 
     public function testEncryptionKeyCallbackHiddenInMysqliWrapperDebugInfo(): void
     {
+        self::requiresLiveMysql();
+
         $conn  = new Connection(array_merge(self::$configDefaults, ['encryptionKey' => 'secret-key']));
         $debug = $conn->mysqli->__debugInfo();
         $this->assertSame('(set)', $debug['getEncryptionKey']);
         $conn->disconnect();
+    }
+
+    //endregion
+    //region Key Presence Edge Cases
+
+    public function testKeyStringZeroRejectedAtConfig(): void
+    {
+        // "0" is PHP-falsey and never worked as a key, so it's rejected outright rather
+        // than silently enabling encryption for setups that unknowingly ran without it
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage("Config 'encryptionKey' can't be '0'");
+        new Connection(array_merge(self::$configDefaults, ['encryptionKey' => '0']));
+    }
+
+    public function testEmptyStringKeyDisablesEncryption(): void
+    {
+        // '' means "no encryption", same as leaving encryptionKey out
+        $conn = new Connection(array_merge(self::$configDefaults, ['encryptionKey' => '']));
+        $conn->mysqli->query("CREATE TEMPORARY TABLE test_key_empty (num INT PRIMARY KEY, secret MEDIUMBLOB)");
+
+        try {
+            $conn->insert('key_empty', ['num' => 1, 'secret' => 'stored-as-is']);
+
+            $raw = $conn->mysqli->query("SELECT secret FROM test_key_empty WHERE num = 1")->fetch_row()[0];
+            $this->assertSame('stored-as-is', $raw, 'Empty-string key must store the value verbatim');
+        } finally {
+            $conn->disconnect();
+        }
     }
 
     //endregion

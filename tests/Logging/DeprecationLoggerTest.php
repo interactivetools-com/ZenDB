@@ -15,15 +15,14 @@ use Itools\ZenDB\Tests\BaseTestCase;
 class DeprecationLoggerTest extends BaseTestCase
 {
     private static array $capturedErrors = [];
-    private static $originalHandler;
 
     public static function setUpBeforeClass(): void
     {
         self::createDefaultConnection();
-        self::resetTempTestTables();
+        self::resetTestTables();
 
         // Capture deprecation warnings
-        self::$originalHandler = set_error_handler(function($errno, $errstr) {
+        set_error_handler(function($errno, $errstr) {
             if ($errno === E_USER_DEPRECATED) {
                 self::$capturedErrors[] = $errstr;
                 return true; // Don't propagate
@@ -93,14 +92,12 @@ class DeprecationLoggerTest extends BaseTestCase
 
     public function testDeprecationFromLegacySyntax(): void
     {
-        // Using :_ syntax (deprecated) should trigger deprecation
-        // Note: :_num becomes ::num which is table prefix, not a param
-        // This test just verifies the deprecation system works
-        @DB::query("SELECT * FROM ::users WHERE num = :num", [':num' => 1]);
-
-        // Verify the query actually returned valid results
-        $result = @DB::query("SELECT * FROM ::users WHERE num = :num", [':num' => 1]);
+        // :_ is the deprecated table-prefix syntax; it normalizes to :: and logs
+        $result = DB::query("SELECT * FROM :_users WHERE num = :num", [':num' => 1]);
         $this->assertCount(1, $result);
+
+        $found = array_filter(self::$capturedErrors, fn($e) => str_contains($e, ':_ syntax is deprecated'));
+        $this->assertCount(1, $found, "Legacy :_ syntax must log a deprecation");
     }
 
     public function testMultipleDeprecationsLogged(): void

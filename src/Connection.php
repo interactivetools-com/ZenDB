@@ -3,15 +3,18 @@ declare(strict_types=1);
 
 namespace Itools\ZenDB;
 
+use Closure;
 use InvalidArgumentException;
 use Itools\SmartArray\SmartArrayBase;
 use Itools\SmartString\SmartString;
-use JetBrains\PhpStorm\Deprecated;
 use RuntimeException;
 use Throwable;
-use mysqli;
 use mysqli_sql_exception;
 use WeakMap;
+
+// import built-ins so calls resolve at compile time instead of per-call lookups; NamespacedCallsTest keeps this list exact
+use function array_diff, array_flip, array_key_first, array_keys, array_map, array_values, count, defined, hash, implode, in_array, is_bool, is_float, is_int, is_null, is_object, is_string, mysqli_report, openssl_decrypt, openssl_encrypt, preg_match, reset, rtrim, str_replace, str_starts_with, strlen, strtolower, substr, trigger_error, version_compare;
+use const E_USER_WARNING, MYSQLI_CLIENT_SSL, MYSQLI_OPT_CONNECT_TIMEOUT, MYSQLI_OPT_INT_AND_FLOAT_NATIVE, MYSQLI_OPT_LOCAL_INFILE, MYSQLI_OPT_READ_TIMEOUT, MYSQLI_REPORT_ERROR, MYSQLI_REPORT_STRICT, MYSQLI_SET_CHARSET_NAME, OPENSSL_RAW_DATA;
 
 /**
  * Connection class for ZenDB - manages a single database connection with its own settings.
@@ -29,18 +32,32 @@ use WeakMap;
 class Connection
 {
     use ConnectionInternals;
+    use ConnectionDeprecations;
 
     //region Public Properties
 
     /**
      * The raw mysqli connection instance. You can use this for direct access to mysqli methods if needed.
+     *
+     * TODO-PHP84: Make this `public private(set)` so it can't be set by accident; reads keep working.
      */
-    public ?MysqliWrapper $mysqli = null;
+    public MysqliWrapper|MysqliWrapperReplay|null $mysqli = null;
+
+    /**
+     * Test seam: when set, connect() calls this instead of `new MysqliWrapper()` to
+     * substitute a recording wrapper or a MysqliWrapperReplay serving recorded results.
+     * Signature: fn(?callable $queryLogger): MysqliWrapper|MysqliWrapperReplay
+     *
+     * @internal
+     */
+    public static ?Closure $mysqliWrapperFactory = null;
 
     /**
      * Identity facts about the connected database server. Set at connect, null when disconnected.
      *
      *     $db->server->version();  // "10.6.27"
+     *
+     * TODO-PHP84: Make this `public private(set)` so it can't be set by accident; reads keep working.
      */
     public ?Server $server = null;
 
@@ -50,11 +67,18 @@ class Connection
      * class wraps this: Table::exists() and $db->table->exists() are the same call.
      *
      *     $db->table->exists('users');  // true/false
+     *
+     * TODO-PHP84: Make this `public private(set)` so it can't be set by accident; reads keep working.
+     *
+     * @internal API may change between releases
      */
     public ?TableInfo $table = null;
 
     /**
-     * Table prefix prepended to table names (e.g., 'cms_')
+     * Table prefix prepended to table names (e.g., 'cms_').
+     * Set it with DB::connect(['tablePrefix' => ...]) or DB::clone(['tablePrefix' => ...]), which validate it.
+     *
+     * TODO-PHP84: Make this `public private(set)` so it can't be set by accident; reads keep working.
      */
     public string $tablePrefix = '';
 
@@ -88,11 +112,11 @@ class Connection
      *     usePhpTimezone?:       bool,      // Sync MySQL timezone with PHP (default: true)
      *     loadHandler?:          callable,  // @internal Custom result loading handler (CMS Builder plumbing); signature may change
      *     versionRequired?:      string,    // Minimum MySQL version or compatible (default: '5.7.32')
-     *     requireSSL?:           bool,      // Require SSL connection (default: false)
+     *     requireSSL?:           bool,      // Encrypt the connection; no certificate verification (default: false)
      *     databaseAutoCreate?:   bool,      // Create database if missing (default: false)
      *     connectTimeout?:       int,       // Connection timeout in seconds (default: 3)
      *     readTimeout?:          int,       // Read timeout in seconds (default: 60)
-     *     queryLogger?:          callable,  // @internal fn(string $query, float $secs, ?Throwable $exception) - $query is resolved SQL with values inlined, so logs can contain user data; signature may change
+     *     queryLogger?:          callable,  // @internal fn(string $query, float $secs, ?Throwable $exception) - logged queries have values inlined, so redacting sensitive data is the callback's job; don't run queries from inside the callback; signature may change
      *     sqlMode?:              string,    // MySQL SQL mode
      *     encryptionKey?:        string,    // AES encryption key, sets MySQL @ek session variable on first use
      * } $config
@@ -102,16 +126,23 @@ class Connection
     public function __construct(#[\SensitiveParameter] array $config = [])
     {
         // Seal credentials into vault (removes credential keys from $config)
-        $this->sealSecrets(config: $config);
+        $this->sealSecrets($config);
 
-        // Apply remaining config to properties
+        // Apply remaining config to properties (sealSecrets() already consumed the credential keys)
+        $settableKeys = ['tablePrefix', 'useSmartJoins', 'useSmartStrings', 'usePhpTimezone',
+                         'loadHandler', 'versionRequired', 'requireSSL', 'databaseAutoCreate',
+                         'connectTimeout', 'readTimeout', 'queryLogger', 'sqlMode'];
+
         foreach ($config as $key => $value) {
-            if (!property_exists($this, $key)) {
-                throw new InvalidArgumentException("Unknown configuration key: '$key'");
+            if (!in_array($key, $settableKeys, true)) {
+                $h = DB::h(...); // SECURITY: config keys come from the caller, encode before they can reach page output
+                throw new InvalidArgumentException("Unknown configuration key: '{$h($key)}'");
             }
             $this->$key = $value;
         }
-        unset($config);
+        if ($this->tablePrefix !== '') {
+            isset(DB::$safeIdentifiers[$this->tablePrefix]) || DB::assertIdentifier($this->tablePrefix, 'tablePrefix');
+        }
 
         // Connect
         $this->connect();
@@ -130,10 +161,13 @@ class Connection
         }
 
         // Create a new mysqli instance
-        $this->mysqli = new MysqliWrapper(queryLogger: $this->queryLogger);
+        $this->mysqli = self::$mysqliWrapperFactory
+            ? (self::$mysqliWrapperFactory)($this->queryLogger)
+            : new MysqliWrapper(queryLogger: $this->queryLogger);
         $this->mysqli->options(MYSQLI_OPT_CONNECT_TIMEOUT, $this->connectTimeout);
         $this->mysqli->options(MYSQLI_OPT_READ_TIMEOUT, $this->readTimeout);
         $this->mysqli->options(MYSQLI_OPT_LOCAL_INFILE, 0); // disable "LOAD DATA LOCAL INFILE" for security
+        $this->mysqli->options(MYSQLI_SET_CHARSET_NAME, 'utf8mb4'); // charset rides the connect handshake; see the set_charset gate below
 
         // Return native PHP types (int/float) instead of strings
         if (defined('MYSQLI_OPT_INT_AND_FLOAT_NATIVE')) {
@@ -141,7 +175,7 @@ class Connection
         }
 
         // Pass encryption key callback to MysqliWrapper for automatic @ek session variable setup
-        if ($this->secret('encryptionKey') !== '' && $this->secret('encryptionKey') !== null) {
+        if ($this->hasEncryptionKey) {
             $this->mysqli->setEncryptionKeyCallback(fn() => $this->secret('encryptionKey'));
         }
 
@@ -157,18 +191,19 @@ class Connection
                 // if database doesn't exist and auto-create enabled, try again and create database
                 $database = $this->secret('database');
                 if ($this->databaseAutoCreate && $e->getCode() === 1049) {
-                    DB::assertIdentifier($database, 'database name');
-                    // COLLATE pinned: the default utf8mb4 collation differs per server (MySQL 8.0+:
-                    // 0900_ai_ci, MariaDB 10.3-10.11: general_ci, MariaDB 11.4+: uca1400_ai_ci) while
-                    // utf8mb4_unicode_ci exists on every supported server, so auto-created databases
-                    // collate identically everywhere. See docs/internal/db-behavior-matrix.md (2026-07)
-                    $dbCreateQuery = "CREATE DATABASE `$database` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci";
+                    isset(DB::$safeIdentifiers[$database]) || DB::assertIdentifier($database, 'database name');
+                    // CHARACTER SET utf8mb4: without it, MySQL 5.7 creates a latin1 database.
+                    // No COLLATE on purpose: each server uses its default utf8mb4 collation,
+                    // same as our CREATE TABLE statements, so every table in the database lands
+                    // on one collation however it was created
+                    $dbCreateQuery = "CREATE DATABASE `$database` CHARACTER SET utf8mb4";
                     $this->mysqli->real_connect($this->secret('hostname'), $this->secret('username'), $this->secret('password'), null, null, null, $flags);
                     try {
                         $this->mysqli->query($dbCreateQuery);
                         $this->mysqli->select_db($database);
                     } catch (mysqli_sql_exception $createErr) {
-                        throw new RuntimeException("Couldn't create/select database '$database': {$createErr->getMessage()}", $createErr->getCode(), $createErr);
+                        $h = DB::h(...); // SECURITY: database name and server message aren't safe by construction, encode before they can reach page output
+                        throw new RuntimeException("Couldn't create/select database '{$h($database)}': {$h($createErr->getMessage())}", $createErr->getCode(), $createErr);
                     }
                 } else {
                     throw $e;
@@ -180,30 +215,45 @@ class Connection
             $errorDetail  = $e->getMessage() ?: $this->mysqli->connect_error;
 
             // Detect WSL + Unix socket failure
-            $isWslSocketError = isset($_SERVER['WSL_DISTRO_NAME']) && $errorCode === 2002 && preg_match('/No such file/i', $errorDetail) && preg_match('/^localhost\z/i', (string)$this->secret('hostname'));
+            $isWslSocketError = isset($_SERVER['WSL_DISTRO_NAME']) && $errorCode === 2002 && preg_match('/No such file/i', $errorDetail) && preg_match('/^(p:)?localhost\z/i', (string)$this->secret('hostname'));
 
+            $h        = DB::h(...); // SECURITY: server messages echo hostnames and other config, encode before they can reach page output
             $errorMsg = match (true) {
-                $isWslSocketError                        => "'localhost' uses Unix sockets. To connect to Windows MySQL from WSL, use '127.0.0.1' or 'localhost:3306' with WSL mirrored networking.\n$baseErrorMsg: $errorDetail",
-                $errorCode === 2002                      => "Couldn't connect to server, check database server is running and connection settings are correct.\n$baseErrorMsg: $errorDetail",
-                $errorCode === 2006 && $this->requireSSL => "Try disabling 'requireSSL' in database configuration.\n$baseErrorMsg: $errorDetail",
-                default                                  => "$baseErrorMsg: $errorDetail",
+                $isWslSocketError                        => "'localhost' uses Unix sockets. To connect to Windows MySQL from WSL, use '127.0.0.1' or 'localhost:3306' with WSL mirrored networking.\n$baseErrorMsg: {$h($errorDetail)}",
+                $errorCode === 2002                      => "Couldn't connect to server, check database server is running and connection settings are correct.\n$baseErrorMsg: {$h($errorDetail)}",
+                $errorCode === 2006 && $this->requireSSL => "Try disabling 'requireSSL' in database configuration.\n$baseErrorMsg: {$h($errorDetail)}",
+                default                                  => "$baseErrorMsg: {$h($errorDetail)}",
             };
             throw new RuntimeException($errorMsg);
-        }
-
-        // Set charset - DO THIS FIRST
-        if ($this->mysqli->character_set_name() !== 'utf8mb4') {
-            $this->mysqli->set_charset('utf8mb4');
         }
 
         $this->server = new Server($this->mysqli);
         $this->table  = new TableInfo($this);
 
+        // utf8mb4 was already set during the connect handshake (MYSQLI_SET_CHARSET_NAME above).
+        // Most servers are done at that point; two cases still need a set_charset() call:
+        //   - MySQL/Percona 8.0+: the handshake can only carry utf8mb4_general_ci, so the
+        //     connection would compare string literals with general_ci rules where the
+        //     server's default is utf8mb4_0900_ai_ci; set_charset() switches it to the
+        //     server's default. Only the connection's own comparisons are affected -
+        //     CREATE TABLE/DATABASE get the server's default collation either way.
+        //     MariaDB and 5.7-family servers already get their default from the
+        //     handshake alone, so they skip the call and save its round trip.
+        //   - Pooled connections (p: hostname): reuse keeps the previous session's charset,
+        //     whatever it was. The charset check below catches that for free (client-side).
+        // Server-by-server results: docs/internal/db-behavior-matrix.md (2026-08)
+        $charsetLeakedFromPool = $this->mysqli->character_set_name() !== 'utf8mb4';   // fresh connects are always utf8mb4
+        $newerDefaultCollation = !$this->server->isMariaDb() && version_compare($this->server->version(), '8.0', '>=');
+        if ($charsetLeakedFromPool || $newerDefaultCollation) {
+            $this->mysqli->set_charset('utf8mb4');
+        }
+
         // Check mysql version
         if ($this->versionRequired) {
             $currentVersion = $this->server->version();
             if (version_compare($this->versionRequired, $currentVersion, '>')) {
-                $error = "This program requires MySQL v$this->versionRequired+ or compatible. This server has {$this->server->vendorName()} v$currentVersion installed.\n";
+                $h     = DB::h(...); // SECURITY: versionRequired comes from caller config, encode before it can reach page output
+                $error = "This program requires MySQL v{$h($this->versionRequired)}+ or compatible. This server has {$this->server->vendorName()} v$currentVersion installed.\n";
                 $error .= "Please ask your server administrator to upgrade.\n";
                 throw new RuntimeException($error);
             }
@@ -244,12 +294,17 @@ class Connection
      */
     public function disconnect(): void
     {
-        if ($this->mysqli instanceof mysqli) {
+        if ($this->mysqli !== null) {
             $this->mysqli->close();
             $this->mysqli = null;
         }
         $this->server = null;
         $this->table  = null;
+
+        // Schema can change while disconnected: re-probe encrypted columns and
+        // re-arm the one-per-connection decrypt warning on reconnect
+        $this->encryptedColumnsCache = [];
+        $this->decryptWarned         = false;
     }
 
     /**
@@ -272,14 +327,17 @@ class Connection
         $allowedKeys = ['tablePrefix', 'useSmartJoins', 'useSmartStrings'];
         $invalidKeys = array_diff(array_keys($config), $allowedKeys);
         if ($invalidKeys) {
-            throw new InvalidArgumentException("clone() only supports: " . implode(', ', $allowedKeys) . ". Got: " . implode(', ', $invalidKeys));
+            $h = DB::h(...); // SECURITY: config keys come from the caller, encode before they can reach page output
+            throw new InvalidArgumentException("clone() only supports: " . implode(', ', $allowedKeys) . ". Got: {$h(implode(', ', $invalidKeys))}");
         }
 
-        $clone = clone $this;
-        $clone->sealSecrets(source: $this);
+        $clone = clone $this;   // the copied $vaultKey shares this connection's credential vault entry
 
         foreach ($config as $key => $value) {
             $clone->$key = $value;
+        }
+        if ($clone->tablePrefix !== '') {
+            isset(DB::$safeIdentifiers[$clone->tablePrefix]) || DB::assertIdentifier($clone->tablePrefix, 'tablePrefix');
         }
 
         return $clone;
@@ -305,6 +363,7 @@ class Connection
 
         // Validate
         $this->assertSafeTemplate($sqlTemplate);
+        $this->clearEncryptedColumnsCacheOnDdl($sqlTemplate);
 
         // Bind params and build SQL
         $this->paramValues = $this->parseParams($params);
@@ -312,7 +371,7 @@ class Connection
 
         // Execute
         $result = $this->mysqli->query($sql);
-        $rows   = $this->fetchMappedRows($result);
+        $rows   = $this->fetchMappedRows($result, sqlTemplate: $sqlTemplate);
 
         return $this->toSmartArray($rows, $sql);
     }
@@ -336,18 +395,26 @@ class Connection
      */
     public function queryOne(string $sqlTemplate, ...$params): SmartArrayBase
     {
-        $this->mysqli->lastQuery = $sqlTemplate;  // set for reject-* errors; query() overwrites with the LIMIT-appended template
+        $this->mysqli->lastQuery = $sqlTemplate;  // set for reject-* errors; overwritten with the LIMIT-appended template below
 
         $this->rejectLimitAndOffset($sqlTemplate);
         $this->rejectPreLimitConflicts($sqlTemplate);
 
         $supportsLimit = preg_match('/^\s*(SELECT|WITH)\b/i', $sqlTemplate);
         $sqlTemplate   .= $supportsLimit ? ' LIMIT 1' : '';
-        $resultSet     = $this->query($sqlTemplate, ...$params);
 
-        // asHtml()/asRaw() ensure SmartNull from empty results becomes a SmartArray matching the connection
-        $firstRow = $resultSet->first();
-        return $this->useSmartStrings ? $firstRow->asHtml() : $firstRow->asRaw();
+        // query() body with a single-row tail: toSmartArrayRow() returns the first row
+        // directly (an empty collection when no row matches), skipping the result-set
+        // first() and asHtml()/asRaw() steps
+        $this->mysqli->lastQuery = $sqlTemplate;
+        $this->assertSafeTemplate($sqlTemplate);
+        $this->clearEncryptedColumnsCacheOnDdl($sqlTemplate);
+        $this->paramValues = $this->parseParams($params);
+        $sql               = $this->replacePlaceholders($sqlTemplate);
+        $result            = $this->mysqli->query($sql);
+        $rows              = $this->fetchMappedRows($result, sqlTemplate: $sqlTemplate);
+
+        return $this->toSmartArrayRow($rows, $sql);
     }
 
     /**
@@ -366,8 +433,7 @@ class Connection
         $this->mysqli->lastQuery = "SELECT * FROM `$fullTable` [WHERE ...]";
 
         // Validate
-        DB::assertIdentifier($baseTable, 'table name');
-        $this->logDeprecatedNumericWhere($whereEtc);
+        isset(DB::$safeIdentifiers[$baseTable]) || DB::assertIdentifier($baseTable, 'table name');
 
         // Bind params and build SQL
         $this->paramValues = $this->parseParams($params);
@@ -375,7 +441,7 @@ class Connection
 
         // Execute
         $result = $this->mysqli->query($sql);
-        $rows   = $this->fetchMappedRows($result);
+        $rows   = $this->fetchMappedRows($result, singleTable: true, fullTable: $fullTable);
 
         return $this->toSmartArray($rows, $sql, $baseTable);
     }
@@ -400,21 +466,19 @@ class Connection
         $fullTable               = $this->tablePrefix . $baseTable;
         $this->mysqli->lastQuery = "SELECT * FROM `$fullTable` [WHERE ...] LIMIT 1";
 
-        DB::assertIdentifier($baseTable, 'table name');
-        $this->logDeprecatedNumericWhere($whereEtc);
+        isset(DB::$safeIdentifiers[$baseTable]) || DB::assertIdentifier($baseTable, 'table name');
         $this->rejectLimitAndOffset($whereEtc);
         $this->rejectPreLimitConflicts($whereEtc);
 
         $this->paramValues = $this->parseParams($params);
         $sql               = "SELECT * FROM `$fullTable` {$this->whereFromArgs($whereEtc)} LIMIT 1";
 
-        $result    = $this->mysqli->query($sql);
-        $rows      = $this->fetchMappedRows($result);
-        $resultSet = $this->toSmartArray($rows, $sql, $baseTable);
+        $result = $this->mysqli->query($sql);
+        $rows   = $this->fetchMappedRows($result, singleTable: true, fullTable: $fullTable);
 
-        // asHtml()/asRaw() ensure SmartNull from empty results becomes a SmartArray matching the connection
-        $firstRow = $resultSet->first();
-        return $this->useSmartStrings ? $firstRow->asHtml() : $firstRow->asRaw();
+        // toSmartArrayRow() returns the first row directly (an empty collection when no
+        // row matches), skipping the result-set first() and asHtml()/asRaw() steps
+        return $this->toSmartArrayRow($rows, $sql, $baseTable);
     }
 
     /**
@@ -425,14 +489,15 @@ class Connection
      * @param array  $values    Column => value pairs
      * @return int Insert ID
      * @throws InvalidArgumentException
+     * @noinspection PhpFullyQualifiedNameUsageInspection - FQN required until PHP 8.2 minimum (can't import)
      */
-    public function insert(string $baseTable, array $values): int
+    public function insert(string $baseTable, #[\SensitiveParameter] array $values): int
     {
         $fullTable               = $this->tablePrefix . $baseTable;
         $this->mysqli->lastQuery = "INSERT INTO `$fullTable` [SET ...]";
 
         // Validate
-        DB::assertIdentifier($baseTable, 'table name');
+        isset(DB::$safeIdentifiers[$baseTable]) || DB::assertIdentifier($baseTable, 'table name');
 
         // Build SQL
         $this->encryptRow($fullTable, $values);
@@ -455,14 +520,14 @@ class Connection
      * @param mixed            ...$params Parameters to bind
      * @return int Number of affected rows
      * @throws InvalidArgumentException
+     * @noinspection PhpFullyQualifiedNameUsageInspection - FQN required until PHP 8.2 minimum (can't import)
      */
-    public function update(string $baseTable, array $values, int|array|string $whereEtc, ...$params): int
+    public function update(string $baseTable, #[\SensitiveParameter] array $values, int|array|string $whereEtc, ...$params): int
     {
         $fullTable               = $this->tablePrefix . $baseTable;
         $this->mysqli->lastQuery = "UPDATE `$fullTable` [SET ...] [WHERE ...]";
 
-        DB::assertIdentifier($baseTable, 'table name');
-        $this->logDeprecatedNumericWhere($whereEtc);
+        isset(DB::$safeIdentifiers[$baseTable]) || DB::assertIdentifier($baseTable, 'table name');
         $this->rejectEmptyWhere($whereEtc, 'UPDATE');
 
         // Detect likely reversed arguments: SET ['num' => 5] is almost always a mistake
@@ -496,8 +561,7 @@ class Connection
         $fullTable               = $this->tablePrefix . $baseTable;
         $this->mysqli->lastQuery = "DELETE FROM `$fullTable` [WHERE ...]";
 
-        DB::assertIdentifier($baseTable, 'table name');
-        $this->logDeprecatedNumericWhere($whereEtc);
+        isset(DB::$safeIdentifiers[$baseTable]) || DB::assertIdentifier($baseTable, 'table name');
         $this->rejectEmptyWhere($whereEtc, 'DELETE');
 
         $this->paramValues = $this->parseParams($params);
@@ -532,8 +596,7 @@ class Connection
         $fullTable               = $this->tablePrefix . $baseTable;
         $this->mysqli->lastQuery = "SELECT COUNT(*) FROM `$fullTable` [WHERE ...]";
 
-        DB::assertIdentifier($baseTable, 'table name');
-        $this->logDeprecatedNumericWhere($whereEtc);
+        isset(DB::$safeIdentifiers[$baseTable]) || DB::assertIdentifier($baseTable, 'table name');
         $this->rejectLimitAndOffset($whereEtc);
 
         $this->paramValues = $this->parseParams($params);
@@ -671,6 +734,7 @@ class Connection
      * @param bool   $checkDb When input starts with the prefix, query the database to check
      *                        if prefixing it AGAIN yields a real table; if so, keep the input as-is
      * @return string Base table name without prefix
+     * @throws InvalidArgumentException With checkDb, for a prefixed name carrying characters outside a-z, A-Z, 0-9, _, -
      */
     public function getBaseTable(string $table, bool $checkDb = false): string
     {
@@ -710,6 +774,7 @@ class Connection
      * @param bool   $checkDb When input starts with the prefix, query the database to check
      *                        if it exists as-is; if not, treat it as a base name and add prefix
      * @return string Full table name with prefix
+     * @throws InvalidArgumentException With checkDb, for a prefixed name carrying characters outside a-z, A-Z, 0-9, _, -
      */
     public function getFullTable(string $table, bool $checkDb = false): string
     {
@@ -733,7 +798,7 @@ class Connection
      * Creates a MySQL LIKE pattern for "column contains value" searches.
      *
      * @param string|int|float|null|SmartString $input Value to search for
-     * @return RawSql Escaped LIKE pattern '%value%'
+     * @return RawSql Escaped LIKE pattern '%value%'; wildcards in the value match literally
      */
     public function likeContains(string|int|float|null|SmartString $input): RawSql
     {
@@ -744,7 +809,7 @@ class Connection
      * Creates a MySQL LIKE pattern for matching values in tab-delimited columns.
      *
      * @param string|int|float|null|SmartString $input Value to search for
-     * @return RawSql Escaped LIKE pattern '%\tValue\t%'
+     * @return RawSql Escaped LIKE pattern '%\tValue\t%'; wildcards in the value match literally
      */
     public function likeContainsTSV(string|int|float|null|SmartString $input): RawSql
     {
@@ -755,7 +820,7 @@ class Connection
      * Creates a MySQL LIKE pattern for "column starts with value" searches.
      *
      * @param string|int|float|null|SmartString $input Value to search for
-     * @return RawSql Escaped LIKE pattern 'value%'
+     * @return RawSql Escaped LIKE pattern 'value%'; wildcards in the value match literally
      */
     public function likeStartsWith(string|int|float|null|SmartString $input): RawSql
     {
@@ -766,7 +831,7 @@ class Connection
      * Creates a MySQL LIKE pattern for "column ends with value" searches.
      *
      * @param string|int|float|null|SmartString $input Value to search for
-     * @return RawSql Escaped LIKE pattern '%value'
+     * @return RawSql Escaped LIKE pattern '%value'; wildcards in the value match literally
      */
     public function likeEndsWith(string|int|float|null|SmartString $input): RawSql
     {
@@ -799,8 +864,9 @@ class Connection
      *
      * @param string|int|float|null|SmartString $value Plaintext value to encrypt
      * @return string|null Encrypted binary string, or null if value is null
+     * @noinspection PhpFullyQualifiedNameUsageInspection - FQN required until PHP 8.2 minimum (can't import)
      */
-    public function encryptValue(string|int|float|null|SmartString $value): string|null
+    public function encryptValue(#[\SensitiveParameter] string|int|float|null|SmartString $value): string|null
     {
         if ($value instanceof SmartString) {
             $value = $value->value();
@@ -845,10 +911,11 @@ class Connection
      * @param array $rows              Fetched rows (modified in place)
      * @param array $keysOrFetchFields Either a list of row keys (column names for assoc rows, indexes for numeric rows),
      *                                 or field objects from fetch_fields() (auto-detects encrypted cols)
+     * @noinspection PhpFullyQualifiedNameUsageInspection - FQN required until PHP 8.2 minimum (can't import)
      */
-    public function decryptRows(array &$rows, array $keysOrFetchFields): void
+    public function decryptRows(#[\SensitiveParameter] array &$rows, array $keysOrFetchFields): void
     {
-        if (!$rows || !$keysOrFetchFields || !$this->secret('encryptionKey')) {
+        if (!$rows || !$keysOrFetchFields || !$this->hasEncryptionKey) {
             return;
         }
 
@@ -872,15 +939,24 @@ class Connection
                     $row[$key] = $decrypted;
                 } elseif (!$this->decryptWarned) {
                     $this->decryptWarned = true;
-                    trigger_error("ZenDB: can't decrypt MEDIUMBLOB column '$key', returning raw bytes. Wrong encryptionKey, or the column holds unencrypted data.", E_USER_WARNING);
+                    $h                   = DB::h(...); // SECURITY: column names come from query results (aliases included), encode before they can reach page output
+                    trigger_error("ZenDB: can't decrypt MEDIUMBLOB column '{$h($key)}', returning raw bytes. Wrong encryptionKey, or the column holds unencrypted data.", E_USER_WARNING);
                 }
             }
         }
         unset($row);
     }
 
-    /** @var bool One "can't decrypt" warning per connection, not one per row */
+    /** @var bool One "can't decrypt" warning, not one per row */
     private bool $decryptWarned = false;
+
+    /**
+     * @var array<string, string[]> Encrypted (MEDIUMBLOB) column names per full table name,
+     * shared by the read (select/selectOne) and write (insert/update) paths so each table is
+     * probed once. Cleared on disconnect() and when query()/queryOne() runs DDL, so schema
+     * changes can't leave a stale list that would write plaintext or skip decryption.
+     */
+    private array $encryptedColumnsCache = [];
 
     /**
      * Encrypt MEDIUMBLOB-column values in an insert/update values array, in place. Called
@@ -895,40 +971,52 @@ class Connection
      * Which mode applies is decided by `encryptionKey`. With it set, every MEDIUMBLOB is
      * encrypted on write and decrypted on read. Without it, every MEDIUMBLOB is raw bytes.
      *
+     * Booleans are rejected for encrypted columns: there's no canonical encrypted form,
+     * and silently writing plaintext TRUE/FALSE would break the "every MEDIUMBLOB is
+     * encrypted" contract.
+     *
      * @param string $fullTable Full table name (with prefix)
      * @param array  $values    Column => value pairs (modified in place)
+     * @noinspection PhpFullyQualifiedNameUsageInspection - FQN required until PHP 8.2 minimum (can't import)
      */
-    private function encryptRow(string $fullTable, array &$values): void
+    private function encryptRow(string $fullTable, #[\SensitiveParameter] array &$values): void
     {
-        if (!$values || !$this->secret('encryptionKey')) {
+        if (!$values || !$this->hasEncryptionKey) {
             return;
         }
 
-        // Cache the encrypted column list per connection per table (one LIMIT 0 query per table, per request)
-        static $tableCache = new WeakMap();
-        if (!isset($tableCache[$this][$fullTable])) {
-            $tableCache[$this]             ??= [];
-            $savedLastQuery                = $this->mysqli->lastQuery;     // preserve caller's template (e.g. "INSERT INTO `t` [SET ...]") so downstream throws report it, not the probe
-            $result                        = $this->mysqli->query("SELECT * FROM `$fullTable` LIMIT 0");
-            $this->mysqli->lastQuery       = $savedLastQuery;
-            $tableCache[$this][$fullTable] = DB::getEncryptedColumns($result->fetch_fields());
+        // Cache the encrypted column list per table (one LIMIT 0 query per table, per connection)
+        if (!isset($this->encryptedColumnsCache[$fullTable])) {
+            $savedLastQuery          = $this->mysqli->lastQuery;     // preserve caller's template (e.g. "INSERT INTO `t` [SET ...]") so downstream throws report it, not the probe
+            $result                  = $this->mysqli->query("SELECT * FROM `$fullTable` LIMIT 0");
+            $this->mysqli->lastQuery = $savedLastQuery;
+
+            $this->encryptedColumnsCache[$fullTable] = array_values(DB::getEncryptedColumns($result->fetch_fields()));
             $result->free();
         }
 
-        /** @noinspection PhpIllegalArrayKeyTypeInspection */
-        $encryptedCols = $tableCache[$this][$fullTable];
+        $encryptedCols = $this->encryptedColumnsCache[$fullTable];
         if (!$encryptedCols) {
             return;
         }
 
-        // Encrypt each targeted value (intersect $values with encrypted columns, skip null / non-scalar)
-        $toEncrypt = array_intersect_key($values, array_flip($encryptedCols));
-        foreach ($toEncrypt as $col => $value) {
+        // Encrypt each targeted value. Column keys are matched case-insensitively because
+        // MySQL resolves them that way: 'Token' writes to column 'token', so it must
+        // encrypt the same as 'token' would.
+        $encryptedColsLower = array_flip(array_map('strtolower', $encryptedCols));
+        foreach ($values as $col => $value) {
+            if (!isset($encryptedColsLower[strtolower((string)$col)])) {
+                continue;
+            }
             if ($value instanceof SmartString) {
-                $value = $value->value(); // unwrap before the type check; SmartString can wrap null/bool
+                $value = $value->value(); // unwrap before the type checks; SmartString can wrap null/bool
+            }
+            if (is_bool($value)) {
+                $h = DB::h(...); // SECURITY: column names come from the caller, encode before they can reach page output
+                throw new InvalidArgumentException("Can't store boolean in encrypted column '{$h((string)$col)}': booleans aren't auto-encrypted. Pass a string or number instead.");
             }
             if (!is_string($value) && !is_int($value) && !is_float($value)) {
-                continue; // skip null (nothing to encrypt), RawSql, arrays, and other non-scalar types
+                continue; // skip null (nothing to encrypt) and RawSql (deliberate raw SQL); arrays throw in buildSetClause
             }
             $values[$col] = $this->encryptValue($value);
         }
@@ -942,8 +1030,11 @@ class Connection
     {
         static $cache = new WeakMap();
         if (!isset($cache[$this])) {
-            $encryptionKey = $this->secret('encryptionKey') ?: throw new RuntimeException("aesKey() requires 'encryptionKey' in connection config.");
-            $keyBytes      = hash('sha512', $encryptionKey, true);
+            $encryptionKey = $this->secret('encryptionKey');
+            if ($encryptionKey === null || $encryptionKey === '') {
+                throw new RuntimeException("aesKey() requires 'encryptionKey' in connection config.");
+            }
+            $keyBytes = hash('sha512', $encryptionKey, true);
             $cache[$this]  = substr($keyBytes, 0, 16);
             $cache[$this]  ^= substr($keyBytes, 16, 16);
             $cache[$this]  ^= substr($keyBytes, 32, 16);
@@ -951,46 +1042,6 @@ class Connection
         }
 
         return $cache[$this];
-    }
-
-    //endregion
-    //region Deprecations
-
-    /**
-     * @deprecated Use $connection->table->exists() or ->table->existsFull() instead
-     * @see        TableInfo::exists()
-     * @see        TableInfo::existsFull()
-     */
-    #[Deprecated(reason: 'use ->table->exists() or ->table->existsFull() instead')]
-    public function hasTable(string $table, bool $isPrefixed = false): bool
-    {
-        return $isPrefixed ? $this->table->existsFull($table) : $this->table->exists($table);
-    }
-
-    /**
-     * @deprecated Use $connection->table->names() or ->namesFull() instead
-     * @see        Table::names()
-     * @see        Table::namesFull()
-     */
-    #[Deprecated(reason: 'use ->table->names() or ->table->namesFull() instead')]
-    public function getTableNames(bool $withPrefix = false): array
-    {
-        return $withPrefix ? $this->table->namesFull() : $this->table->names();
-    }
-
-    /**
-     * @deprecated Use $connection->table->columnDefinitions() instead; note it throws for unknown
-     *             tables and invalid names where this returns []
-     * @see        TableInfo::columnDefinitions()
-     */
-    #[Deprecated(reason: 'use ->table->columnDefinitions() instead')]
-    public function getColumnDefinitions(string $baseTable): array
-    {
-        try {
-            return $this->table->columnDefinitions($baseTable);
-        } catch (mysqli_sql_exception|InvalidArgumentException) {
-            return []; // legacy contract: unknown table or invalid name returns no definitions
-        }
     }
 
     //endregion
