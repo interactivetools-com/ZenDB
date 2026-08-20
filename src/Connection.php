@@ -116,7 +116,7 @@ class Connection
      *     databaseAutoCreate?:   bool,      // Create database if missing (default: false)
      *     connectTimeout?:       int,       // Connection timeout in seconds (default: 3)
      *     readTimeout?:          int,       // Read timeout in seconds (default: 60)
-     *     queryLogger?:          callable,  // @internal fn(string $query, float $secs, ?Throwable $exception) - $query is resolved SQL with values inlined, and the connect event includes the request method and URI, so logs can contain user data and URL tokens; redacting is the callback's job; must not query this connection; signature may change
+     *     queryLogger?:          callable,  // @internal fn(string $query, float $secs, ?Throwable $exception) - logged queries have values inlined, so redacting sensitive data is the callback's job; don't run queries from inside the callback; signature may change
      *     sqlMode?:              string,    // MySQL SQL mode
      *     encryptionKey?:        string,    // AES encryption key, sets MySQL @ek session variable on first use
      * } $config

@@ -79,7 +79,7 @@ class MysqliWrapper extends mysqli
 
     /**
      * @param callable|null $queryLogger Query logger: fn(string $query, float $duration, ?Throwable $exception): void
-     *                                   $query is the resolved SQL with values inlined, so logged queries can contain user data.
+     *                                   Logged queries have values inlined, so redacting sensitive data is the callback's job.
      */
     public function __construct(?callable $queryLogger = null)
     {
@@ -105,7 +105,7 @@ class MysqliWrapper extends mysqli
 
         // log connection
         if ($this->queryLogger) {
-            $this->logQuery("real_connect[$this->thread_id]: " . ($_SERVER['REQUEST_METHOD'] ?? '') . ' ' . ($_SERVER['REQUEST_URI'] ?? ''), $startTime);
+            $this->logQuery("real_connect[$this->thread_id] ($this->host_info): " . ($_SERVER['REQUEST_METHOD'] ?? '') . ' ' . ($_SERVER['REQUEST_URI'] ?? ''), $startTime);
         }
 
         return $result;
