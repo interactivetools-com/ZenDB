@@ -47,6 +47,8 @@ class MysqliStmtWrapper extends mysqli_stmt
 
     public function execute(?array $params = null): bool
     {
+        DB::$queryCount++;
+
         // logging must never break the query: bad UTF-8 logs as U+FFFD instead of throwing
         $paramsJson = '[]';
         if ($params) {

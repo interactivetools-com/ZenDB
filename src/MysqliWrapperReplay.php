@@ -174,6 +174,7 @@ class MysqliWrapperReplay
     public function query(string $query, int $result_mode = MYSQLI_STORE_RESULT): MysqliResultReplay|bool
     {
         $this->lastQuery = $query;
+        DB::$queryCount++;
         $startTime       = $this->queryLogger ? microtime(true) : 0.0;
         $outcome         = $this->nextOutcome($query);
 
@@ -203,12 +204,14 @@ class MysqliWrapperReplay
     public function real_query(string $query): bool
     {
         $this->lastQuery = $query;
+        DB::$queryCount++;
         return true;
     }
 
     public function multi_query(string $query): bool
     {
         $this->lastQuery = $query;
+        DB::$queryCount++;
         $sequence        = $this->nextMulti($query);
 
         // A recorded first-statement failure throws here, like native multi_query()

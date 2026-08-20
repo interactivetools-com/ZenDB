@@ -124,6 +124,7 @@ class MysqliWrapper extends mysqli
     public function query(string $query, int $result_mode = MYSQLI_STORE_RESULT): mysqli_result|bool
     {
         $this->lastQuery = $query;
+        DB::$queryCount++;
         $this->ensureEncryptionKey($query);
         $startTime = $this->queryLogger ? microtime(true) : 0.0;   // only needed for logger
 
@@ -180,6 +181,7 @@ class MysqliWrapper extends mysqli
     public function real_query(string $query): bool
     {
         $this->lastQuery = $query;
+        DB::$queryCount++;
         $this->ensureEncryptionKey($query);
         $startTime = $this->queryLogger ? microtime(true) : 0.0;   // only needed for logger
 
@@ -214,6 +216,7 @@ class MysqliWrapper extends mysqli
     public function multi_query(string $query): bool
     {
         $this->lastQuery = $query;
+        DB::$queryCount++;
         $this->ensureEncryptionKey($query);
         $startTime = $this->queryLogger ? microtime(true) : 0.0;   // only needed for logger
 
@@ -278,6 +281,7 @@ class MysqliWrapper extends mysqli
         // Use native execute_query() if available (PHP 8.2+) and not forcing polyfill
         if (PHP_VERSION_ID >= 80200 && !self::$forceExecuteQueryPolyfill) {
             $this->lastQuery = $query;
+            DB::$queryCount++;
             $this->ensureEncryptionKey($query);
             $startTime = $this->queryLogger ? microtime(true) : 0.0;   // only needed for logger
 
@@ -371,6 +375,7 @@ class MysqliWrapper extends mysqli
             return;
         }
 
+        DB::$queryCount++;
         $startTime = $this->queryLogger ? microtime(true) : 0.0;   // only needed for logger
         $stmt      = parent::prepare("SET @ek = UNHEX(SHA2(?, 512))");
         $stmt->execute([($this->getEncryptionKey)()]);

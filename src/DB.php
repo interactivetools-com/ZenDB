@@ -62,6 +62,16 @@ class DB
      */
     public static string $tablePrefix = '';
 
+    /**
+     * Queries sent since the request started, across all connections. Each query,
+     * prepared-statement execute, and multi_query call counts as one, including
+     * ZenDB's own connection-setup queries; connects don't count. Failed queries
+     * count too. Assign 0 to restart the count.
+     *
+     * @internal API may change between releases
+     */
+    public static int $queryCount = 0;
+
     //endregion
     //region Connection
 
