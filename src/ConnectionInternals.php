@@ -348,13 +348,46 @@ trait ConnectionInternals
 
     /**
      * Reject LIMIT/OFFSET - these methods add their own LIMIT internally.
+     *
+     * Only a top-level clause counts: a column named `offset`, a LIMIT inside a subquery
+     * or a keyword in a comment are all fine (see topLevelSql()). The raw match runs
+     * first so the masking only happens when a keyword is present at all.
+     *
      * @throws InvalidArgumentException
      */
     private function rejectLimitAndOffset(int|array|string $where): void
     {
-        if (is_string($where) && preg_match('/\b(LIMIT|OFFSET)\b/i', $where)) {
+        $regex = '/\b(LIMIT|OFFSET)\b/i';
+        if (is_string($where) && preg_match($regex, $where) && preg_match($regex, $this->topLevelSql($where))) {
             throw new InvalidArgumentException("This method doesn't support LIMIT or OFFSET");
         }
+    }
+
+    /**
+     * Return the SQL with everything below the top level blanked out, for keyword guards.
+     *
+     * Quoted text, backtick-quoted identifiers, comments and parenthesised groups
+     * (subqueries, function calls, IN lists) are each replaced by a single space, so a
+     * keyword guard like /\bLIMIT\b/ can only match a real top-level clause:
+     *
+     *     `offset` = ? AND note = 'no limit' -- see LIMIT    =>    = ? AND note =
+     *     id IN (SELECT id FROM t LIMIT 5) ORDER BY id        =>   id IN   ORDER BY id
+     *     id IN (SELECT id FROM t) LIMIT 5                    =>   id IN   LIMIT 5    (still rejected)
+     *
+     * The first pass handles quotes, identifiers and comments together, so whichever
+     * opens first consumes the rest (a quote inside a comment, a # inside a literal).
+     * Quotes are rejected later by assertSafeTemplate() anyway; masking them here means
+     * that clearer error is the one the caller sees. An unterminated block comment runs
+     * to the end, as in replacePlaceholders(). Parentheses go in one recursive pass so
+     * nested groups are handled; an unbalanced group is left as is. The result is only
+     * ever matched against, never executed.
+     */
+    private function topLevelSql(string $sql): string
+    {
+        $sql = preg_replace(<<<'REGEX'
+            ~'(?:[^'\\]|\\.|'')*'|"(?:[^"\\]|\\.|"")*"|`[^`]*`|/\*.*?(?:\*/|$)|(?:--(?=\s|$)|#)[^\r\n]*~s
+            REGEX, ' ', $sql);
+        return preg_replace('/\((?:[^()]++|(?R))*+\)/', ' ', $sql);
     }
 
     /**
@@ -388,8 +421,10 @@ trait ConnectionInternals
             return;
         }
 
-        // Row-locking clauses - grammar requires LIMIT before these
-        if (preg_match('/\bFOR\s+(?:UPDATE|SHARE)\b|\bLOCK\s+IN\s+SHARE\s+MODE\b/i', $where, $m)) {
+        // Row-locking clauses - grammar requires LIMIT before these. Matched on topLevelSql()
+        // so a subquery or comment can't trigger it; the trailing checks below must see the
+        // raw template.
+        if (preg_match('/\bFOR\s+(?:UPDATE|SHARE)\b|\bLOCK\s+IN\s+SHARE\s+MODE\b/i', $this->topLevelSql($where), $m)) {
             $clause = preg_replace('/\s+/', ' ', strtoupper($m[0]));
             throw new InvalidArgumentException("This method doesn't support $clause. Use query(...)->first() instead.");
         }
