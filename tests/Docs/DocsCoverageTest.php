@@ -24,10 +24,11 @@ class DocsCoverageTest extends BaseTestCase
     #[DataProvider('publicMethodsProvider')]
     public function testMethodIsInMethodReference(string $method): void
     {
-        // Only a backticked signature opening a table row counts as documentation;
+        // Only a backticked signature opening a table row counts as documentation
+        // (plain or linked, e.g. `DB::select(...)` or [`DB::select(...)`](guide.md));
         // the method's name appearing inside some other method's example does not
         $reference  = file_get_contents(dirname(__DIR__, 2) . '/docs/method-reference.md');
-        $documented = preg_match('/^\|\s*`[^`|]*(::|->)' . preg_quote($method, '/') . '\(/m', $reference);
+        $documented = preg_match('/^\|\s*\[?`[^`|]*(::|->)' . preg_quote($method, '/') . '\(/m', $reference);
         $this->assertSame(
             1,
             $documented,
