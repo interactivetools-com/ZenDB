@@ -7,10 +7,12 @@ namespace Itools\ZenDB\Tests\Connection;
 
 use Itools\ZenDB\DB;
 use Itools\ZenDB\Connection;
+use Itools\ZenDB\MysqliWrapper;
 use Itools\ZenDB\Tests\BaseTestCase;
 use PHPUnit\Framework\Attributes\DataProvider;
 use InvalidArgumentException;
 use RuntimeException;
+use mysqli_sql_exception;
 
 /**
  * Tests for Connection lifecycle: connect, disconnect, isConnected
@@ -179,6 +181,41 @@ class LifecycleTest extends BaseTestCase
 
         DB::disconnect();
         $this->assertFalse(DB::isConnected());
+    }
+
+    /**
+     * connect() assigns $this->mysqli before real_connect() runs. If the attempt fails, that
+     * never-connected handle must not be left behind: isConnected() would report true and a
+     * retry connect() would throw "Already connected" until the caller disconnect()s again.
+     */
+    public function testFailedReconnectLeavesConnectionDisconnected(): void
+    {
+        $conn = new Connection(self::$configDefaults);
+        $conn->disconnect();
+
+        // Make the next connect() fail the way an unreachable server does: real_connect() throws
+        $factory = Connection::$mysqliWrapperFactory;
+        Connection::$mysqliWrapperFactory = static fn(?callable $queryLogger): MysqliWrapper => new class($queryLogger) extends MysqliWrapper {
+            public function real_connect(?string $hostname = null, ?string $username = null, ?string $password = null, ?string $database = null, ?int $port = null, ?string $socket = null, int $flags = 0): bool
+            {
+                throw new mysqli_sql_exception("Connection refused", 2002);
+            }
+        };
+        try {
+            $conn->connect();
+            $this->fail("connect() should throw when real_connect() fails");
+        } catch (RuntimeException $e) {
+            $this->assertStringContainsString("MySQL Error", $e->getMessage());
+        } finally {
+            Connection::$mysqliWrapperFactory = $factory;
+        }
+
+        $this->assertFalse($conn->isConnected(), "A failed connect() must not leave a never-connected handle behind");
+        $this->assertFalse($conn->isConnected(true));
+
+        // Server reachable again: reconnect must work without another disconnect()
+        $conn->connect();
+        $this->assertTrue($conn->isConnected(true));
     }
 
     public function testIndependentConnectionHasOwnMysqli(): void

@@ -224,6 +224,12 @@ class Connection
                 $errorCode === 2006 && $this->requireSSL => "Try disabling 'requireSSL' in database configuration.\n$baseErrorMsg: {$h($errorDetail)}",
                 default                                  => "$baseErrorMsg: {$h($errorDetail)}",
             };
+
+            // Drop the failed handle so isConnected() reports false and connect() can be retried.
+            // close() is safe on a never-connected handle, and releases the server thread when
+            // databaseAutoCreate connected but CREATE DATABASE failed
+            $this->mysqli->close();
+            $this->mysqli = null;
             throw new RuntimeException($errorMsg);
         }
 
