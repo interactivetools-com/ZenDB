@@ -218,6 +218,50 @@ class LifecycleTest extends BaseTestCase
         $this->assertTrue($conn->isConnected(true));
     }
 
+    /**
+     * stat() throws Error (not mysqli_sql_exception) when the handle was closed behind ZenDB's
+     * back, e.g. DB::$mysqli->close(). A liveness probe must answer false, not throw.
+     */
+    public function testIsConnectedPingReturnsFalseAfterExternalClose(): void
+    {
+        self::requiresLiveMysql(); // replay's close() and stat() are no-ops
+
+        $conn = new Connection(self::$configDefaults);
+        $conn->mysqli->close();
+
+        $this->assertFalse($conn->isConnected(true));
+    }
+
+    /**
+     * DB::$mysqli and DB::$server are snapshots taken by DB::connect(). An instance-level
+     * disconnect() on the default connection must clear them, not leave a closed handle behind.
+     */
+    public function testFacadeStaticsClearOnInstanceDisconnect(): void
+    {
+        DB::connect(self::$configDefaults);
+
+        DB::connection()->disconnect();
+
+        $this->assertNull(DB::$mysqli, "DB::\$mysqli must not point at a closed handle");
+        $this->assertNull(DB::$server);
+    }
+
+    /**
+     * After an instance-level disconnect()/connect() on the default connection, DB::$mysqli
+     * and DB::$server must refer to the new handle, not the one connect() replaced.
+     */
+    public function testFacadeStaticsFollowInstanceReconnect(): void
+    {
+        DB::connect(self::$configDefaults);
+        $conn = DB::connection();
+
+        $conn->disconnect();
+        $conn->connect();
+
+        $this->assertSame($conn->mysqli, DB::$mysqli);
+        $this->assertSame($conn->server, DB::$server);
+    }
+
     public function testIndependentConnectionHasOwnMysqli(): void
     {
         DB::connect(self::$configDefaults);

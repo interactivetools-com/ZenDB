@@ -235,6 +235,7 @@ class Connection
 
         $this->server = new Server($this->mysqli);
         $this->table  = new TableInfo($this);
+        DB::syncDefaultConnection($this); // instance-level reconnect: keep DB::$mysqli/DB::$server current
 
         // utf8mb4 was already set during the connect handshake (MYSQLI_SET_CHARSET_NAME above).
         // Most servers are done at that point; two cases still need a set_charset() call:
@@ -288,9 +289,11 @@ class Connection
             return true;
         }
 
+        // stat() throws mysqli_sql_exception when the server is gone and Error when the handle
+        // was closed behind our back (e.g. DB::$mysqli->close()); either way: not connected
         try {
             return $this->mysqli->stat() !== false;
-        } catch (mysqli_sql_exception) {
+        } catch (Throwable) {
             return false;
         }
     }
@@ -311,6 +314,8 @@ class Connection
         // re-arm the one-per-connection decrypt warning on reconnect
         $this->encryptedColumnsCache = [];
         $this->decryptWarned         = false;
+
+        DB::syncDefaultConnection($this); // don't leave DB::$mysqli/DB::$server on a closed handle
     }
 
     /**
