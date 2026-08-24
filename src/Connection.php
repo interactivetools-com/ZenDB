@@ -304,7 +304,12 @@ class Connection
     public function disconnect(): void
     {
         if ($this->mysqli !== null) {
-            $this->mysqli->close();
+            // A handle closed behind our back (e.g. DB::$mysqli->close()) throws Error on a
+            // second close(); there's nothing left to release, so just drop it
+            try {
+                $this->mysqli->close();
+            } catch (Throwable) {
+            }
             $this->mysqli = null;
         }
         $this->server = null;

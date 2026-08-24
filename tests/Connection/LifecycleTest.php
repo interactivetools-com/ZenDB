@@ -233,6 +233,22 @@ class LifecycleTest extends BaseTestCase
     }
 
     /**
+     * disconnect() must release what's left and never throw, even when the handle was already
+     * closed behind ZenDB's back: a second close() raises Error "mysqli object is already closed".
+     */
+    public function testDisconnectAfterExternalCloseDoesNotThrow(): void
+    {
+        self::requiresLiveMysql(); // replay's close() is a no-op
+
+        $conn = new Connection(self::$configDefaults);
+        $conn->mysqli->close();
+
+        $conn->disconnect();
+
+        $this->assertFalse($conn->isConnected());
+    }
+
+    /**
      * DB::$mysqli and DB::$server are snapshots taken by DB::connect(). An instance-level
      * disconnect() on the default connection must clear them, not leave a closed handle behind.
      */
