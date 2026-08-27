@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 // Load Composer autoloader
 require_once dirname(__DIR__) . '/vendor/autoload.php';
+require_once __DIR__ . '/Support/functions.php';    // http_response_code_clear()
 
 // Require mysqlnd driver for native type support (int/float instead of strings)
 if (!defined('MYSQLI_OPT_INT_AND_FLOAT_NATIVE')) {
