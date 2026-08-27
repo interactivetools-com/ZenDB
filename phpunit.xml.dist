@@ -12,6 +12,7 @@
 
   <extensions>
     <bootstrap class="Itools\ZenDB\Tests\Support\Replay\ReplayExtension"/>
+    <bootstrap class="Itools\ZenDB\Tests\Support\ExitGuard"/>
   </extensions>
 
   <testsuites>
