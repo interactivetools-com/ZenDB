@@ -70,7 +70,7 @@
   "scripts-descriptions": {
     "test": "Run the test suite",
     "test:record": "Run the test suite live and save every query result to the replay corpus",
-    "test:replay": "Run the test suite from the recorded corpus, no MySQL server needed",
+    "test:replay": "Run the test suite from the recorded corpus, for timing PHP work without MySQL round trips",
     "coverage": "Run the test suite with a line-coverage report (requires Xdebug)"
   }
 }

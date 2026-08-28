@@ -288,6 +288,22 @@ ZenDB's `logDeprecation()` has no comment saying so.
 
 ---
 
+## Replay Mode - DECIDED: Benchmarking only (2026-08)
+
+`ZENDB_QUERY_MODE=record` runs the suite live and saves every query result
+to `tests/Support/Replay/corpus.php`; `ZENDB_QUERY_MODE=replay` serves the
+results back with no server (`composer test:record` / `composer test:replay`,
+wiring in `tests/Support/Replay/ReplayHarness.php`). It exists to time
+ZenDB's own PHP work with MySQL round trips out of the numbers. It is not a
+way to run the suite without a database: CI and normal runs go live, and the
+published benchmarks in `docs/performance.md` come from the live probe.
+
+The corpus is gitignored and machine-specific. It goes stale as soon as a
+query or result shape changes, and replay then fails with "no recording ...
+for query" naming the test; re-record before timing anything.
+
+---
+
 ## Empty-Quotes Gap - DECIDED: Keep allowing `''` (2026-08)
 
 `assertSafeTemplate()` strips `''` and `""` before the quote check, so

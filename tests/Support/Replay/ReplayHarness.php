@@ -16,6 +16,11 @@ use RuntimeException;
  *     ZENDB_QUERY_MODE=record vendor/bin/phpunit   # run live, write the corpus
  *     ZENDB_QUERY_MODE=replay vendor/bin/phpunit   # serve the corpus, no MySQL
  *
+ * Replay mode is a benchmarking tool: it times ZenDB's own PHP work with the MySQL round
+ * trips out of the numbers. CI and normal test runs go live. The corpus is gitignored and
+ * goes stale as soon as a query or result shape changes; when replay fails with "no
+ * recording ... for query", re-record it with "composer test:record".
+ *
  * ZENDB_QUERY_CORPUS overrides the corpus path (default: tests/Support/Replay/corpus.php).
  * Outcomes file under the test that ran them (see ReplayScope), so replay runs work in
  * any test order. Tests that need a live server (raw mysqli connections, wrapper
