@@ -126,8 +126,8 @@ function cell(array $r): string
     if (!empty($r['warnings'])) {
         $out .= ' warn ' . implode('; ', array_map(fn($w) => explode(':', $w, 2)[0], $r['warnings']));
     }
-    if (isset($r['explain_extra'])) {
-        $out .= " key=$r[explain_key] extra=" . ($r['explain_extra'] === '' ? '(empty)' : $r['explain_extra']);
+    if (isset($r['using_filesort'])) {
+        $out .= " key=$r[explain_key] filesort=$r[using_filesort]";
     }
     return $out;
 }
@@ -151,6 +151,9 @@ function printQuestion(string $title, array $cases): void
         }
         if (isset($r['show_create'])) {
             $messages["SHOW CREATE ($name)"] = $r['show_create'];
+        }
+        if (isset($r['note'])) {
+            $messages["note ($name)"] = $r['note'];
         }
     }
     echo "\n";
@@ -230,12 +233,22 @@ foreach (['no prefix' => '', '(255)' => '(255)', '(250)' => '(250)'] as $name =>
         continue;
     }
     $mysqli->query("ANALYZE TABLE t");
-    $explain = $mysqli->query("EXPLAIN SELECT * FROM t ORDER BY col LIMIT 10")->fetch_assoc();
+    $query   = "SELECT * FROM t ORDER BY col LIMIT 10";
+    $explain = $mysqli->query("EXPLAIN $query")->fetch_assoc();
+    // MySQL 9.x (hypergraph optimizer) leaves key/Extra empty in the traditional
+    // format, so the TREE format decides where the server supports it
+    try {
+        $tree = str_replace("\n", ' / ', trim($mysqli->query("EXPLAIN FORMAT=TREE $query")->fetch_row()[0]));
+    } catch (mysqli_sql_exception) {
+        $tree = null;
+    }
+    $extra       = $explain['Extra'] ?? '';
+    $usesIndex   = ($explain['key'] ?? null) === '_auto_col' || ($tree !== null && str_contains($tree, '_auto_col'));
+    $usesFilesort = str_contains($extra, 'filesort') || ($tree !== null && str_contains($tree, 'Sort:'));
     $q3["VARCHAR(255) $name"] = ['ok' => true, 'warnings' => []] + indexDetails($mysqli) + [
-        'explain_key'   => $explain['key'] ?? 'NULL',
-        'explain_type'  => $explain['type'] ?? 'NULL',
-        'explain_extra' => $explain['Extra'] ?? 'NULL',
-        'using_filesort' => str_contains($explain['Extra'] ?? '', 'filesort') ? 'yes' : 'no',
+        'explain_key'    => $usesIndex ? '_auto_col' : 'NULL',
+        'using_filesort' => $usesFilesort ? 'yes' : 'no',
+        'note'           => "EXPLAIN key=" . ($explain['key'] ?? 'NULL') . " Extra=" . ($extra === '' ? '(empty)' : $extra) . ($tree === null ? '' : "; TREE: $tree"),
     ];
     $mysqli->query("DROP INDEX `_auto_col` ON `t`");
 }
@@ -266,8 +279,9 @@ foreach (['DYNAMIC', 'COMPACT', 'REDUNDANT'] as $format) {
     $q5["$format VARCHAR(768) no prefix"] = indexCase($mysqli, 'VARCHAR(768)', '', $options);
     $q5["$format TEXT (768)"]             = indexCase($mysqli, 'TEXT', '(768)', $options);
 }
+// MariaDB 10.3-10.5 still list innodb_large_prefix but as a read-only empty variable
 $largePrefix = serverVariable($mysqli, 'innodb_large_prefix');
-if ($largePrefix !== null) {
+if ($largePrefix === 'ON' || $largePrefix === 'OFF') {
     $flipped = $largePrefix === 'ON' ? 'OFF' : 'ON';
     $mysqli->query("SET GLOBAL innodb_large_prefix = $flipped");
     try {
@@ -304,6 +318,6 @@ $q7 = [
 $mysqli->query("DROP TABLE IF EXISTS t");
 $mysqli->query("CREATE TABLE t (col tinytext, col2 TINYTEXT) ENGINE=InnoDB ROW_FORMAT=DYNAMIC CHARSET=utf8mb4");
 preg_match_all('/^\s*(`col2?` .*?),?$/m', $mysqli->query("SHOW CREATE TABLE t")->fetch_row()[1], $m);
-$q7['SHOW CREATE TABLE column lines'] = ['ok' => true, 'warnings' => [], 'show_create' => implode(' / ', $m[1])];
+$q7['SHOW CREATE TABLE column lines'] = ['ok' => true, 'warnings' => [], 'note' => implode(' / ', $m[1])];
 $report['questions']['7. Case of the type name'] = $q7;
 printQuestion('7. Case of the type name', $q7);
