@@ -697,7 +697,7 @@ The following are **allowed** in templates.
 | Trailing `LIMIT #` | Literal number kept in query, skipped by the template guard |
 
 Table and column names that ZenDB inserts -- table arguments, WHERE-array and
-`$values` keys, and backtick placeholders -- are validated against `/^[\w-]+$/`
+`$values` keys, and backtick placeholders -- are validated against `/^[\w-]+\z/`
 (alphanumeric, underscore, hyphen only). Identifiers interpolated into a
 template by hand are not; the guard has no schema to check them against.
 

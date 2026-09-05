@@ -14,6 +14,7 @@ use Itools\ZenDB\Tests\BaseTestCase;
  * Tests for table and column identifier validation
  *
  * @covers \Itools\ZenDB\DB::assertIdentifier
+ * @covers \Itools\ZenDB\DB::isIdentifier
  */
 class IdentifierValidationTest extends BaseTestCase
 {
@@ -320,7 +321,7 @@ class IdentifierValidationTest extends BaseTestCase
     public function testSafeIdentifiersPrepopulatedNamesAreValid(): void
     {
         foreach (array_keys(DB::$safeIdentifiers) as $identifier) {
-            $this->assertMatchesRegularExpression('/^[\w-]+\z/', (string)$identifier, 'assertIdentifier() must agree with every preloaded name');
+            $this->assertTrue(DB::isIdentifier((string)$identifier), "preloaded name '$identifier' must pass isIdentifier()");
         }
     }
 
@@ -338,6 +339,40 @@ class IdentifierValidationTest extends BaseTestCase
             }
         }
         $this->assertSame([], $violations, 'Call sites must skip known names: isset(DB::$safeIdentifiers[$name]) || DB::assertIdentifier($name, \'...\')');
+    }
+
+    //endregion
+    //region isIdentifier()
+
+    /** @dataProvider identifierProvider */
+    public function testIsIdentifier(string $identifier, bool $expected): void
+    {
+        $this->assertSame($expected, DB::isIdentifier($identifier));
+    }
+
+    public static function identifierProvider(): array
+    {
+        return [
+            'plain'            => ['users', true],
+            'underscore'       => ['order_details', true],
+            'hyphen'           => ['order-2024', true],
+            'leading digit'    => ['2table', true],
+            'single char'      => ['a', true],
+            'empty'            => ['', false],
+            'space'            => ['user table', false],
+            'dot'              => ['users.name', false],
+            'backtick'         => ['users`', false],
+            'semicolon'        => ['users;', false],
+            'trailing newline' => ["users\n", false],
+            'unicode letter'   => ["caf\u{E9}", false], // no /u flag, \w stays ASCII
+        ];
+    }
+
+    public function testIsIdentifierDoesNotCacheNames(): void
+    {
+        unset(DB::$safeIdentifiers['uncached_column']);
+        DB::isIdentifier('uncached_column');
+        $this->assertArrayNotHasKey('uncached_column', DB::$safeIdentifiers);
     }
 
     //endregion

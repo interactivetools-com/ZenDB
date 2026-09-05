@@ -174,19 +174,40 @@ trait DBInternals
     //region Validation
 
     /**
-     * Throw unless a string is a safe SQL identifier: letters, numbers, _ and - only.
-     * Runs on every table and column name ZenDB puts between backticks - the check that
-     * matters there, since real_escape_string() doesn't escape backticks, so escaping
-     * alone can't make an identifier safe. $what names the value in the error message.
+     * Is a string a safe SQL identifier: letters, numbers, _ and - only, at least one character.
+     * The one place ZenDB and CMS Builder define which characters may go between backticks;
+     * real_escape_string() doesn't escape backticks, so this check is what makes an
+     * identifier safe there. Pure check, no caching: use assertIdentifier() when you want
+     * to throw.
      *
-     * Names that pass are added to `$safeIdentifiers`. Call sites skip already-validated
-     * names by checking that list first - IdentifierValidationTest enforces this form at
-     * every call site:
+     *     DB::isIdentifier('createdDate')   // true
+     *     DB::isIdentifier('order-2024')    // true, hyphens and leading digits are fine
+     *     DB::isIdentifier('users.name')    // false, one name at a time - split on the dot first
+     *     DB::isIdentifier('')              // false
+     *     DB::isIdentifier("users\n")       // false
+     *
+     * @internal
+     * @param string $identifier The string to check
+     * @return bool True when every character is a-z, A-Z, 0-9, _ or -
+     */
+    public static function isIdentifier(string $identifier): bool
+    {
+        return (bool)preg_match('/^[\w-]+\z/', $identifier); // \z: $ would also match before a trailing newline; no /u so \w stays ASCII
+    }
+
+    /**
+     * Throw unless a string passes isIdentifier(). Runs on every table and column name
+     * ZenDB puts between backticks. $what names the value in the error message.
+     *
+     * Names that pass are added to `$safeIdentifiers`. Inside ZenDB, call sites skip
+     * already-validated names by checking that list first - IdentifierValidationTest
+     * enforces this form in src/:
      *
      *     isset(DB::$safeIdentifiers[$column]) || DB::assertIdentifier($column, 'column name');
      *
-     * A few places inline this regex (or a close variant) instead of calling it - grep
-     * for [\w- before changing the charset so they all move together.
+     * Code that runs a name once per request (CMS Builder) just calls it directly:
+     *
+     *     DB::assertIdentifier($table, 'table name');
      *
      * @internal
      * @param string $identifier The string to check
@@ -195,7 +216,7 @@ trait DBInternals
      */
     public static function assertIdentifier(string $identifier, string $what = 'identifier'): void
     {
-        if (!preg_match('/^[\w-]+\z/', $identifier)) { // \z: $ would also match before a trailing newline
+        if (!self::isIdentifier($identifier)) {
             $h = self::h(...); // SECURITY: identifier failed validation, encode before it can reach page output
             throw new InvalidArgumentException("Invalid $what '{$h($identifier)}', allowed characters: a-z, A-Z, 0-9, _, -");
         }
