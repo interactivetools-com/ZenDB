@@ -1,0 +1,104 @@
+name: Index Rules Matrix
+
+# Manual-only fact check of the CMS Builder auto-index rules against every database
+# in the matrix. Dispatch with: gh workflow run index-rules-matrix.yml --ref <branch>
+on:
+  workflow_dispatch:
+
+jobs:
+  db-matrix:
+    name: Load database matrix
+    runs-on: ubuntu-latest
+    outputs:
+      databases: ${{ steps.load.outputs.databases }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Read .github/db-matrix.json
+        id: load
+        run: echo "databases=$(jq -c . .github/db-matrix.json)" >> "$GITHUB_OUTPUT"
+
+  probe:
+    name: ${{ matrix.database }}
+    runs-on: ubuntu-latest
+    needs: db-matrix
+
+    strategy:
+      fail-fast: false
+      matrix:
+        database: ${{ fromJSON(needs.db-matrix.outputs.databases) }}
+
+    services:
+      database:
+        image: ${{ matrix.database }}
+        env:
+          MYSQL_ALLOW_EMPTY_PASSWORD: yes
+          MYSQL_ROOT_HOST: '%'
+          MARIADB_ALLOW_EMPTY_ROOT_PASSWORD: yes
+          MARIADB_ROOT_HOST: '%'
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --innodb_initialized || mysqladmin ping -h 127.0.0.1 --silent"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+          --security-opt seccomp=unconfined
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2.37.2
+        with:
+          php-version: '8.1'
+          extensions: mysqli
+          coverage: none
+
+      - name: Wait for database
+        run: |
+          for i in $(seq 1 30); do
+            mysqladmin ping -h 127.0.0.1 -u root --silent 2>/dev/null && break
+            sleep 1
+          done
+
+      - name: Run probe
+        env:
+          DB_HOSTNAME: 127.0.0.1
+          DB_USERNAME: root
+          DB_PASSWORD: ''
+          DB_LABEL: ${{ matrix.database }}
+        run: |
+          SLUG=$(echo "${{ matrix.database }}" | tr ':/' '--')
+          echo "SLUG=$SLUG" >> "$GITHUB_ENV"
+          php .github/scripts/index-rules-probe.php --json="index-probe-$SLUG.json" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload probe results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: index-probe-${{ env.SLUG }}
+          path: index-probe-*.json
+          if-no-files-found: ignore
+
+  summary:
+    name: Compare servers
+    runs-on: ubuntu-latest
+    needs: probe
+    if: ${{ !cancelled() }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Download probe results
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: index-probe-*
+          merge-multiple: true
+          path: probes
+
+      - name: Build comparison
+        run: php .github/scripts/index-rules-merge.php probes/*.json >> "$GITHUB_STEP_SUMMARY"

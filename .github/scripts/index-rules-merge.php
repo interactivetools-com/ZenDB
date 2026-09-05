@@ -1,0 +1,165 @@
+#!/usr/bin/env php
+<?php
+declare(strict_types=1);
+
+/**
+ * Merge the JSON files written by index-rules-probe.php --json into one markdown
+ * report: one table per question, one row per server, one column per case. Error
+ * and warning messages are listed in full under each table, with the servers that
+ * produced them when the wording differs.
+ *
+ *     php .github/scripts/index-rules-merge.php probes/*.json
+ *     php .github/scripts/index-rules-merge.php probes/*.json >> "$GITHUB_STEP_SUMMARY"
+ */
+
+require __DIR__ . '/ci-lib.php';
+
+if ($argc < 2) {
+    fwrite(STDERR, "Usage: php .github/scripts/index-rules-merge.php <probe.json> [probe2.json ...]\n");
+    exit(1);
+}
+
+$reports = []; // server => report
+foreach (array_slice($argv, 1) as $path) {
+    $report = is_file($path) ? json_decode(file_get_contents($path), true) : null;
+    if (isset($report['server'], $report['questions'])) {
+        $reports[$report['server']] = $report;
+    } else {
+        fwrite(STDERR, "Skipping $path: not an index-rules-probe JSON file\n");
+    }
+}
+uksort($reports, fn($a, $b) => databaseSortKey($a) <=> databaseSortKey($b));
+
+if (!$reports) {
+    echo "# Index Rules Matrix\n\nNo probe data found.\n";
+    exit;
+}
+
+/**
+ * One markdown cell for a case result. Errors show the code only; the message is
+ * listed under the table.
+ */
+function cell(?array $r): string
+{
+    if ($r === null) {
+        return '(not run)';
+    }
+    if (!$r['ok']) {
+        return (!empty($r['table_error']) ? 'CREATE TABLE ' : '') . "ERR $r[code]";
+    }
+    $parts = ['OK'];
+    if (isset($r['sub_part'])) {
+        $parts[] = "Sub_part=$r[sub_part]";
+    }
+    if (!empty($r['warnings'])) {
+        $parts[] = 'warn ' . implode('+', array_map(fn($w) => explode(':', $w, 2)[0], $r['warnings']));
+    }
+    if (isset($r['using_filesort'])) {
+        $parts[] = "key=$r[explain_key]";
+        $parts[] = "filesort=$r[using_filesort]";
+    }
+    return implode(' ', $parts);
+}
+
+echo "# Index Rules Matrix\n\n";
+echo "Generated " . date('Y-m-d') . " from " . count($reports) . " servers by index-rules-probe.php.\n\n";
+echo "Cells: `OK Sub_part=N` means CREATE INDEX succeeded and SHOW INDEX reports that prefix (NULL = whole column indexed). ";
+echo "`warn` lists warning codes a successful CREATE INDEX raised. `ERR n` is the MySQL error code; messages are under each table.\n\n";
+
+//
+// Server settings
+//
+$settingNames = array_keys(reset($reports)['identity']);
+echo "## Server settings\n\n| server | " . implode(' | ', $settingNames) . " |\n|---|" . str_repeat('---|', count($settingNames)) . "\n";
+foreach ($reports as $server => $report) {
+    echo "| $server | " . implode(' | ', array_map(fn($k) => mdValue((string)($report['identity'][$k] ?? '(missing)')), $settingNames)) . " |\n";
+}
+echo "\n";
+
+//
+// One table per question
+//
+$questionTitles = [];
+foreach ($reports as $report) {
+    foreach (array_keys($report['questions']) as $title) {
+        $questionTitles[$title] = true;
+    }
+}
+
+foreach (array_keys($questionTitles) as $title) {
+    // Column order: cases in the order the probe ran them, union across servers
+    $caseNames = [];
+    foreach ($reports as $report) {
+        foreach (array_keys($report['questions'][$title] ?? []) as $case) {
+            $caseNames[$case] = true;
+        }
+    }
+    $caseNames = array_keys($caseNames);
+
+    echo "## $title\n\n| server | " . implode(' | ', $caseNames) . " |\n|---|" . str_repeat('---|', count($caseNames)) . "\n";
+    $messages = []; // "code: message" => [servers]
+    $byCase   = []; // case => cell => [servers]
+    foreach ($reports as $server => $report) {
+        $cells = [];
+        foreach ($caseNames as $case) {
+            $r       = $report['questions'][$title][$case] ?? null;
+            $cells[] = cell($r);
+            $byCase[$case][cell($r)][] = $server;
+            if ($r !== null && !$r['ok']) {
+                $messages["$r[code]: $r[error]"][] = $server;
+            }
+            foreach ($r['warnings'] ?? [] as $w) {
+                $messages["warning $w"][] = $server;
+            }
+        }
+        echo "| $server | " . implode(' | ', $cells) . " |\n";
+    }
+    echo "\n";
+
+    // Agreement summary per column
+    $families = serverFamilies(array_keys($reports));
+    foreach ($caseNames as $case) {
+        $groups = $byCase[$case];
+        if (count($groups) === 1) {
+            echo "- **$case**: every server: " . array_key_first($groups) . "\n";
+            continue;
+        }
+        $parts = [];
+        foreach ($groups as $value => $servers) {
+            $parts[] = "$value (" . (serverGroupLabel($servers, $families) ?? implode(', ', $servers)) . ")";
+        }
+        echo "- **$case**: SPLIT: " . implode('; ', $parts) . "\n";
+    }
+    echo "\n";
+
+    if ($messages) {
+        echo "Messages:\n\n";
+        foreach ($messages as $message => $servers) {
+            $servers = array_values(array_unique($servers));
+            $who     = count($servers) === count($reports) ? 'all' : (serverGroupLabel($servers, $families) ?? implode(', ', $servers));
+            echo "- " . mdValue($message) . " ($who)\n";
+        }
+        echo "\n";
+    }
+
+    // SHOW CREATE TABLE lines, only where servers print them differently
+    $createLines = [];
+    foreach ($reports as $server => $report) {
+        foreach ($caseNames as $case) {
+            $line = $report['questions'][$title][$case]['show_create'] ?? null;
+            if ($line !== null) {
+                $createLines[$case][$line][] = $server;
+            }
+        }
+    }
+    $splitLines = array_filter($createLines, fn($byLine) => count($byLine) > 1);
+    if ($splitLines) {
+        echo "SHOW CREATE TABLE differs:\n\n";
+        foreach ($splitLines as $case => $byLine) {
+            foreach ($byLine as $line => $servers) {
+                echo "- $case: " . mdValue($line) . " (" . (serverGroupLabel($servers, $families) ?? implode(', ', $servers)) . ")\n";
+            }
+        }
+        echo "\n";
+    }
+}
