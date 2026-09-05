@@ -43,7 +43,7 @@ if (!$reports) {
 function cell(?array $r): string
 {
     if ($r === null) {
-        return '(not run)';
+        return 'n/a'; // case needs a server variable this server doesn't have (innodb_large_prefix)
     }
     if (!$r['ok']) {
         return (!empty($r['table_error']) ? 'CREATE TABLE ' : '') . "ERR $r[code]";
@@ -73,6 +73,21 @@ echo "    gh workflow run index-rules-matrix.yml   # wait for the run to finish,
 echo "    gh run download --dir probes             # pick the latest Index Rules Matrix run\n";
 echo "    php .github/scripts/index-rules-merge.php probes/*/index-probe-*.json > docs/internal/index-rules-matrix.md\n\n";
 echo "Last generated: " . date('Y-m-d') . " from " . count($reports) . " servers. Generated file - don't hand-edit.\n\n";
+// Curated verdicts - update by hand when the probe data changes
+echo <<<__VERDICTS__
+    ## Verdicts
+
+    1. **Key length required.** Every MySQL/Percona and MariaDB thru 10.3 reject a no-prefix index on all eight TEXT/BLOB types with error 1170. MariaDB 10.4+ accepts it and picks the prefix itself: 255 for TINYTEXT/TINYBLOB, 768 for TEXT/MEDIUMTEXT/LONGTEXT, 3072 for BLOB/MEDIUMBLOB/LONGBLOB, with warning 1071 on the 768 and 3072 cases. The CMS rule (always add a prefix) is required on the first group and harmless on the second.
+    2. **Prefix longer than the column.** `(768)` on TINYTEXT or TINYBLOB fails on every MySQL/Percona with error 1071 "max key length is 255 bytes"; every MariaDB accepts it and reports Sub_part=255. `(255)` on TINYTEXT also fails on MySQL/Percona (255 chars x 4 bytes is over the 255-byte column). `(63)` on TINYTEXT and `(255)` on TINYBLOB work everywhere. The CMS rule is wrong for the TINY types on MySQL/Percona: use TINYTEXT `(63)` and TINYBLOB `(255)`.
+    3. **VARCHAR prefix equal to the column length.** `(255)` on VARCHAR(255) is a whole-column index on every server: SHOW INDEX reports Sub_part NULL, SHOW CREATE TABLE prints the key without a prefix, and ORDER BY uses the index with no filesort, same as no prefix. `(250)` is a real prefix index and ORDER BY filesorts. The CMS rule holds: `min(n, 768)` with n at or below 768 gives a whole-column index.
+    4. **Where the cap is.** 768 utf8mb4 characters and 3072 bytes are the limits on every server for ROW_FORMAT=DYNAMIC. Past the cap, MySQL/Percona and MariaDB 10.2.6/10.2.7 fail with error 1071; MariaDB 10.2.44 and 10.3+ create the index anyway, cut to 768 or 3072, with warning 1071. The CMS rule holds. (VARBINARY could go to 3072; `min(n, 768)` is only conservative there.)
+    5. **Other row formats.** COMPACT and REDUNDANT cap at 767 bytes (191 utf8mb4 characters) on every server, so VARCHAR(768) with no prefix and TEXT `(768)` both fail: MySQL/Percona error 1071 "max key length is 767 bytes", MariaDB error 1709 "Index column size too large. The maximum column size is 767 bytes" (not 1071). innodb_large_prefix is ON by default on MySQL/Percona 5.7 and MariaDB 10.2; set OFF, DYNAMIC caps at 767 bytes too (5.7 fails with 1071; MariaDB 10.2.44 truncates to 191 with a warning). MariaDB 10.3-10.5 show the variable as read-only and empty; it is gone in MariaDB 10.6+ and MySQL 8.0+. The CMS rule assumes DYNAMIC; on a COMPACT or REDUNDANT table (the MySQL 5.6 default) 768 fails everywhere and 191 is the limit.
+    6. **Types that can't take a plain index.** CHAR(255), BINARY(255), ENUM, SET, DECIMAL(10,2), DATETIME index with no prefix on every server. JSON: MySQL/Percona error 3152 on every version (wording differs 5.7 vs 8.0+); MariaDB 10.2.7 thru 10.3 treat it as LONGTEXT and give 1170; MariaDB 10.2.6 has no JSON type (1064 at CREATE TABLE); MariaDB 10.4+ auto-prefix to 768 with warning 1071. GEOMETRY: error 1170 on MySQL/Percona 5.7 and MariaDB thru 10.3; MySQL/Percona 8.0+ turn it into a SPATIAL index attempt and fail with 1252 "All parts of a SPATIAL index must be NOT NULL"; MariaDB 10.4+ auto-prefix to 3072 with warning 1071. The CMS rule holds for the six ordinary types; JSON and GEOMETRY need their own handling on MySQL/Percona.
+    7. **Case.** Lowercase `tinytext` behaves exactly like `TINYTEXT` on every server, and SHOW CREATE TABLE prints the type lowercase on every server (MariaDB adds `DEFAULT NULL`).
+
+
+    __VERDICTS__;
+
 echo "Cells: `OK Sub_part=N` means CREATE INDEX succeeded and SHOW INDEX reports that prefix (NULL = whole column indexed). ";
 echo "`warn` lists warning codes a successful CREATE INDEX raised. `ERR n` is the MySQL error code; messages are under each table.\n\n";
 
@@ -114,7 +129,9 @@ foreach (array_keys($questionTitles) as $title) {
         foreach ($caseNames as $case) {
             $r       = $report['questions'][$title][$case] ?? null;
             $cells[] = cell($r);
-            $byCase[$case][cell($r)][] = $server;
+            if ($r !== null) {
+                $byCase[$case][cell($r)][] = $server;
+            }
             if ($r !== null && !$r['ok']) {
                 $messages["$r[code]: $r[error]"][] = $server;
             }
@@ -130,8 +147,10 @@ foreach (array_keys($questionTitles) as $title) {
     $families = serverFamilies(array_keys($reports));
     foreach ($caseNames as $case) {
         $groups = $byCase[$case];
+        $ran    = count(array_merge(...array_values($groups)));
+        $scope  = $ran === count($reports) ? 'every server' : "every server that ran it ($ran)";
         if (count($groups) === 1) {
-            echo "- **$case**: every server: " . array_key_first($groups) . "\n";
+            echo "- **$case**: $scope: " . array_key_first($groups) . "\n";
             continue;
         }
         $parts = [];

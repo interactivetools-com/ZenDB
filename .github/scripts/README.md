@@ -18,6 +18,15 @@ server returns) and merges the results into
 - `db-behavior-probe.php` - probe one server, print markdown (and optional JSON)
 - `db-behavior-merge.php` - merge per-server JSONs into one "who differs" report
 
+**Index rules matrix** (`index-rules-matrix.yml`) - fact-checks the prefix rules
+CMS Builder uses when it auto-creates an index (TEXT/BLOB get `(768)`, VARCHAR
+gets `min(n, 768)`, everything else none) by running CREATE INDEX on every
+text, blob, and varchar shape on every database image. Results go in
+[docs/internal/index-rules-matrix.md](../../docs/internal/index-rules-matrix.md).
+
+- `index-rules-probe.php` - probe one server, print markdown (and optional JSON)
+- `index-rules-merge.php` - merge per-server JSONs into one table per question
+
 **Version speed test** (`version-matrix.yml`) - the previous release versus the
 working copy on the pages from
 [docs/performance.md](../../docs/performance.md), so a release can say how much
