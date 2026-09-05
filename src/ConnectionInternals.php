@@ -16,7 +16,7 @@ use mysqli_result;
 use stdClass;
 
 // import built-ins so calls resolve at compile time instead of per-call lookups; NamespacedCallsTest keeps this list exact
-use function addcslashes, array_column, array_count_values, array_filter, array_flip, array_is_list, array_key_exists, array_keys, array_map, array_unique, array_values, count, explode, get_debug_type, get_object_vars, implode, is_array, is_bool, is_finite, is_float, is_int, is_object, is_string, preg_grep, preg_match, preg_match_all, preg_replace, preg_replace_callback, str_contains, str_replace, str_starts_with, strlen, strspn, strtoupper, substr, trim, var_export;
+use function addcslashes, array_column, array_count_values, array_filter, array_flip, array_is_list, array_key_exists, array_keys, array_map, array_unique, array_values, count, explode, get_debug_type, get_object_vars, implode, is_array, is_bool, is_float, is_int, is_object, is_string, preg_grep, preg_match, preg_match_all, preg_replace, preg_replace_callback, str_contains, str_replace, str_starts_with, strlen, strspn, strtoupper, substr, trim, var_export;
 use const MYSQLI_ASSOC, MYSQLI_NUM;
 
 /**
@@ -827,7 +827,7 @@ trait ConnectionInternals
 
         // Floats get the same exact literal as every other escape path
         if (is_float($input)) {
-            $input = $this->floatToSql($input, 'escape() value');
+            $input = DB::floatToSql($input, 'escape() value');
         }
 
         // Escape LIKE wildcards first, on the raw value: MySQL decodes a pattern twice
@@ -882,7 +882,7 @@ trait ConnectionInternals
             } elseif ($value === null) {
                 $sql .= 'NULL';
             } elseif (is_float($value)) {
-                $sql .= $this->floatToSql($value, 'escapef() value');
+                $sql .= DB::floatToSql($value, 'escapef() value');
             } elseif (is_bool($value)) {
                 $sql .= $value ? 'TRUE' : 'FALSE';
             } elseif ($value instanceof RawSql) {
@@ -994,7 +994,7 @@ trait ConnectionInternals
             return 'NULL';
         }
         if (is_float($value)) {
-            return $this->floatToSql($value, $context);
+            return DB::floatToSql($value, $context);
         }
         if (is_bool($value)) {
             return $value ? 'TRUE' : 'FALSE';
@@ -1003,40 +1003,6 @@ trait ConnectionInternals
             return (string)$value;
         }
         throw new InvalidArgumentException("Unsupported type for $context: " . get_debug_type($value));
-    }
-
-    /**
-     * Convert a finite float to the shortest SQL literal that parses back to the
-     * identical double. Every float ZenDB writes into SQL goes through here, so one
-     * value has one spelling on every path: placeholders, SET clauses, IN lists,
-     * escape(), and the like* helpers.
-     *
-     *     0.1 + 0.2            →  0.30000000000000004    the value the variable actually holds
-     *     2.0                  →  2.0
-     *     12345678901234567.0  →  12345678901234568.0    ...567 is not representable; the variable holds ...568
-     *
-     * A plain (string) cast rounds to 14 digits and prints values PHP isn't
-     * actually holding, so writes lose precision and WHERE equality misses
-     * stored values (MySQL reads '0.3' as a number that won't equal the sum).
-     *
-     * The imprecision starts in PHP, not here: floats are binary, so 0.1 + 0.2
-     * is already 0.30000000000000004 before ZenDB sees it. This function writes
-     * exactly what PHP has. To store something else, convert before passing:
-     *
-     *     round(0.1 + 0.2, 2)          →  0.3                    rounded to a precision you chose
-     *     (string)(0.1 + 0.2)          →  '0.3'                  strings pass through untouched...
-     *     (string)12345678901234568.0  →  '1.2345678901235E+16'  ...but the cast E-notates large floats
-     *
-     * For exact values, use ints of the smallest unit (cents, not dollars) or a
-     * DECIMAL column with string input.
-     *
-     * NAN and INF have no SQL literal, so they throw.
-     */
-    private function floatToSql(float $value, string $context = 'value'): string
-    {
-        return is_finite($value)
-            ? var_export($value, true) // exact: php.ini serialize_precision, -1 (shortest round-trip) by default since PHP 7.1
-            : throw new InvalidArgumentException("NAN and INF have no SQL literal, can't escape $context");
     }
 
     //endregion
