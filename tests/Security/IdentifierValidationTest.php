@@ -368,11 +368,17 @@ class IdentifierValidationTest extends BaseTestCase
         ];
     }
 
-    public function testIsIdentifierDoesNotCacheNames(): void
+    public function testIsIdentifierAddsValidNamesToSafeIdentifiers(): void
     {
-        unset(DB::$safeIdentifiers['uncached_column']);
-        DB::isIdentifier('uncached_column');
-        $this->assertArrayNotHasKey('uncached_column', DB::$safeIdentifiers);
+        unset(DB::$safeIdentifiers['checked_once_column']);
+        DB::isIdentifier('checked_once_column');
+        $this->assertArrayHasKey('checked_once_column', DB::$safeIdentifiers);
+    }
+
+    public function testIsIdentifierDoesNotCacheInvalidNames(): void
+    {
+        DB::isIdentifier('bad name');
+        $this->assertArrayNotHasKey('bad name', DB::$safeIdentifiers);
     }
 
     //endregion
