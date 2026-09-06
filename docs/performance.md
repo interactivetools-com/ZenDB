@@ -9,26 +9,26 @@ Pages that HTML-encode their output, the common case.
 
 | Page              | raw mysqli + `htmlspecialchars()` | ZenDB + SmartString |  difference |
 |-------------------|----------------------------------:|--------------------:|------------:|
-| Detail, 1 article |                          0.047 ms |            0.042 ms | -0.000005 s |
-| Widget, 5 rows    |                          0.065 ms |            0.076 ms | +0.000011 s |
-| List, 25 rows     |                          0.150 ms |            0.169 ms | +0.000020 s |
-| List, 100 rows    |                          0.477 ms |            0.559 ms | +0.000082 s |
+| Detail, 1 article |                          0.048 ms |            0.045 ms | -0.000003 s |
+| Widget, 5 rows    |                          0.066 ms |            0.076 ms | +0.000010 s |
+| List, 25 rows     |                          0.145 ms |            0.164 ms | +0.000019 s |
+| List, 100 rows    |                          0.447 ms |            0.531 ms | +0.000084 s |
 
 Data processing with no HTML output: ZenDB's `->toArray()` returns plain
 arrays and skips the encoding layer.
 
 | Page              | raw mysqli | ZenDB `->toArray()` |  difference |
 |-------------------|-----------:|--------------------:|------------:|
-| Detail, 1 article |   0.033 ms |            0.036 ms | +0.000003 s |
-| List, 25 rows     |   0.117 ms |            0.134 ms | +0.000017 s |
-| List, 100 rows    |   0.341 ms |            0.419 ms | +0.000078 s |
+| Detail, 1 article |   0.034 ms |            0.038 ms | +0.000004 s |
+| List, 25 rows     |   0.118 ms |            0.136 ms | +0.000018 s |
+| List, 100 rows    |   0.334 ms |            0.410 ms | +0.000076 s |
 
-Worst case, ZenDB adds 82 millionths of a second to a page. Best case, it's
+Worst case, ZenDB adds 84 millionths of a second to a page. Best case, it's
 faster: the single-article detail page runs faster through ZenDB than through
 hand-written mysqli. For scale, humans start to notice interface delays
 around 100 ms: about 1,200 times the largest difference in these tables.
 
-These benchmarks ran on PHP 8.5 and MariaDB 10.3 on a dedicated Xeon E-2386G
+These benchmarks ran on PHP 8.5 and MariaDB 12.3 on a dedicated Xeon E-2386G
 with the database on the same machine; two full passes agreed within 1%, and
 PHP 8.1 through 8.5 come out within a few percent of each other. Slower
 hosting scales every column up roughly proportionally; the last section shows
@@ -118,19 +118,19 @@ scans first and only transforms text that needs it, so on multi-KB fields it
 runs faster than `htmlspecialchars()` (measurements on
 [SmartString's performance page](https://github.com/interactivetools-com/SmartString/blob/main/docs/performance.md)).
 That saving on the 5 KB content field is what pays for ZenDB's query-building
-work on the detail page: ~3 µs behind on raw arrays, ~5 µs ahead with HTML
+work on the detail page: ~4 µs behind on raw arrays, ~3 µs ahead with HTML
 output.
 
 **Row construction sets the list-page gap.** Every row becomes a result
 object, so the difference grows with row count. The raw-array table is the
-clean view, no encoding on either side: ~3 µs at 1 row, ~17 µs at 25 rows,
-~78 µs at 100. On the HTML pages the encoding saving offsets part of that,
+clean view, no encoding on either side: ~4 µs at 1 row, ~18 µs at 25 rows,
+~76 µs at 100. On the HTML pages the encoding saving offsets part of that,
 which is why their gaps run smaller.
 
 ## When to Care
 
-Rarely. The largest difference on any page, ~82 µs (0.000082 s), is about a
-seventh of that page's own ~0.56 ms cost and about a 1,200th of the ~100 ms
+Rarely. The largest difference on any page, ~84 µs (0.000084 s), is about a
+sixth of that page's own ~0.53 ms cost and about a 1,200th of the ~100 ms
 where humans notice. These tests also ran with the database on the same
 machine as PHP; when the database is a separate server, network time is
 added equally to every column and the differences shrink further. If a page
@@ -159,8 +159,8 @@ Benchmark choices, stated plainly.
   HTML, so they never reach the page. The baseline uses the same flags to
   produce identical output. Plain `htmlspecialchars($x)` with PHP's
   defaults skips that scan and encodes these pages ~3 µs (detail) to
-  ~25 µs (100-row list) faster; against that baseline the gaps grow by the
-  same amounts and the detail page stays ~2 µs ahead.
+  ~23 µs (100-row list) faster; against that baseline the gaps grow by the
+  same amounts and the detail page comes out about even.
 - **PHP's JIT compiler is off**, matching PHP's default production
   configuration.
 - **The corpus is real-page shaped.** 1,000 rows across 10 categories, with
@@ -170,7 +170,7 @@ Benchmark choices, stated plainly.
   that must measure ~1.00x, and the two full passes behind these tables
   agreed within 1% per cell.
 - **Scope.** All cells are reads on a dedicated Linux x64 server (Intel Xeon
-  E-2386G), PHP 8.5, MariaDB 10.3 on the same machine, with no
+  E-2386G), PHP 8.5, MariaDB 12.3 on the same machine, with no
   `encryptionKey` set. Write paths and other platforms were not measured.
   The same workflow dispatched on GitHub Actions (PHP 8.1-8.5, MySQL 8.0)
   lands within a few percent on every ratio.
