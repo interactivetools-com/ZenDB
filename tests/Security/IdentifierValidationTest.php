@@ -381,5 +381,15 @@ class IdentifierValidationTest extends BaseTestCase
         $this->assertArrayNotHasKey('bad name', DB::$safeIdentifiers);
     }
 
+    public function testIsIdentifierTrustsSafeIdentifiersWithoutRunningTheRegex(): void
+    {
+        DB::$safeIdentifiers['seeded name'] = true; // would fail the regex, so a true result proves the list was checked first
+        try {
+            $this->assertTrue(DB::isIdentifier('seeded name'));
+        } finally {
+            unset(DB::$safeIdentifiers['seeded name']);
+        }
+    }
+
     //endregion
 }

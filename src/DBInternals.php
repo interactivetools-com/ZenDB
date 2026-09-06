@@ -179,9 +179,9 @@ trait DBInternals
      * real_escape_string() doesn't escape backticks, so this check is what makes an
      * identifier safe there. Use assertIdentifier() when you want to throw.
      *
-     * Names that pass are added to `$safeIdentifiers`. Inside ZenDB, call sites check that
-     * list first and skip the call for names already seen - IdentifierValidationTest enforces
-     * this form in src/:
+     * Names that pass are added to `$safeIdentifiers` and skip the regex next time. Inside
+     * ZenDB, call sites check that list first and skip the call too - IdentifierValidationTest
+     * enforces this form in src/:
      *
      *     isset(DB::$safeIdentifiers[$column]) || DB::assertIdentifier($column, 'column name');
      *
@@ -197,7 +197,7 @@ trait DBInternals
      */
     public static function isIdentifier(string $identifier): bool
     {
-        if (!preg_match('/^[\w-]+\z/', $identifier)) { // \z: $ would also match before a trailing newline; no /u so \w stays ASCII
+        if (!isset(self::$safeIdentifiers[$identifier]) && !preg_match('/^[\w-]+\z/', $identifier)) { // \z: $ would also match before a trailing newline; no /u so \w stays ASCII
             return false;
         }
         self::$safeIdentifiers[$identifier] = true;
