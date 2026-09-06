@@ -10,7 +10,7 @@ use RuntimeException;
 use Throwable;
 
 // import built-ins so calls resolve at compile time instead of per-call lookups; NamespacedCallsTest keeps this list exact
-use function abs, intdiv, is_float, is_null, min, preg_match, str_replace;
+use function abs, count, explode, intdiv, is_float, is_null, min, str_replace;
 use const PHP_INT_MAX;
 
 /**
