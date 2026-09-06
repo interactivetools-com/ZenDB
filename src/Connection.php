@@ -395,10 +395,13 @@ class Connection
      */
     public function queryOne(string $sqlTemplate, ...$params): SmartArrayBase
     {
-        $this->mysqli->lastQuery = $sqlTemplate;  // set for reject-* errors; overwritten with the LIMIT-appended template below
+        $this->mysqli->lastQuery = $sqlTemplate;  // set for validation errors; overwritten with the LIMIT-appended template below
 
+        // Validate the template as the caller wrote it; the digit in the appended
+        // "LIMIT 1" would make assertSafeTemplate() skip its fast path
         $this->rejectLimitAndOffset($sqlTemplate);
         $this->rejectPreLimitConflicts($sqlTemplate);
+        $this->assertSafeTemplate($sqlTemplate);
 
         $supportsLimit = preg_match('/^\s*(SELECT|WITH)\b/i', $sqlTemplate);
         $sqlTemplate   .= $supportsLimit ? ' LIMIT 1' : '';
@@ -407,7 +410,6 @@ class Connection
         // directly (an empty collection when no row matches), skipping the result-set
         // first() and asHtml()/asRaw() steps
         $this->mysqli->lastQuery = $sqlTemplate;
-        $this->assertSafeTemplate($sqlTemplate);
         $this->clearEncryptedColumnsCacheOnDdl($sqlTemplate);
         $this->paramValues = $this->parseParams($params);
         $sql               = $this->replacePlaceholders($sqlTemplate);

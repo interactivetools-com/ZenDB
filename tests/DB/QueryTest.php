@@ -113,4 +113,38 @@ class QueryTest extends BaseTestCase
         DB::queryOne("SELECT * FROM ::users WHERE num = 1;");
     }
 
+    /** @dataProvider queryOneUnsafeTemplateProvider */
+    public function testQueryOneRejectsUnsafeTemplates(string $sql, string $expectedMessage): void
+    {
+        $queries = DB::$queryCount;
+        try {
+            DB::queryOne($sql);
+            $this->fail('Unsafe template should be rejected');
+        } catch (InvalidArgumentException $e) {
+            $this->assertStringContainsString($expectedMessage, $e->getMessage());
+            $this->assertSame($queries, DB::$queryCount, 'rejected before the query runs');
+            $this->assertSame($sql, DB::$mysqli->lastQuery, 'lastQuery holds the template as the caller wrote it');
+        }
+    }
+
+    public static function queryOneUnsafeTemplateProvider(): array
+    {
+        return [
+            'quoted'     => ["SELECT * FROM ::users WHERE name = 'unsafe'", "Quotes not allowed in template"],
+            'number'     => ['SELECT * FROM ::users WHERE num = 7', "Standalone number in template"],
+            'hex'        => ['SELECT * FROM ::users WHERE num = 0x41', "Numeric literal '0x41'"],
+            'scientific' => ['SELECT * FROM ::users WHERE num = 1e2', "Numeric literal '1e2'"],
+            'backslash'  => ["SELECT * FROM ::users WHERE name = \\?", "Backslashes not allowed in template"],
+            'null byte'  => ["SELECT * FROM ::users WHERE name = ?\x00", "NULL character not allowed in template"],
+            'control z'  => ["SELECT * FROM ::users WHERE name = ?\x1a", "CTRL-Z character not allowed in template"],
+        ];
+    }
+
+    public function testQueryOneAllowsEmptyLiteralsAndQuotedParams(): void
+    {
+        $row = DB::queryOne("SELECT ? AS value, '' AS blank", "' OR TRUE --");
+        $this->assertSame("' OR TRUE --", $row->value->value());
+        $this->assertSame('', $row->blank->value());
+    }
+
 }
