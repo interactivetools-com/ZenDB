@@ -89,7 +89,7 @@ class MysqliWrapper extends mysqli
         parent::__construct();
     }
 
-    /** @noinspection PhpFullyQualifiedNameUsageInspection - FQN required until PHP 8.2 minimum (can't import) */
+    /** @noinspection PhpFullyQualifiedNameUsageInspection - TODO-PHP82: import SensitiveParameter and drop the FQN; the FQN only keeps PHPStorm quiet at the 8.1 language level */
     public function real_connect(
         #[\SensitiveParameter] ?string $hostname = null,
         #[\SensitiveParameter] ?string $username = null,

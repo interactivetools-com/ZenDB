@@ -121,7 +121,7 @@ class Connection
      *     encryptionKey?:        string,    // AES encryption key, sets MySQL @ek session variable on first use
      * } $config
      *
-     * @noinspection PhpFullyQualifiedNameUsageInspection - FQN required until PHP 8.2 minimum (can't import)
+     * @noinspection PhpFullyQualifiedNameUsageInspection - TODO-PHP82: import SensitiveParameter and drop the FQN; the FQN only keeps PHPStorm quiet at the 8.1 language level
      */
     public function __construct(#[\SensitiveParameter] array $config = [])
     {
@@ -491,7 +491,7 @@ class Connection
      * @param array  $values    Column => value pairs
      * @return int Insert ID
      * @throws InvalidArgumentException
-     * @noinspection PhpFullyQualifiedNameUsageInspection - FQN required until PHP 8.2 minimum (can't import)
+     * @noinspection PhpFullyQualifiedNameUsageInspection - TODO-PHP82: import SensitiveParameter and drop the FQN; the FQN only keeps PHPStorm quiet at the 8.1 language level
      */
     public function insert(string $baseTable, #[\SensitiveParameter] array $values): int
     {
@@ -522,7 +522,7 @@ class Connection
      * @param mixed            ...$params Parameters to bind
      * @return int Number of affected rows
      * @throws InvalidArgumentException
-     * @noinspection PhpFullyQualifiedNameUsageInspection - FQN required until PHP 8.2 minimum (can't import)
+     * @noinspection PhpFullyQualifiedNameUsageInspection - TODO-PHP82: import SensitiveParameter and drop the FQN; the FQN only keeps PHPStorm quiet at the 8.1 language level
      */
     public function update(string $baseTable, #[\SensitiveParameter] array $values, int|array|string $whereEtc, ...$params): int
     {
@@ -866,7 +866,7 @@ class Connection
      *
      * @param string|int|float|null|SmartString $value Plaintext value to encrypt
      * @return string|null Encrypted binary string, or null if value is null
-     * @noinspection PhpFullyQualifiedNameUsageInspection - FQN required until PHP 8.2 minimum (can't import)
+     * @noinspection PhpFullyQualifiedNameUsageInspection - TODO-PHP82: import SensitiveParameter and drop the FQN; the FQN only keeps PHPStorm quiet at the 8.1 language level
      */
     public function encryptValue(#[\SensitiveParameter] string|int|float|null|SmartString $value): string|null
     {
@@ -913,7 +913,7 @@ class Connection
      * @param array $rows              Fetched rows (modified in place)
      * @param array $keysOrFetchFields Either a list of row keys (column names for assoc rows, indexes for numeric rows),
      *                                 or field objects from fetch_fields() (auto-detects encrypted cols)
-     * @noinspection PhpFullyQualifiedNameUsageInspection - FQN required until PHP 8.2 minimum (can't import)
+     * @noinspection PhpFullyQualifiedNameUsageInspection - TODO-PHP82: import SensitiveParameter and drop the FQN; the FQN only keeps PHPStorm quiet at the 8.1 language level
      */
     public function decryptRows(#[\SensitiveParameter] array &$rows, array $keysOrFetchFields): void
     {
@@ -979,7 +979,7 @@ class Connection
      *
      * @param string $fullTable Full table name (with prefix)
      * @param array  $values    Column => value pairs (modified in place)
-     * @noinspection PhpFullyQualifiedNameUsageInspection - FQN required until PHP 8.2 minimum (can't import)
+     * @noinspection PhpFullyQualifiedNameUsageInspection - TODO-PHP82: import SensitiveParameter and drop the FQN; the FQN only keeps PHPStorm quiet at the 8.1 language level
      */
     private function encryptRow(string $fullTable, #[\SensitiveParameter] array &$values): void
     {

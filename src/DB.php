@@ -193,7 +193,7 @@ class DB
 
     /**
      * Wrapper for {@see Connection::insert()}
-     * @noinspection PhpFullyQualifiedNameUsageInspection - FQN required until PHP 8.2 minimum (can't import)
+     * @noinspection PhpFullyQualifiedNameUsageInspection - TODO-PHP82: import SensitiveParameter and drop the FQN; the FQN only keeps PHPStorm quiet at the 8.1 language level
      */
     public static function insert(string $baseTable, #[\SensitiveParameter] array $values): int
     {
@@ -202,7 +202,7 @@ class DB
 
     /**
      * Wrapper for {@see Connection::update()}
-     * @noinspection PhpFullyQualifiedNameUsageInspection - FQN required until PHP 8.2 minimum (can't import)
+     * @noinspection PhpFullyQualifiedNameUsageInspection - TODO-PHP82: import SensitiveParameter and drop the FQN; the FQN only keeps PHPStorm quiet at the 8.1 language level
      */
     public static function update(string $baseTable, #[\SensitiveParameter] array $values, int|array|string $whereEtc, ...$params): int
     {
@@ -332,7 +332,7 @@ class DB
 
     /**
      * @see Connection::encryptValue()
-     * @noinspection PhpFullyQualifiedNameUsageInspection - FQN required until PHP 8.2 minimum (can't import)
+     * @noinspection PhpFullyQualifiedNameUsageInspection - TODO-PHP82: import SensitiveParameter and drop the FQN; the FQN only keeps PHPStorm quiet at the 8.1 language level
      */
     public static function encryptValue(#[\SensitiveParameter] string|int|float|null|SmartString $value): string|null
     {

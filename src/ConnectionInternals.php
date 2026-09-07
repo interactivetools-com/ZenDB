@@ -1344,7 +1344,7 @@ trait ConnectionInternals
      *
      * @param array $config Config array; credential keys are consumed
      * @throws RuntimeException If a required credential is missing, or any credential isn't a string
-     * @noinspection PhpFullyQualifiedNameUsageInspection - FQN required until PHP 8.2 minimum (can't import)
+     * @noinspection PhpFullyQualifiedNameUsageInspection - TODO-PHP82: import SensitiveParameter and drop the FQN; the FQN only keeps PHPStorm quiet at the 8.1 language level
      */
     private function sealSecrets(#[\SensitiveParameter] array &$config): void
     {

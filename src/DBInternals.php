@@ -228,7 +228,7 @@ trait DBInternals
 
     /**
      * @see Connection::decryptRows()
-     * @noinspection PhpFullyQualifiedNameUsageInspection - FQN required until PHP 8.2 minimum (can't import)
+     * @noinspection PhpFullyQualifiedNameUsageInspection - TODO-PHP82: import SensitiveParameter and drop the FQN; the FQN only keeps PHPStorm quiet at the 8.1 language level
      */
     public static function decryptRows(#[\SensitiveParameter] array &$rows, array $keysOrFetchFields): void
     {
