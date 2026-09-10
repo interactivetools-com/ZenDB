@@ -16,7 +16,7 @@ use const ENT_DISALLOWED, ENT_HTML5, ENT_QUOTES, ENT_SUBSTITUTE, MYSQLI_TYPE_BLO
  *
  * Handles:
  * - Default connection management
- * - Escape methods (escape, escapef, escapeCSV)
+ * - Escape methods (escape, escapef, escapeCSV, whereSql)
  */
 trait DBInternals
 {
@@ -112,6 +112,16 @@ trait DBInternals
     public static function escapeCSV(array $values): RawSql
     {
         return self::connection()->escapeCSV($values);
+    }
+
+    /**
+     * Wrapper for {@see Connection::whereSql()}
+     *
+     * @internal
+     */
+    public static function whereSql(array $where): string
+    {
+        return self::connection()->whereSql($where);
     }
 
     /**

@@ -13,7 +13,7 @@ use Itools\ZenDB\Tests\BaseTestCase;
  * Tests for NULL value handling
  *
  * @covers \Itools\ZenDB\ConnectionInternals::getPlaceholderValue
- * @covers \Itools\ZenDB\ConnectionInternals::whereFromArray
+ * @covers \Itools\ZenDB\ConnectionInternals::whereSql
  */
 class NullValuesTest extends BaseTestCase
 {

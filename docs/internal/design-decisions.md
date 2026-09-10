@@ -262,8 +262,8 @@ The docs deliberately omit these; the omission is a decision, not a gap
   (loadHandler is CMS Builder plumbing); undocumented keeps the signatures
   changeable. The PII note (logged SQL contains inlined user values) lives in
   the queryLogger docblocks.
-- **`escape()`, `escapef()`, `escapeCSV()`** - `@internal`, exist so ZenDB and
-  CMS Builder can build their own SQL; placeholders are the supported API.
+- **`escape()`, `escapef()`, `escapeCSV()`, `whereSql()`** - `@internal`, exist so ZenDB and
+  CMS Builder can build their own SQL; placeholders and WHERE arrays are the supported API.
   Docblocks open with "Internal use, undocumented by design."
 - **`get()` with a default argument** - de-emphasized; the default applies only
   to missing keys, never stored nulls, which misleads more than it helps in

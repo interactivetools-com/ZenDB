@@ -13,7 +13,7 @@ use ReflectionMethod;
 use ReflectionProperty;
 
 /**
- * whereFromArray(), buildSetClause(), escapef(), and the replacePlaceholders()
+ * whereSql(), buildSetClause(), escapef(), and the replacePlaceholders()
  * fast arms carry inlined copies of escapeValue()'s output for speed. These
  * tests pin every copy byte-identical to escapeValue() so they can't drift:
  * change how one path escapes and the matching test fails.
@@ -21,7 +21,6 @@ use ReflectionProperty;
 class EscapeParityTest extends BaseTestCase
 {
     private static Closure $escapeValue;
-    private static Closure $whereFromArray;
     private static Closure $buildSetClause;
     private static Closure $replacePlaceholders;
 
@@ -35,7 +34,6 @@ class EscapeParityTest extends BaseTestCase
         };
 
         self::$escapeValue    = $method('escapeValue');
-        self::$whereFromArray = $method('whereFromArray');
         self::$buildSetClause = $method('buildSetClause');
 
         self::$replacePlaceholders = function (string $tpl, array $params, int $positionalCount) use ($conn, $method) {
@@ -68,10 +66,10 @@ class EscapeParityTest extends BaseTestCase
     }
 
     #[DataProvider('valueProvider')]
-    public function testWhereFromArrayMatchesEscapeValue(mixed $value): void
+    public function testWhereSqlMatchesEscapeValue(mixed $value): void
     {
-        $expected = 'WHERE `col` = ' . (self::$escapeValue)($value);
-        $this->assertSame($expected, (self::$whereFromArray)(['col' => $value]));
+        $expected = '`col` = ' . (self::$escapeValue)($value);
+        $this->assertSame($expected, DB::whereSql(['col' => $value]));
     }
 
     #[DataProvider('valueProvider')]
@@ -118,9 +116,9 @@ class EscapeParityTest extends BaseTestCase
         $this->assertSame((self::$escapeValue)($raw), DB::escapef('?', $raw));
     }
 
-    public function testWhereFromArrayNullBecomesIsNull(): void
+    public function testWhereSqlNullBecomesIsNull(): void
     {
-        $this->assertSame('WHERE `col` IS NULL', (self::$whereFromArray)(['col' => null]));
+        $this->assertSame('`col` IS NULL', DB::whereSql(['col' => null]));
     }
 
     public function testBuildSetClauseNullMatchesEscapeValue(): void

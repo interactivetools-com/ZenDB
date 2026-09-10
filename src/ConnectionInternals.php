@@ -507,7 +507,7 @@ trait ConnectionInternals
 
         return match (true) {
             is_string($where) => $this->whereFromString($where),
-            is_array($where)  => $this->whereFromArray($where),
+            is_array($where)  => $where ? "WHERE {$this->whereSql($where)}" : '',
             is_int($where)    => "WHERE `num` = $where",  // Deprecated - hardcoded for CMS Builder
         };
     }
@@ -537,57 +537,6 @@ trait ConnectionInternals
 
         // Replace ? and :name placeholders with escaped values
         return $this->replacePlaceholders($where);
-    }
-
-    /**
-     * Build WHERE clause from array input (['column' => value]).
-     * Returns complete SQL with values escaped inline.
-     *
-     * Supported value types:
-     *   - null, SmartNull (becomes IS NULL)
-     *   - int, float, bool, string (escaped and quoted)
-     *   - RawSql (inserted as-is, for NOW(), expressions, etc.)
-     *   - SmartString (unwrapped via ->value(), then escaped)
-     *   - array, SmartArrayBase (becomes IN clause via escapeCSV)
-     */
-    private function whereFromArray(array $where): string
-    {
-        if (!$where) {
-            return '';
-        }
-
-        $conditions = [];
-        foreach ($where as $column => $value) {
-            // Reject non-string keys
-            if (!is_string($column)) {
-                throw new InvalidArgumentException("Column names must be strings, got " . get_debug_type($column));
-            }
-
-            isset(DB::$safeIdentifiers[$column]) || DB::assertIdentifier($column, 'column name');
-
-            if ($value instanceof SmartString) {
-                $value = $value->value(); // unwrap before the type check; SmartString can wrap null/bool
-            }
-            if ($value instanceof SmartNull) {
-                $value = null; // same as the placeholder path
-            }
-            // string/int arms copy escapeValue() output to skip the method call; EscapeParityTest pins them identical
-            if (is_string($value)) {
-                $conditions[] = "`$column` = '" . $this->mysqli->real_escape_string($value) . "'";
-            } elseif (is_int($value)) {
-                $conditions[] = "`$column` = $value";
-            } elseif ($value === null) {
-                $conditions[] = "`$column` IS NULL";
-            } elseif ($value instanceof SmartArrayBase) {
-                $conditions[] = "`$column` IN (" . $this->escapeCSV($value->toArray()) . ")";
-            } elseif (is_array($value)) {
-                $conditions[] = "`$column` IN (" . $this->escapeCSV($value) . ")";
-            } else {
-                $conditions[] = "`$column` = " . $this->escapeValue($value, "column '$column'");
-            }
-        }
-
-        return "WHERE " . implode(" AND ", $conditions);
     }
 
     /**
@@ -959,7 +908,7 @@ trait ConnectionInternals
     /**
      * Convert one PHP value to a SQL literal. Every value ZenDB writes into SQL goes
      * through here or through an inlined copy of the string/int arms in a hot path
-     * (whereFromArray(), buildSetClause(), escapeCSV(), replacePlaceholders() fast
+     * (whereSql(), buildSetClause(), escapeCSV(), replacePlaceholders() fast
      * arms); EscapeParityTest pins those copies byte-identical to this function.
      *
      *   "O'Brien"        →  'O\'Brien'    escaped and quoted
@@ -1003,6 +952,76 @@ trait ConnectionInternals
             return (string)$value;
         }
         throw new InvalidArgumentException("Unsupported type for $context: " . get_debug_type($value));
+    }
+
+    /**
+     * Internal use, undocumented by design. Use the array form of select(), update(),
+     * delete(), and count() instead; this exists for code that builds its own SQL.
+     *
+     * Turns a WHERE array (['column' => value]) into SQL conditions joined with AND,
+     * values escaped inline. The WHERE keyword is left off so the caller can add more
+     * conditions. An empty array returns TRUE so the result is always valid after WHERE.
+     *
+     *     DB::whereSql(['status' => 'Active', 'id' => [1, 2, 3]]);  // `status` = 'Active' AND `id` IN (1,2,3)
+     *     DB::whereSql([]);                                          // TRUE
+     *     "WHERE " . DB::whereSql($conds) . " AND deleted = 0"
+     *     "WHERE (" . DB::whereSql($conds) . ") OR archived = 1"     // parens: AND binds tighter than OR
+     *
+     * The result is finished SQL, so a string template rejects it. Wrap it in
+     * DB::rawSql() to pass it through a placeholder:
+     *
+     *     DB::query("SELECT * FROM ::users WHERE :conds", [':conds' => DB::rawSql(DB::whereSql($conds))]);
+     *
+     * Supported value types:
+     *   - null, SmartNull (becomes IS NULL)
+     *   - int, float, bool, string (escaped and quoted)
+     *   - RawSql (inserted as-is, for NOW(), expressions, etc.)
+     *   - SmartString (unwrapped via ->value(), then escaped)
+     *   - array, SmartArrayBase (becomes IN clause via escapeCSV)
+     *
+     * @internal
+     * @param array $where Column => value pairs
+     * @return string Conditions joined with AND, or TRUE for an empty array
+     * @throws InvalidArgumentException on a non-string key, unsafe column name, or unsupported value type
+     */
+    public function whereSql(array $where): string
+    {
+        if (!$where) {
+            return 'TRUE';
+        }
+
+        $conditions = [];
+        foreach ($where as $column => $value) {
+            // Reject non-string keys
+            if (!is_string($column)) {
+                throw new InvalidArgumentException("Column names must be strings, got " . get_debug_type($column));
+            }
+
+            isset(DB::$safeIdentifiers[$column]) || DB::assertIdentifier($column, 'column name');
+
+            if ($value instanceof SmartString) {
+                $value = $value->value(); // unwrap before the type check; SmartString can wrap null/bool
+            }
+            if ($value instanceof SmartNull) {
+                $value = null; // same as the placeholder path
+            }
+            // string/int arms copy escapeValue() output to skip the method call; EscapeParityTest pins them identical
+            if (is_string($value)) {
+                $conditions[] = "`$column` = '" . $this->mysqli->real_escape_string($value) . "'";
+            } elseif (is_int($value)) {
+                $conditions[] = "`$column` = $value";
+            } elseif ($value === null) {
+                $conditions[] = "`$column` IS NULL";
+            } elseif ($value instanceof SmartArrayBase) {
+                $conditions[] = "`$column` IN (" . $this->escapeCSV($value->toArray()) . ")";
+            } elseif (is_array($value)) {
+                $conditions[] = "`$column` IN (" . $this->escapeCSV($value) . ")";
+            } else {
+                $conditions[] = "`$column` = " . $this->escapeValue($value, "column '$column'");
+            }
+        }
+
+        return implode(" AND ", $conditions);
     }
 
     //endregion
