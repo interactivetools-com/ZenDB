@@ -145,7 +145,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-24.04-arm, macos-latest, macos-15-intel]
+        os:
+          - windows-latest
+          - ubuntu-24.04-arm
+          - macos-latest
+          # macos-15-intel is off: setup-php often can't install PHP 8.1 there and the job fails before any test runs
 
     defaults:
       run:
