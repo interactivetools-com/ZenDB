@@ -265,6 +265,12 @@ The docs deliberately omit these; the omission is a decision, not a gap
 - **`escape()`, `escapef()`, `escapeCSV()`, `whereSql()`** - `@internal`, exist so ZenDB and
   CMS Builder can build their own SQL; placeholders and WHERE arrays are the supported API.
   Docblocks open with "Internal use, undocumented by design."
+- **RawSql as the WHERE argument** - `select()`, `selectOne()`, `update()`,
+  `delete()`, and `count()` accept a `RawSql` object as `$whereEtc` (2026-09).
+  The SQL is used as written: no template check, no placeholder replacement,
+  and passing params alongside it throws. Exists so CMS Builder can hand over
+  `DB::whereSql()` output without the `"?", DB::rawSql(...)` hop. Undocumented
+  because it's a raw-SQL door; the type hint is the only public trace.
 - **`get()` with a default argument** - de-emphasized; the default applies only
   to missing keys, never stored nulls, which misleads more than it helps in
   docs examples.

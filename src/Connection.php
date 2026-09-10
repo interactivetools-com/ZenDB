@@ -423,13 +423,13 @@ class Connection
      * Select rows from a table.
      * Encrypted columns (MEDIUMBLOB) are automatically decrypted when `encryptionKey` is set.
      *
-     * @param string           $baseTable Table name (without prefix)
-     * @param int|array|string $whereEtc  WHERE and other clauses (ORDER BY, LIMIT, etc.)
-     * @param mixed            ...$params Parameters to bind
+     * @param string                  $baseTable Table name (without prefix)
+     * @param int|array|string|RawSql $whereEtc  WHERE and other clauses (ORDER BY, LIMIT, etc.)
+     * @param mixed                   ...$params Parameters to bind
      * @return SmartArrayBase Result set
      * @throws InvalidArgumentException
      */
-    public function select(string $baseTable, int|array|string $whereEtc = [], ...$params): SmartArrayBase
+    public function select(string $baseTable, int|array|string|RawSql $whereEtc = [], ...$params): SmartArrayBase
     {
         $fullTable               = $this->tablePrefix . $baseTable;
         $this->mysqli->lastQuery = "SELECT * FROM `$fullTable` [WHERE ...]";
@@ -457,13 +457,13 @@ class Connection
      *
      *     $user = DB::selectOne('users', "status = ?", 'Active');
      *
-     * @param string           $baseTable Table name (without prefix)
-     * @param int|array|string $whereEtc  WHERE and other clauses
-     * @param mixed            ...$params Parameters to bind
+     * @param string                  $baseTable Table name (without prefix)
+     * @param int|array|string|RawSql $whereEtc  WHERE and other clauses
+     * @param mixed                   ...$params Parameters to bind
      * @return SmartArrayBase Single row, or an empty result object when no row matches
      * @throws InvalidArgumentException
      */
-    public function selectOne(string $baseTable, int|array|string $whereEtc = [], ...$params): SmartArrayBase
+    public function selectOne(string $baseTable, int|array|string|RawSql $whereEtc = [], ...$params): SmartArrayBase
     {
         $fullTable               = $this->tablePrefix . $baseTable;
         $this->mysqli->lastQuery = "SELECT * FROM `$fullTable` [WHERE ...] LIMIT 1";
@@ -516,15 +516,15 @@ class Connection
      * Update rows in a table.
      * Encrypted columns (MEDIUMBLOB) are automatically encrypted when `encryptionKey` is set.
      *
-     * @param string           $baseTable Table name (without prefix)
-     * @param array            $values    Column => value pairs to update
-     * @param int|array|string $whereEtc  WHERE condition (required), may include ORDER BY, LIMIT
-     * @param mixed            ...$params Parameters to bind
+     * @param string                  $baseTable Table name (without prefix)
+     * @param array                   $values    Column => value pairs to update
+     * @param int|array|string|RawSql $whereEtc  WHERE condition (required), may include ORDER BY, LIMIT
+     * @param mixed                   ...$params Parameters to bind
      * @return int Number of affected rows
      * @throws InvalidArgumentException
      * @noinspection PhpFullyQualifiedNameUsageInspection - TODO-PHP82: import SensitiveParameter and drop the FQN; the FQN only keeps PHPStorm quiet at the 8.1 language level
      */
-    public function update(string $baseTable, #[\SensitiveParameter] array $values, int|array|string $whereEtc, ...$params): int
+    public function update(string $baseTable, #[\SensitiveParameter] array $values, int|array|string|RawSql $whereEtc, ...$params): int
     {
         $fullTable               = $this->tablePrefix . $baseTable;
         $this->mysqli->lastQuery = "UPDATE `$fullTable` [SET ...] [WHERE ...]";
@@ -552,13 +552,13 @@ class Connection
     /**
      * Delete rows from a table.
      *
-     * @param string           $baseTable Table name (without prefix)
-     * @param int|array|string $whereEtc  WHERE condition (required), may include ORDER BY, LIMIT
-     * @param mixed            ...$params Parameters to bind
+     * @param string                  $baseTable Table name (without prefix)
+     * @param int|array|string|RawSql $whereEtc  WHERE condition (required), may include ORDER BY, LIMIT
+     * @param mixed                   ...$params Parameters to bind
      * @return int Number of affected rows
      * @throws InvalidArgumentException
      */
-    public function delete(string $baseTable, int|array|string $whereEtc, ...$params): int
+    public function delete(string $baseTable, int|array|string|RawSql $whereEtc, ...$params): int
     {
         $fullTable               = $this->tablePrefix . $baseTable;
         $this->mysqli->lastQuery = "DELETE FROM `$fullTable` [WHERE ...]";
@@ -587,13 +587,13 @@ class Connection
      *     // COUNT(*) scans all matching rows while this stops at the first:
      *     if (DB::queryOne("SELECT 1 FROM ::users WHERE status = ?", 'active')->isNotEmpty()) { ... }
      *
-     * @param string           $baseTable Table name (without prefix)
-     * @param int|array|string $whereEtc  WHERE and other clauses (but not LIMIT/OFFSET)
-     * @param mixed            ...$params Parameters to bind
+     * @param string                  $baseTable Table name (without prefix)
+     * @param int|array|string|RawSql $whereEtc  WHERE and other clauses (but not LIMIT/OFFSET)
+     * @param mixed                   ...$params Parameters to bind
      * @return int Row count
      * @throws InvalidArgumentException
      */
-    public function count(string $baseTable, int|array|string $whereEtc = [], ...$params): int
+    public function count(string $baseTable, int|array|string|RawSql $whereEtc = [], ...$params): int
     {
         $fullTable               = $this->tablePrefix . $baseTable;
         $this->mysqli->lastQuery = "SELECT COUNT(*) FROM `$fullTable` [WHERE ...]";

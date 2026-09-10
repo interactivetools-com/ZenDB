@@ -101,7 +101,7 @@ trait DBDeprecations
      * @see        DB::selectOne()
      */
     #[Deprecated(replacement: 'DB::selectOne(%parametersList%)')]
-    public static function get(string $baseTable, int|array|string $whereEtc = [], ...$params): SmartArrayBase
+    public static function get(string $baseTable, int|array|string|RawSql $whereEtc = [], ...$params): SmartArrayBase
     {
         self::logDeprecation("DB::get() is deprecated, use DB::selectOne() instead");
         return self::connection()->selectOne($baseTable, $whereEtc, ...$params);

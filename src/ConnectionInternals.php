@@ -350,8 +350,11 @@ trait ConnectionInternals
      * Reject LIMIT/OFFSET - these methods add their own LIMIT internally.
      * @throws InvalidArgumentException
      */
-    private function rejectLimitAndOffset(int|array|string $where): void
+    private function rejectLimitAndOffset(int|array|string|RawSql $where): void
     {
+        if ($where instanceof RawSql) {
+            $where = $this->withoutStringLiterals((string)$where);  // a RawSql carries values inline; check the SQL around them, not the values
+        }
         if (is_string($where) && preg_match('/\b(LIMIT|OFFSET)\b/i', $where)) {
             throw new InvalidArgumentException("This method doesn't support LIMIT or OFFSET");
         }
@@ -382,8 +385,11 @@ trait ConnectionInternals
      *
      * @throws InvalidArgumentException
      */
-    private function rejectPreLimitConflicts(int|array|string $where): void
+    private function rejectPreLimitConflicts(int|array|string|RawSql $where): void
     {
+        if ($where instanceof RawSql) {
+            $where = $this->withoutStringLiterals((string)$where);  // a RawSql carries values inline; check the SQL around them, not the values
+        }
         if (!is_string($where)) {
             return;
         }
@@ -406,29 +412,30 @@ trait ConnectionInternals
     }
 
     /**
-     * Reject empty WHERE clause - prevents accidental bulk updates/deletes.
+     * Reject an empty WHERE so update() and delete() can't touch every row by accident.
      *
-     * Conditions like "num = ?" or "id = :id" are valid (WHERE gets prepended).
-     * We reject empty input or strings starting with a clause keyword
-     * (ORDER, GROUP, LIMIT, ...) which indicate no WHERE condition was provided.
+     * Empty input throws, and so does a string that starts with a clause keyword
+     * (ORDER, GROUP, LIMIT, ...) since that means no condition was given. Conditions
+     * like "num = ?" pass; WHERE is prepended later. A RawSql is checked as its SQL.
      *
      * @throws InvalidArgumentException
      */
-    private function rejectEmptyWhere(int|array|string $where, string $operation): void
+    private function rejectEmptyWhere(int|array|string|RawSql $where, string $operation): void
     {
         if (is_int($where)) {
             return;  // deprecated but still supported
+        }
+
+        if ($where instanceof RawSql) {
+            $where = (string)$where;  // same rules as a string template
         }
 
         if (is_array($where) && !empty($where)) {
             return;
         }
 
-        // string - valid if where has content and doesn't start with a non-condition clause
-        // like ORDER/GROUP/LIMIT: those without WHERE would affect all rows, e.g.
-        // "DELETE FROM t ORDER BY id LIMIT 1". Conditions like "id = ?" are valid
-        // because whereFromString() prepends "WHERE "
-        if (is_string($where) && trim($where) && !preg_match('/^\s*(ORDER|GROUP|HAVING|LIMIT|OFFSET|FOR)\b/i', $where)) {
+        // "DELETE FROM t ORDER BY id LIMIT 1" has no condition and would hit every row
+        if (is_string($where) && trim($where) !== '' && !preg_match('/^\s*(ORDER|GROUP|HAVING|LIMIT|OFFSET|FOR)\b/i', $where)) {
             return;
         }
 
@@ -490,11 +497,11 @@ trait ConnectionInternals
     }
 
     /**
-     * Build WHERE clause from any input type (string, array, or int).
+     * Build WHERE clause from any input type (string, array, RawSql, or int).
      * Reads placeholder values from $this->paramValues (set by the caller).
      * @throws InvalidArgumentException
      */
-    private function whereFromArgs(int|array|string $where): string
+    private function whereFromArgs(int|array|string|RawSql $where): string
     {
         // Record numbers as the WHERE argument are deprecated; numeric strings (usually an
         // uncast query value) work like ints but always log a warning. Both will throw in a future release.
@@ -506,9 +513,10 @@ trait ConnectionInternals
         }
 
         return match (true) {
-            is_string($where) => $this->whereFromString($where),
-            is_array($where)  => $where ? "WHERE {$this->whereSql($where)}" : '',
-            is_int($where)    => "WHERE `num` = $where",  // Deprecated - hardcoded for CMS Builder
+            is_string($where)        => $this->whereFromString($where),
+            is_array($where)         => $where ? "WHERE {$this->whereSql($where)}" : '',
+            $where instanceof RawSql => $this->whereFromRawSql($where),
+            is_int($where)           => "WHERE `num` = $where",  // Deprecated - hardcoded for CMS Builder
         };
     }
 
@@ -523,11 +531,7 @@ trait ConnectionInternals
             return '';
         }
 
-        // Prepend WHERE if not already present
-        $hasLeadingKeyword = preg_match('/^\s*(WHERE|FOR|ORDER|GROUP|HAVING|LIMIT|OFFSET)\b/i', $where);
-        if (!$hasLeadingKeyword) {
-            $where = "WHERE $where";
-        }
+        $where = $this->prependWhere($where);
 
         // Replace [WHERE ...] in lastQuery with the resolved WHERE so errors below report real context
         $this->mysqli->lastQuery = str_replace('[WHERE ...]', $where, $this->mysqli->lastQuery);
@@ -537,6 +541,61 @@ trait ConnectionInternals
 
         // Replace ? and :name placeholders with escaped values
         return $this->replacePlaceholders($where);
+    }
+
+    /**
+     * Build WHERE clause from a RawSql object. The SQL is used as written: no template
+     * check, no placeholder replacement. Undocumented on purpose, for internal code that
+     * builds its own WHERE (see whereSql()).
+     * @throws InvalidArgumentException
+     */
+    private function whereFromRawSql(RawSql $rawSql): string
+    {
+        if ($this->paramValues) {
+            throw new InvalidArgumentException("Placeholder values can't be combined with a RawSql WHERE. Put the values in the SQL or use a string template");
+        }
+
+        $where = (string)$rawSql;
+        if (trim($where) === '') {
+            return '';
+        }
+
+        $where = $this->prependWhere($where);
+        $this->mysqli->lastQuery = str_replace('[WHERE ...]', $where, $this->mysqli->lastQuery);
+        return $where;
+    }
+
+    /**
+     * Prepend WHERE unless the SQL already starts with a clause keyword.
+     */
+    private function prependWhere(string $where): string
+    {
+        $hasLeadingKeyword = preg_match('/^\s*(WHERE|FOR|ORDER|GROUP|HAVING|LIMIT|OFFSET)\b/i', $where);
+        return $hasLeadingKeyword ? $where : "WHERE $where";
+    }
+
+    /**
+     * Replace every quoted string literal with '' and every backtick identifier with ``
+     * so keyword checks see only the surrounding SQL. Comments are kept as they are
+     * (one check looks for a trailing comment) but a quote inside a comment doesn't
+     * start a literal. An unterminated literal runs to the end of the string, as it
+     * does in MySQL. Assumes backslash escapes; NO_BACKSLASH_ESCAPES mode isn't handled.
+     */
+    private function withoutStringLiterals(string $sql): string
+    {
+        // One token per match, in this order: -- comment, # comment, /* comment */, `identifier`, 'literal', "literal".
+        // Inside a literal a backslash escapes the next character (any byte, newline included) and a doubled quote stands for one quote.
+        // Every loop is possessive (*+ and ++) so a multi-megabyte literal is one step, not one per character.
+        $token = '/--[^\r\n]*+|#[^\r\n]*+|\/\*(?:[^*]++|\*(?!\/))*+(?:\*\/|\z)|`(?:[^`]++|``)*+(?:`|\z)|\'(?:[^\'\\\\]++|\\\\[\s\S]|\'\')*+(?:\'|\z)|"(?:[^"\\\\]++|\\\\[\s\S]|"")*+(?:"|\z)/';
+        $stripped = preg_replace_callback($token, static fn(array $m): string => match ($m[0][0]) {
+            "'", '"' => "''",
+            '`'      => '``',
+            default  => $m[0],
+        }, $sql);
+
+        // Without JIT, PCRE gives up (returns null) at about a million escape sequences. Check the raw SQL then:
+        // a keyword inside a value may be refused, but nothing crashes.
+        return $stripped ?? $sql;
     }
 
     /**
@@ -968,13 +1027,14 @@ trait ConnectionInternals
      *     "WHERE (" . DB::whereSql($conds) . ") OR archived = 1"     // parens: AND binds tighter than OR
      *
      * The result is finished SQL, so a string template rejects it. Wrap it in
-     * DB::rawSql() to pass it through a placeholder:
+     * DB::rawSql() to pass it as the WHERE argument or through a placeholder:
      *
+     *     DB::select('users', DB::rawSql(DB::whereSql($conds)));
      *     DB::query("SELECT * FROM ::users WHERE :conds", [':conds' => DB::rawSql(DB::whereSql($conds))]);
      *
      * Supported value types:
      *   - null, SmartNull (becomes IS NULL)
-     *   - int, float, bool, string (escaped and quoted)
+     *   - int, float, bool (SQL literals), string (escaped and quoted)
      *   - RawSql (inserted as-is, for NOW(), expressions, etc.)
      *   - SmartString (unwrapped via ->value(), then escaped)
      *   - array, SmartArrayBase (becomes IN clause via escapeCSV)

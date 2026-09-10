@@ -178,7 +178,7 @@ class DB
     /**
      * Wrapper for {@see Connection::select()}
      */
-    public static function select(string $baseTable, int|array|string $whereEtc = [], ...$params): SmartArrayBase
+    public static function select(string $baseTable, int|array|string|RawSql $whereEtc = [], ...$params): SmartArrayBase
     {
         return self::connection()->select($baseTable, $whereEtc, ...$params);
     }
@@ -186,7 +186,7 @@ class DB
     /**
      * Wrapper for {@see Connection::selectOne()}
      */
-    public static function selectOne(string $baseTable, int|array|string $whereEtc = [], ...$params): SmartArrayBase
+    public static function selectOne(string $baseTable, int|array|string|RawSql $whereEtc = [], ...$params): SmartArrayBase
     {
         return self::connection()->selectOne($baseTable, $whereEtc, ...$params);
     }
@@ -204,7 +204,7 @@ class DB
      * Wrapper for {@see Connection::update()}
      * @noinspection PhpFullyQualifiedNameUsageInspection - TODO-PHP82: import SensitiveParameter and drop the FQN; the FQN only keeps PHPStorm quiet at the 8.1 language level
      */
-    public static function update(string $baseTable, #[\SensitiveParameter] array $values, int|array|string $whereEtc, ...$params): int
+    public static function update(string $baseTable, #[\SensitiveParameter] array $values, int|array|string|RawSql $whereEtc, ...$params): int
     {
         return self::connection()->update($baseTable, $values, $whereEtc, ...$params);
     }
@@ -212,7 +212,7 @@ class DB
     /**
      * Wrapper for {@see Connection::delete()}
      */
-    public static function delete(string $baseTable, int|array|string $whereEtc, ...$params): int
+    public static function delete(string $baseTable, int|array|string|RawSql $whereEtc, ...$params): int
     {
         return self::connection()->delete($baseTable, $whereEtc, ...$params);
     }
@@ -220,7 +220,7 @@ class DB
     /**
      * Wrapper for {@see Connection::count()}
      */
-    public static function count(string $baseTable, int|array|string $whereEtc = [], ...$params): int
+    public static function count(string $baseTable, int|array|string|RawSql $whereEtc = [], ...$params): int
     {
         return self::connection()->count($baseTable, $whereEtc, ...$params);
     }
