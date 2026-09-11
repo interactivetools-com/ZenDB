@@ -29,7 +29,7 @@ on:
           - ubuntu-latest
           - ubuntu-24.04-arm
           - windows-latest
-          - macos-15-intel
+          # - macos-15-intel   # off: setup-php often can't install PHP there and the job fails before it runs
           - macos-latest
       php:
         description: 'PHP version (blank = all)'
@@ -65,7 +65,8 @@ jobs:
           if [ -n "${{ inputs.os }}" ]; then
             echo 'os=["${{ inputs.os }}"]' >> "$GITHUB_OUTPUT"
           else
-            echo 'os=["ubuntu-latest", "ubuntu-24.04-arm", "windows-latest", "macos-15-intel", "macos-latest"]' >> "$GITHUB_OUTPUT"
+            # macos-15-intel is off: setup-php often can't install PHP there and the job fails before it runs
+            echo 'os=["ubuntu-latest", "ubuntu-24.04-arm", "windows-latest", "macos-latest"]' >> "$GITHUB_OUTPUT"
           fi
           if [ -n "${{ inputs.php }}" ]; then
             echo 'php=["${{ inputs.php }}"]' >> "$GITHUB_OUTPUT"
