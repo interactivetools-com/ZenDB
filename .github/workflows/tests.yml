@@ -173,7 +173,7 @@ jobs:
           coverage: none
 
       - name: Start MySQL 8.0
-        uses: shogo82148/actions-setup-mysql@62da9377d83991fce27b6ed2a397d3306121e41d # v1.53.1
+        uses: shogo82148/actions-setup-mysql@334a29f22d90428932f75b11e0d5fcc00bb6b4f4 # v1.54.1
         with:
           mysql-version: '8.0'
 
