@@ -47,6 +47,10 @@ on:
         options: ['off', 'on']
         default: 'off'
 
+# the jobs only read the code
+permissions:
+  contents: read
+
 jobs:
   matrix:
     name: Load matrix
@@ -57,6 +61,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false  # no step uses git with the token, so don't leave it in .git/config
 
       # The library's work is client-side, so the server mostly cancels out: both
       # versions query the same one in the same process. The default spread is
@@ -109,6 +115,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false  # no step uses git with the token, so don't leave it in .git/config
 
       # composer.json path repositories point at ../SmartString and ../SmartArray
       - name: Checkout SmartString and SmartArray
