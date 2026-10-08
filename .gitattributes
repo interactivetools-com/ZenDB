@@ -1,15 +1,17 @@
-# Set all files to use LF for line endings
-* text eol=lf
+# LF line endings for every text file; git detects binary files and leaves them alone
+* text=auto eol=lf
 
 # Exclude dev files from Packagist, Composer, and git archives for leaner installs.
 .editorconfig    export-ignore
 .gitattributes   export-ignore
 .github          export-ignore
 .gitignore       export-ignore
+benchmarks       export-ignore
 docs/**          export-ignore
 logo.svg         export-ignore
 phpunit.xml.dist export-ignore
 tests            export-ignore
+tools            export-ignore
 
 # Except the AI reference: coding assistants read vendor/itools/zendb/ locally,
 # and this one file teaches them the whole API.
