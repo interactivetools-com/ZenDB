@@ -69,17 +69,20 @@ jobs:
       # one image per vendor, old and new, enough to show the ratio holds.
       - name: Build matrix from inputs
         id: load
+        env:
+          PHP:      ${{ inputs.php }}
+          DATABASE: ${{ inputs.database }}
         run: |
-          if [ -n "${{ inputs.php }}" ]; then
-            echo 'php=["${{ inputs.php }}"]' >> "$GITHUB_OUTPUT"
+          if [ -n "$PHP" ]; then
+            echo "php=[\"$PHP\"]" >> "$GITHUB_OUTPUT"
           else
             echo 'php=["8.1", "8.2", "8.3", "8.4", "8.5"]' >> "$GITHUB_OUTPUT"
           fi
 
-          case "${{ inputs.database }}" in
+          case "$DATABASE" in
             '')    echo 'databases=["mysql:8.0", "mysql:9.7", "mariadb:10.11", "mariadb:12.3", "percona/percona-server:8.0"]' >> "$GITHUB_OUTPUT" ;;
             all)   echo "databases=$(jq -c . .github/db-matrix.json)" >> "$GITHUB_OUTPUT" ;;
-            *)     echo 'databases=["${{ inputs.database }}"]' >> "$GITHUB_OUTPUT" ;;
+            *)     echo "databases=[\"$DATABASE\"]" >> "$GITHUB_OUTPUT" ;;
           esac
 
   probe:

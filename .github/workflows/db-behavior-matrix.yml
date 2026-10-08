@@ -57,9 +57,11 @@ jobs:
       # expressions can't do string surgery
       - name: Read .github/db-matrix.json
         id: load
+        env:
+          DATABASE: ${{ inputs.database }}
         run: |
-          if [ -n "${{ inputs.database }}" ]; then
-            LIST='["${{ inputs.database }}"]'
+          if [ -n "$DATABASE" ]; then
+            LIST="[\"$DATABASE\"]"
           else
             LIST=$(jq -c '. + ["mariadb:11.8+rocksdb", "mariadb:12.3+rocksdb", "percona/percona-server:8.0+rocksdb"]' .github/db-matrix.json)
           fi

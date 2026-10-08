@@ -62,9 +62,11 @@ jobs:
       # (channel rankings are round-trip-shaped; a full 19-image sweep repeats them)
       - name: Read .github/db-matrix.json
         id: load
+        env:
+          DATABASE: ${{ inputs.database }}
         run: |
-          if [ -n "${{ inputs.database }}" ]; then
-            LIST='["${{ inputs.database }}"]'
+          if [ -n "$DATABASE" ]; then
+            LIST="[\"$DATABASE\"]"
           else
             LIST=$(jq -c '[.[] | select(IN("mysql:5.7", "mysql:8.0", "mysql:8.4", "mariadb:10.6", "mariadb:11.8"))]' .github/db-matrix.json)
           fi

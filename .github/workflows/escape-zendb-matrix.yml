@@ -49,9 +49,11 @@ jobs:
     steps:
       - name: Build matrix from inputs
         id: load
+        env:
+          PHP: ${{ inputs.php }}
         run: |
-          if [ -n "${{ inputs.php }}" ]; then
-            echo 'php=["${{ inputs.php }}"]' >> "$GITHUB_OUTPUT"
+          if [ -n "$PHP" ]; then
+            echo "php=[\"$PHP\"]" >> "$GITHUB_OUTPUT"
           else
             echo 'php=["8.1", "8.4"]' >> "$GITHUB_OUTPUT"
           fi
@@ -126,8 +128,9 @@ jobs:
           # shell gets them as data, never as script source
           SCALE: ${{ inputs.scale }}
           FILTER: ${{ inputs.filter }}
+          DB_IMAGE: ${{ inputs.database || 'mysql:8.0' }}
         run: |
-          DB_SLUG=$(echo "${{ inputs.database || 'mysql:8.0' }}" | tr ':/' '--')
+          DB_SLUG=$(echo "$DB_IMAGE" | tr ':/' '--')
           SLUG="zendb-php${{ matrix.php }}-$DB_SLUG${{ inputs.jit == 'on' && '-jit' || '' }}"
           echo "SLUG=$SLUG" >> "$GITHUB_ENV"
           php .github/scripts/escape-zendb-probe.php \

@@ -65,15 +65,18 @@ jobs:
     steps:
       - name: Build matrix from inputs
         id: load
+        env:
+          OS:  ${{ inputs.os }}
+          PHP: ${{ inputs.php }}
         run: |
-          if [ -n "${{ inputs.os }}" ]; then
-            echo 'os=["${{ inputs.os }}"]' >> "$GITHUB_OUTPUT"
+          if [ -n "$OS" ]; then
+            echo "os=[\"$OS\"]" >> "$GITHUB_OUTPUT"
           else
             # macos-15-intel is off: setup-php often can't install PHP there and the job fails before it runs
             echo 'os=["ubuntu-latest", "ubuntu-24.04-arm", "windows-latest", "macos-latest"]' >> "$GITHUB_OUTPUT"
           fi
-          if [ -n "${{ inputs.php }}" ]; then
-            echo 'php=["${{ inputs.php }}"]' >> "$GITHUB_OUTPUT"
+          if [ -n "$PHP" ]; then
+            echo "php=[\"$PHP\"]" >> "$GITHUB_OUTPUT"
           else
             echo 'php=["8.1", "8.2", "8.3", "8.4", "8.5", "8.6"]' >> "$GITHUB_OUTPUT"
           fi
@@ -131,8 +134,9 @@ jobs:
           # shell gets them as data, never as script source
           SCALE: ${{ inputs.scale }}
           FILTER: ${{ inputs.filter }}
+          JIT_SUFFIX: ${{ inputs.jit != 'off' && format('-jit-{0}', inputs.jit) || '' }}
         run: |
-          SLUG="${{ matrix.os }}-php${{ matrix.php }}${{ inputs.jit != 'off' && format('-jit-{0}', inputs.jit) || '' }}"
+          SLUG="${{ matrix.os }}-php${{ matrix.php }}$JIT_SUFFIX"
           echo "SLUG=$SLUG" >> "$GITHUB_ENV"
           php .github/scripts/escape-probe.php \
             --json="probe-$SLUG.json" \
