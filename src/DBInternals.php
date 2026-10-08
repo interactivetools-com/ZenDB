@@ -81,6 +81,21 @@ trait DBInternals
         );
     }
 
+    /**
+     * Re-snapshot DB::$mysqli and DB::$server from the default connection after it
+     * reconnects or disconnects on its own (DB::connection()->disconnect()/connect()).
+     * Called by Connection; a no-op for any Connection that isn't the default.
+     *
+     * @internal
+     */
+    public static function syncDefaultConnection(Connection $conn): void
+    {
+        if (self::$db === $conn) {
+            self::$mysqli = $conn->mysqli;
+            self::$server = $conn->server;
+        }
+    }
+
     //endregion
     //region Escaping
 
