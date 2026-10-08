@@ -1,0 +1,12 @@
+# Findings we keep on purpose. Each entry says why.
+rules:
+  # The database matrix tests each image tag's current release (mysql:8.0 is
+  # the newest 8.0.x), so pinning digests would freeze it, and Dependabot
+  # doesn't update digests in workflow files
+  unpinned-images:
+    ignore:
+      - tests.yml
+      - escape-e2e-matrix.yml
+      - escape-zendb-matrix.yml
+      - index-rules-matrix.yml
+      - version-matrix.yml

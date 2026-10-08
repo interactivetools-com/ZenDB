@@ -104,7 +104,7 @@ jobs:
       # The probe script uses plain mysqli with no dependencies, so no composer install.
       # Pinned to the minimum supported PHP so the script can't drift past it
       - name: Setup PHP
-        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2.37.2
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
         with:
           php-version: '8.1'
           extensions: mysqli, openssl
@@ -123,10 +123,13 @@ jobs:
       # actually there, so a broken install can't silently probe as a stock server
       - name: Load RocksDB plugin
         if: ${{ matrix.entry.rocksdb }}
+        env:
+          DB_IMAGE:     ${{ matrix.entry.image }}
+          DB_CONTAINER: ${{ job.services.database.id }}
         run: |
-          case "${{ matrix.entry.image }}" in
+          case "$DB_IMAGE" in
             mariadb:*)
-              docker exec ${{ job.services.database.id }} sh -c "apt-get update -qq && apt-get install -y -qq mariadb-plugin-rocksdb"
+              docker exec "$DB_CONTAINER" sh -c "apt-get update -qq && apt-get install -y -qq mariadb-plugin-rocksdb"
               mysql -h 127.0.0.1 -u root -e "INSTALL SONAME 'ha_rocksdb'"
               ;;
             *)
@@ -143,7 +146,7 @@ jobs:
           DB_DATABASE: phpunit_test_db
           DB_LABEL: ${{ matrix.entry.label }}
         run: |
-          SLUG=$(echo "${{ matrix.entry.label }}" | tr ':/+' '---')
+          SLUG=$(echo "$DB_LABEL" | tr ':/+' '---')
           echo "SLUG=$SLUG" >> "$GITHUB_ENV"
           php .github/scripts/db-behavior-probe.php --json="probe-$SLUG.json" >> "$GITHUB_STEP_SUMMARY"
 

@@ -111,7 +111,7 @@ jobs:
       # Defaults to the minimum supported PHP so the script can't drift past it;
       # the php-version input exists because mysqli::execute_query() is 8.2+
       - name: Setup PHP
-        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2.37.2
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
         with:
           php-version: '${{ inputs.php-version }}'
           extensions: mysqli, pdo_mysql
@@ -141,7 +141,7 @@ jobs:
           SCALE: ${{ inputs.scale }}
           FILTER: ${{ inputs.filter }}
         run: |
-          SLUG=$(echo "${{ matrix.database }}" | tr ':/+' '---')
+          SLUG=$(echo "$DB_LABEL" | tr ':/+' '---')
           echo "SLUG=$SLUG" >> "$GITHUB_ENV"
           php .github/scripts/escape-e2e-probe.php \
             --json="probe-e2e-$SLUG.json" \
@@ -172,7 +172,7 @@ jobs:
           persist-credentials: false  # no step uses git with the token, so don't leave it in .git/config
 
       - name: Setup PHP
-        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2.37.2
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
         with:
           php-version: '8.1'
           coverage: none

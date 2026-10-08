@@ -59,7 +59,7 @@ jobs:
           persist-credentials: false  # no step uses git with the token, so don't leave it in .git/config
 
       - name: Setup PHP
-        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2.37.2
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
         with:
           php-version: '8.1'
           extensions: mysqli
@@ -79,7 +79,7 @@ jobs:
           DB_PASSWORD: ''
           DB_LABEL: ${{ matrix.database }}
         run: |
-          SLUG=$(echo "${{ matrix.database }}" | tr ':/' '--')
+          SLUG=$(echo "$DB_LABEL" | tr ':/' '--')
           echo "SLUG=$SLUG" >> "$GITHUB_ENV"
           php .github/scripts/index-rules-probe.php --json="index-probe-$SLUG.json" >> "$GITHUB_STEP_SUMMARY"
 

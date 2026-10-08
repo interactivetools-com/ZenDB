@@ -5,3 +5,6 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    # wait a week after a release before proposing it, so a bad release gets pulled first
+    cooldown:
+      default-days: 7

@@ -110,7 +110,7 @@ jobs:
       # ship a non-zero opcache.jit_buffer_size, so leaving the jit input alone
       # would silently benchmark with JIT on and label the run "off"
       - name: Setup PHP ${{ matrix.php }}
-        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2.37.2
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
         with:
           php-version: ${{ matrix.php }}
           extensions: mysqli, pdo_mysql
@@ -135,8 +135,10 @@ jobs:
           SCALE: ${{ inputs.scale }}
           FILTER: ${{ inputs.filter }}
           JIT_SUFFIX: ${{ inputs.jit != 'off' && format('-jit-{0}', inputs.jit) || '' }}
+          OS_NAME: ${{ matrix.os }}
+          PHP: ${{ matrix.php }}
         run: |
-          SLUG="${{ matrix.os }}-php${{ matrix.php }}$JIT_SUFFIX"
+          SLUG="$OS_NAME-php$PHP$JIT_SUFFIX"
           echo "SLUG=$SLUG" >> "$GITHUB_ENV"
           php .github/scripts/escape-probe.php \
             --json="probe-$SLUG.json" \
@@ -167,7 +169,7 @@ jobs:
           persist-credentials: false  # no step uses git with the token, so don't leave it in .git/config
 
       - name: Setup PHP
-        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2.37.2
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
         with:
           php-version: '8.1'
           coverage: none

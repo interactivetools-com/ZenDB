@@ -128,7 +128,7 @@ jobs:
           git clone --depth 1 https://github.com/interactivetools-com/SmartArray.git ../SmartArray
 
       - name: Setup PHP ${{ matrix.php }}
-        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2.37.2
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
         with:
           php-version: ${{ matrix.php }}
           extensions: mysqli, mbstring
@@ -169,9 +169,11 @@ jobs:
           # shell gets them as data, never as script source
           SCALE: ${{ inputs.scale }}
           FILTER: ${{ inputs.filter }}
+          DB_IMAGE: ${{ matrix.database }}
+          PHP: ${{ matrix.php }}
         run: |
-          DB_SLUG=$(echo "${{ matrix.database }}" | tr ':/' '--')
-          SLUG="version-php${{ matrix.php }}-$DB_SLUG${{ inputs.jit == 'on' && '-jit' || '' }}"
+          DB_SLUG=$(echo "$DB_IMAGE" | tr ':/' '--')
+          SLUG="version-php$PHP-$DB_SLUG${{ inputs.jit == 'on' && '-jit' || '' }}"
           echo "SLUG=$SLUG" >> "$GITHUB_ENV"
           php .github/scripts/version-probe.php \
             --baseline=/tmp/baseline \
