@@ -4,8 +4,8 @@ declare(strict_types=1);
 /*
  * Plain functions for the test suite, loaded by tests/bootstrap.php.
  *
- * Copy-in file: SmartArray, SmartString, and ZenDB carry it byte-identical (no namespace line, so
- * fully identical). Edit every copy or none.
+ * Copy-in file: our libraries carry it byte-identical (no namespace line, so fully identical). Edit every
+ * copy or none.
  */
 
 /**

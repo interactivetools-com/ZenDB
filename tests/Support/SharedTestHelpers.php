@@ -4,10 +4,10 @@ declare(strict_types=1);
 namespace Itools\ZenDB\Tests\Support;
 
 /**
- * Test helpers shared byte-for-byte across the library repos: SmartArray,
- * SmartString, and ZenDB each carry a copy of this file, and only the
- * namespace line differs. Edit every copy or none - the release checklist
- * in the docs repo (open-source/repo-standards.md) compares the three.
+ * Test helpers shared byte-for-byte across our libraries: each carries a
+ * copy of this file, and only the namespace line differs. Edit every copy
+ * or none - the release checklist in the docs repo
+ * (open-source/repo-standards.md) compares the copies.
  * Repo-specific helpers (per-library assertions, message formats, level
  * masks) belong in the repo's own base test case, not here.
  */

@@ -19,8 +19,8 @@ use PHPUnit\TextUI\Configuration\Configuration;
  * runs and CI still reports green. At shutdown this prints the test that was running and exits with 1,
  * unless PHPUnit reached the end of the run first.
  *
- * Shared byte-for-byte across SmartArray, SmartString, and ZenDB like SharedTestHelpers.php: only the
- * namespace line differs. Edit every copy or none.
+ * Shared byte-for-byte across our libraries, like SharedTestHelpers.php: only the namespace line differs.
+ * Edit every copy or none.
  */
 final class ExitGuard implements Extension
 {
