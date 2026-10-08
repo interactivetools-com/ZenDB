@@ -9,7 +9,7 @@ use mysqli_stmt;
 use RuntimeException;
 
 // import built-ins so calls resolve at compile time instead of per-call lookups; NamespacedCallsTest keeps this list exact
-use function class_exists, json_encode, method_exists;
+use function class_exists, json_encode, method_exists, microtime;
 use const JSON_INVALID_UTF8_SUBSTITUTE, JSON_UNESCAPED_SLASHES, JSON_UNESCAPED_UNICODE;
 
 /**
@@ -55,14 +55,17 @@ class MysqliStmtWrapper extends mysqli_stmt
             $paramsJson = json_encode($params, JSON_INVALID_UTF8_SUBSTITUTE | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) ?: '(params not JSON-encodable)';
         }
 
+        $startTime       = $this->startTime ?: ($this->mysqliWrapper->queryLogger ? microtime(true) : 0.0);
+        $this->startTime = 0.0;
+
         try {
             $result = parent::execute($params);
         } catch (mysqli_sql_exception $e) {
-            $this->mysqliWrapper->logQuery("$this->query /* params: $paramsJson */", $this->startTime, $e);
+            $this->mysqliWrapper->logQuery("$this->query /* params: $paramsJson */", $startTime, $e);
             throw $e;
         }
 
-        $this->mysqliWrapper->logQuery("$this->query /* params: $paramsJson */", $this->startTime);
+        $this->mysqliWrapper->logQuery("$this->query /* params: $paramsJson */", $startTime);
 
         return $result;
     }

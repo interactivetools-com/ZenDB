@@ -159,4 +159,23 @@ class MysqliStmtWrapperTest extends BaseTestCase
         $result = new MysqliResultPolyfill($stmt);
         $this->assertNull($result->fetch_array());
     }
+
+    public function testExecuteLogsOwnDurationNotTimeSincePrepare(): void
+    {
+        $logs = [];
+        $conn = new Connection(array_merge(self::$configDefaults, [
+            'queryLogger' => function ($query, $duration, $error) use (&$logs) {
+                $logs[] = [$query, $duration];
+            },
+        ]));
+
+        $stmt = $conn->mysqli->prepare("SELECT ? AS n");
+        $stmt->execute([1]);
+        usleep(200_000);   // idle time between executes must not be counted
+        $stmt->execute([2]);
+
+        $durations = array_column(array_values(array_filter($logs, fn($log) => str_contains($log[0], 'SELECT ? AS n'))), 1);
+        $this->assertCount(2, $durations);
+        $this->assertLessThan(0.1, $durations[1], 'second execute() must log its own runtime, not time since prepare()');
+    }
 }
