@@ -101,11 +101,19 @@ class MysqliWrapper extends mysqli
     ): bool {
         // connect
         $startTime = $this->queryLogger ? microtime(true) : 0.0;   // only needed for logger
-        $result    = @parent::real_connect($hostname, $username, $password, $database, $port, $socket, $flags); // hide php hostname lookup warnings (catch block will show them)
+        $request   = ($_SERVER['REQUEST_METHOD'] ?? '') . ' ' . ($_SERVER['REQUEST_URI'] ?? '');
+
+        try {
+            $result = @parent::real_connect($hostname, $username, $password, $database, $port, $socket, $flags); // hide php hostname lookup warnings (Connection::connect() reports the failure)
+        } catch (mysqli_sql_exception $e) {
+            // thread_id and host_info throw "Property access is not allowed yet" on an unconnected handle, so name the target instead
+            $this->logQuery("real_connect ($hostname): $request", $startTime, $e);
+            throw $e;
+        }
 
         // log connection
         if ($this->queryLogger) {
-            $this->logQuery("real_connect[$this->thread_id] ($this->host_info): " . ($_SERVER['REQUEST_METHOD'] ?? '') . ' ' . ($_SERVER['REQUEST_URI'] ?? ''), $startTime);
+            $this->logQuery("real_connect[$this->thread_id] ($this->host_info): $request", $startTime);
         }
 
         return $result;
