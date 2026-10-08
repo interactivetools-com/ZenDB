@@ -117,10 +117,12 @@ jobs:
             sleep 1
           done
 
-      # MariaDB images need the plugin package from the MariaDB apt repo; Percona
-      # ships ha_rocksdb.so in the image. INSTALL SONAME/PLUGIN loads it without a
-      # restart. The trailing SHOW ENGINES grep fails the job if the engine isn't
-      # actually there, so a broken install can't silently probe as a stock server
+      # MariaDB images need the plugin package from the MariaDB apt repo, loaded at
+      # server start: INSTALL SONAME 'ha_rocksdb' crashes 10.11.19, 11.4.13, 11.8.9
+      # and 12.3.3 (MDEV-41029). Percona ships ha_rocksdb.so in the image and
+      # INSTALL PLUGIN loads it without a restart. The trailing SHOW ENGINES grep
+      # fails the job if the engine isn't actually there, so a broken install
+      # can't silently probe as a stock server
       - name: Load RocksDB plugin
         if: ${{ matrix.entry.rocksdb }}
         env:
@@ -130,7 +132,12 @@ jobs:
           case "$DB_IMAGE" in
             mariadb:*)
               docker exec "$DB_CONTAINER" sh -c "apt-get update -qq && apt-get install -y -qq mariadb-plugin-rocksdb"
-              mysql -h 127.0.0.1 -u root -e "INSTALL SONAME 'ha_rocksdb'"
+              docker exec "$DB_CONTAINER" sh -c "printf '[mariadb]\nplugin_load_add=ha_rocksdb\n' > /etc/mysql/conf.d/zz-rocksdb.cnf"
+              docker restart "$DB_CONTAINER"
+              for i in $(seq 1 60); do
+                mysqladmin ping -h 127.0.0.1 -u root --silent 2>/dev/null && break
+                sleep 1
+              done
               ;;
             *)
               mysql -h 127.0.0.1 -u root -e "INSTALL PLUGIN ROCKSDB SONAME 'ha_rocksdb.so'"
