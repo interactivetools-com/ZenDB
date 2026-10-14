@@ -45,6 +45,7 @@ jobs:
   db-matrix:
     name: Load database matrix
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     outputs:
       databases: ${{ steps.load.outputs.databases }}
     steps:
@@ -61,6 +62,7 @@ jobs:
     name: PHP ${{ matrix.php }} / ${{ matrix.database }}
     runs-on: ubuntu-latest
     needs: db-matrix
+    timeout-minutes: 15
     # 8.6 is prerelease: report its result but never fail the build; drop this when 8.6 ships
     continue-on-error: ${{ matrix.php == '8.6' }}
 
@@ -102,6 +104,7 @@ jobs:
 
       - name: Setup PHP ${{ matrix.php }}
         uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+        timeout-minutes: 5  # takes under 3 min; setup-php can hang on macOS
         with:
           php-version: ${{ matrix.php }}
           extensions: mysqli, openssl, mbstring
@@ -152,6 +155,7 @@ jobs:
   platform:
     name: PHP 8.1 on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20  # Windows runs take up to 13 min
 
     strategy:
       fail-fast: false
@@ -180,6 +184,7 @@ jobs:
 
       - name: Setup PHP 8.1
         uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+        timeout-minutes: 5  # takes under 3 min; setup-php can hang on macOS
         with:
           php-version: '8.1'
           extensions: mysqli, openssl, mbstring
@@ -205,6 +210,7 @@ jobs:
     name: Timing summary
     runs-on: ubuntu-latest
     needs: test
+    timeout-minutes: 15
     # Aggregates every matrix job and succeeds even when they fail, so it can't serve
     # as a required check; !cancelled() still builds the grid for failed runs
     if: ${{ !cancelled() }}

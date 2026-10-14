@@ -50,6 +50,7 @@ jobs:
   db-matrix:
     name: Load database matrix
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     outputs:
       databases: ${{ steps.load.outputs.databases }}
     steps:
@@ -112,6 +113,7 @@ jobs:
       # the php-version input exists because mysqli::execute_query() is 8.2+
       - name: Setup PHP
         uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+        timeout-minutes: 5  # takes under 3 min; setup-php can hang on macOS
         with:
           php-version: '${{ inputs.php-version }}'
           extensions: mysqli, pdo_mysql
@@ -161,6 +163,7 @@ jobs:
     name: Merge comparison grid
     runs-on: ubuntu-latest
     needs: probe
+    timeout-minutes: 15
     # Aggregates every matrix job and runs even when some fail, so partial grids
     # still get built; !cancelled() keeps it out of manual cancellations only
     if: ${{ !cancelled() }}
@@ -173,6 +176,7 @@ jobs:
 
       - name: Setup PHP
         uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+        timeout-minutes: 5  # takes under 3 min; setup-php can hang on macOS
         with:
           php-version: '8.1'
           coverage: none
