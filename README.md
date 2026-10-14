@@ -111,6 +111,13 @@ Full guides and references ([browse on GitHub](https://github.com/interactivetoo
 - You need async or non-blocking database queries
 - You prefer writing raw SQL without any abstraction
 
+## Security
+
+Values go through placeholders, and results HTML-encode themselves on
+output. [Security Gotchas](docs/security-gotchas.md) lists the narrow cases
+that still let you write an unsafe query, with the safe form for each.
+Report a security problem as described in [SECURITY.md](SECURITY.md).
+
 ## Companion Libraries
 
 Read queries return SmartArrays, and the values inside them are SmartStrings.
