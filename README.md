@@ -129,7 +129,8 @@ own GitHub repos:
 
 ## Related Libraries
 
-- [HtmlSecurityCheck](https://github.com/interactivetools-com/HtmlSecurityCheck) - allowlist check for HTML that has to be printed unencoded, such as rich text from an editor: rejects it if it could run script, send the page's data to another host, or mislead the visitor, and never rewrites what it accepts.
+- [HtmlSecurityCheck](https://github.com/interactivetools-com/HtmlSecurityCheck) - checks rich-text HTML for anything that could run script and lists each problem it finds.
+- [SvgSecurityCheck](https://github.com/interactivetools-com/SvgSecurityCheck) - checks uploaded SVG files for anything that could run script and lists each problem it finds.
 
 ## Questions?
 
