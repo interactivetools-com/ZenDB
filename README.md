@@ -127,6 +127,10 @@ own GitHub repos:
 - [SmartArray](https://github.com/interactivetools-com/SmartArray) - the collections your query results arrive as, with chainable filtering, sorting, and grouping.
 - [SmartString](https://github.com/interactivetools-com/SmartString) - the fields inside those results: strings that HTML-encode themselves on echo, with chainable formatting, date, and number methods.
 
+## Related Libraries
+
+- [HtmlSecurityCheck](https://github.com/interactivetools-com/HtmlSecurityCheck) - allowlist check for HTML that has to be printed unencoded, such as rich text from an editor: rejects it if it could run script, send the page's data to another host, or mislead the visitor, and never rewrites what it accepts.
+
 ## Questions?
 
 Post a message in our [forum](https://www.interactivetools.com/forum/).
