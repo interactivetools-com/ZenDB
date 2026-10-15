@@ -24,90 +24,106 @@ for entry in *; do
 done
 
 # The scan prompt lives here (written to a temp file at runtime) so the repo
-# needs no scratch file. It names rawSql() and {{column}} as documented
-# trusted-SQL routes; without that, the scanner reports their existence as a
-# parameterization bypass instead of tracing what flows into them.
+# needs no scratch file. It says what the library promises and lists the
+# documented decisions; without that, the scanner reports rawSql(), {{column}}
+# and the other developer-trusted routes as findings instead of tracing what
+# flows into them. It asks for a harmless marker row, not a working
+# demonstration: workers turn attack vocabulary into attack payloads, and
+# OpenAI's content check refuses those workers mid-scan.
 prompt_file=$(mktemp)
 trap 'rm -f "$prompt_file"' EXIT
 cat > "$prompt_file" <<'PROMPT'
 This is a whole-library pre-release scan of ZenDB, a PHP 8.1+ mysqli database
 layer. tests/ and vendor/ are excluded on purpose. Review runtime source,
-documentation examples, and maintainer/CI tooling in their actual contexts;
-do not assume every included file runs in a deployed web application.
-Assess the current checkout for release readiness. Calibrate severity to the
-evidence; not every finding is a release blocker.
+documentation examples, and maintainer tooling (.github/) in their actual
+contexts; the tooling runs on a developer machine or a CI runner, never in a
+deployed web application. Assess the current checkout for release readiness.
+Calibrate severity to the evidence; not every finding is a release blocker.
 
-Core security promises to verify:
+What the library promises
 
-- On the supported query path, untrusted values enter through placeholders.
-  ZenDB escapes and quotes them client-side before sending completed SQL;
-  absence of server-side prepared statements is not itself a vulnerability.
-- Table/column arguments, array keys, and backtick identifier placeholders
-  use identifier validation. SQL template text is developer-trusted; the
-  template guard is not a SQL parser or a provenance check for interpolation.
-- With a nonempty `encryptionKey`, supported insert()/update() assignments
-  to MEDIUMBLOB columns encrypt in PHP and query results decrypt on read.
-  NULL passes through; booleans must throw. Check other documented exceptions
-  and raw-query behavior against docs/encryption.md and docs/ai-reference.md.
+- Values passed through placeholders (?, :name) stay values: ZenDB escapes
+  and quotes them client-side and sends completed SQL. Not using server-side
+  prepared statements is a design choice, not a finding.
+- Table and column arguments, array keys, and backtick placeholders (`?`,
+  `:name`, `::?`, `:::name`) accept only identifier characters and throw on
+  anything else.
+- SQL template text is written by the developer and trusted. The template
+  guard catches common mistakes; it is not a SQL parser and does not track
+  where interpolated text came from.
+- With a nonempty `encryptionKey`, insert() and update() encrypt values
+  assigned to MEDIUMBLOB columns in PHP, and query results decrypt on read.
+  NULL passes through; booleans throw. docs/encryption.md and
+  docs/ai-reference.md list the other cases.
+- The password and encryption key stay out of var_dump() output, stack
+  traces and the query logger.
 
-Intended API, not findings: rawSql() exists to mark developer-trusted SQL and
-the `{{column}}` decryption syntax is a documented raw-SQL feature. Their
-existence is by design; flag untrusted data flowing into them, not the
-methods themselves. Returned SmartArray and SmartString values expose raw
-data for logic per those libraries' documented contracts.
+What to look for
 
-Known limitations and finding criteria:
+A place where the code does not keep one of those promises. The likely places:
 
-- docs/security-gotchas.md documents interpolated SQL identifiers/grammar
-  and balanced empty-quote interpolation. Do not re-report these unchanged
-  limitations as new placeholder bypasses. Report a new path through value
-  or identifier parameters, a regression, or an unsafe shipping example.
-  Apply the same distinction to caller-interpolated {{column}} text, rawSql(),
-  and direct mysqli access. Still inspect placeholder lexical contexts:
-  comments and partial backtick identifiers can change how bound data parses.
-- Connection configuration and direct property/session mutations are not
-  automatically attacker-controlled. For tablePrefix, sqlMode, charset
-  changes, and internal helpers, identify the supported input boundary and
-  prerequisite that creates exposure. Distinguish API hardening from an
-  exploit through normal untrusted value/identifier inputs. A minimal library
-  reproduction is sufficient for that latter case; no deployed app is needed.
-- Encryption deliberately uses deterministic, unauthenticated AES-128-ECB
-  for MySQL compatibility and dump-at-rest protection. There is no IV/nonce.
-  Equality leakage and ciphertext tampering are documented tradeoffs, not
-  new findings by themselves. Server-side @ek setup, including triggering
-  from quoted data, and access through the general log/performance_schema
-  are documented in docs/encryption.md. Distinguish those known exposures
-  from new key leaks, broken redaction, or silent plaintext writes.
-- requireSSL promises encryption, not certificate/hostname verification.
-  Distinguish that documented limitation from failure to provide the promised
-  encryption or examples claiming authenticated transport.
-- Raw result access is intentional; trace an actual output context before
-  claiming XSS. Unsafe documentation examples remain in scope. Likewise,
-  distinguish opt-in query logging and test replay diagnostics from default
-  runtime leaks, and check for data outside their documented contracts.
-- For resource exhaustion, establish how untrusted input controls work and
-  what limits apply. Separate SQL-safe pagination from workload limits;
-  large LIMIT/OFFSET is not SQL injection. Do not assume internal schema/test
-  utilities are remotely exposed simply because their methods are public.
+- A bound value that changes the structure of the query instead of staying a
+  value: a placeholder the replacement reads in the wrong context (inside a
+  comment, next to the `::` prefix), an escaping assumption that does not
+  hold in some connection state, or a helper such as likeContains() or
+  pagingSql() whose output a value can reach.
+- A value written to a MEDIUMBLOB column without being encrypted while a key
+  is set, or a read that returns ciphertext or the wrong plaintext: column
+  detection, the column cache, case, schema changes, connection cloning.
+- The password, the encryption key, or the plaintext of an encrypted value
+  reaching an error message, a stack trace argument, a log callback or page
+  output.
+- Work that grows faster than the input on caller-supplied text: a loop whose
+  pass count depends on input syntax, or a regex that backtracks. And a
+  preg_* call that returns false or null past the PCRE limits where that
+  result lets something through.
+- A documentation example that shows unsafe usage or contradicts the code.
 
-Use prior findings as leads, not proof against the current checkout. Verify
-the current implementation and consolidate repeated manifestations of one
-root cause. Separate known documented risks, hardening suggestions, and
-confirmed current defects. Documentation is counterevidence, not an exemption:
-report contradictions, unsafe recommended usage, and new attack paths with
-concrete inputs, source-to-sink evidence, prerequisites, and validation limits.
+For each, give the promise that does not hold, the code path from the input
+to where it goes wrong, and the prerequisites. Show the gap with the smallest
+harmless input: a value that makes the query return one extra marker row
+(SELECT 'zendb-marker'), or a test value that ends up stored as plaintext.
+Do not write queries that read other tables, credentials or real data; a
+working demonstration is not wanted and not needed.
 
-Prioritize, in order:
+Do not report any of these, not as a finding, a note, or a hardening
+suggestion. They are documented decisions, and time spent on them is wasted:
 
-1. SQL injection paths that bypass the placeholder system: identifier
-   placeholders, the `::` table prefix, `{{column}}` decryption syntax in raw
-   SQL, and SQL helpers like `likeContains()` and `pagingSql()`.
-2. Encryption implementation defects: key handling, values that skip
-   encryption silently, new key/plaintext leaks into logs or error messages.
-3. Untrusted input reaching the wire, the filesystem, or error output
-   unparameterized or unencoded.
-4. Unbounded work on attacker-controlled input: loops whose pass count
-   depends on input syntax.
+- rawSql(), `{{column}}` names in raw SQL, and direct mysqli access are
+  developer-trusted routes. Report a shipping example that passes untrusted
+  data into them, not their existence.
+- Developer code that builds SQL template text from untrusted input:
+  interpolated identifiers or keywords, or a value inside developer-written
+  quotes (including balanced empty-quote pairs). docs/security-gotchas.md
+  covers this; the template guard is not meant to stop it.
+- A placeholder inside part of a backtick name (`prefix_:name`). Only a
+  backtick placeholder that is the whole name is supported.
+- Connection config and properties (sqlMode, tablePrefix, the queryLogger
+  callback, requireSSL) are written by the developer, not by an attacker;
+  being interpolated or writable is not a finding. A SET NAMES in a template
+  is the developer's choice too; set_charset() refuses anything but utf8mb4.
+- Encryption is AES-128-ECB, deterministic and unauthenticated, with no IV,
+  for MySQL compatibility. Equal plaintexts give equal ciphertext, and anyone
+  who can write to the database can change ciphertext. Server-side @ek setup,
+  including setup that quoted data triggers, and the key's visibility in
+  MySQL's general log and performance_schema are in docs/encryption.md.
+- requireSSL encrypts the connection; it does not verify the server's
+  certificate or hostname.
+- PHP 8.1 ignores #[\SensitiveParameter]; trace redaction applies on 8.2+.
+- Large LIMIT/OFFSET values and other workload size; the application sets
+  those limits.
+- Time and memory that grow in step with the input, and the generated-column
+  normalization of SHOW CREATE TABLE output, which comes from the
+  developer's own schema.
+- The full SQL in the replay wrapper's corpus-miss exception, and the query
+  logger receiving the request URI: both are developer tools.
+- CI testing against the current main branches of SmartArray and SmartString.
+- Returned SmartArray and SmartString values expose raw data for logic; trace
+  an actual output context before calling something XSS.
+
+Use prior findings as leads, not proof. Verify the current implementation,
+consolidate one root cause reported several ways, and calibrate severity to
+what a caller-supplied value can actually do.
 PROMPT
 
 codex-security scan . "${paths[@]}" \
