@@ -1136,10 +1136,14 @@ trait ConnectionInternals
      * next read/write re-probes the changed schema (e.g. a column altered to MEDIUMBLOB
      * mid-request would otherwise keep writing plaintext from a stale list).
      * Called by query() and queryOne(), the only methods that accept DDL.
+     *
+     * The keywords match anywhere, not just at the start, so DDL after a leading comment
+     * or inside a versioned comment that MySQL runs (/*! ALTER ...) still clears the
+     * cache. A false match, like a column named `drop`, only costs one re-probe per table.
      */
     private function clearEncryptedColumnsCacheOnDdl(string $sqlTemplate): void
     {
-        if ($this->encryptedColumnsCache && preg_match('/^\s*(ALTER|CREATE|DROP|RENAME|TRUNCATE)\b/i', $sqlTemplate)) {
+        if ($this->encryptedColumnsCache && preg_match('/\b(ALTER|CREATE|DROP|RENAME|TRUNCATE)\b/i', $sqlTemplate)) {
             $this->encryptedColumnsCache = [];
         }
     }

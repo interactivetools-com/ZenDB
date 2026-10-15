@@ -115,6 +115,34 @@ class EncryptedColumnReadCacheTest extends BaseTestCase
         $this->assertSame('encrypted-after-alter', $row['secret'], 'Read after ALTER must decrypt');
     }
 
+    /**
+     * @dataProvider provideDdlBehindComments
+     */
+    public function testDdlBehindCommentRefreshesCache(string $suffix, string $ddlTemplate): void
+    {
+        // Same flow as testDdlThroughQueryRefreshesCache, with the ALTER behind a comment
+        $table = "test_enc_cache_$suffix";
+        self::$conn->mysqli->query("CREATE TEMPORARY TABLE $table (num INT PRIMARY KEY, secret BLOB)");
+        self::$conn->insert("enc_cache_$suffix", ['num' => 1, 'secret' => 'plain-while-blob']);
+
+        self::$conn->query(str_replace('{table}', $table, $ddlTemplate));
+        self::$conn->insert("enc_cache_$suffix", ['num' => 2, 'secret' => 'encrypted-after-alter']);
+
+        $raw = self::$conn->mysqli->query("SELECT secret FROM $table WHERE num = 2")->fetch_row()[0];
+        $this->assertNotSame('encrypted-after-alter', $raw, 'Write after ALTER must encrypt');
+    }
+
+    public static function provideDdlBehindComments(): array
+    {
+        // Full table names, not ::, since a placeholder inside /* */ throws
+        return [
+            'block comment first'  => ['ddl_block', "/* migration */ ALTER TABLE {table} MODIFY secret MEDIUMBLOB"],
+            'line comment first'   => ['ddl_dash', "-- migration\nALTER TABLE {table} MODIFY secret MEDIUMBLOB"],
+            'hash comment first'   => ['ddl_hash', "# migration\nALTER TABLE {table} MODIFY secret MEDIUMBLOB"],
+            'versioned comment'    => ['ddl_versioned', "/*! ALTER TABLE {table} MODIFY secret MEDIUMBLOB */"],
+        ];
+    }
+
     public function testDisconnectClearsCacheAndRearmsDecryptWarning(): void
     {
         $conn = new Connection(array_merge(self::$configDefaults, ['encryptionKey' => 'lifecycle-key']));
