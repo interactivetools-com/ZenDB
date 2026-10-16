@@ -29,10 +29,9 @@ Full lists of what changed per release: [CHANGELOG.md](CHANGELOG.md).
 
 > - `tablePrefix` can no longer contain dots; `connect()` throws
 >   "Invalid tablePrefix" naming the allowed characters
->   (`a-z A-Z 0-9 _ -`). CMS Builder's installer used to accept dotted
->   prefixes like `'client2.cms_'`, which named tables literally
->   (`client2.cms_news`, dot included). An install like that needs a
->   one-time rename to a dot-free prefix before upgrading:
+>   (`a-z A-Z 0-9 _ -`). An install with a dotted prefix (CMS Builder's
+>   installer used to accept ones like `'client2.cms_'`) needs a one-time
+>   rename before upgrading:
 >
 >   ```sql
 >   RENAME TABLE `client2.cms_news` TO `client2_cms_news`;  -- repeat per table
@@ -41,35 +40,13 @@ Full lists of what changed per release: [CHANGELOG.md](CHANGELOG.md).
 >   ```php
 >   'tablePrefix' => 'client2_cms_',  // was 'client2.cms_'
 >   ```
+>
+>   Search: `tablePrefix` in your config.
 
 ### Behavior changes
 
-> - `Table::exists()` and `Table::existsFull()` throw
->   `InvalidArgumentException` for names with characters outside
->   `a-z A-Z 0-9 _ -`, same as the other table methods. The deprecated
->   `DB::hasTable()` and `DB::tableExists()` keep returning false for
->   invalid names, so existing code only changes behavior when it moves
->   to the new methods.
-
-### Silent changes
-
-> - Passing a result field (a SmartString) back into a query as a value,
-> which is uncommon: a field holding null now writes SQL NULL and matches
-> IS NULL instead of `''`. NOT NULL columns reject that write with a clear
-> MySQL error; nullable columns silently store NULL where they stored `''`.
-> - Null values in IN lists are skipped instead of written as `NULL`. An
->   empty list still writes `NULL`, so `IN (NULL)` matches nothing. Search:
->   `NOT IN` where the value list can contain null.
->
->   ```php
->   DB::select('users', "status NOT IN (:statuses)", [':statuses' => ['banned', null]]);
->   // before this ran: NOT IN ('banned', NULL)  - one NULL made it return zero rows
->   // after this runs: NOT IN ('banned')        - returns rows again
->   ```
->
-> - `versionRequired` used to misread most real server version strings, so
->   the check passed on servers it should have rejected. It now compares
->   the real version and can throw where it silently passed before.
+> - `versionRequired` reads real server version strings, so `connect()`
+>   can throw on a server it used to accept:
 >
 >   ```php
 >   'versionRequired' => '10.6.0',
@@ -80,42 +57,58 @@ Full lists of what changed per release: [CHANGELOG.md](CHANGELOG.md).
 >
 >   Search: `versionRequired`
 >
-> - `DB::transaction()` - when the connection dies mid-transaction, catch
->   blocks now receive the exception your code threw; they used to get the
->   "server has gone away" error from the failing ROLLBACK that replaced it.
->   Search: `DB::transaction(`
+> - `Table::exists()` and `Table::existsFull()` throw
+>   `InvalidArgumentException` for names with characters outside
+>   `a-z A-Z 0-9 _ -`. The deprecated `DB::hasTable()` and
+>   `DB::tableExists()` still return false, so this only matters when you
+>   switch to the new methods.
+> - Table existence checks throw on a dead connection instead of answering
+>   false. A missing table, broken view, or missing privilege still answers
+>   false.
+
+### Silent changes
+
+> - A result field (a SmartString) passed back into a query as a value
+>   keeps its type: a null field writes SQL NULL and matches IS NULL, not
+>   `''`. NOT NULL columns reject the write with a MySQL error; nullable
+>   columns store NULL. This is uncommon; review code that writes query
+>   results back with `insert()` or `update()`.
+> - IN lists skip null values, and `NOT IN` with an empty list matches every
+>   row (it matched none). `IN` with an empty list still matches nothing.
+>   Search: `NOT IN` where the list can be empty or contain null.
 >
-> - Floats are written with exact round-trip precision; the old string cast
->   rounded to 14 significant digits, so equality matches against very
->   large floats could match the wrong rows. Passing `NAN` or `INF` now throws.
+>   ```php
+>   DB::select('users', "status NOT IN (:statuses)", [':statuses' => ['banned', null]]);
+>   // before this ran: NOT IN ('banned', NULL)  - one NULL made it return zero rows
+>   // after this runs: NOT IN ('banned')        - returns rows again
+>   ```
+>
+> - `DB::transaction()`: when the connection dies mid-transaction, catch
+>   blocks get the exception your code threw, not "server has gone away".
+>   Search: `DB::transaction(` and check catch blocks that look for that
+>   message.
+>
+> - Floats are written with exact precision, and `NAN` or `INF` throws:
 >
 >   ```php
 >   DB::select('measurements', 'value = ?', 12345678901234567.0);
 >   // before this ran: value = 1.2345678901235E+16   - rounded, can match the wrong rows
 >   // after this runs: value = 12345678901234568.0   - the exact value PHP holds
 >   ```
->
-> - Table existence checks used to answer false whenever anything went
->   wrong; now a dead connection throws (there's no answer to report),
->   while a missing table, broken view, or missing privilege still answer
->   false.
 
 ### New errors for inputs that used to produce wrong SQL
 
-> Edge cases only - normal queries and placeholders are unchanged. Each of
-> these used to silently produce wrong SQL and now throws up front with a
-> message naming the fix, so it announces itself the first time the query
-> runs:
+> Edge cases only; normal queries and placeholders are unchanged. Each of
+> these used to produce wrong SQL and now throws with a message naming the
+> fix, the first time the query runs:
 >
 > - Hex, binary, and scientific literals (`0x1AF`, `0b1010`, `1e10`) in
 >   query templates - pass the value through a placeholder instead
 > - Empty strings in backtick identifier placeholders
-> - Param names starting with `:_` - the value silently never bound before
+> - Param names starting with `:_` (the value never bound)
 > - Table or column names with a trailing newline
 > - A spread named-param array - `DB::query($sql, ...$params)` where
->   `$params` is `[':id' => 5]`. PHP turns that into named arguments, which
->   query methods don't accept. It used to bind them plus emit an
->   "Undefined array key 0" warning. Drop the `...`:
+>   `$params` is `[':id' => 5]`. Drop the `...`:
 >
 >   ```php
 >   DB::query($sql, ...$params);   // throws
@@ -129,9 +122,8 @@ Full lists of what changed per release: [CHANGELOG.md](CHANGELOG.md).
 >
 > - Positional values as a single array - `DB::query($sql, [1, 2, 3])` - use
 >   a named placeholder (`"id IN (:ids)"` with `[':ids' => [1, 2, 3]]`) or up
->   to 3 direct values. Worth fixing promptly: the array form will throw in
->   a future release, and with an IN list it was silently running as `IN (1)`
->   (first value only).
+>   to 3 direct values. Fix these first: with an IN list the array form runs
+>   as `IN (1)`, first value only, and it will throw in a future release.
 > - `escape()`, `escapef()`, and `escapeCSV()` are marked `@internal` (IDEs
 >   flag them); placeholders are the supported API. No runtime change.
 > - Record numbers as the WHERE argument - `DB::select('users', 5)` - use
@@ -144,11 +136,8 @@ Full lists of what changed per release: [CHANGELOG.md](CHANGELOG.md).
 >   DB::select('users', ['num' => 5]); // current form, nothing logged
 >   ```
 >
->   Strings log at warning level instead of notice because they usually mean
->   a query value was passed back in without a cast, and warnings still
->   reach logs that filter out deprecation notices. Both forms will throw in
->   a future release. No search needed: each log entry names your file and
->   line.
+>   Both forms will throw in a future release. No search needed: each log
+>   entry names your file and line.
 >
 > Regex: `["']\s*,\s*\[\s*(?:["'](?!:)|[^"'\s])` - an array of values right
 > after the SQL template (single- or double-quoted); named-placeholder
@@ -175,10 +164,9 @@ Search: `pageNum:` and `fetchFields:`
 
 ### Optional renames
 
-No required changes yet: the old names still work, and IDEs and static
-analysis flag them with the replacement to switch to. A later release logs
-a deprecation notice with the caller's file and line, and a release after
-that throws, so rename when convenient.
+The old names still work, and IDEs flag them with the replacement. A later
+release will log a notice with your file and line, and a release after that
+will throw, so rename when convenient.
 
 | Old name (still works)       | Current name                 |
 |------------------------------|------------------------------|

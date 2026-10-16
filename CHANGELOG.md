@@ -8,10 +8,10 @@
 
 > **Bundled with CMS Builder v3.85**
 
-The headlines: ZenDB is 3x faster (including MySQL time, real pages run up to
-40% faster), and 1.0 has complete online docs plus
+The headlines: ZenDB's own code runs 3x faster (real pages, MySQL time
+included, run up to 40% faster), and 1.0 has complete online docs plus
 [ai-reference.md](docs/ai-reference.md), the whole API in one file for AI
-coding assistants. Everything else is hardening and fixes.
+coding assistants. Everything else is fixes and stricter checks.
 
 ### Added
 
@@ -23,8 +23,8 @@ coding assistants. Everything else is hardening and fixes.
   strings: `SHOW TABLES LIKE ::?` with `user%` → `SHOW TABLES LIKE 'cms_user%'`
 - **`::` works inside `{{}}`** - encrypted-column reads take the table
   prefix like the rest of the query: `{{::users.apiToken}}` expands to
-  `` AES_DECRYPT(`cms_users`.`apiToken`, @ek) ``. Previously the prefix had
-  to be hardcoded (`{{cms_users.apiToken}}`); that form still works
+  `` AES_DECRYPT(`cms_users`.`apiToken`, @ek) ``. Hardcoded prefixes still
+  work
 - **`Table` and `Server`** - internal classes for reading table facts
   (exists, columns, indexes, ...) and server facts (version, vendor, SSL);
   the old table helpers are deprecated in their favor (below)
@@ -38,24 +38,21 @@ coding assistants. Everything else is hardening and fixes.
 ### Changed
 
 - **SmartNull values act like `null` everywhere** - `insert()`, `update()`,
-  and WHERE arrays now treat a SmartNull (usually a missed lookup) like
-  `null` instead of throwing, the same as placeholders already did
+  and WHERE arrays treat a SmartNull (usually a missed lookup) as `null`,
+  the same as placeholders
 - **`tablePrefix` can no longer contain dots** - `connect()` throws
-  "Invalid tablePrefix" naming the allowed characters; a dotted prefix
-  reads as a `database.` qualifier, so ZenDB refuses at config time instead
-  of guessing. Rename steps in [UPGRADING.md](UPGRADING.md)
-- **`connect()` throws if `NO_BACKSLASH_ESCAPES` is on** - from `sqlMode`,
-  or from the server's global `sql_mode` when `sqlMode` is `''`; ZenDB
-  escapes values with backslashes, and that mode turns them off
-- **`escape()`, `escapef()`, and `escapeCSV()` marked `@internal`** - they
-  exist so ZenDB and CMS Builder can build their own SQL; placeholders are
-  the supported API
+  "Invalid tablePrefix" naming the allowed characters. Rename steps in
+  [UPGRADING.md](UPGRADING.md)
+- **`connect()` throws if `NO_BACKSLASH_ESCAPES` is on** - whether it's set
+  in `sqlMode` or, when `sqlMode` is `''`, in the server's global
+  `sql_mode`. Remove the mode to connect
+- **`escape()`, `escapef()`, and `escapeCSV()` marked `@internal`** - IDEs
+  flag them; use placeholders instead
 
 ### Parameter renames
 
-Only named-argument calls are affected; positional calls work unchanged.
-An old name throws PHP's "Unknown named parameter" error the first time
-the call runs. Search strings in [UPGRADING.md](UPGRADING.md).
+Only named-argument calls are affected: an old name throws PHP's "Unknown
+named parameter" error. Search strings in [UPGRADING.md](UPGRADING.md).
 
 | Method              | Old parameter  | New parameter        |
 |---------------------|----------------|----------------------|
@@ -68,14 +65,10 @@ Deprecated calls keep working and raise a notice naming their replacement
 and your file and line.
 
 - **Positional values as a single array** - `"id IN (?)"` with `[1, 2, 3]`
-  was silently running as `IN (1)`. Use a named placeholder:
-  `"id IN (:ids)"` with `[':ids' => [1, 2, 3]]`
-- **Record numbers as the WHERE argument** - `DB::select('users', 5)` still
-  works but logs a deprecation notice; use `['num' => 5]`. Numeric strings
-  (`'5'`), which used to throw "Numeric string detected", now work the same
-  way and log a warning instead of a notice - a string record number usually
-  means a query value was passed back in without a cast, and warnings still
-  reach logs that filter out deprecation notices
+  runs as `IN (1)`. Use a named placeholder: `"id IN (:ids)"` with
+  `[':ids' => [1, 2, 3]]`
+- **Record numbers as the WHERE argument** - `DB::select('users', 5)` logs
+  a deprecation notice and `'5'` logs a warning; use `['num' => 5]`
 - **Table helpers** - old names still work, IDE strikethrough only:
 
   | Old name (still works)       | Current name                 |
@@ -90,51 +83,45 @@ and your file and line.
 ### Fixed
 
 - **`useSmartStrings => false` works** - connections with SmartStrings
-  disabled return raw `SmartArray` results; previously every query on them
-  threw
-- **`NOT IN` with an empty list matches all rows** - empty arrays expand to
-  a zero-row subquery instead of the literal `NULL`, which silently matched
-  no rows; `IN` with an empty list still matches nothing. Null values inside
-  IN lists are now skipped (they never match); use `IS NULL` to match NULL
-  rows
-- **SmartString values escape by their original type** - a wrapped int
-  writes `5` (was `'5'`), and a wrapped null writes SQL `NULL` in SET
-  clauses and matches `IS NULL` in WHERE arrays (was `''`). See
-  [UPGRADING.md](UPGRADING.md)
-- **Floats keep exact precision** - values are written with full round-trip
-  precision instead of PHP's 14-digit rounding, so equality matches against
-  very large floats can't hit the wrong rows; `NAN` and `INF` now throw
+  disabled return raw `SmartArray` results
+- **`NOT IN` with an empty list matches all rows** - `IN` with an empty list
+  still matches none. Null values in IN lists are skipped (they never
+  match); use `IS NULL` to match NULL rows
+- **SmartString values keep their type** - a wrapped int writes `5`, and a
+  wrapped null writes `NULL` and matches `IS NULL` in WHERE arrays (both
+  were written as strings). See [UPGRADING.md](UPGRADING.md)
+- **Floats keep exact precision** - large floats are written exactly, so
+  equality matches can't hit the wrong rows. `NAN` and `INF` throw
 - **`DB::transaction()` reports the real error** - when the connection dies
-  mid-transaction, your exception reaches the catch block; previously the
-  failing ROLLBACK replaced it with "server has gone away"
-- **`versionRequired` reads real server strings** - the parser misread most
-  of them (`10.5.29-MariaDB-ubu2004` parsed as `10.5.292004`); distro
-  suffixes, MariaDB's handshake prefix, and Aurora's format now parse
-  correctly
-- **`DB::pagingSql()` clamps huge page numbers** - the offset math could
-  overflow to float notation, a MySQL syntax error reachable from any
-  page-number URL parameter
-- **Failed decryption warns** - a MEDIUMBLOB value that won't decrypt still
-  passes through as raw bytes, but now triggers one warning per connection
-  naming the column (was silent)
+  mid-transaction, the catch block gets your exception, not "server has
+  gone away"
+- **`versionRequired` reads real server versions** - distro suffixes
+  (`10.5.29-MariaDB-ubu2004`), MariaDB's handshake prefix, and Aurora's
+  format, so servers below the minimum fail to connect. See
+  [UPGRADING.md](UPGRADING.md)
+- **`DB::pagingSql()` accepts huge page numbers** - a page number from the
+  URL can't cause a MySQL syntax error
+- **Failed decryption warns** - a MEDIUMBLOB value that won't decrypt comes
+  back as raw bytes with one warning per connection naming the column
 - **Invisible MEDIUMBLOB columns are encrypted** - `insert()` and `update()`
-  look up column types by name; they used `SELECT *`, which leaves out
-  `INVISIBLE` columns (MySQL 8.0.23+, MariaDB 10.3+), so those were written
-  as plaintext
+  encrypt `INVISIBLE` columns (MySQL 8.0.23+, MariaDB 10.3+) like any other
+  MEDIUMBLOB
+- **Encryption follows schema changes** - after DDL or `USE` through
+  `DB::query()` on any clone, writes and reads use the new column types.
+  After DDL through raw `DB::$mysqli`, reconnect
 - **Time zones past +13:00 connect** - with `usePhpTimezone`, zones like
-  Pacific/Kiritimati (+14:00) failed to connect on MariaDB and MySQL before
-  8.0.19
+  Pacific/Kiritimati (+14:00) connect on MariaDB and MySQL before 8.0.19
 
 ### Minor
 
-Stricter up-front validation: invalid table names, multibyte table
-prefixes, hex/binary literals in query templates, spread named-param
-arrays (`...$params`), and other inputs that silently produced wrong SQL
-now throw with a message naming the fix (details in
-[UPGRADING.md](UPGRADING.md)). Also: identical `Table::columnDefinitions()`
-output across all supported servers (verified against a 19-server matrix),
-fixes to the no-mysqlnd result polyfill, clearer error messages, and misc
-internal cleanup.
+Stricter checks: invalid table names, multibyte table prefixes, hex and
+binary literals in query templates, spread named-param arrays
+(`...$params`), and other inputs that used to produce wrong SQL now throw
+with a message naming the fix (list in [UPGRADING.md](UPGRADING.md)). Also:
+`Table::columnDefinitions()` returns the same output on every supported
+server, the encryption key and encrypted-column values stay out of stack
+traces on PHP 8.2+, fixes for PHP builds without mysqlnd, and clearer
+error messages.
 
 ## [0.9.1] - 2026-04-22
 
