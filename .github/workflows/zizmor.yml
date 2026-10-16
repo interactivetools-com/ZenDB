@@ -18,7 +18,7 @@ permissions:
 jobs:
   zizmor:
     name: Audit workflows
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim  # starts faster; has no PHP or Docker
     timeout-minutes: 15
 
     steps:

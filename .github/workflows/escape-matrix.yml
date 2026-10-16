@@ -58,7 +58,7 @@ permissions:
 jobs:
   matrix:
     name: Load matrix
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim  # starts faster; has no PHP or Docker
     timeout-minutes: 15
     outputs:
       os: ${{ steps.load.outputs.os }}
