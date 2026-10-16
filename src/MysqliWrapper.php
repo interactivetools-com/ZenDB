@@ -397,7 +397,13 @@ class MysqliWrapper extends mysqli
         DB::$queryCount++;
         $startTime = $this->queryLogger ? microtime(true) : 0.0;   // only needed for logger
         $stmt      = parent::prepare("SET @ek = UNHEX(SHA2(?, 512))");
-        $stmt->execute([($this->getEncryptionKey)()]);
+        $key       = ($this->getEncryptionKey)();
+
+        // Bind the key, don't pass it to execute() or execute_query(): those are PHP's own
+        // functions, so a failed execute's trace shows their args and #[\SensitiveParameter]
+        // can't hide them. A bound variable never appears in a trace.
+        $stmt->bind_param('s', $key);
+        $stmt->execute();
         $stmt->close();
         $this->encryptionKeySet = true;
         $this->logQuery("SET @ek = UNHEX(SHA2(?, 512)) /* params: [\"********\"] */", $startTime);
