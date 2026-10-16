@@ -160,6 +160,22 @@ class Connection
             throw new RuntimeException("Already connected. To reconnect, call disconnect() first.");
         }
 
+        // A failed connect leaves nothing behind, so isConnected() reports false and connect() can be called again
+        try {
+            $this->openConnection();
+        } catch (Throwable $e) {
+            $this->disconnect();
+            throw $e;
+        }
+    }
+
+    /**
+     * Open the mysqli connection, check the server, and set session variables. connect() runs this.
+     *
+     * @throws RuntimeException If connection fails or version requirements not met
+     */
+    private function openConnection(): void
+    {
         // Create a new mysqli instance
         $this->mysqli = self::$mysqliWrapperFactory
             ? (self::$mysqliWrapperFactory)($this->queryLogger)
@@ -288,9 +304,11 @@ class Connection
             return true;
         }
 
+        // stat() throws mysqli_sql_exception when the server is gone, and Error when the handle
+        // was closed directly (DB::$mysqli->close()); either way it's not connected
         try {
             return $this->mysqli->stat() !== false;
-        } catch (mysqli_sql_exception) {
+        } catch (Throwable) {
             return false;
         }
     }
@@ -301,7 +319,11 @@ class Connection
     public function disconnect(): void
     {
         if ($this->mysqli !== null) {
-            $this->mysqli->close();
+            try {
+                $this->mysqli->close();
+            } catch (Throwable) {
+                // already closed directly (DB::$mysqli->close()), so there's nothing left to release
+            }
             $this->mysqli = null;
         }
         $this->server = null;
