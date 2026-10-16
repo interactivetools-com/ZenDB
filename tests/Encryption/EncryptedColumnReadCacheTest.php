@@ -45,20 +45,16 @@ class EncryptedColumnReadCacheTest extends BaseTestCase
         $row = self::$conn->selectOne('enc_cache_a', ['num' => 1])->toArray();
         $this->assertSame('alpha-secret', $row['secret']);
 
-        // The cache is a Connection property shared by read and write paths: [table => columns]
-        $cacheProp = new ReflectionProperty(Connection::class, 'encryptedColumnsCache');
-        $entries   = $cacheProp->getValue(self::$conn);
-        $this->assertSame(['secret'], $entries['test_enc_cache_a'] ?? null, "Reads must cache the encrypted-column list");
+        // The cache is on the wrapper that clones share: [table => columns]
+        $this->assertSame(['secret'], self::$conn->mysqli->encryptedColumnsCache['test_enc_cache_a'] ?? null, "Reads must cache the encrypted-column list");
 
         // Poison the cached list; a repeated harvest would decrypt anyway and fail this
-        $entries['test_enc_cache_a'] = [];
-        $cacheProp->setValue(self::$conn, $entries);
+        self::$conn->mysqli->encryptedColumnsCache['test_enc_cache_a'] = [];
         $poisoned = self::$conn->selectOne('enc_cache_a', ['num' => 1])->toArray();
         $this->assertNotSame('alpha-secret', $poisoned['secret'], "Later selects must use the cached list, not re-harvest field metadata");
 
         // Restore the real list for the remaining tests
-        $entries['test_enc_cache_a'] = ['secret'];
-        $cacheProp->setValue(self::$conn, $entries);
+        self::$conn->mysqli->encryptedColumnsCache['test_enc_cache_a'] = ['secret'];
     }
 
     public function testEmptyFirstSelectStillHarvestsMetadata(): void
@@ -116,6 +112,23 @@ class EncryptedColumnReadCacheTest extends BaseTestCase
         $this->assertSame('encrypted-after-alter', $row['secret'], 'Read after ALTER must decrypt');
     }
 
+    public function testDdlThroughCloneRefreshesCacheForAll(): void
+    {
+        // Same flow as testDdlThroughQueryRefreshesCache, with the ALTER run through a clone
+        self::$conn->mysqli->query("CREATE TEMPORARY TABLE test_enc_cache_clone (num INT PRIMARY KEY, secret BLOB)");
+        self::$conn->insert('enc_cache_clone', ['num' => 1, 'secret' => 'plain-while-blob']);
+        self::$conn->selectOne('enc_cache_clone', ['num' => 1]);
+
+        self::$conn->clone()->query("ALTER TABLE ::enc_cache_clone MODIFY secret MEDIUMBLOB");
+        self::$conn->insert('enc_cache_clone', ['num' => 2, 'secret' => 'encrypted-after-alter']);
+
+        $raw = self::$conn->mysqli->query("SELECT secret FROM test_enc_cache_clone WHERE num = 2")->fetch_row()[0];
+        $this->assertNotSame('encrypted-after-alter', $raw, 'Write after a clone ran ALTER must encrypt');
+
+        $row = self::$conn->selectOne('enc_cache_clone', ['num' => 2])->toArray();
+        $this->assertSame('encrypted-after-alter', $row['secret'], 'Read after a clone ran ALTER must decrypt');
+    }
+
     /**
      * @dataProvider provideDdlBehindComments
      */
@@ -165,7 +178,7 @@ class EncryptedColumnReadCacheTest extends BaseTestCase
         ];
     }
 
-    public function testDisconnectClearsCacheAndRearmsDecryptWarning(): void
+    public function testReconnectClearsCacheAndRearmsDecryptWarning(): void
     {
         $conn = new Connection(array_merge(self::$configDefaults, ['encryptionKey' => 'lifecycle-key']));
         $conn->mysqli->query("CREATE TEMPORARY TABLE test_enc_cache_life (num INT PRIMARY KEY, secret MEDIUMBLOB)");
@@ -173,18 +186,17 @@ class EncryptedColumnReadCacheTest extends BaseTestCase
 
         $conn->selectOne('enc_cache_life', ['num' => 1]);
 
-        $cacheProp = new ReflectionProperty(Connection::class, 'encryptedColumnsCache');
-        $writeProp = new ReflectionProperty(Connection::class, 'writeColumnsCache');
-        $warnProp  = new ReflectionProperty(Connection::class, 'decryptWarned');
-        $this->assertNotSame([], $cacheProp->getValue($conn), 'Select must populate the read cache');
-        $this->assertNotSame([], $writeProp->getValue($conn), 'Insert must populate the write cache');
+        $warnProp = new ReflectionProperty(Connection::class, 'decryptWarned');
+        $this->assertNotSame([], $conn->mysqli->encryptedColumnsCache, 'Select must populate the read cache');
+        $this->assertNotSame([], $conn->mysqli->writeColumnsCache, 'Insert must populate the write cache');
         $warnProp->setValue($conn, true);
 
         // Schema can change while disconnected, so all three must reset for a clean reconnect
         $conn->disconnect();
-        $this->assertSame([], $cacheProp->getValue($conn), 'Disconnect must clear cached column lists');
-        $this->assertSame([], $writeProp->getValue($conn), 'Disconnect must clear cached write columns');
         $this->assertFalse($warnProp->getValue($conn), 'Disconnect must re-arm the decrypt warning');
+        $conn->connect();
+        $this->assertSame([], $conn->mysqli->encryptedColumnsCache, 'Reconnect must start with no cached column lists');
+        $this->assertSame([], $conn->mysqli->writeColumnsCache, 'Reconnect must start with no cached write columns');
     }
 
     public function testUnkeyedConnectionPassesRawBytesThrough(): void

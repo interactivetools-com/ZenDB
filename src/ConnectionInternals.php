@@ -1138,7 +1138,8 @@ trait ConnectionInternals
      * Forget cached encrypted-column lists when a query template contains DDL, so the
      * next read/write re-probes the changed schema (e.g. a column altered to MEDIUMBLOB
      * mid-request would otherwise keep writing plaintext from a stale list).
-     * Called by query() and queryOne(), the only methods that accept DDL.
+     * Called by query() and queryOne(), the only methods that accept DDL. The caches are
+     * on the wrapper that clones share, so DDL through one clone clears them for all.
      *
      * The keywords match anywhere, not just at the start, so DDL after a leading comment
      * or inside a versioned comment that MySQL runs (/*! ALTER ...) still clears the
@@ -1146,9 +1147,10 @@ trait ConnectionInternals
      */
     private function clearEncryptedColumnsCacheOnDdl(string $sqlTemplate): void
     {
-        if (($this->encryptedColumnsCache || $this->writeColumnsCache) && preg_match('/\b(ALTER|CREATE|DROP|RENAME|TRUNCATE)\b/i', $sqlTemplate)) {
-            $this->encryptedColumnsCache = [];
-            $this->writeColumnsCache     = [];
+        $mysqli = $this->mysqli;
+        if (($mysqli->encryptedColumnsCache || $mysqli->writeColumnsCache) && preg_match('/\b(ALTER|CREATE|DROP|RENAME|TRUNCATE)\b/i', $sqlTemplate)) {
+            $mysqli->encryptedColumnsCache = [];
+            $mysqli->writeColumnsCache     = [];
         }
     }
 
@@ -1180,10 +1182,7 @@ trait ConnectionInternals
         if ($singleTable) {
             $encryptedCols = [];
             if ($this->hasEncryptionKey) {
-                if (!isset($this->encryptedColumnsCache[$fullTable])) {
-                    $this->encryptedColumnsCache[$fullTable] = array_values(DB::getEncryptedColumns($mysqliResult->fetch_fields()));
-                }
-                $encryptedCols = $this->encryptedColumnsCache[$fullTable];
+                $encryptedCols = $this->mysqli->encryptedColumnsCache[$fullTable] ??= array_values(DB::getEncryptedColumns($mysqliResult->fetch_fields()));
             }
             $rows = $mysqliResult->fetch_all(MYSQLI_ASSOC);
             $mysqliResult->free();

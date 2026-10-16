@@ -307,11 +307,9 @@ class Connection
         $this->server = null;
         $this->table  = null;
 
-        // Schema can change while disconnected: re-probe encrypted columns and
-        // re-arm the one-per-connection decrypt warning on reconnect
-        $this->encryptedColumnsCache = [];
-        $this->writeColumnsCache     = [];
-        $this->decryptWarned         = false;
+        // Re-arm the one-per-connection decrypt warning on reconnect. The column-type caches
+        // went with the wrapper, so a reconnect re-probes a schema that may have changed
+        $this->decryptWarned = false;
     }
 
     /**
@@ -960,20 +958,6 @@ class Connection
     private bool $decryptWarned = false;
 
     /**
-     * @var array<string, string[]> Encrypted (MEDIUMBLOB) column names per full table name,
-     * for the read path (select/selectOne). Cleared on disconnect() and when query()/queryOne()
-     * runs DDL, so schema changes can't leave a stale list that would skip decryption.
-     */
-    private array $encryptedColumnsCache = [];
-
-    /**
-     * @var array<string, array<string, bool>> For the write path (insert/update): every column
-     * written so far, lowercase name => is MEDIUMBLOB, per full table name. Cleared with
-     * encryptedColumnsCache, so schema changes can't leave a stale entry that writes plaintext.
-     */
-    private array $writeColumnsCache = [];
-
-    /**
      * Encrypt MEDIUMBLOB-column values in an insert/update values array, in place. Called
      * automatically by DB::insert() and DB::update() before values go to the database.
      *
@@ -1003,7 +987,7 @@ class Connection
         // Look up the type of each column this write uses, by name, once per connection. Not
         // SELECT *, which leaves out INVISIBLE columns. Names are lowercase because MySQL
         // matches them that way: 'Token' writes to column 'token', so it must encrypt the same.
-        $knownColumns = $this->writeColumnsCache[$fullTable] ?? [];
+        $knownColumns = $this->mysqli->writeColumnsCache[$fullTable] ?? [];
         $newColumns   = array_keys(array_diff_key(array_change_key_case($values), $knownColumns));
         if ($newColumns) {
             foreach ($newColumns as $column) {
@@ -1020,7 +1004,7 @@ class Connection
                 $knownColumns[strtolower($field->name)] = DB::getEncryptedColumns([$field]) !== [];
             }
             $result->free();
-            $this->writeColumnsCache[$fullTable] = $knownColumns;
+            $this->mysqli->writeColumnsCache[$fullTable] = $knownColumns;
         }
 
         foreach ($values as $col => $value) {

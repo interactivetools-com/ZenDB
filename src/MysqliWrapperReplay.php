@@ -68,6 +68,10 @@ class MysqliWrapperReplay
     public int        $errno         = 0;
     public string     $error         = '';
 
+    // Column-type caches for automatic encryption, see MysqliWrapper
+    public array $encryptedColumnsCache = [];
+    public array $writeColumnsCache     = [];
+
     //endregion
     //region Corpus State
 

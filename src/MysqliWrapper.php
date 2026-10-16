@@ -39,6 +39,25 @@ class MysqliWrapper extends mysqli
     public bool $inTransaction = false;
 
     /**
+     * @var array<string, string[]> Encrypted (MEDIUMBLOB) column names per full table name,
+     * for the read path (select/selectOne). Stored here, not on Connection, so clones share
+     * it. Cleared when query()/queryOne() on any clone runs DDL, so schema changes can't
+     * leave a stale list that would skip decryption. A reconnect starts a new wrapper.
+     *
+     * @internal API may change between releases
+     */
+    public array $encryptedColumnsCache = [];
+
+    /**
+     * @var array<string, array<string, bool>> For the write path (insert/update): every column
+     * written so far, lowercase name => is MEDIUMBLOB, per full table name. Shared and cleared
+     * with encryptedColumnsCache, so schema changes can't leave a stale entry that writes plaintext.
+     *
+     * @internal API may change between releases
+     */
+    public array $writeColumnsCache = [];
+
+    /**
      * Force execute_query() to use polyfill instead of native (for testing)
      */
     public static bool $forceExecuteQueryPolyfill = false;
