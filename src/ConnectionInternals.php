@@ -653,14 +653,15 @@ trait ConnectionInternals
          */
         $placeholderRegex = '/\?|:[a-zA-Z]\w*\b|`\?`|`:[a-zA-Z]\w*\b`|`::\?`|`:::[a-zA-Z]\w*\b`|::\?|:::[a-zA-Z]\w*\b|::/';
 
-        // A placeholder inside a /* */ block comment isn't protected: escaping handles quotes
-        // and newlines but not the */ close sequence, so a value containing */ closes the
-        // comment and the rest runs as live SQL. Line comments (-- and #) are safe - breakout
-        // needs a newline, which real_escape_string escapes (connect() refuses a session with
-        // NO_BACKSLASH_ESCAPES, which turns that off). str_contains gates the strip so
-        // the recount only runs when a block comment is present (28 ns vs 227 ns ungated).
+        // Placeholders can't go inside /* */ comments. Escaping doesn't change */, so a value
+        // containing */ would end the comment and the rest of the value would run as SQL.
+        // The check counts placeholders with and without the comments. Each comment becomes a
+        // space, not nothing, or `:/**/name` would join into a new :name and even out the count.
+        // -- and # comments are fine: only a newline can end one, and escaping turns newlines
+        // into \n (connect() refuses NO_BACKSLASH_ESCAPES, the mode that would stop that).
+        // str_contains skips the check when there's no /* (28 ns vs 227 ns without it).
         if (str_contains($template, '/*')) {
-            $withoutBlockComments = preg_replace('!/\*.*?(?:\*/|$)!s', '', $template);
+            $withoutBlockComments = preg_replace('!/\*.*?(?:\*/|$)!s', ' ', $template);
             if (preg_match_all($placeholderRegex, $template) !== preg_match_all($placeholderRegex, $withoutBlockComments)) {
                 throw new InvalidArgumentException("Placeholders are not supported inside /* */ comments; a value containing */ would close the comment and run as SQL. Move the value out of the comment, or build the comment text yourself.");
             }

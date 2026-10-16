@@ -237,6 +237,16 @@ class SqlInjectionPreventionTest extends BaseTestCase
         DB::query("SELECT * FROM ::users /* tag :note */ WHERE status = :status", [':note' => 'x', ':status' => 'Active']);
     }
 
+    public function testPlaceholderInsideBlockCommentThrowsWhenCommentJoinsAnotherName(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage("Placeholders are not supported inside /* */ comments");
+
+        // Removing the comments without a space would turn :/**/dummy into :dummy, so the
+        // placeholder counts would match and :note would expand inside the first comment
+        DB::query("SELECT TRUE AS a /* :note */ # :/**/dummy", [':note' => '*/, 12345 AS marker #']);
+    }
+
     public function testBlockCommentWithoutPlaceholderAllowed(): void
     {
         // A comment with no placeholder inside must still run.
