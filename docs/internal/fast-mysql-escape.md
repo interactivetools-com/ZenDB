@@ -175,8 +175,12 @@ broken in this mode regardless of this optimization.
 2. **sql_mode must not contain NO_BACKSLASH_ESCAPES.** ZenDB sets sql_mode
    explicitly at connect (`src/Connection.php` ~line 214, default list in
    `src/ConnectionInternals.php`: STRICT_ALL_TABLES,NO_ZERO_IN_DATE,
-   ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION), overriding server
-   defaults. The mode can only appear if user code runs SET sql_mode later.
+   ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION), replacing the server's
+   own mode. `connect()` throws if the session ends up with
+   NO_BACKSLASH_ESCAPES anyway, from `sqlMode` or from the server's global
+   mode when `sqlMode` is `''`. It checks by escaping a newline: mysqlnd
+   leaves the newline alone only in this mode, so no query is needed. The
+   mode can still appear if user code runs SET sql_mode later.
 
 **Recommended runtime guard - probe self-check** (covers both conditions plus
 any future mysqlnd change, costs microseconds, run once per connection or per
@@ -409,10 +413,8 @@ Remaining:
   or debunk).
 - **ZenDB adoption proposal** (chat first). The 2026-08-05 run settled the
   headline question: the `ConnectionInternals.php:789` swap is rejected
-  (whole-query tie; see escape-results.md). Still open: rejecting
-  NO_BACKSLASH_ESCAPES at connect with an error message naming both sources
-  (sql_mode and charset) - a correctness hardening independent of speed;
-  an array-batch escape if an export API ever ships (`bulk-array-subject`
+  (whole-query tie; see escape-results.md). Still open: an array-batch
+  escape if an export API ever ships (`bulk-array-subject`
   1.06-1.41x, plus the fast path where it does pay); a type-confusion test
   (no non-string zval reaches a fast path; Stringable cast happens before
   the escape decision); a cross-run drift detector diffing fresh grids

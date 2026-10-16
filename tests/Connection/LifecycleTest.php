@@ -264,6 +264,16 @@ class LifecycleTest extends BaseTestCase
         $this->assertStringContainsString('NO_ZERO_IN_DATE', $actualMode);
     }
 
+    public function testNoBackslashEscapesThrowsOnConnect(): void
+    {
+        // The check reads the session's actual mode, so it catches the mode however it was set
+        $config = array_merge(self::$configDefaults, ['sqlMode' => 'STRICT_ALL_TABLES,NO_BACKSLASH_ESCAPES']);
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage("NO_BACKSLASH_ESCAPES is on for this connection");
+        DB::connect($config);
+    }
+
     public function testConnectSetsPhpTimezone(): void
     {
         $config = array_merge(self::$configDefaults, ['usePhpTimezone' => true]);

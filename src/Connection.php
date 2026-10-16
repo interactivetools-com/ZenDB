@@ -265,6 +265,12 @@ class Connection
         if ($sets = rtrim($sets, ', ')) {
             $this->mysqli->real_query("SET $sets");
         }
+
+        // Value escaping, the LIKE helpers, and placeholders in -- comments all need backslash escapes.
+        // The client tracks NO_BACKSLASH_ESCAPES from the server's replies, so escaping a newline shows it without a query
+        if ($this->mysqli->real_escape_string("\n") === "\n") {
+            throw new RuntimeException("NO_BACKSLASH_ESCAPES is on for this connection, and ZenDB escapes values with backslashes. Remove it from sqlMode, or from the server's global sql_mode if sqlMode is ''.");
+        }
     }
 
     /**

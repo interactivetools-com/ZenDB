@@ -44,6 +44,9 @@ coding assistants. Everything else is hardening and fixes.
   "Invalid tablePrefix" naming the allowed characters; a dotted prefix
   reads as a `database.` qualifier, so ZenDB refuses at config time instead
   of guessing. Rename steps in [UPGRADING.md](UPGRADING.md)
+- **`connect()` throws if `NO_BACKSLASH_ESCAPES` is on** - from `sqlMode`,
+  or from the server's global `sql_mode` when `sqlMode` is `''`; ZenDB
+  escapes values with backslashes, and that mode turns them off
 - **`escape()`, `escapef()`, and `escapeCSV()` marked `@internal`** - they
   exist so ZenDB and CMS Builder can build their own SQL; placeholders are
   the supported API

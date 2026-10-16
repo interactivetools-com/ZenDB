@@ -587,6 +587,11 @@ DB::connect([
 ]);
 ```
 
+`sqlMode` replaces the server's own `sql_mode` for the session; with `''`,
+no SET runs and the server's global `sql_mode` applies. Connecting throws if
+the session ends up with `NO_BACKSLASH_ESCAPES`, because ZenDB escapes values
+with backslashes.
+
 ### Connection Management
 
 ```php

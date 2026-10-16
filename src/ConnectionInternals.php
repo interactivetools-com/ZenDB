@@ -656,7 +656,8 @@ trait ConnectionInternals
         // A placeholder inside a /* */ block comment isn't protected: escaping handles quotes
         // and newlines but not the */ close sequence, so a value containing */ closes the
         // comment and the rest runs as live SQL. Line comments (-- and #) are safe - breakout
-        // needs a newline, which real_escape_string escapes. str_contains gates the strip so
+        // needs a newline, which real_escape_string escapes (connect() refuses a session with
+        // NO_BACKSLASH_ESCAPES, which turns that off). str_contains gates the strip so
         // the recount only runs when a block comment is present (28 ns vs 227 ns ungated).
         if (str_contains($template, '/*')) {
             $withoutBlockComments = preg_replace('!/\*.*?(?:\*/|$)!s', '', $template);
