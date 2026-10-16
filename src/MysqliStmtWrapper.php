@@ -56,7 +56,7 @@ class MysqliStmtWrapper extends mysqli_stmt
         }
 
         // the first execute() counts from prepare(); later ones time only themselves
-        $startTime       = $this->startTime ?:($this->mysqliWrapper->queryLogger ? microtime(true) : 0.0);
+        $startTime       = $this->startTime ?: ($this->mysqliWrapper->queryLogger ? microtime(true) : 0.0);
         $this->startTime = 0.0;
 
         try {
