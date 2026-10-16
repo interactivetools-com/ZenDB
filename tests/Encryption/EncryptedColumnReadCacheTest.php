@@ -129,6 +129,23 @@ class EncryptedColumnReadCacheTest extends BaseTestCase
         $this->assertSame('encrypted-after-alter', $row['secret'], 'Read after a clone ran ALTER must decrypt');
     }
 
+    public function testUseClearsCacheButIndexHintsDont(): void
+    {
+        self::$conn->update('enc_cache_a', ['label' => 'alpha'], ['num' => 1]);
+        self::$conn->selectOne('enc_cache_a', ['num' => 1]);
+
+        self::$conn->query("SELECT num FROM ::enc_cache_a USE INDEX (PRIMARY) WHERE num = ?", 1);
+        self::$conn->query("SELECT num FROM ::enc_cache_a USE KEY (PRIMARY) WHERE num = ?", 1);
+        $this->assertNotSame([], self::$conn->mysqli->encryptedColumnsCache, 'Index hints must keep the read cache');
+        $this->assertNotSame([], self::$conn->mysqli->writeColumnsCache, 'Index hints must keep the write cache');
+
+        // The caches are keyed by table name alone, so after USE the same name can be a different table
+        $database = self::$configDefaults['database'];
+        self::$conn->query("USE `$database`");
+        $this->assertSame([], self::$conn->mysqli->encryptedColumnsCache, 'USE must clear the read cache');
+        $this->assertSame([], self::$conn->mysqli->writeColumnsCache, 'USE must clear the write cache');
+    }
+
     /**
      * @dataProvider provideDdlBehindComments
      */

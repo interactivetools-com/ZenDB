@@ -211,13 +211,13 @@ and re-encrypt, not ignore.
 ZenDB reads a table's column types the first time it needs them and caches the
 answer for the life of the connection. Schema changes made through the library
 take care of themselves: when `DB::query()` runs DDL (ALTER, CREATE, DROP,
-RENAME, TRUNCATE), ZenDB drops the cached lists and re-reads each table on its
-next query.
+RENAME, TRUNCATE) or switches databases with `USE`, ZenDB drops the cached
+lists and re-reads each table on its next query.
 
-Schema changes ZenDB can't see keep the stale cache: DDL sent through raw
-`DB::$mysqli`, or another process altering tables while yours is running. A
-column can then stop being encrypted on write or stop being decrypted on read,
-with no warning either way. Reconnect after one:
+Schema changes ZenDB can't see keep the stale cache: DDL or `select_db()` sent
+through raw `DB::$mysqli`, or another process altering tables while yours is
+running. A column can then stop being encrypted on write or stop being
+decrypted on read, with no warning either way. Reconnect after one:
 
 ```php
 DB::disconnect();

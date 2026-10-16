@@ -1135,20 +1135,23 @@ trait ConnectionInternals
     }
 
     /**
-     * Forget cached encrypted-column lists when a query template contains DDL, so the
-     * next read/write re-probes the changed schema (e.g. a column altered to MEDIUMBLOB
-     * mid-request would otherwise keep writing plaintext from a stale list).
-     * Called by query() and queryOne(), the only methods that accept DDL. The caches are
-     * on the wrapper that clones share, so DDL through one clone clears them for all.
+     * Forget cached encrypted-column lists when a query template contains DDL or switches
+     * databases with USE, so the next read/write re-probes the changed schema (e.g. a column
+     * altered to MEDIUMBLOB mid-request would otherwise keep writing plaintext from a stale
+     * list). The caches are keyed by table name alone, so after USE the same name can be a
+     * different table. Called by query() and queryOne(), the only methods that accept DDL.
+     * The caches are on the wrapper that clones share, so DDL through one clone clears them
+     * for all.
      *
      * The keywords match anywhere, not just at the start, so DDL after a leading comment
      * or inside a versioned comment that MySQL runs (/*! ALTER ...) still clears the
      * cache. A false match, like a column named `drop`, only costs one re-probe per table.
+     * USE INDEX and USE KEY hints don't count.
      */
     private function clearEncryptedColumnsCacheOnDdl(string $sqlTemplate): void
     {
         $mysqli = $this->mysqli;
-        if (($mysqli->encryptedColumnsCache || $mysqli->writeColumnsCache) && preg_match('/\b(ALTER|CREATE|DROP|RENAME|TRUNCATE)\b/i', $sqlTemplate)) {
+        if (($mysqli->encryptedColumnsCache || $mysqli->writeColumnsCache) && preg_match('/\b(ALTER|CREATE|DROP|RENAME|TRUNCATE|USE(?!\s+(?:INDEX|KEY)\b))\b/i', $sqlTemplate)) { // DDL keywords, or USE not followed by INDEX/KEY
             $mysqli->encryptedColumnsCache = [];
             $mysqli->writeColumnsCache     = [];
         }
