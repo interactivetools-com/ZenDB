@@ -461,8 +461,9 @@ trait ConnectionInternals
      * @param array $values Column => value pairs
      * @return string SQL SET clause
      * @throws InvalidArgumentException
+     * @noinspection PhpFullyQualifiedNameUsageInspection - TODO-PHP82: import SensitiveParameter and drop the FQN; the FQN only keeps PHPStorm quiet at the 8.1 language level
      */
-    private function buildSetClause(array $values): string
+    private function buildSetClause(#[\SensitiveParameter] array $values): string
     {
         if (!$values) {
             throw new InvalidArgumentException("No values provided");
