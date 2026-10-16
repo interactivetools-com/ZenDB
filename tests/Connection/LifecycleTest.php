@@ -249,6 +249,30 @@ class LifecycleTest extends BaseTestCase
         $this->assertStringContainsString('real_connect', $logs[0]);
     }
 
+    public function testFailedConnectReachesQueryLogger(): void
+    {
+        self::requiresLiveMysql();
+
+        $logs   = [];
+        $config = array_merge(self::$configDefaults, [
+            'password'    => 'invalid_value',
+            'queryLogger' => function($query, $duration, $error) use (&$logs) {
+                $logs[] = [$query, $error];
+            },
+        ]);
+
+        try {
+            DB::connect($config);
+            $this->fail('connect should have thrown');
+        } catch (RuntimeException) {
+        }
+
+        // the failed attempt is the only entry, carrying the driver exception like a failed query() does
+        $this->assertCount(1, $logs);
+        $this->assertStringStartsWith('real_connect', $logs[0][0]);
+        $this->assertInstanceOf(\mysqli_sql_exception::class, $logs[0][1]);
+    }
+
     public function testConnectSetsSqlMode(): void
     {
         $sqlMode = 'STRICT_ALL_TABLES,NO_ZERO_IN_DATE';
