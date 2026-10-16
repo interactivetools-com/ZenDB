@@ -101,6 +101,10 @@ and your file and line.
   [UPGRADING.md](UPGRADING.md)
 - **`DB::pagingSql()` accepts huge page numbers** - a page number from the
   URL can't cause a MySQL syntax error
+- **LIMIT/OFFSET checks only see the top level** - in `selectOne()`,
+  `queryOne()` and `count()`, a column named `offset` or `limit`, a keyword
+  in a comment, or a LIMIT inside a subquery no longer throws. The same goes
+  for `FOR UPDATE` in `selectOne()` and `queryOne()`
 - **Failed decryption warns** - a MEDIUMBLOB value that won't decrypt comes
   back as raw bytes with one warning per connection naming the column
 - **Invisible MEDIUMBLOB columns are encrypted** - `insert()` and `update()`

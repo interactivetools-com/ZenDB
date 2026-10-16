@@ -348,6 +348,11 @@ trait ConnectionInternals
 
     /**
      * Reject LIMIT/OFFSET - these methods add their own LIMIT internally.
+     *
+     * Only a top-level clause counts: a column named `offset`, a LIMIT inside a subquery
+     * and a keyword in a comment all pass. The plain match runs first, so templates
+     * without either keyword skip sqlForKeywordCheck().
+     *
      * @throws InvalidArgumentException
      */
     private function rejectLimitAndOffset(int|array|string|RawSql $where): void
@@ -355,9 +360,35 @@ trait ConnectionInternals
         if ($where instanceof RawSql) {
             $where = $this->withoutStringLiterals((string)$where);  // a RawSql carries values inline; check the SQL around them, not the values
         }
-        if (is_string($where) && preg_match('/\b(LIMIT|OFFSET)\b/i', $where)) {
+        $keywordRegex = '/\b(LIMIT|OFFSET)\b/i';
+        if (is_string($where) && preg_match($keywordRegex, $where) && preg_match($keywordRegex, $this->sqlForKeywordCheck($where))) {
             throw new InvalidArgumentException("This method doesn't support LIMIT or OFFSET");
         }
+    }
+
+    /**
+     * Return a copy of the SQL with only the top level left, for keyword checks.
+     *
+     * Quoted text and backtick identifiers shrink to '' and ``, and comments and
+     * parenthesized groups (subqueries, function calls, IN lists) become a space, so a
+     * check like /\bLIMIT\b/ only matches a real top-level clause:
+     *
+     *     `offset` = ? AND id IN (SELECT id FROM t LIMIT 5) -- no LIMIT   →   `` = ? AND id IN
+     *     id IN (SELECT id FROM t) LIMIT 5                            →   id IN   LIMIT 5    (still rejected)
+     *
+     * Comments follow MySQL's rules: `/*!` and `/*M!` comments stay, since MySQL and
+     * MariaDB run what's inside them, and `--` only starts a comment when a space or
+     * control character follows it (`?--?` is minus minus).
+     *
+     * If PCRE gives up on a huge input, that step returns its input unchanged, so the
+     * check sees more SQL and may refuse it, but nothing crashes. The result is only
+     * matched against, never run.
+     */
+    private function sqlForKeywordCheck(string $sql): string
+    {
+        $sql        = $this->withoutStringLiterals($sql);
+        $noComments = preg_replace('/--(?=[\x00-\x20]|\z)[^\r\n]*+|#[^\r\n]*+|\/\*(?!M?!)(?:[^*]++|\*(?!\/))*+(?:\*\/|\z)/', ' ', $sql) ?? $sql;  // -- comment, # comment, /* comment */ but not /*! or /*M! (unterminated runs to the end)
+        return preg_replace('/\((?:[^()]++|(?R))*+\)/', ' ', $noComments) ?? $noComments;                                                 // a balanced (...) group, nested groups included
     }
 
     /**
@@ -394,8 +425,9 @@ trait ConnectionInternals
             return;
         }
 
-        // Row-locking clauses - grammar requires LIMIT before these
-        if (preg_match('/\bFOR\s+(?:UPDATE|SHARE)\b|\bLOCK\s+IN\s+SHARE\s+MODE\b/i', $where, $m)) {
+        // Row-locking clauses - grammar requires LIMIT before these. Only top-level ones count, so a
+        // subquery or comment can't trigger it; the trailing checks below must see the comments.
+        if (preg_match('/\bFOR\s+(?:UPDATE|SHARE)\b|\bLOCK\s+IN\s+SHARE\s+MODE\b/i', $this->sqlForKeywordCheck($where), $m)) {
             $clause = preg_replace('/\s+/', ' ', strtoupper($m[0]));
             throw new InvalidArgumentException("This method doesn't support $clause. Use query(...)->first() instead.");
         }
