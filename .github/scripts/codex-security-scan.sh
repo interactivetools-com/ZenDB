@@ -132,5 +132,6 @@ codex-security scan . "${paths[@]}" \
     --knowledge-base docs/security-gotchas.md \
     --knowledge-base docs/encryption.md \
     --knowledge-base docs/placeholders.md \
+    --knowledge-base docs/internal/design-decisions.md \
     --scan-prompt-file "$prompt_file" \
     "$@"
