@@ -102,15 +102,15 @@ echo $article->body->textOnly()->maxChars(100);
 // Format a number and prepend a currency symbol (a blank price stays blank, no stray $)
 echo $product->price->numberFormat(2)->prepend('$');     // $1,234.56
 
-// Format a date; supports years 1000-9999, anything else
+// Format a date (years 1000-9999); anything else
 // (null, invalid, zero dates like 0000-00-00) falls through to the or()
 echo $user->lastLogin->dateFormat('M j, Y')->or('Never');
 ```
 
 ## Debugging with `print_r()`
 
-The result objects describe themselves when inspected; `print_r()` shows the
-data, and `->debug()` adds the executed SQL and MySQL metadata:
+`print_r()` shows only the data in a result, row, or value (no object
+internals), and `->debug()` adds the executed SQL and MySQL metadata:
 
 ```php
 print_r($users);        // rows and values
@@ -120,8 +120,9 @@ print_r($user->name);   // one value's raw data
 $users->debug();        // the executed SQL, rows, and MySQL metadata
 ```
 
-CMS Builder users: `showme()` does the same thing as `print_r()`, wrapped in
-`<xmp>` tags for readable browser output.
+CMS Builder users: `showme()` prints results and rows with `->debug()` and
+other values with `print_r()`, wrapped in `<xmp>` tags for readable browser
+output.
 
 ## Query Metadata - `mysqli()`
 
@@ -191,7 +192,7 @@ Each row in a collection, and the return value of `DB::selectOne()`.
 | Method                    | Description                                                              |
 |---------------------------|--------------------------------------------------------------------------|
 | `$row->columnName`        | Column value as SmartString                                              |
-| `$row->{'users.name'}`    | Column whose key plain syntax can't type: Smart Join keys, numeric indexes |
+| `$row->{'users.name'}`    | Column whose key plain syntax doesn't allow: [Smart Join](joins-and-custom-sql.md#smart-joins) keys, numeric indexes |
 | `$row->keys()`            | Column names                                                             |
 | `$row->values()`          | Column values                                                            |
 | `$row->toArray()`         | Raw associative array                                                    |
@@ -201,7 +202,7 @@ Each row in a collection, and the return value of `DB::selectOne()`.
 
 Each column value is a SmartString. These are the most used methods.
 
-**Text**
+### Text
 
 | Method            | Description                             |
 |-------------------|-----------------------------------------|
@@ -209,9 +210,9 @@ Each column value is a SmartString. These are the most used methods.
 | `->maxChars(100)` | Shorten to N characters with ellipsis   |
 | `->maxWords(20)`  | Shorten to N words with ellipsis        |
 | `->nl2br()`       | HTML-encode, then newlines to `<br>` (returns a plain string) |
-| `->trim()`        | Trim whitespace                         |
+| `->trim()`        | Remove whitespace from both ends        |
 
-**Formatting**
+### Formatting
 
 | Method                   | Description                   |
 |--------------------------|-------------------------------|
@@ -219,20 +220,20 @@ Each column value is a SmartString. These are the most used methods.
 | `->numberFormat(2)`      | Format a number: "1,234.56"   |
 | `->int()`, `->float()`   | Convert to a plain PHP type   |
 
-**Conditional fallbacks**
+### Conditional Fallbacks
 
 | Method               | Applies when                                    |
 |----------------------|-------------------------------------------------|
 | `->or('N/A')`        | Value is null or `''` (zero stays)              |
 | `->ifNull('N/A')`    | Value is null                                   |
 | `->ifZero('Free')`   | Value is numeric zero                           |
-| `->append(' items')` | Appends when value is present (including zero)  |
-| `->prepend('$')`     | Prepends when value is present (including zero) |
+| `->append(' items')` | Value isn't null or `''`; adds to the end       |
+| `->prepend('$')`     | Value isn't null or `''`; adds to the start     |
 
 ## Full References
 
 These objects come from ZenDB's companion libraries, and the complete method
-lists live in their own docs:
+lists are in their own docs:
 
 - [SmartArray](https://github.com/interactivetools-com/SmartArray) - results and rows
 - [SmartString](https://github.com/interactivetools-com/SmartString) - values

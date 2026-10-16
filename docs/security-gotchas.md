@@ -1,10 +1,11 @@
 # Security Gotchas
 
 ZenDB is safe by default. Values go through placeholders, results HTML-encode
-themselves on output, and templates with inline values are rejected. You get
-that protection without doing anything special. This page documents the narrow
-cases that still let you write an unsafe query, all of which require working
-against the library's design, and shows the safe form for each.
+themselves on output, and the template guard rejects queries with inline
+quotes or numbers. You get that protection without doing anything special.
+This page documents the narrow cases that still let you write an unsafe
+query, all of which require working against the library's design, and
+shows the safe form for each.
 
 If you use placeholders for values, backtick placeholders for identifiers, and
 leave output encoding on, none of this applies to you.
@@ -19,7 +20,7 @@ Contents:
 ## Escape Hatches - `DB::$mysqli` and `rawHtml()`
 
 Two escape hatches deliberately step outside the protection: `DB::$mysqli`
-skips the SQL guard, and `rawHtml()` skips output encoding. Both exist because
+skips the template guard, and `rawHtml()` skips output encoding. Both exist because
 sometimes you need direct access, and both are named so they stand out in a
 code review.
 
@@ -57,7 +58,7 @@ the server receives one finished query, with no server-side prepare step.
 That changes nothing above - values still only enter through placeholders -
 and speed is not a reason to want server-side prepares either: their extra
 prepare round trip costs more than ZenDB's query building on typical pages
-([measurements](performance.md)).
+([measurements](../.github/scripts/escape-results.md#measured-for-reference)).
 
 ### Connection Charset - Always utf8mb4
 
@@ -67,13 +68,14 @@ backups all count on it.
 Changing it can introduce SQL injection, and that's not a ZenDB quirk. On any
 MySQL connection, escaping works by knowing the charset, so once the client and
 server disagree about it a crafted value can break out of its quotes and run as
-SQL. `SET NAMES` causes exactly that disagreement: it only tells the server.
+SQL. A `SET NAMES` query causes exactly that disagreement: it only tells the
+server.
 
 ### Unencoded Output - `rawHtml()`
 
 Every value from ZenDB HTML-encodes itself in string context, so normal output
-is XSS-safe without effort. The single exception is `rawHtml()`: it returns
-the value unencoded.
+is XSS-safe without effort. The single exception is `rawHtml()`, which
+returns the value unencoded.
 
 ```php
 echo $row->bio;            // HTML-encoded, safe for any user-supplied value
@@ -127,14 +129,15 @@ whole chain.
 ```php
 // If you need the "is not empty" idiom, use a placeholder for the empty string too
 DB::query("SELECT * FROM ::users WHERE name != :empty", [':empty' => '']);
+// SELECT * FROM users WHERE name != ''
 ```
 
 ## Dynamic Identifiers - ORDER BY and Column Names
 
-The template guard inspects *values* (numbers, quoted strings, literals). It
-does not inspect identifiers or keywords, because it has no schema to check
-them against. So interpolating user input into an identifier position slips
-past it.
+The template guard inspects *values* (quoted strings, and numbers in any
+form, such as `42`, `0x1AF`, or `1e10`). It does not inspect identifiers or
+keywords, because it has no schema to check them against. So interpolating
+user input into an identifier position slips past it.
 
 ```php
 // WRONG - $sort is an identifier, the guard does not validate it
@@ -151,15 +154,19 @@ quotes, parentheses, or other punctuation:
 ```php
 // RIGHT - backtick placeholder validates the identifier
 DB::query("SELECT * FROM ::members ORDER BY `:sort`", [':sort' => $sort]);
+// SELECT * FROM members ORDER BY `name`
 ```
 
-For a direction (`ASC`/`DESC`) or a fixed set of sortable columns, map the
-input to a known-good value in PHP before it reaches SQL:
+The backtick placeholder checks the characters, not which column they name,
+so a user can still sort by any column in the table. For a direction
+(`ASC`/`DESC`) or a fixed set of sortable columns, map the input to a
+known-good value in PHP before it reaches SQL:
 
 ```php
 $column    = ['name', 'date', 'city'][$_GET['sortIndex'] ?? 0] ?? 'name';
 $direction = ($_GET['dir'] ?? '') === 'desc' ? 'DESC' : 'ASC';
 DB::query("SELECT * FROM ::members ORDER BY `:col` " . $direction, [':col' => $column]);
+// with ?sortIndex=1&dir=desc this runs: SELECT * FROM members ORDER BY `date` DESC
 ```
 
 ## Encryption Threat Model
@@ -171,15 +178,16 @@ are covered in [Encryption](encryption.md)). That compatibility comes with
 tradeoffs worth knowing:
 
 - **ECB is deterministic.** The same plaintext always encrypts to the same
-  ciphertext. That is what makes `WHERE token = DB::encryptValue($token)`
-  work, but it also means an attacker who reads the table can tell which rows
-  share a value, and can spot repeated 16-byte blocks within a value.
+  ciphertext. That is what makes
+  `DB::select('users', ['token' => DB::encryptValue($token)])` work, but it
+  also means an attacker who reads the table can tell which rows share a
+  value, and can spot repeated 16-byte blocks within a value.
 - **No integrity.** ECB is unauthenticated, so ciphertext can be tampered
   with. There is no built-in check that a value was not altered.
 - **The key is global to all MEDIUMBLOBs.** There is no per-column opt-out. A
   `MEDIUMBLOB` holds either encrypted or raw data, not a mix. If you turn
-  encryption on, do not also store non-encrypted binaries (images, files) in a
-  `MEDIUMBLOB`, they will be treated as ciphertext.
+  encryption on, store non-encrypted binaries (images, files) in `BLOB` or
+  `LONGBLOB` instead, since every `MEDIUMBLOB` value is treated as ciphertext.
 
 This protects a database dump at rest: someone who steals the `.sql` file
 cannot read the values without the key. It does not protect against an

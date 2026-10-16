@@ -12,11 +12,11 @@ Contents:
 - [WHERE Condition Forms](#where-condition-forms) - array, positional ?, named :placeholders
 - [Placeholders & Parameters](#placeholders--parameters) - ?, :name, backtick identifiers, :: table prefix
 - [Type Handling](#type-handling) - PHP-to-SQL conversion for WHERE and INSERT/UPDATE values
-- [Custom SQL](#dbquery--dbqueryone----custom-sql) - query(), queryOne(), smart joins, clone()
+- [Custom SQL](#dbquery--dbqueryone---custom-sql) - query(), queryOne(), smart joins, clone()
 - [Results & Values](#results--values) - SmartArray/SmartString hierarchy, HTML-encoding, methods
 - [Helpers](#helpers) - pagination, LIKE patterns, raw SQL, date constants, table names
 - [Connection](#connection) - config options, connection management, raw mysqli access, multiple connections
-- [Encryption (opt-in)](#encryption-opt-in)
+- [Encryption (Opt-In)](#encryption-opt-in)
 - [Template Safety Rules](#template-safety-rules) - what SQL templates reject and allow
 - [Common Errors Quick Reference](#common-errors-quick-reference) - exact messages and fixes
 - [Gotchas](#gotchas) - the silent failure cases
@@ -27,9 +27,10 @@ Contents:
 
 ZenDB is a PHP/MySQL database library where **SQL injection is designed out**:
 values can only enter a query through placeholders, which escape and quote them
-before it runs. SQL templates are scanned before execution -- quotes, standalone
-numbers, backslashes, NULL bytes, and CTRL-Z are rejected outright. The one gap
-is an identifier interpolated into a template by hand (see Gotchas). Every value
+before it runs. SQL templates are scanned before execution: quotes, standalone
+numbers, backslashes, NULL bytes, and CTRL-Z are rejected outright. Two gaps
+remain: an identifier interpolated into a template by hand, and a value with its
+own balanced quotes interpolated into quotes you wrote (see Gotchas). Every value
 returned from queries is a
 [SmartString](https://github.com/interactivetools-com/SmartString) that
 auto-HTML-encodes in string context, preventing XSS by default.
@@ -54,7 +55,7 @@ foreach ($users as $user) {
 
 ## Querying Data
 
-### DB::select() -- Multiple Rows
+### DB::select() - Multiple Rows
 
 Returns `SmartArrayHtml` collection of rows.
 
@@ -83,7 +84,7 @@ $users = DB::select('users', "ORDER BY name :pagingSQL", [
 ]);
 ```
 
-### DB::selectOne() -- Single Row
+### DB::selectOne() - Single Row
 
 Returns first matching row as `SmartArrayHtml`. Auto-adds `LIMIT 1`.
 Returns empty `SmartArrayHtml` if not found. **Throws if you add LIMIT or OFFSET.**
@@ -97,7 +98,7 @@ if ($user->isEmpty()) {
 }
 ```
 
-### DB::count() -- Row Count
+### DB::count() - Row Count
 
 Returns `int`. **Throws if you add LIMIT or OFFSET.**
 
@@ -110,7 +111,7 @@ $active = DB::count('users', ['status' => 'Active']);
 
 ## Modifying Data
 
-### DB::insert() -- Returns Insert ID
+### DB::insert() - Returns Insert ID
 
 ```php
 $newId = DB::insert('users', [
@@ -120,9 +121,9 @@ $newId = DB::insert('users', [
 ]);
 ```
 
-### DB::update() -- Returns Affected Rows
+### DB::update() - Returns Affected Rows
 
-Signature: `update($table, $values, $whereEtc, ...$params)` -- **values
+Signature: `update($baseTable, $values, $whereEtc, ...$params)` - **values
 first, then WHERE.** WHERE is required.
 
 ```php
@@ -141,7 +142,7 @@ DB::update('users', ['status' => 'archived'], "TRUE");
 **Reversed argument detection:** If SET clause is a single column named
 `num`, `id`, or `ID`, ZenDB assumes you reversed the arguments and throws.
 
-### DB::delete() -- Returns Affected Rows
+### DB::delete() - Returns Affected Rows
 
 WHERE is required.
 
@@ -150,14 +151,14 @@ $deleted = DB::delete('users', ['id' => 123]);
 $deleted = DB::delete('users', "status = ?", 'Suspended');
 ```
 
-### DB::transaction() -- Atomic Operations
+### DB::transaction() - Atomic Operations
 
 Commits when the callback returns, rolls back and rethrows on exception.
 Returns the callback's return value. Nested transactions throw.
 
 DML only (SELECT/INSERT/UPDATE/DELETE). DDL (CREATE, ALTER, DROP, TRUNCATE)
 silently commits all pending work and ends the transaction; everything after
-runs in autocommit mode with no rollback possible. TRUNCATE is DDL -- use
+runs in autocommit mode with no rollback possible. TRUNCATE is DDL, so use
 DELETE inside transactions.
 
 ```php
@@ -273,7 +274,7 @@ DB::query("SHOW TABLES LIKE ::?", 'user%');
 // with tablePrefix 'cms_' this runs: ... WHERE TABLE_NAME = 'cms_users'
 DB::query("SELECT * FROM information_schema.TABLES WHERE TABLE_NAME = :::table", [':table' => 'users']);
 
-// with tablePrefix 'cms_' this runs: ... WHERE TABLE_NAME IN ('cms_users', 'cms_orders')
+// with tablePrefix 'cms_' this runs: ... WHERE TABLE_NAME IN ('cms_users','cms_orders')
 DB::query("SELECT * FROM information_schema.TABLES WHERE TABLE_NAME IN (:::tables)", [':tables' => ['users', 'orders']]);
 ```
 
@@ -293,7 +294,7 @@ DB::query("SELECT * FROM information_schema.TABLES WHERE TABLE_NAME IN (:::table
 | `RawSql`                    | As-is (no escaping)     | `NOW()`                           |
 
 **Critical:** String `"10"` becomes `'10'` (quoted). Integer `10` becomes `10`
-(unquoted). This matters for LIMIT -- always use int, not string.
+(unquoted). This matters for LIMIT: always use int, not string.
 
 SmartString, SmartNull, and SmartArray values are auto-unwrapped to their
 underlying types before processing.
@@ -302,23 +303,23 @@ underlying types before processing.
 
 ```php
 DB::insert('users', [
-    'name'       => 'John',                // string  -> quoted, escaped
-    'age'        => 30,                    // int     -> unquoted
-    'score'      => 9.5,                   // float   -> unquoted
-    'isAdmin'    => true,                  // bool    -> TRUE
-    'bio'        => null,                  // null    -> NULL
-    'created_at' => DB::rawSql('NOW()'),   // RawSql  -> as-is
-    'views'      => DB::rawSql('views + 1'), // SQL expression
+    'name'       => 'John',                   // string  -> quoted, escaped
+    'age'        => 30,                       // int     -> unquoted
+    'score'      => 9.5,                      // float   -> unquoted
+    'isAdmin'    => true,                     // bool    -> TRUE
+    'bio'        => null,                     // null    -> NULL
+    'created_at' => DB::rawSql('NOW()'),      // RawSql  -> as-is
+    'views'      => DB::rawSql('views + 1'),  // SQL expression
 ]);
 ```
 
 ---
 
-## DB::query() / DB::queryOne() -- Custom SQL
+## DB::query() / DB::queryOne() - Custom SQL
 
 Full SQL with all safety checks still enforced; `query()` returns
-`SmartArrayHtml` collection; `queryOne()` returns the first row only.
-Auto-adds `LIMIT 1` (for SELECT/WITH). **Throws if you add LIMIT or OFFSET.**
+`SmartArrayHtml` collection; `queryOne()` returns the first row only,
+auto-adds `LIMIT 1` (for SELECT/WITH), and **throws if you add LIMIT or OFFSET.**
 
 ```php
 $rows = DB::query(
@@ -358,11 +359,12 @@ alias, no qualified key. Self-joins are the one exception: when the same
 table appears twice, alias keys are added too (`$row->{'a.name'}`,
 `$row->{'b.name'}`).
 
-### DB::clone() -- Override Settings
+### DB::clone() - Override Settings
 
 ```php
 $db = DB::clone(['useSmartJoins' => false]);
-$rows = $db->query("SELECT u.name FROM ::users u JOIN ::orders o ON u.id = o.user_id");
+$rows = $db->query("SELECT u.name, o.order_id FROM ::users u JOIN ::orders o ON u.id = o.user_id");
+// rows have `name` and `order_id` keys only, no `users.name` / `orders.order_id` keys
 ```
 
 Shares the same mysqli connection with different config. Original unaffected.
@@ -472,7 +474,7 @@ if ($row->name->isMissing()) { echo "No name"; }
 | `$rs->map(fn)`                 | Transformed collection                                                                         |
 | `$rs->indexBy('col')`          | Lookup keyed by column                                                                         |
 | `$rs->groupBy('col')`          | Grouped by column value                                                                        |
-| `$rs->implode(', ')`           | Join values into string                                                                        |
+| `$rs->implode(', ')`           | Join values into string; throws on rows, so call `column('col')` first                         |
 | `$rs->or404()`                 | Send 404 if empty result set                                                                   |
 | `$rs->orThrow($msg)`           | Throw RuntimeException if empty                                                                |
 
@@ -495,7 +497,7 @@ foreach ($users as $user) {
 
 | Method            | Returns                 |
 |-------------------|-------------------------|
-| `$row->isEmpty()` | bool -- true if no data |
+| `$row->isEmpty()` | bool - true if no data  |
 | `$row->toArray()` | Raw associative array   |
 | `$row->keys()`    | Column names            |
 | `$row->values()`  | SmartString values      |
@@ -526,16 +528,16 @@ DB::pagingSql($page, $perPage = 10)  // Returns RawSql: LIMIT x OFFSET y
 All escape `%` and `_` in input. All return `RawSql`.
 
 ```php
-DB::select('users', "name LIKE ?", DB::likeContains('John'));    // %John%
-DB::select('users', "name LIKE ?", DB::likeStartsWith('J'));     // J%
-DB::select('users', "name LIKE ?", DB::likeEndsWith('son'));     // %son
-DB::select('users', "tags LIKE ?", DB::likeContainsTSV('featured')); // %\tfeatured\t%
+DB::select('users', "name LIKE ?", DB::likeContains('John'));         // %John%
+DB::select('users', "name LIKE ?", DB::likeStartsWith('J'));          // J%
+DB::select('users', "name LIKE ?", DB::likeEndsWith('son'));          // %son
+DB::select('users', "tags LIKE ?", DB::likeContainsTSV('featured'));  // %\tfeatured\t%
 ```
 
 ### Raw SQL
 
 ```php
-DB::rawSql('NOW()')                  // Inserted verbatim -- NO escaping
+DB::rawSql('NOW()')                  // Inserted verbatim - NO escaping
 ```
 
 **Never pass user input to `rawSql()`.** It bypasses all escaping.
@@ -603,8 +605,8 @@ DB::disconnect()           // Close the default connection
 ### Raw mysqli Access - `DB::$mysqli`
 
 `DB::$mysqli` is the underlying mysqli connection (a mysqli subclass that
-adds query logging and `lastQuery`). Required for DDL: templates reject
-standalone numbers, so `VARCHAR(255)` throws in `DB::query()`.
+adds query logging and `lastQuery`). Use it for DDL with type lengths:
+templates reject standalone numbers, so `VARCHAR(255)` throws in `DB::query()`.
 
 ```php
 // Raw mysqli: no placeholders, no template guard, no :: prefix expansion
@@ -616,9 +618,11 @@ DB::$mysqli->affected_rows;
 ```
 
 Returns `mysqli_result|true`, not ZenDB collections; failures throw
-`mysqli_sql_exception`. Results skip auto-decryption (see Encryption).
+`mysqli_sql_exception`. Results skip auto-decryption (see Encryption). With
+`encryptionKey` set, DDL sent here leaves ZenDB's cached column types stale,
+so reconnect after it.
 
-Connections are always utf8mb4. Never change it. `set_charset()` throws on any
+Connections are always utf8mb4. Never change it; `set_charset()` throws on any
 other charset. Raw SQL (`SET NAMES`, `SET CHARACTER SET`) is not blocked but
 defeats escaping and allows SQL injection: mysqli keeps escaping for utf8mb4
 while the server switches.
@@ -646,10 +650,10 @@ Each Connection has the same methods as `DB::` (`select`, `selectOne`,
 
 With `encryptionKey` set in `DB::connect()`, every `MEDIUMBLOB` column is
 AES-128-ECB encrypted on `insert()`/`update()` and decrypted on read; no
-query changes needed. That reserves `MEDIUMBLOB` for encrypted data --
+query changes needed. That reserves `MEDIUMBLOB` for encrypted data, so
 store plain binary (images, files) in `BLOB` or `LONGBLOB`, which are left
 alone; `NULL` passes through unencrypted. Booleans throw
-`InvalidArgumentException` on encrypted columns -- pass a string or number.
+`InvalidArgumentException` on encrypted columns; pass a string or number.
 
 ```php
 // Exact match: encrypt the search value in PHP (encryption is deterministic)
@@ -687,9 +691,9 @@ SQL templates are scanned before execution. The following are **rejected**.
 
 | Pattern                                         | Rejected                   |
 |-------------------------------------------------|----------------------------|
-| Quotes (`'` or `"`)                             | Always -- use placeholders |
-| Standalone numbers                              | Always -- use placeholders |
-| Hex/binary/scientific (`0x1F`, `0b101`, `1e10`) | Always -- count as numbers |
+| Quotes (`'` or `"`)                             | Always - use placeholders  |
+| Standalone numbers                              | Always - use placeholders  |
+| Hex/binary/scientific (`0x1F`, `0b101`, `1e10`) | Always - count as numbers  |
 | Backslashes (`\`)                               | Always                     |
 | NULL bytes (`\x00`)                             | Always                     |
 | CTRL-Z (`\x1a`)                                 | Always                     |
@@ -698,11 +702,11 @@ The following are **allowed** in templates.
 
 | Pattern            | Notes                                                       |
 |--------------------|-------------------------------------------------------------|
-| `''` and `""`      | Empty string literals (no injection payload)                |
+| `''` and `""`      | Empty strings; quote-balanced values pass too (see Gotchas) |
 | Trailing `LIMIT #` | Literal number kept in query, skipped by the template guard |
 
-Table and column names that ZenDB inserts -- table arguments, WHERE-array and
-`$values` keys, and backtick placeholders -- are validated against `/^[\w-]+\z/`
+Table and column names that ZenDB inserts (table arguments, WHERE-array and
+`$values` keys, and backtick placeholders) are validated against `/^[\w-]+\z/`
 (alphanumeric, underscore, hyphen only). Identifiers interpolated into a
 template by hand are not; the guard has no schema to check them against.
 
@@ -732,28 +736,33 @@ template by hand are not; the guard has no schema to check them against.
   Placeholder form `"col = ?", null` generates `col = NULL` which is always false.
   Use the array form for null comparisons.
 - **String numbers in LIMIT:** `"LIMIT ?", "10"` (string) quotes it. Use `"LIMIT ?", 10` (int).
-- **selectOne() auto-adds LIMIT 1.** Don't add your own LIMIT or OFFSET.
-- **count() rejects LIMIT/OFFSET** too. Use `select()` if you need them.
+- **`selectOne()` auto-adds LIMIT 1.** Don't add your own LIMIT or OFFSET.
+- **`count()` rejects LIMIT/OFFSET** too. Use `select()` if you need them.
 - **Empty arrays in IN():** `[':ids' => []]` becomes `IN (SELECT 0 FROM (SELECT 0) empty_set WHERE 0)`, an
   empty set: `IN` matches nothing, `NOT IN` matches everything.
   Expansion also skips `null` elements and removes duplicates: `[1, null, 1, 2]` → `IN (1,2)`.
 - **Boolean values:** `true`/`false` become SQL `TRUE`/`FALSE` keywords.
 - **Param forms:** up to 3 direct values for `?` placeholders, or one array of `:name` params. Positional values in one array are deprecated (see Positional `?` under Placeholders & Parameters).
-- **Interpolated identifiers are the one injection path.** The guard flags quotes and
+- **Interpolated identifiers are an injection path.** The guard flags quotes and
   numbers, which every real *value* carries, so `"WHERE city = $city"` throws on the
   first real value. An identifier carries neither, so `"ORDER BY $sort"` passes the
-  guard and is injection when `$sort` is user input. Use a backtick placeholder --
-  `` "ORDER BY `:sort`", [':sort' => $sort] `` -- or map the input to a known-good
+  guard and is injection when `$sort` is user input. Use a backtick placeholder
+  (`` "ORDER BY `:sort`", [':sort' => $sort] ``) or map the input to a known-good
   column in PHP first. A value placeholder won't work: `ORDER BY 'name'` sorts by a
   constant string and silently does nothing.
+- **Empty quotes `''` are allowed, so a quote-balanced value passes.** Writing
+  `"WHERE name = '$name'"` throws on a real value, but `$name` set to
+  `' OR name=name #'` produces `WHERE name = '' OR name=name #''`, which passes
+  the guard and returns every row. Use a placeholder for the value, and for the
+  empty string too: `"name != :empty", [':empty' => '']`.
 
 ---
 
 ## Further Reading
 
-- [SmartArray](https://github.com/interactivetools-com/SmartArray) -- Full result-set/row method reference
-- [SmartString](https://github.com/interactivetools-com/SmartString) -- Full value method reference
-- [Detailed docs](README.md) -- Human-friendly tutorials and explanations
+- [SmartArray](https://github.com/interactivetools-com/SmartArray) - Full result-set/row method reference
+- [SmartString](https://github.com/interactivetools-com/SmartString) - Full value method reference
+- [Detailed docs](README.md) - Human-friendly tutorials and explanations
 
 ---
 

@@ -61,7 +61,7 @@ $memberId = DB::selectOne('users', ['email' => $email])
     ->int();
 ```
 
-The first `orThrow()` fires when the query returns no row; the second fires
+The first `orThrow()` throws when the query returns no row; the second throws
 when the row exists but `memberId` is null or `''` (zero counts as present).
 When something is missing, the exception says which of the two it was.
 
@@ -91,8 +91,9 @@ $newest = DB::queryOne("SELECT MAX(createdAt) AS newest FROM ::users")->newest;
 echo "Newest signup: {$newest->dateFormat('M j, Y')}";
 ```
 
-For columns whose names are awkward to type, read by position with `at()` -
-`SHOW CREATE TABLE` returns a column literally named `Create Table`:
+For columns whose names are awkward to type, read by position with `at()`,
+which counts from 0. `SHOW CREATE TABLE` returns `Table` and `Create Table`,
+so the SQL is at position 1:
 
 ```php
 $createSql = DB::queryOne("SHOW CREATE TABLE ::users")->at(1)->value();
@@ -154,7 +155,8 @@ echo "$total results, page $page of $totalPages";
 ```
 
 Both helpers sanitize their own inputs, so `$_GET` values can be passed
-straight in: `likeContains()` escapes quotes and the LIKE wildcards `%` and
+straight in (the example casts `$page` only because it also prints it):
+`likeContains()` escapes quotes and the LIKE wildcards `%` and
 `_`, so a search for `50%` matches the literal text `50%`; `pagingSql()`
 casts the page number to `int` and falls back to page 1 on anything empty or
 non-numeric.
@@ -242,7 +244,8 @@ $categories = DB::select('categories', "ORDER BY name");
 ## Grouped Display - `groupBy()`
 
 `groupBy()` turns a flat result set into one collection per column value.
-Sorting by the group column first keeps each group's items in order:
+Sorting by the group column first puts the groups in order, and the second
+sort column orders the items inside each group:
 
 ```php
 use Itools\SmartString\SmartString;
@@ -309,8 +312,8 @@ $hasEmailIndex = DB::query("SHOW INDEX FROM ::users")->column('Column_name')->co
 ```
 
 For a one-off check straight against the database, `DB::count()` above is
-the better tool; `contains()` earns its keep when the collection is already
-in hand, or when several values get tested against the same one.
+the better tool; `contains()` fits when the rows are already loaded, or
+when several values get checked against the same column.
 
 ## Default Missing Numbers to Zero - `or()`
 
@@ -384,12 +387,14 @@ echo $user->city->append(', ') . $user->region->append(' ') . $user->postalCode;
 ```
 
 `prepend()` is the same idea in front: `$user->balance->prepend('$')`
-prints `$0` for a zero balance and nothing for null (zero counts as present,
+prints `$0.00` for a zero balance and nothing for null (zero counts as present,
 null and `''` do not).
 
 The appended text becomes part of the value, so it HTML-encodes on output
 with everything else. Keep separators plain text; a `<br>` inside `append()`
-prints as literal text, not a line break.
+prints as literal text, not a line break. For a line break,
+`appendHtml('<br>')` adds the markup as-is and returns a plain string, so it
+goes last in the chain.
 
 ## Values in URLs and JavaScript - `urlEncode()` and `jsonEncode()`
 

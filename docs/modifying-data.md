@@ -70,9 +70,10 @@ Three details worth knowing:
 - The count is MySQL's `affected_rows` value, returned as-is: rows *changed*,
   not rows matched, so rows that already held the new values aren't counted.
 - Values come before WHERE. If the arguments get reversed, ZenDB catches the
-  most common form (a SET clause that only sets `id` or `num`) and throws
+  most common form (a SET clause that only sets `id` or `num`, CMS Builder's
+  record ID column) and throws
   with the correct signature in the message.
-- The WHERE string can carry `ORDER BY` and `LIMIT`, so batched or
+- The WHERE string can include `ORDER BY` and `LIMIT`, so batched or
   oldest-first operations don't need raw SQL:
   `DB::delete('logs', "createdAt < ? ORDER BY createdAt LIMIT 1000", '2026-01-01')`.
 
@@ -105,10 +106,10 @@ DB::insert('products', [
 ```
 
 [SmartString](https://github.com/interactivetools-com/SmartString) values
-unwrap to their underlying value automatically. Arrays throw: column
-assignment is single-valued, so serialize first (`json_encode()`,
+unwrap to their underlying value automatically. Arrays throw, since a column
+holds one value; convert the array to a string first (`json_encode()`,
 `implode()`).
-[Placeholders](placeholders.md) covers the full type handling rules. With
+See [Type Handling](placeholders.md#type-handling) for the full rules. With
 `encryptionKey` set, `MEDIUMBLOB` columns encrypt automatically on
 `insert()`/`update()`; see [Encryption](encryption.md).
 
@@ -139,7 +140,7 @@ and put the data in placeholders or plain values.
 
 `DB::transaction()` runs a function as one all-or-nothing unit. When the
 function returns, the changes commit. When it throws, everything rolls back
-and the exception continues up. Either way the database never holds partial
+and the exception is rethrown. Either way the database never holds partial
 data:
 
 ```php
@@ -155,12 +156,16 @@ $orderId = DB::transaction(function() {
 `transaction()` returns whatever the function returns, so values created
 inside (`$orderId` above) come back out. If the script dies or times out
 mid-transaction, MySQL rolls back the open transaction when the connection
-closes. Calling `transaction()` inside another `transaction()` throws.
+closes. A persistent `p:` connection stays open, so its rollback waits until
+the connection is next reused (see
+[Persistent Connections](persistent-connections.md#a-crash-mid-transaction-blocks-others-briefly)).
+Calling `transaction()` inside another `transaction()` throws.
 
 A single query never needs a transaction; it's already atomic:
 
 ```php
-DB::query("UPDATE ::counters SET views = views + 1 WHERE id = ?", $pageId);
+DB::update('counters', ['views' => DB::rawSql('views + 1')], ['id' => 42]);
+// UPDATE `counters` SET `views` = views + 1 WHERE `id` = 42
 ```
 
 **A transaction prevents partial writes, not race conditions.** Two requests
@@ -182,9 +187,9 @@ DB::transaction(function() use ($productId, $customerId) {
 });
 ```
 
-Note the `query(...)->first()` form: `queryOne()` appends `LIMIT 1`, which
-MySQL requires before FOR UPDATE, so `queryOne()` rejects locking clauses and
-points you to `query()`.
+The example uses `query(...)->first()` because `queryOne()` adds `LIMIT 1` to
+the end of the query, and MySQL needs LIMIT to come before FOR UPDATE. For
+that reason `queryOne()` rejects locking clauses and points you to `query()`.
 
 **Only change data (INSERT, UPDATE, DELETE) inside a transaction.** When
 MySQL runs a DDL statement (CREATE, ALTER, DROP, TRUNCATE), it silently

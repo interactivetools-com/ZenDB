@@ -75,6 +75,7 @@ The same placeholder can appear more than once in a query:
 DB::query("SELECT * FROM ::users WHERE city = :city OR birthplace = :city", [
     ':city' => 'Vancouver',
 ]);
+// with no tablePrefix this runs:
 // SELECT * FROM users WHERE city = 'Vancouver' OR birthplace = 'Vancouver'
 ```
 
@@ -183,7 +184,7 @@ DB::select('users', "id IN (:ids)", [':ids' => [1, 2, 3]]);
 
 ## What Happens If...
 
-The guard's error messages state the fix; here are the common ones:
+The error messages state the fix; here are the common ones:
 
 ```php
 // Missing parameter
@@ -214,14 +215,14 @@ Four non-errors worth knowing:
 - Empty string literals are allowed: `"email != ''"` runs as-is. The quote
   check only rejects quotes with content between them.
 - An empty array expands to the zero-row subquery
-  `SELECT 0 FROM (SELECT 0) empty_set WHERE 0`, an empty set; `IN` of an empty set matches
-  nothing and `NOT IN` of an empty set matches everything, so an empty
-  want-list returns no rows and an empty exclusion list returns all rows.
-  That subquery only fits `IN` and `NOT IN`; to use an array elsewhere, pass
-  your own value when the list is empty (`':tags' => $tags ?: ''`).
+  `SELECT 0 FROM (SELECT 0) empty_set WHERE 0`, so `IN (:ids)` with an empty
+  list matches no rows and `NOT IN (:ids)` matches every row.
+  That subquery only fits `IN` and `NOT IN`; to use an array elsewhere, such
+  as `ORDER BY FIELD(id, :ids)`, pass your own value when the list is empty
+  (`':ids' => $ids ?: ''`).
 - Unused *named* parameters are allowed, so you can build one params array
   and pass it to several related queries. Unused *positional* values are
-  deprecated (they usually mean a missing `?`) and log a warning.
+  deprecated (they usually mean a missing `?`) and raise `E_USER_DEPRECATED`.
 
 ## Why `::` for the Prefix
 

@@ -45,7 +45,8 @@ it doesn't show up in `var_dump()` output or stack traces, and it's masked as
 If the connection to MySQL crosses the public internet or any network
 shared with people you don't trust, also set `requireSSL` so the
 connection is encrypted. ZenDB sends `encryptionKey` to MySQL once per
-connection (as a query parameter, so it stays out of SQL text and logs),
+connection (as a bound parameter, so it stays out of the SQL text and
+ZenDB's query log),
 and on an unencrypted connection anyone who can watch that traffic can
 read it, along with every query and result. On `localhost`, or a database
 server on your own or your hosting provider's internal network, anyone
@@ -78,9 +79,10 @@ type ZenDB leaves alone: `BLOB` holds up to 64 KB and `LONGBLOB` up to 4 GB,
 either side of `MEDIUMBLOB`'s 16 MB.
 
 Turning on encryption does not encrypt existing rows. If your `MEDIUMBLOB`
-columns already hold data, re-encrypt those rows first (read without the key,
-write back with it). CMS Builder does this for you when you check the
-encryption box on an existing field.
+columns already hold data, encrypt those rows yourself (read them on a
+connection without the key, then write them back on one with it).
+CMS Builder does this for you when you check the encryption box on an
+existing field.
 
 ## Writing and Reading Encrypted Data
 
@@ -101,8 +103,8 @@ echo $user->apiToken;  // "new-token" - already decrypted
 ```
 
 `NULL` passes through unencrypted in both directions: a `NULL` token is stored
-as `NULL` and read back as `NULL`. Booleans throw: `true`/`false` have no
-encrypted form, so pass a string or number instead.
+as `NULL` and read back as `NULL`. Booleans throw `InvalidArgumentException`
+because `true`/`false` have no encrypted form; pass a string or number instead.
 
 ## Searching Encrypted Columns - `DB::encryptValue()`
 
@@ -148,7 +150,8 @@ $users = DB::select('users', "{{apiToken}} LIKE ?", '%token%');
 ```
 
 The same expansion is available as a string from `DB::decryptExpr('apiToken')`,
-for SQL built outside a template.
+for SQL that ZenDB doesn't expand, such as a `DB::rawSql()` value or a query
+sent through `DB::$mysqli`.
 
 `{{table.column}}` works too, for joins. Write the column reference exactly
 as you would without encryption, then wrap it in braces: `::` applies the
@@ -161,7 +164,8 @@ $users = DB::select('users', "{{::users.apiToken}} LIKE ?", '%token%');
 // SELECT * FROM `cms_users` WHERE AES_DECRYPT(`cms_users`.`apiToken`, @ek) LIKE '%token%'
 
 $rows = DB::query("SELECT * FROM ::users u WHERE {{u.apiToken}} LIKE ?", '%token%');
-// aliases pass through as written: WHERE AES_DECRYPT(`u`.`apiToken`, @ek) LIKE ...
+// aliases pass through as written; with tablePrefix 'cms_' this runs:
+// SELECT * FROM cms_users u WHERE AES_DECRYPT(`u`.`apiToken`, @ek) LIKE '%token%'
 ```
 
 > **Internal detail, safe to ignore:** `@ek` is a MySQL session variable
@@ -169,9 +173,9 @@ $rows = DB::query("SELECT * FROM ::users u WHERE {{u.apiToken}} LIKE ?", '%token
 > that mentions `@ek`, so the key isn't repeated in every statement (and the
 > `SET @ek` line is masked as `********` in the query log).
 
-This decrypts every row scanned, so it's slower than exact match and can't use
-an index. On large tables, prefer exact match with `encryptValue()` where the
-query allows it.
+`{{column}}` decrypts every row scanned, so it's slower than exact match and
+can't use an index. On large tables, prefer exact match with
+`encryptValue()` where the query allows it.
 
 ## Decrypting Raw mysqli Results - `DB::decryptRows()`
 
@@ -202,15 +206,20 @@ ZenDB: can't decrypt MEDIUMBLOB column 'apiToken', returning raw bytes. Wrong en
 ```
 
 One warning, not one per row, so a table of pre-encryption data doesn't flood
-the log. If you see this warning, either the key changed or the column still
-holds unencrypted rows from before encryption was turned on; both mean stop
-and re-encrypt, not ignore.
+the log. The check can miss: a value encrypted with a different key, or
+unencrypted data whose length is a multiple of 16 bytes, decrypts without an
+error about 1 time in 255 and comes back as garbage bytes, with no warning.
+If you see this warning, either the key changed or the column still
+holds unencrypted rows from before encryption was turned on. For a changed
+key, set the original key back, or read the rows with the old key and write
+them back with the new one. For unencrypted rows, encrypt them as described in
+[Turning Encryption On](#turning-encryption-on).
 
 ## Schema Changes Mid-Request
 
 ZenDB reads a table's column types the first time it needs them and caches the
 answer for the life of the connection. Schema changes made through the library
-take care of themselves: when `DB::query()` runs DDL (ALTER, CREATE, DROP,
+are handled automatically: when `DB::query()` runs DDL (ALTER, CREATE, DROP,
 RENAME, TRUNCATE) or switches databases with `USE`, ZenDB drops the cached
 lists and re-reads each table on its next query.
 
@@ -232,9 +241,10 @@ change schemas, so the cached list stays correct for the whole request.
 ZenDB uses AES-128-ECB because it's the strongest encryption that works on
 every database ZenDB supports: MySQL 5.7.32+ and MariaDB both implement it as
 the `AES_ENCRYPT()` / `AES_DECRYPT()` default, and on most MariaDB versions
-it's the only mode those functions offer. Newer servers add CBC and 256-bit
-modes, but they aren't available everywhere, they need a per-value IV stored
-alongside the data, and a random IV breaks the exact-match search above.
+it's the only mode those functions offer. MySQL and MariaDB 11.4+ also offer
+CBC and 256-bit modes, but they aren't available everywhere, they need a
+per-value IV stored alongside the data, and a random IV breaks the exact-match
+search above.
 Using the shared default also means PHP-side and MySQL-side produce
 identical ciphertext. On the PHP side, `encryptionKey` is hashed with SHA-512
 and XOR-folded into a 16-byte AES key. On the MySQL side, `@ek` is set to
@@ -245,8 +255,8 @@ vice versa.
 ## What This Protects
 
 This encryption protects a database dump at rest: someone who steals the
-`.sql` file or a backup cannot read the encrypted values without the key. Be
-clear about where that ends:
+`.sql` file or a backup cannot read the encrypted values without the key. Here's
+where that protection ends:
 
 - **ECB is deterministic.** Equal plaintexts produce equal ciphertexts, which
   is what makes exact-match search work, and also means an attacker reading
@@ -258,23 +268,24 @@ clear about where that ends:
   cleanly.
 - **One key for everything.** Every `MEDIUMBLOB` on the connection uses the
   same key; there's no per-column opt-out.
-- **Deep server access reads the key.** ZenDB sends it to MySQL as a bound
-  parameter, so `SHOW PROCESSLIST` and performance_schema statement history
-  only show `SET @ek = UNHEX(SHA2(?, 512))`. Two places still record it:
+- **Someone with deep server access can read the key.** ZenDB sends it to
+  MySQL as a bound parameter, so `SHOW PROCESSLIST` and `performance_schema`
+  statement history only show `SET @ek = UNHEX(SHA2(?, 512))`. Two places
+  still record it:
   - **The general query log** (`general_log`) writes every query with its
     bound values inlined: the key, but also login passwords, password
     hashes, session tokens, and anything else your queries carry. That's
     what the log is for, and running it while debugging is fine; just know
     it captures secrets, and check that only people you'd trust with
     database admin access can read it (normally already true).
-  - **performance_schema** (on by default in MySQL, off in MariaDB) keeps
+  - **`performance_schema`** (on by default in MySQL, off in MariaDB) keeps
     `@ek` readable for as long as the connection lives, to any account
     with access to it.
-- **Ordinary data can trigger the key send.** The key goes to the server the
+- **Ordinary data can make ZenDB send the key.** The key goes to the server the
   first time a query contains `@ek` anywhere in its text, including inside a
   quoted value, so a stored email at a domain starting with `ek` can trigger
   it on a connection that never decrypts in SQL. Nothing extra leaks: the
-  exposure is the same log and performance_schema surfaces above.
+  key ends up only in the same two places listed above.
 
 If you need protection against an attacker who can compare or tamper with
 ciphertext in the live database, encrypt with an authenticated cipher (such as

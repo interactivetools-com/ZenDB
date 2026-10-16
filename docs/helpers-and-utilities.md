@@ -1,6 +1,6 @@
 # Helpers and Utilities
 
-Small helpers that build SQL fragments: `DB::rawSql()` for
+Small helpers for writing queries: `DB::rawSql()` for
 trusted SQL expressions, `DB::pagingSql()` for pagination, four `like*()`
 helpers for escaped LIKE patterns, table prefix conversion, and date format
 constants.
@@ -52,7 +52,7 @@ one place where SQL injection is your responsibility again:
 // WRONG - user input inserted into SQL verbatim, classic injection
 DB::select('users', "ORDER BY ?", DB::rawSql($_GET['sort']));
 
-// RIGHT - identifier placeholder validates the value before the query runs
+// RIGHT - identifier placeholder allows only a-z, A-Z, 0-9, _ and -; anything else throws before the query runs
 DB::select('users', "ORDER BY `:sort`", [':sort' => $_GET['sort'] ?? 'name']);
 ```
 
@@ -74,17 +74,17 @@ $users = DB::select('users', "ORDER BY name :paging", [
 // for page 3 this runs: SELECT * FROM `users` ORDER BY name LIMIT 25 OFFSET 50
 ```
 
-It sanitizes its own inputs, so `$_GET['page']` can be passed straight in:
-each argument is cast to an integer and made positive (`abs()`), and anything
-that comes out zero (missing, non-numeric, empty string) falls back to the
+It sanitizes its own inputs, so `$_GET['page']` can be passed straight in.
+Each argument is cast to an integer and made positive (`abs()`), and anything
+that comes out zero (`null`, non-numeric, empty string) falls back to the
 default, page 1 and 10 per page:
 
 ```php
-DB::pagingSql(1);          // LIMIT 10 OFFSET 0
-DB::pagingSql(3, 25);      // LIMIT 25 OFFSET 50
-DB::pagingSql(0);          // LIMIT 10 OFFSET 0   (page 0 becomes page 1)
-DB::pagingSql('abc');      // LIMIT 10 OFFSET 0   (non-numeric becomes page 1)
-DB::pagingSql(-3, 25);     // LIMIT 25 OFFSET 50  (negative becomes positive)
+DB::pagingSql(1);       // LIMIT 10 OFFSET 0
+DB::pagingSql(3, 25);   // LIMIT 25 OFFSET 50
+DB::pagingSql(0);       // LIMIT 10 OFFSET 0   (page 0 becomes page 1)
+DB::pagingSql('abc');   // LIMIT 10 OFFSET 0   (non-numeric becomes page 1)
+DB::pagingSql(-3, 25);  // LIMIT 25 OFFSET 50  (negative becomes positive)
 ```
 
 Take the page number from the URL, but pick the page size yourself. Nothing
@@ -96,7 +96,7 @@ and divide by the page size:
 
 ```php
 $total      = DB::count('users');
-$totalPages = max(1, ceil($total / 25));   // e.g., 300 rows → 12 pages
+$totalPages = max(1, ceil($total / 25));  // e.g., 300 rows → 12 pages
 ```
 
 ## LIKE Patterns - `DB::likeContains()` and Friends
@@ -118,9 +118,9 @@ $users  = DB::select('users', "name LIKE ?", DB::likeContains($search));
 | `DB::likeEndsWith('son')`     | `'%son'`          | column ends with the value       |
 | `DB::likeContainsTSV('news')` | `'%\tnews\t%'`    | whole value in a tab-separated column |
 
-All four escape the input for SQL *and* escape the LIKE wildcards `%`, `_`,
-and `\`, so every character in user input matches literally - nothing in the
-value can act as a wildcard:
+All four escape the input for SQL *and* escape the LIKE wildcards `%` and `_`
+plus the `\` escape character, so every character in user input matches
+literally - nothing in the value can act as a wildcard:
 
 ```php
 $users = DB::select('users', "name LIKE ?", DB::likeContains('50%'));
@@ -139,12 +139,15 @@ $featured = DB::select('products', "tags LIKE ?", DB::likeContainsTSV('featured'
 
 The helpers accept strings, ints, floats, `null`, and
 [SmartString](https://github.com/interactivetools-com/SmartString) values.
+`likeContains('')` and `likeContains(null)` give `'%%'`, which matches every
+row except rows where the column is `NULL`, so the same query works with or
+without a search term.
 
 ## Table Prefix Conversion - `DB::getFullTable()` and `DB::getBaseTable()`
 
 These convert between base table names (`users`) and full names with the
-configured `tablePrefix` (`cms_users`). Useful when code that talks to ZenDB
-(base names) meets code that talks to MySQL directly (full names). The
+configured `tablePrefix` (`cms_users`). Useful when you mix ZenDB calls, which
+take base names, with code that queries MySQL directly, which needs full names. The
 examples assume `tablePrefix` is `'cms_'` throughout:
 
 ```php
@@ -162,7 +165,7 @@ that itself starts with the prefix string, like a base table actually named
 the ambiguity by checking which table exists in the database:
 
 ```php
-// Base table 'cms_archive' exists, so its full name is 'cms_cms_archive'
+// The database has a table named 'cms_cms_archive' (base name 'cms_archive') and none named 'cms_archive'
 DB::getFullTable('cms_archive', checkDb: true);  // 'cms_cms_archive' (no table named 'cms_archive' exists as-is)
 DB::getBaseTable('cms_archive', checkDb: true);  // 'cms_archive' ('cms_cms_archive' exists, so input was a base name)
 ```
@@ -191,7 +194,8 @@ DB::insert('coupons', ['code' => 'SUMMER26', 'expiresAt' => $expiry]);
 ```
 
 For the current time, `DB::rawSql('NOW()')` uses the database clock instead of
-PHP's; `date(DB::DATETIME)` uses PHP's. With `usePhpTimezone` enabled (the
+PHP's; `date(DB::DATETIME)` uses PHP's. With
+[`usePhpTimezone`](getting-started.md#configuration-options) enabled (the
 default), the two agree on timezone.
 
 ## Encryption Helpers

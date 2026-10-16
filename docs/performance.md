@@ -2,7 +2,7 @@
 
 Parameterized queries and encoded output are the safest way to build pages;
 ZenDB does both automatically, at a cost measured in microseconds. This page
-shows the measurements: complete pages from a news site, each timed both
+shows the measurements: complete pages for a sample news site, each timed both
 ways, with the query and every HTML encode included on both sides.
 
 Pages that HTML-encode their output, the common case.
@@ -31,8 +31,7 @@ around 100 ms: about 1,200 times the largest difference in these tables.
 These benchmarks ran on PHP 8.5 and MariaDB 12.3 on a dedicated Xeon E-2386G
 with the database on the same machine; two full passes agreed within 1%, and
 PHP 8.1 through 8.5 come out within a few percent of each other. Slower
-hosting scales every column up roughly proportionally; the last section shows
-how to rerun everything on your own server.
+hosting scales every column up roughly proportionally.
 
 If those numbers answer your question, you can stop here. The rest of the
 page shows the code behind each column, explains where the microseconds go,
@@ -69,7 +68,7 @@ CREATE TABLE news
 
 Each cell in the tables above times the complete page: run the query, fetch
 the rows, HTML-encode every output. The raw-array cells skip the encoding on
-all sides.
+both sides.
 
 ## The List Page, Two Ways
 
@@ -109,23 +108,25 @@ wrap, and nothing to remember per field.
 
 **One finished query per call.** ZenDB escapes every value and inlines it
 into the SQL before sending, so each query is a single round trip with no
-prepare step. Sending finished SQL does not change the safety model: the API
-takes placeholders only, and templates with inline values are rejected. See
-[Security Gotchas](security-gotchas.md) for the full reasoning.
+prepare step. Sending finished SQL is just as safe: the API
+takes placeholders only, and SQL templates with inline values are rejected. See
+[Security Gotchas](security-gotchas.md#raw-queries---dbmysqli) for the full reasoning.
 
 **Long fields encode faster through SmartString.** SmartString's encoder
 scans first and only transforms text that needs it, so on multi-KB fields it
 runs faster than `htmlspecialchars()` (measurements on
 [SmartString's performance page](https://github.com/interactivetools-com/SmartString/blob/main/docs/performance.md)).
-That saving on the 5 KB content field is what pays for ZenDB's query-building
+That saving on the 5 KB content field offsets ZenDB's query-building
 work on the detail page: ~4 µs behind on raw arrays, ~3 µs ahead with HTML
 output.
 
-**Row construction sets the list-page gap.** Every row becomes a result
-object, so the difference grows with row count. The raw-array table is the
+**Row construction sets the list-page gap.** Every row is wrapped in a
+[SmartArray](https://github.com/interactivetools-com/SmartArray) object,
+so the difference grows with row count. The raw-array table is the
 clean view, no encoding on either side: ~4 µs at 1 row, ~18 µs at 25 rows,
-~76 µs at 100. On the HTML pages the encoding saving offsets part of that,
-which is why their gaps run smaller.
+~76 µs at 100. The HTML list gaps run a little larger (~19 µs at 25 rows,
+~84 µs at 100): titles and summaries are short fields, so the long-field
+encoding saving doesn't apply there.
 
 ## When to Care
 
@@ -133,15 +134,15 @@ Rarely. The largest difference on any page, ~84 µs (0.000084 s), is about a
 sixth of that page's own ~0.53 ms cost and about a 1,200th of the ~100 ms
 where humans notice. These tests also ran with the database on the same
 machine as PHP; when the database is a separate server, network time is
-added equally to every column and the differences shrink further. If a page
+added equally to every column, so the differences stay the same size
+and shrink as a share of each page. If a page
 is genuinely slow, benchmark it and fix what the numbers
-show: it will be a query, a missing index, or an API call, not the database
-layer.
+show: it will be a slow query, a missing index, or an API call, not ZenDB.
 
 What the microseconds buy is visible in the code above: every value
 parameterized and every output encoded without anyone remembering to do it.
-Raw SQL asks you to escape every string and wrap every output on every page,
-indefinitely, so it is only as safe as its most recently edited line.
+With raw SQL you escape every string and wrap every output on every page,
+indefinitely, so a page is only as safe as its most recently edited line.
 
 ## The Fine Print
 
@@ -151,8 +152,9 @@ Benchmark choices, stated plainly.
   output work, and the baseline is raw SQL as a careful programmer writes
   it: escaped values, `htmlspecialchars()` on every output.
 - **The benchmark checks correctness before timing.** Before timing starts,
-  the suite verifies ZenDB's HTML output is byte-identical to the baseline's
-  `htmlspecialchars()` output, using the exact flags shown in the code above.
+  the suite verifies ZenDB's HTML output for the 25-row list page is
+  byte-identical to the baseline's `htmlspecialchars()` output, using the
+  exact flags shown in the code above.
 - **The baseline encodes with the full flag set.** ZenDB encodes with
   `ENT_QUOTES | ENT_SUBSTITUTE | ENT_DISALLOWED | ENT_HTML5` for the extra
   safety: `ENT_DISALLOWED` replaces control characters that are invalid in
@@ -163,8 +165,9 @@ Benchmark choices, stated plainly.
   same amounts and the detail page comes out about even.
 - **PHP's JIT compiler is off**, matching PHP's default production
   configuration.
-- **The corpus is real-page shaped.** 1,000 rows across 10 categories, with
-  real-prose special-character density; the same corpus SmartArray
+- **The corpus is shaped like real pages.** 1,000 rows across 10 categories,
+  with special characters as often as in real prose; the same corpus
+  [SmartArray](https://github.com/interactivetools-com/SmartArray)
   benchmarks against.
 - **Ties are real ties.** Every run includes a raw-vs-itself calibration cell
   that must measure ~1.00x, and the two full passes behind these tables
@@ -173,25 +176,31 @@ Benchmark choices, stated plainly.
   E-2386G), PHP 8.5, MariaDB 12.3 on the same machine, with no
   `encryptionKey` set. Write paths and other platforms were not measured.
   The same workflow dispatched on GitHub Actions (PHP 8.1-8.5, MySQL 8.0)
-  lands within a few percent on every ratio.
+  comes out within about 10 percent on every ratio.
 
 ## Reproducing the Numbers
 
 The tables come from the repo's benchmark workflow, which builds the news
-corpus, runs the correctness gate, and times every cell pairwise in one
-process. Run the probe locally against your own MySQL:
+corpus, runs the correctness check, and times every cell pairwise in one
+process. Run its probe script locally against your own MySQL. The script
+connects to `127.0.0.1` as `root` with no password, uses the
+`phpunit_test_db` database (creating it if needed), and rebuilds a
+`zenbench_news` table there; set `DB_HOSTNAME`, `DB_PORT`, `DB_USERNAME`,
+`DB_PASSWORD`, or `DB_DATABASE` to change that:
 
 ```bash
-git clone https://github.com/interactivetools-com/ZenDB.git && cd ZenDB
-composer install
+git clone https://github.com/interactivetools-com/ZenDB.git
+git clone https://github.com/interactivetools-com/SmartString.git
+git clone https://github.com/interactivetools-com/SmartArray.git
+cd ZenDB && composer install
 php .github/scripts/escape-zendb-probe.php
 ```
 
 The published numbers come from this probe on the dedicated server described
-in The Fine Print, run twice with the passes agreeing within 1%. You can also
-fork the repo and dispatch the same workflow on GitHub Actions:
-`gh workflow run escape-zendb-matrix.yml`. CI runs land within a few percent
-on every ratio. The committed grids for every benchmark family are in
+in [The Fine Print](#the-fine-print), run twice with the passes agreeing
+within 1%. You can also fork the repo and dispatch the same workflow on
+GitHub Actions: `gh workflow run escape-zendb-matrix.yml`. The committed
+grids for every benchmark family are in
 [escape-results.md](../.github/scripts/escape-results.md).
 
 ---

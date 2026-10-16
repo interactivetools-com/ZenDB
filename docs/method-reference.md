@@ -1,10 +1,10 @@
 # Method Reference
 
-The `DB` class is a static facade over a default connection; methods below also
-exist on `Connection` instances (`$db->select(...)`) with the same signature,
-except the four marked `DB` only and connecting itself (`new Connection($config)`
-connects in the constructor). Method names link to the guide section that
-covers each in depth.
+The `DB` class is a static facade over a default connection. The methods below
+also exist on `Connection` instances (`$db->select(...)`) with the same
+signature, except the four marked `DB` only and `DB::connect()` (a
+`Connection` connects in its constructor). Method names link to the guide
+section that covers each in depth.
 
 Contents:
 
@@ -26,8 +26,8 @@ Contents:
 | [`DB::connect(array $config = [])`](getting-started.md#connecting---dbconnect)                          | `void`       | Connect and set the default connection. Throws `RuntimeException` if already connected                                                    |
 | `DB::isConnected(bool $ping = false)`                                                                   | `bool`       | Check if the default connection is set, optionally pinging the server                                                                     |
 | `DB::disconnect()`                                                                                      | `void`       | Close the default connection and clear `DB::$mysqli` and `DB::$tablePrefix`                                                               |
-| [`DB::clone(array $config = [])`](multiple-connections.md#same-connection-different-settings---dbclone) | `Connection` | Copy of the default connection sharing the same mysqli link; only `tablePrefix`, `useSmartJoins`, and `useSmartStrings` can be overridden |
-| [`new Connection(array $config = [])`](multiple-connections.md#a-second-database---new-connection)      | `Connection` | Standalone connection (connects in the constructor); use for a second database or different settings                                      |
+| [`DB::clone(array $config = [])`](multiple-connections.md#same-connection-different-settings---dbclone) | `Connection` | Copy the default connection, sharing the same mysqli link; only `tablePrefix`, `useSmartJoins`, and `useSmartStrings` can be overridden   |
+| [`new Connection(array $config = [])`](multiple-connections.md#a-second-database---new-connection)      | `Connection` | Create a standalone connection (connects in the constructor); use for a second database or different settings                             |
 
 See [Configuration Options](getting-started.md#configuration-options) for the
 full list of `$config` keys.
@@ -40,15 +40,17 @@ full list of `$config` keys.
 | [`DB::selectOne(string $baseTable, $whereEtc = [], ...$params)`](querying-data.md#fetching-one-row---dbselectone) | `SmartArrayHtml` | First matching row (sends `LIMIT 1`); empty result object when no row matches, never `null` |
 | [`DB::count(string $baseTable, $whereEtc = [], ...$params)`](querying-data.md#counting-rows---dbcount)            | `int`            | `SELECT COUNT(*)` of matching rows                                                          |
 
-Declared return type is `SmartArrayBase`; the object you get is a
-`SmartArrayHtml` of `SmartString` values by default, or a plain-value
-`SmartArray` when `useSmartStrings` is false. On Smart Join queries,
-`->{'table.column'}` reads the dotted keys.
+`select()` and `selectOne()` declare `SmartArrayBase` as their return type.
+The object you get is a `SmartArrayHtml` of `SmartString` values by default,
+or a plain-value `SmartArray` when `useSmartStrings` is false. On multi-table
+`query()` results, `->{'table.column'}` reads the `table.column` keys that
+[Smart Joins](joins-and-custom-sql.md#smart-joins) add.
 [Working with Results](working-with-results.md) covers both.
 
-`selectOne()`, `queryOne()`, and `count()` throw if `$where` or the template
-contains `LIMIT` or `OFFSET` ("This method doesn't support LIMIT or OFFSET");
-the escape hatch is `DB::query(...)->first()`.
+`selectOne()`, `queryOne()`, and `count()` throw if `$whereEtc` or the template
+has a top-level `LIMIT` or `OFFSET` clause
+("This method doesn't support LIMIT or OFFSET"); the escape hatch is
+`DB::query(...)->first()`.
 
 ## Modifying Data
 
@@ -60,7 +62,7 @@ the escape hatch is `DB::query(...)->first()`.
 | [`DB::transaction(callable $fn)`](modifying-data.md#transactions---dbtransaction)                                   | `mixed` | Run `$fn` in a transaction: commit on return, rollback and rethrow on exception; returns `$fn`'s return value. Throws `RuntimeException` when nested |
 
 `update()` and `delete()` require a WHERE condition; an empty one throws. To
-intentionally update every row, pass the literal string `"TRUE"`. Details in
+update or delete every row on purpose, pass the literal string `"TRUE"`. Details in
 [Modifying Data](modifying-data.md).
 
 ## Custom SQL
@@ -97,7 +99,12 @@ The `like*()` methods accept `string|int|float|null|SmartString` and escape
 ```php
 $news = DB::select('news', "title LIKE ?", DB::likeContains($_GET['q'] ?? ''));
 // for q=50% this runs: WHERE title LIKE '%50\\%%'
+```
 
+`pagingSql()` turns a page number into a `LIMIT ... OFFSET ...` clause, so the
+page number can come straight from the URL:
+
+```php
 $page  = $_GET['page'] ?? 1;
 $users = DB::select('users', "ORDER BY name :pagingSQL", [
     ':pagingSQL' => DB::pagingSql($page, 25),
@@ -135,13 +142,14 @@ $user = DB::selectOne('users', ['token' => DB::encryptValue($searchToken)]);
 
 ```php
 DB::insert('news', ['title' => 'Launch day', 'publishDate' => date(DB::DATETIME)]);
+// INSERT INTO `news` SET `title` = 'Launch day', `publishDate` = '2026-03-16 14:30:00'
 ```
 
 ## Properties
 
 | Property                                                       | Type             | Description                                                                                                                                                                                                    |
 |----------------------------------------------------------------|------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| [`DB::$mysqli`](security-gotchas.md#raw-queries---dbmysqli)    | `?MysqliWrapper` | The underlying connection (a `mysqli` subclass) for direct access: `DB::$mysqli->insert_id`, `DB::$mysqli->query($ddl)`, and `DB::$mysqli->lastQuery` (last SQL sent, for debugging). `null` when disconnected |
+| [`DB::$mysqli`](security-gotchas.md#raw-queries---dbmysqli)    | `?MysqliWrapper` | The underlying connection (a `mysqli` subclass) for direct access: `DB::$mysqli->insert_id`, `DB::$mysqli->query($ddl)`, and `DB::$mysqli->lastQuery` (last SQL sent, for debugging); `null` when disconnected |
 | [`DB::$tablePrefix`](getting-started.md#configuration-options) | `string`         | The prefix prepended to table names, as set at connect (`''` by default)                                                                                                                                       |
 
 ## Parameter Forms
@@ -150,10 +158,11 @@ DB::insert('news', ['title' => 'Launch day', 'publishDate' => date(DB::DATETIME)
 prepended automatically. Names may only contain `a-z`, `A-Z`, `0-9`, `_`,
 and `-`; anything else throws `InvalidArgumentException`.
 
-**`$whereEtc`** takes two forms (array or SQL string; counting the string
-form's positional and named placeholder variants separately gives the three
-call forms in [Querying Data](querying-data.md)), or can be omitted to match
-all rows in `select()`, `selectOne()`, and `count()`:
+**`$whereEtc`** takes an array of conditions or an SQL string that uses `?` or
+`:name` placeholders for values;
+[The Three WHERE Forms](querying-data.md#the-three-where-forms) shows each
+one. It can be omitted to match all rows in `select()`, `selectOne()`, and
+`count()`:
 
 ```php
 // Array: column => value pairs, joined with AND
@@ -173,6 +182,7 @@ placeholders. For 4 or more values, use named placeholders in a single array:
 ```php
 // Up to 3 values: pass them directly
 $users = DB::select('users', "status = ? AND age > ?", 'active', 25);
+// WHERE status = 'active' AND age > 25
 
 // 4+ values: one array of named placeholders
 $users = DB::select('users', "city = :city AND status = :status AND age BETWEEN :min AND :max", [
@@ -181,13 +191,15 @@ $users = DB::select('users', "city = :city AND status = :status AND age BETWEEN 
     ':min'    => 18,
     ':max'    => 65,
 ]);
+// WHERE city = 'Vancouver' AND status = 'active' AND age BETWEEN 18 AND 65
 ```
 
 Mixing `?` and `:name` in one query throws.
 
 **`$sqlTemplate`** is raw SQL using `::table` for prefixed table names, `?`
 and `:name` for values, `` `?` `` and `` `:name` `` for identifiers, `::?` and
-`:::name` for prefixed values, and `{{column}}` for encrypted-column reads.
+`:::name` for values with the table prefix added (`'user%'` → `'cms_user%'`),
+and `{{column}}` for encrypted-column reads.
 Quotes, inline numbers, and hex literals are rejected before the query runs
 (the allowed exceptions: a trailing literal `LIMIT 10`, and empty string
 literals like `!= ''`). Full rules in

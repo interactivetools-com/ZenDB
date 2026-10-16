@@ -11,7 +11,7 @@ nanoseconds per query. This
 page holds the research: what the php-src implementation actually does, the
 conditions that make the shortcut safe, and where it could apply in ZenDB.
 
-The CI escape benchmark suite grew out of this research and is the citable
+The CI escape benchmark suite was built from this research and is the citable
 source for current numbers: the committed verdict grid is
 [escape-results.md](../../.github/scripts/escape-results.md), and the suite
 map is in [.github/scripts/README.md](../../.github/scripts/README.md).
@@ -36,7 +36,7 @@ Contents:
 
 ## The Core Finding
 
-`real_escape_string()` escapes exactly 7 characters, and its charset machinery
+`real_escape_string()` escapes exactly 7 characters, and its charset handling
 is a no-op under utf8mb4, so plain PHP string replacement is equivalent:
 
 ```php
@@ -90,7 +90,7 @@ addcslashes emits octal for NUL and Ctrl-Z (`\000`, `\032`). MySQL parses
 | strtr via closure       | 0.662 | 98% (gain gone)|
 
 At millions of calls, wrapping the replacement in any callable gives back a
-third to nearly all of the win (~190ns/call CLI without opcache; smaller with
+two thirds to nearly all of the win (~190ns/call CLI without opcache; smaller with
 opcache but same ordering). API design implication: a `DB::escapeFast()`
 method is the slowest correct option; an inlined constant-pair replacement at
 the hot call site is the fastest.
@@ -128,7 +128,11 @@ plain autocommit (9.8s, stable across passes). Not investigated further.
 
 ## What php-src Actually Does (mysqlnd Source)
 
-Read from `ext/mysqlnd/mysqlnd_charset.c` (php-src master, 2026-08).
+Read from [`ext/mysqlnd/mysqlnd_charset.c`](https://github.com/php/php-src/blob/master/ext/mysqlnd/mysqlnd_charset.c)
+(php-src master, 2026-08), copyright The PHP Group and Contributors under the
+[BSD-3-Clause license](https://github.com/php/php-src/blob/master/LICENSE).
+Quoting the five-line excerpt below with that credit is a use the license
+allows; none of that C code is in ZenDB.
 `mysqli::real_escape_string` dispatches to one of two escapers based on the
 server status flag `SERVER_STATUS_NO_BACKSLASH_ESCAPES`, which mysqlnd tracks
 live (it updates after every statement, including `SET sql_mode`):
@@ -146,7 +150,7 @@ case '\032': esc = 'Z'; break;
 Everything else is copied through. Multibyte handling: for any byte >= the
 charset's lowest multibyte lead byte, it asks the charset driver whether a
 valid multibyte sequence starts there; valid sequences are copied through
-untouched. This machinery exists for charsets like GBK/SJIS/Big5 where byte 2
+untouched. This check exists for charsets like GBK/SJIS/Big5 where byte 2
 of a valid character can be 0x5C (backslash). Under utf8mb4 it is a no-op for
 correctness: all 7 escapable chars are ASCII and every byte of a UTF-8
 multibyte sequence is >= 0x80.
@@ -168,13 +172,16 @@ broken in this mode regardless of this optimization.
 ## Correctness Conditions (Both Already Guaranteed by ZenDB)
 
 1. **Connection charset must be utf8mb4** (or any charset whose multibyte
-   sequences never contain bytes < 0x80). ZenDB hard-sets utf8mb4 at connect,
-   `src/Connection.php` (~line 194: `set_charset('utf8mb4')` when not already
-   set). There is no config option to change it; someone would have to edit
-   ZenDB source. Runtime confirmation: `$mysqli->character_set_name()`.
+   sequences never contain bytes < 0x80). ZenDB hard-sets utf8mb4 at connect, in
+   `openConnection()` (`src/Connection.php`): the connect handshake carries
+   utf8mb4, and `set_charset('utf8mb4')` runs after it on MySQL 8.0+ and on
+   pooled connections that come back with another charset. There is no
+   config option to change it; someone would have to edit ZenDB source.
+   Runtime confirmation: `$mysqli->character_set_name()`.
 2. **sql_mode must not contain NO_BACKSLASH_ESCAPES.** ZenDB sets sql_mode
-   explicitly at connect (`src/Connection.php` ~line 214, default list in
-   `src/ConnectionInternals.php`: STRICT_ALL_TABLES,NO_ZERO_IN_DATE,
+   explicitly at connect (`openConnection()` in `src/Connection.php`,
+   default list in `src/ConnectionInternals.php`:
+   STRICT_ALL_TABLES,NO_ZERO_IN_DATE,
    ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION), replacing the server's
    own mode. `connect()` throws if the session ends up with
    NO_BACKSLASH_ESCAPES anyway, from `sqlMode` or from the server's global
@@ -182,9 +189,11 @@ broken in this mode regardless of this optimization.
    leaves the newline alone only in this mode, so no query is needed. The
    mode can still appear if user code runs SET sql_mode later.
 
-**Recommended runtime guard - probe self-check** (covers both conditions plus
+**Recommended runtime guard - probe self-check** (covers the sql_mode condition plus
 any future mysqlnd change, costs microseconds, run once per connection or per
-bulk operation):
+bulk operation). It doesn't cover the charset: the probe is all ASCII and
+still passes under GBK (finding 8 below), so pair it with a
+`character_set_name() === 'utf8mb4'` check:
 
 ```php
 $probe      = "a\\b'c\"d\ne\rf\0g\x1ah";
@@ -203,18 +212,22 @@ byte-identity corpus now gate every timing run in the CI escape suite
 
 Current `real_escape_string` call sites:
 
-- `src/ConnectionInternals.php:789` - string values compiled into queries
-  (`is_string($value) => "'" . escape . "'"`). The hot path, but per-query
+- `escapeValue()` and the placeholder fast path in `replacePlaceholders()`
+  (`src/ConnectionInternals.php`) - string values compiled into queries
+  (`"'" . real_escape_string($value) . "'"`). The hot path, but per-query
   volume is a handful of values, not millions - the win per query is
   nanoseconds. Worth it only if it costs no complexity.
-- `src/ConnectionInternals.php:662` - single-value escape helper.
-- `src/TableInfo.php` (8 sites) - table names in information_schema lookups.
+- `escape()` in `src/ConnectionInternals.php` - single-value escape helper.
+- `buildSetClause()`, `escapef()`, `escapeCSV()`, and `whereSql()` in the same
+  file - the same quote-wrap as `escapeValue()`, for SET values, escapef()
+  values, CSV lists, and WHERE arrays.
+- `src/TableInfo.php` (7 sites) - table names in information_schema lookups.
   Cold paths, short strings; not worth touching.
 
 The case where this genuinely pays is bulk row export: CMSB's backup dump
 escapes millions of values per run, and its dump loop inlines the str_replace
 directly with the probe check (per benchmarks above, a shared function/method
-costs ~15% of the win; that is acceptable for ZenDB API use, just not for a
+cuts the gain from ~43% to ~15%; that is acceptable for ZenDB API use, just not for a
 hot dump loop). If ZenDB grows a dump/export feature, this belongs in it.
 
 ## Test Strategy for Adoption
@@ -293,16 +306,17 @@ Findings that survive as reference material:
    nothing matches. `addslashes($s)` then `str_replace(["\n","\r","\x1a"],
    ["\\n","\\r","\\Z"], ...)` is byte-identical to real_escape_string and
    predicted fastest on the pools that dominate real data.
-3. **addcslashes resurrected in corrected form.** The disqualified call used a
-   7-char list; a 5-char list `'\"\\\n\r` emits valid `\n`/`\r` (octal only
-   affects NUL and Ctrl-Z), so addcslashes-5 + 2-pair tail is byte-identical.
-   Prior data says take it seriously: addcslashes measured 0.471s vs
-   str_replace 0.497s on the 1.5M-value corpus before disqualification, so a
-   one-pass scalar loop can beat 7 SIMD-assisted passes on mixed data.
+3. **addcslashes works with a corrected character list.** The disqualified
+   call used a 7-char list; a 5-char list `'\"\\\n\r` emits valid `\n`/`\r`
+   (octal only affects NUL and Ctrl-Z), so addcslashes-5 + 2-pair tail is
+   byte-identical. The earlier numbers make it worth testing: addcslashes
+   measured 0.471s vs str_replace 0.497s on the 1.5M-value corpus before
+   disqualification, so a one-pass scalar loop can beat 7 SIMD-assisted
+   passes on mixed data.
 4. **The invalid-lead-byte divergence did not reproduce** on PHP 8.1.34 +
    MariaDB 11.3.2 (live-tested: zero divergences over exhaustive 1-2 byte
    inputs). The reading above came from php-src master. It is
-   version-dependent, prime suspect the 8.4 rewrite. Gates must accept
+   version-dependent, most likely from the 8.4 rewrite. Gates must accept
    byte-identity OR the modeled divergence and record which, per cell.
 5. **PHP 8.6-dev is actively refactoring mysqlnd charset code** ("Remove
    charsets plugin", merged 2026-04). Behavior is meant to be unchanged; a
@@ -310,7 +324,7 @@ Findings that survive as reference material:
 6. **mysqli is mysqlnd-only since PHP 8.2** (php-src PR #7889). Only PHP 8.1
    could theoretically pair mysqli with libmysqlclient (where
    NO_BACKSLASH_ESCAPES makes real_escape_string error instead of switching
-   escapers). One probe assertion on 8.1, dead by construction after.
+   escapers). One probe assertion on 8.1; it can't fail on 8.2+.
 7. **PDO::quote and PDO emulated prepares call the same mysqlnd escaper**
    (verified in ext/pdo_mysql/mysql_driver.c). One corpus identity check makes
    PDO::quote a same-C-path baseline; beating it with userland PHP is the
@@ -335,16 +349,16 @@ Findings that survive as reference material:
 
 ## Suite Methodology Rules
 
-The probe scripts embody these; this is the why. Violating them invalidates
-results.
+The probe scripts follow these rules; this section explains why. Violating
+them invalidates results.
 
 - **Materializing sink for headline numbers.** str_replace/strtr/addslashes
   return the original string on no-match (refcount bump); real_escape_string
   always allocates. A strlen() sink measures "refcount bump vs full copy" and
   overstates zero-copy candidates. Bare-function cells may keep strlen for
   scan-cost isolation, but every headline ratio comes from the full
-  quote-wrap-and-concat expression (the real `ConnectionInternals.php:789`
-  shape). Label the sink per cell in results.
+  quote-wrap-and-concat expression (the shape `escapeValue()` in
+  `ConnectionInternals.php` builds). Label the sink per cell in results.
 - **Self-tie calibration cell** (A and B are the same callable) published in
   every grid; a non-TIE verdict widens that platform's dead band.
 - **Live reference, never hardcoded**: every gate compares against a live
@@ -368,7 +382,7 @@ results.
 
 Shipped and built:
 
-- CMSB shipped buffered writes in its dump loop (1MB chunks, 5-10%).
+- CMSB shipped buffered writes in its dump loop (1MB chunks, 5-10% faster).
 - CMSB shipped the inline str_replace swap in `backupDatabase_dumpData()`:
   pairs inlined in the row loop, probe self-check once per table,
   `real_escape_string` fallback. Multi-row INSERTs (~6% more, much faster
@@ -412,9 +426,9 @@ Remaining:
   above (interleaved A/B, isolation-level and STORE/USE_RESULT axes, confirm
   or debunk).
 - **ZenDB adoption proposal** (chat first). The 2026-08-05 run settled the
-  headline question: the `ConnectionInternals.php:789` swap is rejected
-  (whole-query tie; see escape-results.md). Still open: an array-batch
-  escape if an export API ever ships (`bulk-array-subject`
+  headline question: the swap in `escapeValue()` (`ConnectionInternals.php`)
+  is rejected (whole-query tie; see escape-results.md). Still open: an
+  array-batch escape if an export API ever ships (`bulk-array-subject`
   1.06-1.41x, plus the fast path where it does pay); a type-confusion test
   (no non-string zval reaches a fast path; Stringable cast happens before
   the escape decision); a cross-run drift detector diffing fresh grids

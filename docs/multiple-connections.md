@@ -1,15 +1,10 @@
 # Multiple Connections
 
 The `DB::` methods operate on the single default connection created by
-`DB::connect()`. This page covers two tools for applications that require
+`DB::connect()`. This page covers two tools for applications that need
 more than that: `DB::clone()` reuses the live MySQL connection with different
-settings, and `new Connection()` opens a genuinely separate connection to
+settings, and `new Connection()` opens a separate connection to
 another server, database, or set of credentials.
-
-Contents:
-
-- [Same Connection, Different Settings - `DB::clone()`](#same-connection-different-settings---dbclone)
-- [A Second Database - `new Connection()`](#a-second-database---new-connection)
 
 Contents:
 
@@ -35,15 +30,15 @@ $oldUsers = $legacy->select('users');  // this runs: SELECT * FROM `legacy_users
 ```
 
 The clone is a normal `Connection` object: call the same query methods on it
-that you call on `DB::`, and keep it around as long as you need it. `clone()`
-also exists on every `Connection` instance, not just `DB::`.
+that you call on `DB::`, and keep it around as long as you need it. Every
+`Connection` instance has `clone()`, not just `DB::`.
 
 ### Getting Raw Values - `'useSmartStrings' => false`
 
 A clone with `useSmartStrings` off returns plain PHP values instead of
 HTML-encoding
 [`SmartString`](https://github.com/interactivetools-com/SmartString) objects,
-useful when not planning to output as HTML:
+useful for values that won't be output as HTML:
 
 ```php
 $raw   = DB::clone(['useSmartStrings' => false]);
@@ -56,15 +51,15 @@ $rows->first()->name;   // plain PHP string
 
 For one-off raw values on the default connection, `->value()` and
 `->toArray()` are usually enough; see
-[Working with Results](working-with-results.md). A clone pays off when a
-whole section of code (a CSV export, an API endpoint) wants raw values
-throughout.
+[Getting Raw Data](working-with-results.md#getting-raw-data). A clone saves
+repeating those calls when a whole section of code (a CSV export, an API
+endpoint) needs raw values throughout.
 
 ### Turning Off Smart Joins - `'useSmartJoins' => false`
 
 A clone with `useSmartJoins` off skips the extra `table.column` keys that
-JOIN results normally include, which avoids that bookkeeping on large result
-sets where you don't need it:
+JOIN results normally include, which saves building those keys on large result
+sets where you don't need them:
 
 ```php
 $plain = DB::clone(['useSmartJoins' => false]);
@@ -85,7 +80,7 @@ DB::clone(['database' => 'analytics']);
 
 The shared link also means shared transaction state: a `DB::transaction()`
 covers queries made through clones too, and starting a second `transaction()`
-on either side throws while one is open.
+on either one while the first is open throws `RuntimeException`.
 
 To reach a different database or server, open a separate connection.
 
@@ -122,13 +117,12 @@ $rowCount = $reports->count('daily_signups');
 $reports->insert('report_runs', ['runAt' => date('Y-m-d H:i:s'), 'status' => 'complete']);
 ```
 
-Each `Connection` is independent: its own `tablePrefix`, its own
-`encryptionKey`, its own transactions. A `transaction()` on `$reports` does
-not affect queries running through `DB::`.
+Each connection opened with `new Connection()` is independent: its own
+`tablePrefix`, its own `encryptionKey`, its own transactions. A
+`transaction()` on `$reports` does not affect queries running through `DB::`.
 
-The default connection and any extra connections coexist without
-interfering, so the usual pattern is `DB::` for the application database and
-a named variable (`$reports`, `$legacy`) for each additional one.
+The usual pattern is `DB::` for the application database and a named
+variable (`$reports`) for each additional connection.
 
 ---
 

@@ -21,8 +21,10 @@ Full message includes the quoted text and the fix, for example:
 `Quotes not allowed in template. Replace 'John' with :paramName and add: [ ':paramName' => 'John' ]`
 
 **What happened:** The SQL template contains a quote character (single or
-double). Templates are code, values are data; the guard rejects quotes so a
-value can never be concatenated into the SQL.
+double). Templates are code, values are data; the guard rejects quotes, so a
+template that puts a value inside quotes throws the first time it runs with
+real data (one gap:
+[The Empty-Quotes Gap](security-gotchas.md#the-empty-quotes-gap)).
 
 ```php
 // Throws - quoted value in template
@@ -42,7 +44,7 @@ Full message includes the number and the fix, for example:
 `Standalone number in template. Replace 21 with :n21 and add: [ ':n21' => 21 ]`
 
 **What happened:** The SQL template contains a literal number. A literal
-number in a template is indistinguishable from user input that was
+number in a template looks the same as user input that was
 concatenated in, so the guard rejects it.
 
 ```php
@@ -58,9 +60,9 @@ DB::select('users', "age > ?", 21);
 ```
 
 **Exception:** a trailing `LIMIT 10` is allowed and runs exactly as written.
-MySQL's `LIMIT` only accepts literal integers, so the guard strips a trailing
-`LIMIT #` from the copy it checks; anything that isn't a plain trailing
-`LIMIT #` still throws.
+The guard skips a plain trailing `LIMIT #` when it checks for numbers; anything
+else still throws, including `LIMIT 10 OFFSET 20` and `LIMIT 20, 10`. Pass
+those numbers as placeholders instead: `LIMIT ? OFFSET ?`.
 
 **Hitting this on CREATE TABLE or ALTER TABLE?** Type lengths like
 `VARCHAR(255)` are standalone numbers too. Run schema statements through
@@ -158,9 +160,9 @@ DB::select('users', "id IN (:ids)", [':ids' => [1, 2, 3]]);
 ### "This method doesn't support LIMIT or OFFSET"
 
 **What happened:** The template passed to `selectOne()`, `queryOne()`, or
-`count()` contains `LIMIT` or `OFFSET`; `selectOne()` and `queryOne()` append
-`LIMIT 1` themselves, and `count()` returns a single number, so a caller-supplied
-`LIMIT` conflicts with both.
+`count()` has a top-level `LIMIT` or `OFFSET` clause. `selectOne()` and
+`queryOne()` append `LIMIT 1` themselves, and `count()` returns a single
+number, so none of the three accepts a `LIMIT` in the template.
 
 ```php
 // Throws - selectOne() adds its own LIMIT 1
@@ -179,17 +181,17 @@ DB::query("SELECT * FROM ::users WHERE status = ? ORDER BY id DESC LIMIT 5", 'ac
 ```
 
 `selectOne()` and `queryOne()` also reject templates ending in a `--` or `#`
-comment or a `;`, because the appended ` LIMIT 1` would be swallowed by the
-comment (silent full-table scan) or fail to parse after the semicolon. The
-messages name the fix; `query(...)->first()` is the escape for those too.
+comment or a `;`, because the appended ` LIMIT 1` would be commented out
+(every matching row comes back) or fail to parse after the semicolon. The
+messages name the fix; `query(...)->first()` works for those too.
 
 ### "UPDATE requires a WHERE condition to prevent accidental bulk UPDATE"
 
 Also thrown as `DELETE requires a WHERE condition to prevent accidental bulk DELETE`.
 
 **What happened:** `update()` or `delete()` was called with an empty WHERE, or
-a string starting with `ORDER`, `LIMIT`, `OFFSET`, or `FOR` (which would apply
-to every row).
+a string starting with `ORDER`, `GROUP`, `HAVING`, `LIMIT`, `OFFSET`, or
+`FOR` (which would apply to every row).
 
 ```php
 // Throws - empty WHERE
@@ -197,7 +199,7 @@ DB::update('users', ['status' => 'inactive'], []);
 ```
 
 **Fix:** Add a WHERE condition. To intentionally affect every row, pass the
-literal string `"TRUE"`; that is the designed escape:
+literal string `"TRUE"`:
 
 ```php
 DB::update('users', ['status' => 'inactive'], ['id' => 42]);
@@ -230,8 +232,9 @@ DB::update('users', ['status' => 'active'], ['num' => 5]);
 These keep working for now but will throw in a future version. Deprecated
 calls raise `E_USER_DEPRECATED` (with the calling file and line appended)
 quietly: PHP's error log stays clean, but a `set_error_handler` callback
-receives them - CMS Builder records them in its Developer Log - and your
-IDE and static analysis flag deprecated calls in code.
+receives them - CMS Builder records them in its Developer Log. Your IDE and
+static analysis don't flag the ones below, since the method is fine and only
+the way the values are passed is deprecated.
 
 ### "Positional values in an array are deprecated. Pass up to 3 values directly for ? placeholders, or use named placeholders: [':name' => $value]"
 
@@ -251,7 +254,7 @@ DB::select('users', "name = ? AND city = ?", 'Alice', 'Vancouver');
 ### "Query has N positional (?) placeholder(s) but M values were passed. Unused positional values are deprecated and will throw in a future version. For IN() lists use a named placeholder: ':ids' => [...]"
 
 **What happened:** More positional values were passed than the template has
-`?` placeholders. The extras are silently unused, which almost always means a
+`?` placeholders. The extra values are ignored, which almost always means a
 bug; the classic case is trying to expand a list into a single `?` placeholder:
 
 ```php
@@ -311,7 +314,7 @@ enable SSL on the server.
 ### "This program requires MySQL v5.7.32+ or compatible. This server has ... vX.Y.Z installed."
 
 The message names the detected server product, so a MariaDB user sees
-`This server has MariaDB v10.4.34 installed.` ZenDB requires MySQL 5.7.32 or
+`This server has MariaDB v5.5.68 installed.` ZenDB requires MySQL 5.7.32 or
 newer by default (a compatible server like
 MariaDB or Percona also passes, compared on its own version number). Upgrade
 the server, or lower the check with the `versionRequired` config setting if
@@ -360,9 +363,8 @@ DB::select('users', "id IN (:ids)", [':ids' => [1, null, 3]]);
 ```
 
 Second, an empty array expands to `SELECT 0 FROM (SELECT 0) empty_set WHERE 0`, a subquery
-that returns zero rows: an empty set; `IN` of an empty set matches nothing
-and `NOT IN` of an empty set matches everything, so both directions do what
-an empty list should:
+that returns no rows. So `IN (:ids)` matches no rows and `NOT IN (:ids)`
+matches every row, which is what an empty list should do:
 
 ```php
 $wantedIds = [];  // e.g., no checkboxes ticked
@@ -374,8 +376,8 @@ DB::select('users', "id NOT IN (:ids)", [':ids' => $excludeIds]);
 // SELECT * FROM `users` WHERE id NOT IN (SELECT 0 FROM (SELECT 0) empty_set WHERE 0) - returns all rows
 ```
 
-That subquery is built for `IN` and `NOT IN`. Put an array anywhere else and
-an empty one is a SQL syntax error naming `empty_set`:
+That subquery is built for `IN` and `NOT IN`. Put an array in a function's
+argument list instead and an empty one is a SQL syntax error naming `empty_set`:
 
 ```php
 $tags = [];  // nothing selected
@@ -387,7 +389,7 @@ Pick what an empty list should mean there and pass that instead:
 
 ```php
 DB::queryOne("SELECT CONCAT_WS(:sep, :tags) AS csv", [':sep' => ',', ':tags' => $tags ?: '']);
-// SELECT CONCAT_WS(',', '') AS csv - returns an empty string
+// SELECT CONCAT_WS(',', '') AS csv LIMIT 1 - returns an empty string
 ```
 
 ### Booleans Convert to TRUE and FALSE

@@ -65,12 +65,9 @@ $rows = DB::query($sql, [':minTotal' => 100]);
 // SELECT u.name, o.total FROM users u JOIN orders o ON o.userId = u.id ...
 ```
 
-Heredoc syntax does the same job if you prefer it: `<<<__SQL__` starts a
-multi-line string that ends at the closing marker, whose indentation is
-stripped from every line (so it can't be indented deeper than the
-least-indented line). ZenDB templates contain no quotes and no `$`
-variables, so heredoc and double quotes produce identical strings here;
-use whichever reads better to you:
+Heredoc syntax does the same job if you prefer it. ZenDB templates contain
+no quotes and no `$` variables, so heredoc and double quotes produce the
+same query here; use whichever reads better to you:
 
 ```php
 $sql = <<<__SQL__
@@ -98,8 +95,7 @@ $rows = DB::query("
 // SELECT * FROM cms_orders LEFT JOIN cms_users ON cms_orders.userId = cms_users.id ...
 ```
 
-Table aliases don't take the prefix; only the real names after `FROM` and
-`JOIN` do:
+Table aliases don't take the prefix; only real table names do:
 
 ```php
 $rows = DB::query("SELECT u.name, o.total FROM ::users u JOIN ::orders o ON o.userId = u.id");
@@ -126,7 +122,7 @@ foreach ($rows as $row) {
 }
 ```
 
-Qualified keys contain a dot, which plain property syntax can't type, so read
+Qualified keys contain a dot, which plain property syntax doesn't allow, so read
 them with `->{'...'}`, covered in [Working with Results](working-with-results.md).
 
 Here is every key one joined row contains. Plain keys come first, one per
@@ -161,7 +157,7 @@ needed. That's why the prefix is dropped (`cms_users` still produces
 `users.id`), why aliases don't get keys (`FROM ::users u` also produces
 `users.id`, because `u.id` needs the query to decode), and why self-joins
 are the exception: when the same table appears twice, the table name stops
-identifying the source, so the aliases step in (below).
+identifying the source, so ZenDB also adds alias keys (below).
 
 Computed columns get only their alias: `YEAR(o.orderDate) AS orderYear`
 appears as `orderYear`, with no qualified key.
@@ -170,8 +166,9 @@ Whenever you're unsure what keys a query produced, `print_r($row)` (or
 `showme($row)` in CMS Builder) and look.
 
 Smart Joins are on by default and only add keys to multi-table results;
-single-table queries are unchanged. Turning them off for a query or a whole
-connection is covered below.
+single-table queries are unchanged. Turning them off for some queries is
+covered below. To turn them off everywhere, set `'useSmartJoins' => false`
+in your [`DB::connect()` config](getting-started.md#configuration-options).
 
 ### Duplicate Keys: The First One Wins
 
@@ -238,7 +235,7 @@ $rows = $db->query("
 
 ## SQL Expressions as Values - `DB::rawSql()`
 
-Placeholder values are always quoted and escaped, so a SQL expression passed
+String values are always quoted and escaped, so a SQL expression passed
 as a value would arrive as a string literal. Wrap it in `DB::rawSql()` to
 insert it as-is:
 
@@ -270,9 +267,9 @@ $pricey = DB::select('products', "price > (SELECT AVG(price) FROM ::products)");
 
 ## Putting It Together
 
-Everything on this page in one query: table prefixes on four tables, a named
-placeholder, `DB::pagingSql()` passed through a placeholder (`RawSql` values
-skip escaping), and Smart Join keys on the result:
+Most of this page in one query: table prefixes on four tables, a named
+placeholder, `DB::pagingSql()` passed through a placeholder (it returns a
+`rawSql()` value, so it isn't escaped), and Smart Join keys on the result:
 
 ```php
 $page = $_GET['page'] ?? 1;

@@ -3,7 +3,7 @@
 # Querying Data
 
 Fetching data from the database: selecting rows, fetching a single row,
-counting, WHERE conditions, sorting, and pagination.
+counting, WHERE conditions, sorting, pagination, and custom SQL.
 
 Contents:
 
@@ -60,8 +60,8 @@ with the returned rows and values.
 ## Fetching One Row - `DB::selectOne()`
 
 `DB::selectOne()` adds `LIMIT 1` and returns the first matching row. No match
-returns an empty `SmartArrayHtml`, never `null`, so field access is always
-safe:
+returns an empty `SmartArrayHtml`, never `null`, so reading a field like
+`$user->name` gives an empty value instead of a PHP warning:
 
 ```php
 $user = DB::selectOne('users', ['id' => 123]);
@@ -166,20 +166,21 @@ $users = DB::select('users', "ORDER BY name");
 $users = DB::select('users', "status = ? ORDER BY name DESC LIMIT ?", 'active', 10);
 // SELECT * FROM `users` WHERE status = 'active' ORDER BY name DESC LIMIT 10
 
-// Literal trailing LIMIT is allowed (the one number the template guard accepts)
+// Literal trailing LIMIT is allowed (the one inline number ZenDB accepts)
 $users = DB::select('users', "ORDER BY name LIMIT 10");
 // SELECT * FROM `users` ORDER BY name LIMIT 10
 ```
 
 A value bound to a `LIMIT` placeholder must be an int: a string produces
-`LIMIT '10'`, a MySQL syntax error, and `$_GET` values arrive as strings, so
-cast first ([Placeholders](placeholders.md) covers type conversion).
+`LIMIT '10'`, a MySQL syntax error. Values from `$_GET` arrive as strings, so
+cast them first ([Placeholders](placeholders.md) covers type conversion).
 
-The template guard normally rejects inline numbers, with one carve-out: a
-literal number in a trailing `LIMIT` clause is recognized as safe and runs
-as-is. That covers only the exact trailing form `LIMIT 10`. For an offset, use
-placeholders or `DB::pagingSql()`, which builds the `LIMIT ... OFFSET ...`
-clause from a page number and page size (the full pagination recipe is in
+The template guard (the check that throws on quotes or numbers typed into
+the SQL string) skips one case: a literal number in a trailing `LIMIT`
+clause is recognized as safe and runs as-is. That covers only the exact
+trailing form `LIMIT 10`. For an offset, use placeholders (`LIMIT ? OFFSET ?`)
+or `DB::pagingSql()`, which builds the `LIMIT ... OFFSET ...` clause from a
+page number and page size (the full pagination recipe is in
 [Common Patterns](common-patterns.md)):
 
 ```php
@@ -190,13 +191,13 @@ $users = DB::select('users', "ORDER BY name :pagingSQL", [
 // for page 1 this runs: SELECT * FROM `users` ORDER BY name LIMIT 10 OFFSET 0
 ```
 
-`pagingSql()` sanitizes its own inputs: page numbers are cast to int, and
-anything empty, zero, or non-numeric falls back to page 1 (and 10 per page),
-so user input like `$_GET['page']` can be passed straight in.
+`pagingSql()` sanitizes its own inputs: both numbers are cast to int, and an
+empty, zero, or non-numeric value becomes 1 for the page and 10 for the page
+size, so user input like `$_GET['page']` can be passed straight in.
 
 ## Custom SQL - `DB::query()` and `DB::queryOne()`
 
-When a query outgrows the table-based methods (selecting specific columns
+When the table-based methods can't build your query (selecting specific columns
 instead of `select()`'s `SELECT *`, joins, unions, subqueries), write the SQL
 yourself with `DB::query()`. The same placeholder rules and
 returned objects apply, and `::` before a table name inserts your table

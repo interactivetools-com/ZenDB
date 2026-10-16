@@ -51,7 +51,7 @@ DB::connect([
 All four config keys are required; a missing one throws `RuntimeException`
 with the key name, and a failed connection throws with the MySQL error.
 Those four are enough for most apps; for all `DB::connect()`
-arguments (timeouts, `tablePrefix`, SSL, encryption), see
+options (timeouts, `tablePrefix`, SSL, encryption), see
 [Configuration Options](#configuration-options) at the bottom of this page.
 
 ## Your First Query - `DB::select()`
@@ -75,10 +75,10 @@ Three rules explain most of the library:
 1. **Methods are named after the SQL they run.** `select()` runs a SELECT, `insert()`
    runs an INSERT. If you know MySQL, you already know what these methods do,
    and each example below shows the exact SQL it generates.
-2. **Values only enter through placeholders.** Never quote or escape a value
-   yourself. SQL templates containing inline quotes or numbers are rejected
-   before the query runs, which is what makes injection impossible on the
-   normal path.
+2. **Values only enter through placeholders** (`?` or `:name`). You never
+   quote or escape a value yourself. SQL templates (the SQL strings you pass
+   in) containing inline quotes or standalone numbers are rejected before the
+   query runs, which is what makes injection impossible on the normal path.
 3. **Output is HTML-encoded by default.** Every value from the database
    encodes itself when echoed, so XSS protection doesn't depend on anyone
    remembering `htmlspecialchars()`.
@@ -86,15 +86,16 @@ Three rules explain most of the library:
 ## What Queries Return
 
 Results are SmartArrays and the values inside them are SmartStrings, both
-installed alongside ZenDB. They behave like ordinary arrays and strings -
-`foreach`, `echo`, and string interpolation all work as you'd expect - with
-more methods available when you want them.
+installed alongside ZenDB. They work like ordinary arrays and strings in
+`foreach`, `echo`, and string interpolation, with more methods available when
+you want them. Comparisons and math need the raw value; see
+[Getting Raw Values](#getting-raw-values).
 
 ```php
-$users = DB::select('users', "status = ?", 'active');
-// SELECT * FROM `users` WHERE status = 'active'
+$users = DB::select('users', ['status' => 'active']);
+// SELECT * FROM `users` WHERE `status` = 'active'
 
-echo count($users);                          // row count
+echo count($users);                           // row count
 echo $users->column('email')->implode(', ');  // one column, joined
 
 $user = $users->first();
@@ -163,6 +164,7 @@ $affected = DB::update('users',
 
 // SQL conditions with placeholders work here too
 DB::update('users', ['status' => 'inactive'], "city = ? AND isAdmin = ?", 'Vancouver', 0);
+// UPDATE `users` SET `status` = 'inactive' WHERE city = 'Vancouver' AND isAdmin = 0
 ```
 
 ## Deleting Rows - `DB::delete()`
@@ -181,7 +183,8 @@ DB::delete('users', "status = ? AND city = ?", 'inactive', 'Vancouver');
 ## Getting Raw Values
 
 Encoded output is the default: every value is a `SmartString` that HTML-encodes
-itself when echoed. When you need the underlying data instead, ask for it:
+itself when echoed. When you need the underlying data instead (for
+comparisons, math, or a function that expects a plain string), ask for it:
 
 ```php
 // One field's raw value
@@ -199,7 +202,8 @@ their methods in full.
 
 ZenDB fails fast: every error throws an exception rather than returning
 `false`. Misuse of the API throws `InvalidArgumentException`, connection
-problems throw `RuntimeException`, and MySQL errors surface as exceptions too.
+problems throw `RuntimeException`, and MySQL errors throw
+`mysqli_sql_exception`, which extends `RuntimeException`.
 Catch `\Exception` to handle all of them:
 
 ```php
@@ -211,8 +215,8 @@ try {
 }
 ```
 
-Exception messages state what went wrong and how to fix it; when one stops
-you, [Troubleshooting](troubleshooting.md) lists the common messages with
+Exception messages state what went wrong and how to fix it, and
+[Troubleshooting](troubleshooting.md) lists the common messages with
 explanations.
 
 ## Configuration Options
@@ -230,7 +234,7 @@ rather than being silently ignored.
 | `database`             | string | *(required)*    | Database name (use `''` for none)                                                     |
 | **Query Behavior**     |        |                 |                                                                                       |
 | `tablePrefix`          | string | `''`            | Prefix prepended to all table names, e.g. `'app_'` makes `users` query `app_users`    |
-| `useSmartJoins`        | bool   | `true`          | Add qualified `table.column` keys to JOIN results for disambiguation                  |
+| `useSmartJoins`        | bool   | `true`          | Add qualified `table.column` keys to JOIN results so same-named columns stay separate |
 | `useSmartStrings`      | bool   | `true`          | Return values as SmartString objects with auto HTML-encoding                          |
 | **Connection Options** |        |                 |                                                                                       |
 | `connectTimeout`       | int    | `3`             | Connection timeout in seconds                                                         |
@@ -238,7 +242,7 @@ rather than being silently ignored.
 | `requireSSL`           | bool   | `false`         | Encrypt the database connection; no certificate verification                          |
 | `versionRequired`      | string | `'5.7.32'`      | Minimum MySQL version or compatible; connecting to an older server throws             |
 | `usePhpTimezone`       | bool   | `true`          | Set the MySQL session timezone to PHP's timezone                                      |
-| `sqlMode`              | string | *(shown right)* | `STRICT_ALL_TABLES,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION` |
+| `sqlMode`              | string | *(next column)* | `STRICT_ALL_TABLES,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION` |
 | `databaseAutoCreate`   | bool   | `false`         | Create the database if it does not exist                                              |
 | **Advanced**           |        |                 |                                                                                       |
 | `encryptionKey`        | string | *(none)*        | Encrypt `MEDIUMBLOB` columns with AES; see [Encryption](encryption.md)                |

@@ -8,9 +8,10 @@ single reset command.
 
 > **Before you read on:** persistent connections are an advanced setup with
 > real gotchas, and this page is deliberately not linked from the
-> documentation index. Plain hostnames are the right default. If you do
-> want this, start with [Should You Use It](#should-you-use-it): it covers
-> when reuse pays off and what to have ready before enabling it.
+> documentation index. Plain hostnames (no `p:` prefix) are the right
+> default. If you do want this, start with
+> [Should You Use It](#should-you-use-it): it covers when reuse pays off and
+> what to have ready before enabling it.
 
 Contents:
 
@@ -50,7 +51,7 @@ host or the site is busy enough that milliseconds add up.
   the plain hostname; every request over the limit fails with "User has
   exceeded max_user_connections".
 - **The host disables persistent connections** (`mysqli.allow_persistent`
-  off in php.ini). The prefix then downgrades to a normal connection:
+  off in php.ini). mysqli then makes a normal connection instead:
   everything works, connections just aren't reused, and ZenDB suppresses
   PHP's "Downgrading to normal" warning on each connect (see
   [Timeouts](#timeouts) for how suppressed warnings are handled).
@@ -94,8 +95,10 @@ DB::connect([
 ]);
 ```
 
-Queries, results, and transactions behave identically either way; the prefix
-changes how the connection is obtained, nothing about how queries run.
+Queries, results, and transactions behave the same either way, with one
+exception: a connection that mysqli opened to replace a dead kept one
+returns integer and float columns as strings (see
+[Reuse Stays Clean](#reuse-stays-clean)).
 
 ## Reuse Stays Clean
 
@@ -106,10 +109,10 @@ transaction, its temp tables, its variables. That does not happen.
   (`COM_CHANGE_USER`) makes the server roll back any open transaction,
   release locks, drop temporary tables, deallocate prepared statements, and
   clear user and session variables.
-- **ZenDB reapplies its connect-time setup.** The reset carries over one
-  thing, the previous session's charset; ZenDB's connect-time check resets
-  it to utf8mb4, so `sqlMode`, the session timezone, and the charset all
-  match a fresh connection exactly.
+- **ZenDB reapplies its connect-time setup.** It runs the same `sqlMode`
+  and timezone setup on every connect, reused or not. The reset carries over
+  one thing, the previous session's charset, and ZenDB's connect-time check
+  sets it back to utf8mb4. All three match a fresh connection exactly.
 - **Encryption keys don't leak.** With `encryptionKey` set, the same reset
   clears the session key variable, and it is set again on the next query
   that needs it.
@@ -117,11 +120,15 @@ transaction, its temp tables, its variables. That does not happen.
   while idle (server restart, idle timeout, a KILL) is detected at connect
   time and replaced with a fresh one. No error reaches your code; the one
   warning a server can raise here is suppressed by ZenDB (see
-  [Timeouts](#timeouts)).
+  [Timeouts](#timeouts)). One difference remains: mysqli opens the
+  replacement without the options ZenDB set, so on that connection, and on
+  every later request that reuses it, integer and float columns come back as
+  strings and `readTimeout` doesn't apply.
 - **Verified on all 22 supported servers.** Permanent probes in ZenDB's CI
   behavior matrix confirm every behavior in this section - the reset, the
-  re-setup, lock release, prepared statement cleanup, and dead-connection
-  replacement - on MySQL 5.7-9.7, MariaDB 10.2-12.3, and Percona 5.7-8.4.
+  connect-time setup, lock release, prepared statement cleanup, and
+  dead-connection replacement - on MySQL 5.7-9.7, MariaDB 10.2-12.3, and
+  Percona 5.7-8.4.
 
 ## The Sizing Check
 
@@ -139,16 +146,16 @@ site is quiet, so estimate your peak before adding the prefix:
 - **Everything else** is cron jobs, backups, monitoring, and any other
   application on the same database server.
 
-A few more values are worth looking up while you're here. Where they live
+A few more values are worth looking up while you're here. Where to look
 varies by stack, and the names are enough to find them.
 
 | Value                                    | Where                                | What it tells you                                                                              |
 |------------------------------------------|--------------------------------------|------------------------------------------------------------------------------------------------|
 | `pm.max_children` / `MaxRequestWorkers`  | PHP-FPM pool config / Apache config  | The worker cap: the most kept connections you can ever hold                                    |
-| `pm.process_idle_timeout`                | PHP-FPM `ondemand` pools             | Idle workers exit after this, closing their connections; usually the fastest drain after a revert |
+| `pm.process_idle_timeout`                | PHP-FPM `ondemand` pools             | Idle workers exit after this, closing their connections; usually the fastest drain after removing the prefix |
 | `pm.max_requests`                        | PHP-FPM pool config                  | Workers recycle after this many requests and reconnect; sets your leftover new-connection rate |
 | `wait_timeout`                           | MySQL                                | The server closes idle connections after this; the slowest drain (default 8 hours)             |
-| `Connections`                            | `SHOW GLOBAL STATUS`                 | Total connects since the server started; sample it twice a minute apart and subtract for new connections per minute |
+| `Connections`                            | `SHOW GLOBAL STATUS`                 | Total connects since the server started; sample it twice, a minute apart, and subtract for new connections per minute |
 
 Compare against the server's limits:
 
@@ -179,8 +186,8 @@ question.
 
 ### Trial on a Single IP First
 
-The `p:` prefix and the plain hostname are different pool keys, so requests
-connecting with the plain hostname can never pick up a kept connection.
+mysqli only reuses a kept connection when the hostname has the `p:` prefix,
+so requests connecting with the plain hostname never pick one up.
 Enabling the prefix for one test IP affects nobody else:
 
 ```php
@@ -188,6 +195,13 @@ $hostname = 'localhost';
 if (($_SERVER['REMOTE_ADDR'] ?? '') === '203.0.113.7') {  // your IP
     $hostname = "p:$hostname";
 }
+
+DB::connect([
+    'hostname' => $hostname,
+    'username' => 'myuser',
+    'password' => 'mypassword',
+    'database' => 'mydatabase',
+]);
 ```
 
 Browse the site from that IP and run `SHOW PROCESSLIST` between requests:
@@ -222,13 +236,13 @@ recycles idle workers.
 
 ## Timeouts
 
-Reuse changes only the connect timeout; the other two behave exactly as
-before.
+Reuse skips the connect timeout and keeps the query timeout the connection
+was first opened with; the server idle timeout works as before.
 
 | Timeout     | Setting (default)                     | With reuse                                                   |
 |-------------|---------------------------------------|--------------------------------------------------------------|
 | Connect     | ZenDB `connectTimeout` (3s)           | Skipped; no setup runs, so most requests never start this clock |
-| Query       | ZenDB `readTimeout` (60s)             | Applies per query, identical on fresh and reused connections |
+| Query       | ZenDB `readTimeout` (60s)             | Set when the connection is first opened and kept on reuse; a replaced dead connection uses `mysqlnd.net_read_timeout` instead (86400s by default) |
 | Server idle | MySQL `wait_timeout` (8h, often less) | Closes connections idle too long; a quiet period trims kept connections on its own |
 
 mysqli replaces a dead kept connection on the next request, but only at
@@ -239,11 +253,11 @@ One server difference: MySQL and Percona 8.0+ write a final "disconnected
 because of inactivity" error packet before closing a timed-out connection,
 and mysqli raises a PHP warning when it finds that packet on the kept
 socket ("Packets out of order. Expected 1 received 0. Packet size=145"),
-then discards the connection and reconnects. ZenDB suppresses the warning,
-so nothing is displayed or logged; error log handlers are still called for
-suppressed warnings and decide for themselves whether to record them, and
-CMS Builder's doesn't log intentionally suppressed warnings. With raw
-mysqli the warning is live: it reaches the PHP error log once per worker
+then discards the connection and reconnects. ZenDB suppresses the warning
+with `@`, so PHP doesn't display it or write it to the error log. A custom
+error handler (`set_error_handler()`) is still called and decides for
+itself; CMS Builder's skips suppressed warnings. With raw
+mysqli the warning isn't suppressed: it reaches the PHP error log once per worker
 after each quiet period longer than `wait_timeout`. MariaDB and
 MySQL/Percona 5.7 close the socket without writing anything, so there is
 nothing to suppress, and a KILLed connection is silent on every server,
@@ -252,8 +266,8 @@ because KILL writes no packet.
 ## Turning It Off
 
 - **Remove the `p:` prefix.** Every new request opens a fresh connection;
-  the plain hostname is a different pool key, so the kept connections are
-  never asked for again. If your sizing fit, this alone is a safe exit any
+  without the prefix, mysqli never reuses the
+  kept connections. If your sizing fit, this alone is a safe exit any
   time: the leftover sleepers are harmless while they drain, and the
   reload below is only needed after overflowing a cap.
 - **Idle connections do not close immediately.** Each worker holds its
@@ -300,8 +314,10 @@ changes nothing. For locks, it does:
 - A request that dies between START TRANSACTION and COMMIT (a fatal error,
   a timeout, an `exit()`) leaves its row locks held by the sleeping
   connection.
-- Anyone writing the same rows during the gap waits - no error, their query
-  just completes on its own once the locks clear.
+- Anyone writing the same rows during the gap waits for the locks to clear,
+  then their query completes. A wait longer than `innodb_lock_wait_timeout`
+  (50 seconds by default) ends in a "Lock wait timeout exceeded" error
+  instead.
 - The gap closes when the crashed worker serves its next request. On a busy
   site that is under a second: the crashed worker is free, so it is first
   in line for incoming requests. On a quiet site the gap is longer, but
@@ -316,7 +332,8 @@ script, where the process exit releases everything immediately.
 
 To roll back transactions at request end instead, set
 `mysqli.rollback_on_cached_plink = 1` in php.ini and reload PHP. It covers
-transactions only, not locks, and the default is fine for almost everyone.
+transactions and their row locks only, not named locks or table locks, and
+the default is fine for almost everyone.
 
 ## Good to Know
 

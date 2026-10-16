@@ -2,7 +2,7 @@
 
 The shared writing standards for all InteractiveTools libraries (voice,
 vocabulary, page structure, code examples, method tables, renderer facts)
-live in the team's
+are in the team's
 [internal docs repo](https://github.com/itools-internal/docs/tree/main/open-source)
 under open-source/ (private, team access only). This file holds
 ZenDB-specific additions only.
@@ -21,7 +21,7 @@ ZenDB-specific additions only.
   shown once, in Joins and Custom SQL's "Formatting Long Queries"; examples
   elsewhere don't use them.
 - **Colons are ZenDB syntax** (`:name`, `::`, `:::name`), so the
-  punctuation-around-inline-code rules bite hardest here: never `` `code`: ``
+  punctuation-around-inline-code rules matter most here: never `` `code`: ``
   mid-sentence, and headings never end with a dash and a bare syntax token
   (write `` ## Table Prefixes in Raw SQL with `::` ``).
 - **The root README carries the full docs index** (all of docs/README.md's

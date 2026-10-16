@@ -38,6 +38,9 @@ worrying about injection.
 composer require itools/zendb
 ```
 
+Requirements: PHP 8.1+, `ext-mysqli`, `ext-openssl`, and MySQL 5.7.32+ or an
+equivalent MariaDB.
+
 ```php
 use Itools\ZenDB\DB;
 
@@ -52,6 +55,7 @@ DB::connect([
 
 // Select rows
 $users = DB::select('users', "status = ?", 'active');
+// SELECT * FROM `app_users` WHERE status = 'active'
 foreach ($users as $user) {
     echo "Hello, $user->name!"; // auto HTML-encoded
 }
@@ -104,10 +108,10 @@ Full guides and references ([browse on GitHub](https://github.com/interactivetoo
     - [Method Reference](docs/method-reference.md) - every method, parameter, and return type in one place
     - [AI Reference](docs/ai-reference.md) - the complete API in one dense file, written for AI coding assistants
 
-## When you might NOT want ZenDB
+## When You Might NOT Want ZenDB
 
 - You need an ORM with models, migrations, or an ActiveRecord pattern
-- You need to support databases other than MySQL/MariaDB (and compatible alternatives)
+- You need to support databases other than MySQL, MariaDB, and compatible servers like Percona
 - You need async or non-blocking database queries
 - You prefer writing raw SQL without any abstraction
 

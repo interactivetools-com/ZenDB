@@ -5,8 +5,8 @@ a rename, or a refactor: if it has a heading below, it was already debated.
 Decisions can be reopened, but reopen them against the reasons recorded here,
 not from scratch.
 
-Only the road-not-taken half lives here; current behavior is self-documenting
-in signatures, docblocks, the changelog, and tests.
+This file keeps only the options we rejected and why; current behavior is
+documented in signatures, docblocks, the changelog, and tests.
 
 ---
 
@@ -26,7 +26,9 @@ Contents:
 - [HTML Composition - DECIDED: SmartString's appendHtml()/wrapHtml() are the answer (2026-08)](#html-composition---decided-smartstrings-appendhtmlwraphtml-are-the-answer-2026-08)
 - [Undocumented on Purpose - DECIDED (2026-07)](#undocumented-on-purpose---decided-2026-07)
 - [Deprecation Notices - DECIDED: The `@` on `trigger_error()` stays (2026-08)](#deprecation-notices---decided-the--on-trigger_error-stays-2026-08)
+- [Replay Mode - DECIDED: Benchmarking only (2026-08)](#replay-mode---decided-benchmarking-only-2026-08)
 - [Empty-Quotes Gap - DECIDED: Keep allowing `''` (2026-08)](#empty-quotes-gap---decided-keep-allowing--2026-08)
+- [setlocale(): Turkish and Azeri Locales - DECIDED: Not supported (2026-10)](#setlocale-turkish-and-azeri-locales---decided-not-supported-2026-10)
 - [Other Ideas Rejected (2026-03)](#other-ideas-rejected-2026-03)
 
 ## Design Philosophy
@@ -35,7 +37,7 @@ Contents:
 - **Safety by default** - injection-proof templates (`assertSafeTemplate` rejects quotes/numbers),
   XSS-safe output via SmartString, credential vault prevents serialization leaks
 - **Minimal ceremony** - one method call does the right thing
-- **Transparent complexity hiding** - auto-encryption for MEDIUMBLOB columns is the gold standard:
+- **Transparent complexity hiding** - auto-encryption for MEDIUMBLOB columns is the best example:
   the developer doesn't need to know anything about AES or key derivation
 - **Thin layer over MySQL** - developers write SQL when they need SQL, the library handles
   escaping, prefixing, and result wrapping
@@ -58,8 +60,8 @@ Would wrap MySQL's `INSERT ... ON DUPLICATE KEY UPDATE`.
    DB::query("INSERT INTO ::settings SET `user_id` = ?, `key` = ?, `value` = ?
               ON DUPLICATE KEY UPDATE `value` = VALUES(`value`)", $userId, $key, $val);
    ```
-4. **Slippery slope** to `insertIgnore()`, `replace()`, and other MySQL-specific
-   variants.
+4. **More variants would follow:** `insertIgnore()`, `replace()`, and other
+   MySQL-specific ones.
 5. **Doesn't match the transparency philosophy.** Auto-encryption works because the
    developer doesn't need to understand AES. Upsert still requires understanding
    unique indexes and conflict semantics; it only shortens the syntax.
@@ -109,7 +111,7 @@ $rows = $raw->select('users', ['status' => 'active']);
 // Same MySQL connection, plain strings instead of SmartString objects
 ```
 
-Shares the TCP connection; only the settings diverge. Calling `DB::connect()`
+Shares the mysqli connection; only the settings diverge. Calling `DB::connect()`
 again throws (already connected), and `new Connection()` opens a whole new
 MySQL connection, which is not the same thing.
 
@@ -122,17 +124,9 @@ with a single `config()` get/set method was rejected: it trades type safety,
 IDE support, and static analysis for uniformity, and breaks PHP's automatic
 property copying on clone. Config stays as typed properties.
 
-Cleanups worth doing if this code is ever touched (still open as of 2026-07):
-
-1. Replace `property_exists()` constructor validation with an explicit allowlist.
-   Note: the five credential properties never reach that check; `sealSecrets()`
-   consumes their config keys first. They exist so the `$this->$key = null`
-   write in `sealSecrets()` isn't a deprecated dynamic property on PHP 8.2+,
-   so an allowlist doesn't make them deletable.
-2. Add a `SENSITIVE_KEYS` constant so `__debugInfo` masking can't silently miss
-   a newly added sensitive key.
-3. Simplify `sealSecrets()`'s two parameter-controlled code paths (construct vs
-   clone).
+One cleanup worth doing if this code is ever touched: add a `SENSITIVE_KEYS`
+constant so `__debugInfo` masking can't silently miss a newly added sensitive
+key.
 
 ---
 
@@ -185,7 +179,7 @@ names) was rejected: the expansion can't tell an alias from a table name, so
 the common join form. Guessing from the schema is the schema-awareness magic
 rejected under Other Ideas Rejected. Method arguments take base names because
 the whole argument is a table name by definition; inside SQL text, `::` is
-the marker, and `{{}}` lives inside SQL text.
+the marker, and `{{}}` is part of SQL text.
 
 ---
 
@@ -199,7 +193,7 @@ emitting backticked names, `{{::table.column}}`, the test suite on a dotted
 default prefix), then reverted after researching what the rest of the world
 does:
 
-- WordPress hit this exact issue in 2004 (Trac #910) and hard-bans dots:
+- WordPress had this exact issue in 2004 (Trac #910) and hard-bans dots:
   "$table_prefix can only contain numbers, letters, and underscores".
 - Drupal supports dotted prefixes with the OPPOSITE meaning: `'shared.'` is
   a `database.` qualifier for cross-database table sharing, and identifier
@@ -208,7 +202,7 @@ does:
 - Laravel, Doctrine, and CodeIgniter all read a dot in a name as a
   qualifier. No mainstream library treats it as a literal prefix character.
 
-So a dot in a prefix is ambiguous on arrival - a user writing `'shared.'`
+So a dot in a prefix is ambiguous - a user writing `'shared.'`
 more likely means cross-database than literal-dot tables - and ZenDB refuses
 at config time instead of guessing. Existing dotted installs migrate with
 RENAME TABLE (steps in UPGRADING.md), reviewed as part of the CMS Builder
@@ -237,9 +231,9 @@ Kept from the exploration (correct regardless of dots):
 ## HTML Composition - DECIDED: SmartString's appendHtml()/wrapHtml() are the answer (2026-08)
 
 The question started here: templates wrapping a query-result field in markup
-only when the field has a value. The ruling lives with the string type:
+only when the field has a value. The ruling is in SmartString's design decisions:
 SmartString's `appendHtml()`/`wrapHtml()` cover the idiom (missing value
-returns "", so the whole wrapper vanishes), and result fields are
+returns "", so no wrapper markup is output), and result fields are
 SmartStrings so they get both directly - ZenDB adds nothing. Rejected across
 the family: a SmartHtml type, encode-on-append, entity-sniffing, and further
 `*Html()` name variants. If richer safe-HTML composition is ever needed, the
@@ -250,8 +244,7 @@ design-decisions entry).
 
 ## Undocumented on Purpose - DECIDED (2026-07)
 
-The docs deliberately omit these; the omission is a decision, not a gap
-(method-reference says "every supported method" for this reason):
+The docs deliberately omit these; the omission is a decision, not a gap:
 
 - **`Server`, `Table`/`TableInfo`** - internal, may change; class headers say so.
 - **`DB::assertIdentifier()`** - `@internal`; the safe-identifier check every table
@@ -260,7 +253,7 @@ The docs deliberately omit these; the omission is a decision, not a gap
   aren't available.
 - **`queryLogger`, `loadHandler` config keys** - internal/advanced hooks
   (loadHandler is CMS Builder plumbing); undocumented keeps the signatures
-  changeable. The PII note (logged SQL contains inlined user values) lives in
+  changeable. The PII note (logged SQL contains inlined user values) is in
   the queryLogger docblocks.
 - **`escape()`, `escapef()`, `escapeCSV()`, `whereSql()`** - `@internal`, exist so ZenDB and
   CMS Builder can build their own SQL; placeholders and WHERE arrays are the supported API.
@@ -269,14 +262,15 @@ The docs deliberately omit these; the omission is a decision, not a gap
   `delete()`, and `count()` accept a `RawSql` object as `$whereEtc` (2026-09).
   The SQL is used as written: no template check, no placeholder replacement,
   and passing params alongside it throws. Exists so CMS Builder can hand over
-  `DB::whereSql()` output without the `"?", DB::rawSql(...)` hop. Undocumented
-  because it's a raw-SQL door; the type hint is the only public trace.
+  `DB::whereSql()` output without passing it as `"?", DB::rawSql(...)`.
+  Undocumented because it runs raw SQL unchecked; the type hint is the only
+  public sign of it.
 - **`get()` with a default argument** - de-emphasized; the default applies only
   to missing keys, never stored nulls, which misleads more than it helps in
   docs examples.
 - **`DB::connection()`, `DB::phpTimezoneForMysql()`** - `@internal` (2026-07):
   plumbing for code that already knows the internals, not regular-use methods.
-  Rule of thumb: methods living in DBInternals.php are internal unless ruled
+  Rule of thumb: methods in DBInternals.php are internal unless ruled
   otherwise.
 
 ---
@@ -290,7 +284,7 @@ ever sees them. That is the intent: notices are for handlers that collect them
 log. Don't remove the `@` to make PHP log them.
 
 SmartString and SmartArray follow the same rule and state it at the call site;
-ZenDB's `logDeprecation()` has no comment saying so.
+ZenDB's `logDeprecation()` docblock states it too.
 
 ---
 
@@ -341,11 +335,13 @@ Closing it costs more than it buys: CMS Builder core alone has `= ''` and
 upgrade, plus every customer template and third-party plugin we can't see or
 fix.
 
-The guard is a tripwire, not a parser. It reads the finished SQL string and
+The guard is a string check, not a parser. It reads the finished SQL string and
 can't tell which characters the developer typed and which came from a
 variable. It catches the common mistake early and loudly; placeholders are
 what make interpolation safe. Same reason the identifier gap
 (`ORDER BY $sort`) exists and is documented next to this one.
+
+---
 
 ## setlocale(): Turkish and Azeri Locales - DECIDED: Not supported (2026-10)
 
@@ -357,8 +353,9 @@ locales, 2026-10-16), and Windows builds aren't affected. A site that wants
 Turkish month and day names can set `LC_TIME` alone, which changes none of
 this.
 
-Here that touches the `/i` patterns that read the shape of a query (the LIMIT
-guard, JOIN detection), not escaping, which placeholders do.
+In ZenDB this affects the `/i` patterns that check a query's keywords, such as
+the LIMIT guard and JOIN detection. Escaping isn't affected; placeholders
+handle that.
 
 ---
 
