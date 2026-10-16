@@ -347,6 +347,19 @@ variable. It catches the common mistake early and loudly; placeholders are
 what make interpolation safe. Same reason the identifier gap
 (`ORDER BY $sort`) exists and is documented next to this one.
 
+## setlocale(): Turkish and Azeri Locales - DECIDED: Not supported (2026-10)
+
+Under a Turkish or Azeri locale set with `setlocale()` (`LC_ALL` or `LC_CTYPE`),
+PHP's regular expressions stop matching `I` to `i`, and on PHP 8.1 so do
+`strtolower()` and `stripos()`. Code that ignores case can then miss a capital
+I. No other locale changes how ASCII is read (checked against all 529 glibc
+locales, 2026-10-16), and Windows builds aren't affected. A site that wants
+Turkish month and day names can set `LC_TIME` alone, which changes none of
+this.
+
+Here that touches the `/i` patterns that read the shape of a query (the LIMIT
+guard, JOIN detection), not escaping, which placeholders do.
+
 ---
 
 ## Other Ideas Rejected (2026-03)
