@@ -21,9 +21,9 @@ coding assistants. Everything else is fixes and stricter checks.
 
 ### Added
 
-- **Documentation** - guides organized by task
-  ([start at the index](https://github.com/interactivetools-com/ZenDB/blob/main/docs/README.md)),
-  every example verified against the current source
+- **Documentation** - guides organized by task in
+  [docs/README.md](docs/README.md), every example verified against the
+  current source
 - **Prefixed value placeholders** - `::?` and `:::name` (no backticks) add
   the table prefix inside the quoted value, for matching table names as
   strings: `SHOW TABLES LIKE ::?` with `user%` → `SHOW TABLES LIKE 'cms_user%'`
