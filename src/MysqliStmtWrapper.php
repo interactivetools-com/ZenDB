@@ -55,7 +55,8 @@ class MysqliStmtWrapper extends mysqli_stmt
             $paramsJson = json_encode($params, JSON_INVALID_UTF8_SUBSTITUTE | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) ?: '(params not JSON-encodable)';
         }
 
-        $startTime       = $this->startTime ?: ($this->mysqliWrapper->queryLogger ? microtime(true) : 0.0);
+        // the first execute() counts from prepare(); later ones time only themselves
+        $startTime       = $this->startTime ?:($this->mysqliWrapper->queryLogger ? microtime(true) : 0.0);
         $this->startTime = 0.0;
 
         try {
