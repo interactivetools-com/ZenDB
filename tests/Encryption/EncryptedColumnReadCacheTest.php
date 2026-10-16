@@ -7,6 +7,7 @@ namespace Itools\ZenDB\Tests\Encryption;
 
 use Itools\ZenDB\Connection;
 use Itools\ZenDB\Tests\BaseTestCase;
+use mysqli_sql_exception;
 use ReflectionProperty;
 
 /**
@@ -132,6 +133,27 @@ class EncryptedColumnReadCacheTest extends BaseTestCase
         $this->assertNotSame('encrypted-after-alter', $raw, 'Write after ALTER must encrypt');
     }
 
+    public function testInvisibleColumnIsEncrypted(): void
+    {
+        // SELECT * leaves out INVISIBLE columns (MySQL 8.0.23+, MariaDB 10.3+), so writes look columns up by name
+        try {
+            self::$conn->mysqli->query("CREATE TEMPORARY TABLE test_enc_cache_inv (num INT PRIMARY KEY, token MEDIUMBLOB INVISIBLE)");
+        } catch (mysqli_sql_exception) {
+            $this->markTestSkipped('This server has no invisible columns');
+        }
+
+        self::$conn->insert('enc_cache_inv', ['num' => 1, 'token' => 'inserted-secret']);
+        $raw = self::$conn->mysqli->query("SELECT token FROM test_enc_cache_inv WHERE num = 1")->fetch_row()[0];
+        $this->assertNotSame('inserted-secret', $raw, 'Insert into an invisible MEDIUMBLOB must encrypt');
+
+        self::$conn->update('enc_cache_inv', ['Token' => 'updated-secret'], ['num' => 1]);
+        $raw = self::$conn->mysqli->query("SELECT token FROM test_enc_cache_inv WHERE num = 1")->fetch_row()[0];
+        $this->assertNotSame('updated-secret', $raw, 'Update with a different-case key must encrypt too');
+
+        $row = self::$conn->queryOne("SELECT token FROM ::enc_cache_inv WHERE num = :num", [':num' => 1])->toArray();
+        $this->assertSame('updated-secret', $row['token'], 'Naming the column in a query decrypts it');
+    }
+
     public static function provideDdlBehindComments(): array
     {
         // Full table names, not ::, since a placeholder inside /* */ throws
@@ -149,14 +171,19 @@ class EncryptedColumnReadCacheTest extends BaseTestCase
         $conn->mysqli->query("CREATE TEMPORARY TABLE test_enc_cache_life (num INT PRIMARY KEY, secret MEDIUMBLOB)");
         $conn->insert('enc_cache_life', ['num' => 1, 'secret' => 'cached']);
 
+        $conn->selectOne('enc_cache_life', ['num' => 1]);
+
         $cacheProp = new ReflectionProperty(Connection::class, 'encryptedColumnsCache');
+        $writeProp = new ReflectionProperty(Connection::class, 'writeColumnsCache');
         $warnProp  = new ReflectionProperty(Connection::class, 'decryptWarned');
-        $this->assertNotSame([], $cacheProp->getValue($conn), 'Insert must populate the cache');
+        $this->assertNotSame([], $cacheProp->getValue($conn), 'Select must populate the read cache');
+        $this->assertNotSame([], $writeProp->getValue($conn), 'Insert must populate the write cache');
         $warnProp->setValue($conn, true);
 
-        // Schema can change while disconnected, so both must reset for a clean reconnect
+        // Schema can change while disconnected, so all three must reset for a clean reconnect
         $conn->disconnect();
         $this->assertSame([], $cacheProp->getValue($conn), 'Disconnect must clear cached column lists');
+        $this->assertSame([], $writeProp->getValue($conn), 'Disconnect must clear cached write columns');
         $this->assertFalse($warnProp->getValue($conn), 'Disconnect must re-arm the decrypt warning');
     }
 

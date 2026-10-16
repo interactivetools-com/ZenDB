@@ -1144,8 +1144,9 @@ trait ConnectionInternals
      */
     private function clearEncryptedColumnsCacheOnDdl(string $sqlTemplate): void
     {
-        if ($this->encryptedColumnsCache && preg_match('/\b(ALTER|CREATE|DROP|RENAME|TRUNCATE)\b/i', $sqlTemplate)) {
+        if (($this->encryptedColumnsCache || $this->writeColumnsCache) && preg_match('/\b(ALTER|CREATE|DROP|RENAME|TRUNCATE)\b/i', $sqlTemplate)) {
             $this->encryptedColumnsCache = [];
+            $this->writeColumnsCache     = [];
         }
     }
 

@@ -117,6 +117,10 @@ and your file and line.
 - **Failed decryption warns** - a MEDIUMBLOB value that won't decrypt still
   passes through as raw bytes, but now triggers one warning per connection
   naming the column (was silent)
+- **Invisible MEDIUMBLOB columns are encrypted** - `insert()` and `update()`
+  look up column types by name; they used `SELECT *`, which leaves out
+  `INVISIBLE` columns (MySQL 8.0.23+, MariaDB 10.3+), so those were written
+  as plaintext
 - **Time zones past +13:00 connect** - with `usePhpTimezone`, zones like
   Pacific/Kiritimati (+14:00) failed to connect on MariaDB and MySQL before
   8.0.19

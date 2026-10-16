@@ -13,7 +13,7 @@ use mysqli_sql_exception;
 use WeakMap;
 
 // import built-ins so calls resolve at compile time instead of per-call lookups; NamespacedCallsTest keeps this list exact
-use function array_diff, array_flip, array_key_first, array_keys, array_map, array_values, count, defined, hash, implode, in_array, is_bool, is_float, is_int, is_null, is_object, is_string, mysqli_report, openssl_decrypt, openssl_encrypt, preg_match, reset, rtrim, str_replace, str_starts_with, strlen, strtolower, substr, trigger_error, version_compare;
+use function array_change_key_case, array_diff, array_diff_key, array_key_first, array_keys, count, defined, hash, implode, in_array, is_bool, is_float, is_int, is_null, is_object, is_string, mysqli_report, openssl_decrypt, openssl_encrypt, preg_match, reset, rtrim, str_replace, str_starts_with, strlen, strtolower, substr, trigger_error, version_compare;
 use const E_USER_WARNING, MYSQLI_CLIENT_SSL, MYSQLI_OPT_CONNECT_TIMEOUT, MYSQLI_OPT_INT_AND_FLOAT_NATIVE, MYSQLI_OPT_LOCAL_INFILE, MYSQLI_OPT_READ_TIMEOUT, MYSQLI_REPORT_ERROR, MYSQLI_REPORT_STRICT, MYSQLI_SET_CHARSET_NAME, OPENSSL_RAW_DATA;
 
 /**
@@ -310,6 +310,7 @@ class Connection
         // Schema can change while disconnected: re-probe encrypted columns and
         // re-arm the one-per-connection decrypt warning on reconnect
         $this->encryptedColumnsCache = [];
+        $this->writeColumnsCache     = [];
         $this->decryptWarned         = false;
     }
 
@@ -960,11 +961,17 @@ class Connection
 
     /**
      * @var array<string, string[]> Encrypted (MEDIUMBLOB) column names per full table name,
-     * shared by the read (select/selectOne) and write (insert/update) paths so each table is
-     * probed once. Cleared on disconnect() and when query()/queryOne() runs DDL, so schema
-     * changes can't leave a stale list that would write plaintext or skip decryption.
+     * for the read path (select/selectOne). Cleared on disconnect() and when query()/queryOne()
+     * runs DDL, so schema changes can't leave a stale list that would skip decryption.
      */
     private array $encryptedColumnsCache = [];
+
+    /**
+     * @var array<string, array<string, bool>> For the write path (insert/update): every column
+     * written so far, lowercase name => is MEDIUMBLOB, per full table name. Cleared with
+     * encryptedColumnsCache, so schema changes can't leave a stale entry that writes plaintext.
+     */
+    private array $writeColumnsCache = [];
 
     /**
      * Encrypt MEDIUMBLOB-column values in an insert/update values array, in place. Called
@@ -993,27 +1000,31 @@ class Connection
             return;
         }
 
-        // Cache the encrypted column list per table (one LIMIT 0 query per table, per connection)
-        if (!isset($this->encryptedColumnsCache[$fullTable])) {
+        // Look up the type of each column this write uses, by name, once per connection. Not
+        // SELECT *, which leaves out INVISIBLE columns. Names are lowercase because MySQL
+        // matches them that way: 'Token' writes to column 'token', so it must encrypt the same.
+        $knownColumns = $this->writeColumnsCache[$fullTable] ?? [];
+        $newColumns   = array_keys(array_diff_key(array_change_key_case($values), $knownColumns));
+        if ($newColumns) {
+            foreach ($newColumns as $column) {
+                if (!is_string($column)) {
+                    return; // buildSetClause() throws for non-string keys with a clearer message
+                }
+                isset(DB::$safeIdentifiers[$column]) || DB::assertIdentifier($column, 'column name');
+            }
             $savedLastQuery          = $this->mysqli->lastQuery;     // preserve caller's template (e.g. "INSERT INTO `t` [SET ...]") so downstream throws report it, not the probe
-            $result                  = $this->mysqli->query("SELECT * FROM `$fullTable` LIMIT 0");
+            $result                  = $this->mysqli->query("SELECT `" . implode('`, `', $newColumns) . "` FROM `$fullTable` LIMIT 0");
             $this->mysqli->lastQuery = $savedLastQuery;
 
-            $this->encryptedColumnsCache[$fullTable] = array_values(DB::getEncryptedColumns($result->fetch_fields()));
+            foreach ($result->fetch_fields() as $field) {
+                $knownColumns[strtolower($field->name)] = DB::getEncryptedColumns([$field]) !== [];
+            }
             $result->free();
+            $this->writeColumnsCache[$fullTable] = $knownColumns;
         }
 
-        $encryptedCols = $this->encryptedColumnsCache[$fullTable];
-        if (!$encryptedCols) {
-            return;
-        }
-
-        // Encrypt each targeted value. Column keys are matched case-insensitively because
-        // MySQL resolves them that way: 'Token' writes to column 'token', so it must
-        // encrypt the same as 'token' would.
-        $encryptedColsLower = array_flip(array_map('strtolower', $encryptedCols));
         foreach ($values as $col => $value) {
-            if (!isset($encryptedColsLower[strtolower((string)$col)])) {
+            if (!$knownColumns[strtolower((string)$col)]) {
                 continue;
             }
             if ($value instanceof SmartString) {
