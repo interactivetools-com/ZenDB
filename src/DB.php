@@ -103,8 +103,9 @@ class DB
      * } $config
      * @throws RuntimeException If already connected
      * @see Connection::__construct()
+     * @noinspection PhpFullyQualifiedNameUsageInspection - TODO-PHP82: import SensitiveParameter and drop the FQN; the FQN only keeps PHPStorm quiet at the 8.1 language level
      */
-    public static function connect(array $config = []): void
+    public static function connect(#[\SensitiveParameter] array $config = []): void
     {
         if (self::isConnected()) {
             throw new RuntimeException("Already connected. To reconnect, call disconnect() first.");
