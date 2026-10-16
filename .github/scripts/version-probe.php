@@ -5,7 +5,7 @@ declare(strict_types=1);
  * The previous release versus the working copy, on the pages from
  * docs/performance.md, timed in one process.
  *
- *     php .github/scripts/version-probe.php --baseline=/tmp/baseline [--json=out.json] [--filter=id1,id2] [--scale=1.0]
+ *     php .github/scripts/version-probe.php --baseline="$BASELINE" [--json=out.json] [--filter=id1,id2] [--scale=1.0]
  *
  * Both versions are loaded at once and their pages run interleaved, one after
  * the other in every round. Separate processes drift by up to 20% between runs
@@ -14,7 +14,7 @@ declare(strict_types=1);
  * --baseline points at a directory holding the old release with its namespaces
  * suffixed "Old", which is what lets both versions coexist:
  *
- *     mkdir -p /tmp/baseline && cd /tmp/baseline
+ *     BASELINE=$(mktemp -d) && cd "$BASELINE"
  *     composer require itools/zendb:0.9.1 --no-interaction --prefer-dist
  *     find vendor/itools -name '*.php' -print0 \
  *       | xargs -0 perl -pi -e 's/Itools(\\+)(ZenDB|SmartArray|SmartString)\b/Itools${1}${2}Old/g'
