@@ -3,8 +3,8 @@
 # in CI, and needs the codex-security CLI installed. Results go to the CLI's
 # state dir; view them with: codex-security scans list
 # Uses gpt-6-astra with the CLI's default reasoning effort and scan limits.
-# Additional CLI flags can be passed as arguments. Run scans one repo at a time:
-# concurrent scans share a sandbox dir in /tmp and kill each other's workers.
+# Additional CLI flags can be passed as arguments. Run one scan per repo at a
+# time; scans of different repos can run side by side.
 # Full pre-release scan:
 #   .github/scripts/codex-security-scan.sh --mode deep
 set -euo pipefail
