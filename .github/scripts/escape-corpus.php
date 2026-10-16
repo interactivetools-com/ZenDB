@@ -339,7 +339,7 @@ function escape_corpus_connect(): mysqli
     $mysqli->query("SET sql_mode = 'STRICT_ALL_TABLES,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION'");
 
     if (!escape_fast_path_ok($mysqli)) {
-        throw new RuntimeException("Connection state rejects the fast path (charset="
+        throw new RuntimeException("Fast-path check failed: needs a utf8mb4 connection with backslash escaping on (charset="
             . $mysqli->character_set_name() . "); refusing to run.");
     }
     return $mysqli;

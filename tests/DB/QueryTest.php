@@ -93,7 +93,7 @@ class QueryTest extends BaseTestCase
     public function testQueryOneRejectsTrailingLineComment(string $sql): void
     {
         $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage("trailing '--' or '#' comment would swallow it");
+        $this->expectExceptionMessage("trailing '--' or '#' comment would comment it out");
         DB::queryOne($sql);
     }
 
@@ -132,8 +132,8 @@ class QueryTest extends BaseTestCase
         return [
             'quoted'     => ["SELECT * FROM ::users WHERE name = 'unsafe'", "Quotes not allowed in template"],
             'number'     => ['SELECT * FROM ::users WHERE num = 7', "Standalone number in template"],
-            'hex'        => ['SELECT * FROM ::users WHERE num = 0x41', "Numeric literal '0x41'"],
-            'scientific' => ['SELECT * FROM ::users WHERE num = 1e2', "Numeric literal '1e2'"],
+            'hex'        => ['SELECT * FROM ::users WHERE num = 0x41', "Numeric literal 0x41"],
+            'scientific' => ['SELECT * FROM ::users WHERE num = 1e2', "Numeric literal 1e2"],
             'backslash'  => ["SELECT * FROM ::users WHERE name = \\?", "Backslashes not allowed in template"],
             'null byte'  => ["SELECT * FROM ::users WHERE name = ?\x00", "NULL character not allowed in template"],
             'control z'  => ["SELECT * FROM ::users WHERE name = ?\x1a", "CTRL-Z character not allowed in template"],

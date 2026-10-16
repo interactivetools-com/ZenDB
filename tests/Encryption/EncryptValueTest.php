@@ -604,14 +604,14 @@ class EncryptValueTest extends BaseTestCase
     public function testBooleanForEncryptedColumnThrows(): void
     {
         $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessage("Can't store boolean in encrypted column 'token'");
+        $this->expectExceptionMessage("Can't store boolean in encrypted column `token`");
         self::$conn->insert('enc_users', ['num' => 161, 'name' => 'Bool', 'token' => true]);
     }
 
     public function testSmartStringBooleanForEncryptedColumnThrows(): void
     {
         $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessage("Can't store boolean in encrypted column 'token'");
+        $this->expectExceptionMessage("Can't store boolean in encrypted column `token`");
         self::$conn->insert('enc_users', ['num' => 162, 'name' => 'Bool', 'token' => SmartString::new(false)]);
     }
 

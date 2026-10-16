@@ -722,13 +722,13 @@ template by hand are not; the guard has no schema to check them against.
 | "UPDATE requires a WHERE condition to prevent accidental bulk UPDATE" (same for DELETE) | Add WHERE or use `"TRUE"` for all rows                                           |
 | "Suspicious SET clause"                                                                 | Check argument order: `update($table, $values, $whereEtc)`                       |
 | "Missing value for ? parameter at position N"                                           | Pass enough values for all `?` placeholders                                      |
-| "Missing value for ':name' parameter"                                                   | Add missing key to params array                                                  |
+| "Missing value for :name parameter"                                                     | Add missing key to params array                                                  |
 | "Arrays not allowed with positional ? placeholders"                                     | Use named: `"IN (:ids)"`, `[':ids' => [1,2,3]]`                                  |
 | "Can't mix positional (?) and named (:param) placeholders"                              | Use one placeholder style for the whole query                                    |
 | "This method doesn't support LIMIT or OFFSET"                                           | Use `select()` not `selectOne()` for custom LIMIT                                |
 | "This method doesn't support FOR UPDATE" (also FOR SHARE, LOCK IN SHARE MODE)           | Use `query(...)->first()`; queryOne()'s LIMIT 1 must come before locking clauses |
 | "This method appends LIMIT 1 automatically"                                             | Remove the trailing `--`/`#` comment or `;`, or use `query(...)->first()`        |
-| "Invalid table name '...', allowed characters: a-z, A-Z, 0-9, _, -" (also column name)  | Only `a-z, A-Z, 0-9, _, -` allowed                                               |
+| "Invalid table name `...`, allowed characters: a-z, A-Z, 0-9, _, -" (also column name)  | Only `a-z, A-Z, 0-9, _, -` allowed                                               |
 
 ## Gotchas
 

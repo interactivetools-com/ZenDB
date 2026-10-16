@@ -75,7 +75,7 @@ class DocsExamplesTest extends BaseTestCase
                 new Connection($config);
                 $this->fail("Missing '$key' should throw");
             } catch (RuntimeException $e) {
-                $this->assertSame("Missing required config: '$key'", $e->getMessage());
+                $this->assertSame("Missing required config: `$key`", $e->getMessage());
             }
         }
     }
@@ -83,7 +83,7 @@ class DocsExamplesTest extends BaseTestCase
     public function testGettingStartedUnknownConfigKeyThrows(): void
     {
         $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage("Unknown configuration key: 'bogusKey'");
+        $this->expectExceptionMessage("Unknown configuration key: `bogusKey`");
 
         new Connection(array_merge(self::$configDefaults, ['bogusKey' => 1]));
     }
@@ -661,7 +661,7 @@ class DocsExamplesTest extends BaseTestCase
     public function testModifyingUpdateCatchesReversedArguments(): void
     {
         $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage("Suspicious SET clause: only updating 'num'. Did you reverse the arguments? Signature is: update(\$table, \$values, \$whereEtc)");
+        $this->expectExceptionMessage("Suspicious SET clause: only updating `num`. Did you reverse the arguments? Signature is: update(\$table, \$values, \$whereEtc)");
 
         DB::update('users', ['num' => 1], ['city' => 'Toronto']);
     }
@@ -704,7 +704,7 @@ class DocsExamplesTest extends BaseTestCase
     public function testModifyingArrayColumnValueThrows(): void
     {
         $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage("Unsupported type for column 'name': array");
+        $this->expectExceptionMessage("Unsupported type for column `name`: array");
 
         DB::insert('users', ['name' => ['a', 'b']]);
     }
@@ -877,7 +877,7 @@ class DocsExamplesTest extends BaseTestCase
     public function testPlaceholdersIdentifierRejectsInjection(): void
     {
         $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage("Invalid backtick identifier 'name; DROP TABLE users', allowed characters: a-z, A-Z, 0-9, _, -");
+        $this->expectExceptionMessage("Invalid backtick identifier `name; DROP TABLE users`, allowed characters: a-z, A-Z, 0-9, _, -");
 
         DB::select('users', "ORDER BY `:sort`", [':sort' => 'name; DROP TABLE users']);
     }
@@ -967,7 +967,7 @@ class DocsExamplesTest extends BaseTestCase
     public function testPlaceholdersQuotesInTemplateThrow(): void
     {
         $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage("Quotes not allowed in template. Replace 'John' with :paramName and add: [ ':paramName' => 'John' ]");
+        $this->expectExceptionMessage("Quotes not allowed in template. Replace `John`, quotes included, with :paramName and pass the value as [':paramName' => \$value]");
 
         DB::select('users', "name = 'John'");
     }
@@ -2036,7 +2036,7 @@ class DocsExamplesTest extends BaseTestCase
 
         $this->assertCount(1, $warnings);
         $this->assertSame(
-            "ZenDB: can't decrypt MEDIUMBLOB column 'apiToken', returning raw bytes. Wrong encryptionKey, or the column holds unencrypted data.",
+            "ZenDB: can't decrypt MEDIUMBLOB column `apiToken`, returning raw bytes. Wrong encryptionKey, or the column holds unencrypted data.",
             $warnings[0]
         );
         $this->assertSame('raw-bytes', $rows->first()->apiToken->value());
@@ -2055,7 +2055,7 @@ class DocsExamplesTest extends BaseTestCase
             $plain->disconnect();
         }
 
-        $this->assertSame("aesKey() requires 'encryptionKey' in connection config.", $message);
+        $this->assertSame("Encrypting or decrypting needs 'encryptionKey' in the connection config. Set it in DB::connect() or new Connection().", $message);
     }
 
     //endregion
@@ -2094,7 +2094,7 @@ class DocsExamplesTest extends BaseTestCase
         }
 
         $this->assertSame(
-            "Quotes not allowed in template. Replace 'Vancouver' with :paramName and add: [ ':paramName' => 'Vancouver' ]",
+            "Quotes not allowed in template. Replace `Vancouver`, quotes included, with :paramName and pass the value as [':paramName' => \$value]",
             $message
         );
 
@@ -2139,7 +2139,7 @@ class DocsExamplesTest extends BaseTestCase
             $message = $e->getMessage();
         }
         $this->assertSame(
-            "Invalid backtick identifier 'name; DROP TABLE x', allowed characters: a-z, A-Z, 0-9, _, -",
+            "Invalid backtick identifier `name; DROP TABLE x`, allowed characters: a-z, A-Z, 0-9, _, -",
             $message
         );
     }
@@ -2171,7 +2171,7 @@ class DocsExamplesTest extends BaseTestCase
         }
 
         $this->assertSame(
-            "Quotes not allowed in template. Replace 'John' with :paramName and add: [ ':paramName' => 'John' ]",
+            "Quotes not allowed in template. Replace `John`, quotes included, with :paramName and pass the value as [':paramName' => \$value]",
             $message
         );
 
@@ -2275,7 +2275,7 @@ class DocsExamplesTest extends BaseTestCase
             $message = $e->getMessage();
         }
 
-        $this->assertSame("Missing value for ':city' parameter", $message);
+        $this->assertSame("Missing value for :city parameter", $message);
 
         $rows = DB::select('users', "name = :name AND city = :city", [
             ':name' => 'Alice Smith',
@@ -2333,7 +2333,7 @@ class DocsExamplesTest extends BaseTestCase
             $commentMessage = $e->getMessage();
         }
         $this->assertSame(
-            "This method appends LIMIT 1 automatically; a trailing '--' or '#' comment would swallow it and cause a full-table scan. Remove the comment or use query(...)->first() instead.",
+            "This method appends LIMIT 1 automatically; a trailing '--' or '#' comment would comment it out and the query would return every matching row. Remove the comment or use query(...)->first() instead.",
             $commentMessage
         );
 
@@ -2386,7 +2386,7 @@ class DocsExamplesTest extends BaseTestCase
         }
 
         $this->assertSame(
-            "Suspicious SET clause: only updating 'num'. Did you reverse the arguments? Signature is: update(\$table, \$values, \$whereEtc)",
+            "Suspicious SET clause: only updating `num`. Did you reverse the arguments? Signature is: update(\$table, \$values, \$whereEtc)",
             $message
         );
 

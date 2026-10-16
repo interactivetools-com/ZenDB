@@ -201,7 +201,7 @@ DB::select('users', "num = ?", 1, 999);
 
 // Quotes in the template
 DB::select('users', "name = 'John'");
-// Throws: Quotes not allowed in template. Replace 'John' with :paramName and add: [ ':paramName' => 'John' ]
+// Throws: Quotes not allowed in template. Replace `John`, quotes included, with :paramName and pass the value as [':paramName' => $value]
 
 // Standalone number in the template
 DB::select('users', "age > 18");

@@ -128,7 +128,7 @@ class NumericWhereDeprecationTest extends BaseTestCase
         $result = @DB::select('users', '5');
 
         $this->assertCount(1, self::$warnings);
-        $this->assertStringContainsString("Numeric string '5'", self::$warnings[0]);
+        $this->assertStringContainsString("Numeric string `5`", self::$warnings[0]);
         $this->assertCount(1, $result);
         $this->assertSame('Charlie Brown', $result->first()->get('name')->value());
     }

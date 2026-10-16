@@ -424,7 +424,7 @@ $mysqli->query('DROP TABLE IF EXISTS zenbench_news');
 //endregion
 //region Report
 
-printf("### ZenDB %s vs working copy | PHP %s%s | %s | JIT %s | ping %sus%s\n\n",
+printf("### ZenDB %s vs working copy | PHP %s%s | %s | JIT %s | ping %sµs%s\n\n",
     $out['baseline'], $out['php'], $out['zts'] ? ' ZTS' : '', $out['server'], $out['jit'], $out['ping_us'],
     $out['xdebug'] ? ' **XDEBUG LOADED - RESULTS INVALID**' : '');
 
@@ -443,7 +443,7 @@ $printTable = static function (array $rows) use ($out): void {
             continue;
         }
         $t = $out['tests'][$id];
-        printf("| %-32s | %7.0f us | %7.0f us | %7.0f us | %8.2fx |\n",
+        printf("| %-32s | %7.0f µs | %7.0f µs | %7.0f µs | %8.2fx |\n",
             $t['label'], $t['raw_us'], $t['old_us'], $t['new_us'], $t['ratio']);
     }
 };
@@ -474,18 +474,18 @@ foreach ($out['tests'] as $id => $t) {
         $t['adds_old'] <= 0 => 'n/a',
         default             => sprintf('%.1fx', $t['adds_old'] / $t['adds_new']),
     };
-    printf("| %-32s | %5.0f us | %+9.0f us | %+9.0f us | %9s |\n",
+    printf("| %-32s | %5.0f µs | %+9.0f µs | %+9.0f µs | %9s |\n",
         $t['label'], $t['raw_us'], $t['adds_old'], $t['adds_new'], $multiple);
 }
-printf("| %-32s | %5.0f us | %+9.0f us | %+9.0f us | %9s |\n",
+printf("| %-32s | %5.0f µs | %+9.0f µs | %+9.0f µs | %9s |\n",
     '**Every page combined**', $out['combined']['baseline_us'], $out['combined']['adds_old'],
     $out['combined']['adds_new'], $out['combined']['multiple'] ? sprintf('%.1fx', $out['combined']['multiple']) : 'n/a');
 
 if ($out['combined']['multiple']) {
-    printf("\nZenDB's own work is %.1fx faster than %s: across these pages it added %.0f us on\n"
-         . "top of MySQL and now adds %.0f us. Quote the combined row, not a single page:\n"
-         . "a page whose added time lands near zero divides into a huge multiple that moves\n"
-         . "by tens between runs, while the combined figure holds steady.\n",
+    printf("\nZenDB's own work is %.1fx faster than %s: across these pages it added %.0f µs on\n"
+         . "top of MySQL and now adds %.0f µs. Quote the combined row, not a single page:\n"
+         . "a page whose added time is near zero gives a large multiple that changes\n"
+         . "by tens between runs, while the combined figure stays steady.\n",
         $out['combined']['multiple'], $out['baseline'], $out['combined']['adds_old'], $out['combined']['adds_new']);
 }
 

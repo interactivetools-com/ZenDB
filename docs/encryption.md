@@ -202,7 +202,7 @@ that was never encrypted) passes through as its raw bytes, and the first
 failure triggers an `E_USER_WARNING`:
 
 ```
-ZenDB: can't decrypt MEDIUMBLOB column 'apiToken', returning raw bytes. Wrong encryptionKey, or the column holds unencrypted data.
+ZenDB: can't decrypt MEDIUMBLOB column `apiToken`, returning raw bytes. Wrong encryptionKey, or the column holds unencrypted data.
 ```
 
 One warning, not one per row, so a table of pre-encryption data doesn't flood

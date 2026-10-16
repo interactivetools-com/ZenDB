@@ -421,7 +421,7 @@ class MysqliWrapperTest extends BaseTestCase
     public function testSetCharsetRejectsOtherCharsets(): void
     {
         $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessage("ZenDB connections are always utf8mb4; set_charset('latin1') is not supported.");
+        $this->expectExceptionMessage("ZenDB connections are always utf8mb4; set_charset() doesn't accept `latin1`.");
 
         DB::$mysqli->set_charset('latin1');
     }

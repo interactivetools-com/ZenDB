@@ -39,7 +39,7 @@ class DecryptWarningTest extends BaseTestCase
 
         // Four failed decrypts (2 rows x 2 queries), one warning
         $this->assertCount(1, $warnings, "One warning per connection, not one per row or per query");
-        $this->assertStringContainsString("can't decrypt MEDIUMBLOB column 'token'", $warnings[0]);
+        $this->assertStringContainsString("can't decrypt MEDIUMBLOB column `token`", $warnings[0]);
     }
 
     public function testWarningFlagIsPerConnectionObject(): void

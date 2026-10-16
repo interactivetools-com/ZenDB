@@ -144,7 +144,7 @@ class SelectTest extends BaseTestCase
                 'baseTable'       => 'users',
                 'where'           => 'num = :num',
                 'mixedParams'     => [],
-                'expectedMessage' => "Missing value for ':num' parameter",
+                'expectedMessage' => "Missing value for :num parameter",
             ],
             [
                 'testName'        => 'table with prefix already applied',

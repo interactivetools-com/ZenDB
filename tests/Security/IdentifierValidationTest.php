@@ -294,7 +294,7 @@ class IdentifierValidationTest extends BaseTestCase
     public function testAssertIdentifierNamesTheValueInTheMessage(): void
     {
         $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage("Invalid sort column 'title; DROP TABLE users'");
+        $this->expectExceptionMessage("Invalid sort column `title; DROP TABLE users`");
 
         DB::assertIdentifier('title; DROP TABLE users', 'sort column');
     }

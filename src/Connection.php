@@ -137,7 +137,7 @@ class Connection
         foreach ($config as $key => $value) {
             if (!in_array($key, $settableKeys, true)) {
                 $h = DB::h(...); // SECURITY: config keys come from the caller, encode before they can reach page output
-                throw new InvalidArgumentException("Unknown configuration key: '{$h($key)}'");
+                throw new InvalidArgumentException("Unknown configuration key: `{$h($key)}`");
             }
             $this->$key = $value;
         }
@@ -220,7 +220,7 @@ class Connection
                         $this->mysqli->select_db($database);
                     } catch (mysqli_sql_exception $createErr) {
                         $h = DB::h(...); // SECURITY: database name and server message aren't safe by construction, encode before they can reach page output
-                        throw new RuntimeException("Couldn't create/select database '{$h($database)}': {$h($createErr->getMessage())}", $createErr->getCode(), $createErr);
+                        throw new RuntimeException("Couldn't create/select database `{$h($database)}`:{$h($createErr->getMessage())}", $createErr->getCode(), $createErr);
                     }
                 } else {
                     throw $e;
@@ -563,7 +563,7 @@ class Connection
 
         // Detect likely reversed arguments: SET ['num' => 5] is almost always a mistake
         if (count($values) === 1 && in_array(array_key_first($values), ['num', 'id', 'ID'], true)) {
-            throw new InvalidArgumentException("Suspicious SET clause: only updating '" . array_key_first($values) . "'. Did you reverse the arguments? Signature is: update(\$table, \$values, \$whereEtc)");
+            throw new InvalidArgumentException("Suspicious SET clause: only updating `" . array_key_first($values) . "`. Did you reverse the arguments? Signature is: update(\$table, \$values, \$whereEtc)");
         }
 
         $this->encryptRow($fullTable, $values);
@@ -972,7 +972,7 @@ class Connection
                 } elseif (!$this->decryptWarned) {
                     $this->decryptWarned = true;
                     $h                   = DB::h(...); // SECURITY: column names come from query results (aliases included), encode before they can reach page output
-                    trigger_error("ZenDB: can't decrypt MEDIUMBLOB column '{$h($key)}', returning raw bytes. Wrong encryptionKey, or the column holds unencrypted data.", E_USER_WARNING);
+                    trigger_error("ZenDB: can't decrypt MEDIUMBLOB column `{$h($key)}`, returning raw bytes. Wrong encryptionKey, or the column holds unencrypted data.", E_USER_WARNING);
                 }
             }
         }
@@ -1041,7 +1041,7 @@ class Connection
             }
             if (is_bool($value)) {
                 $h = DB::h(...); // SECURITY: column names come from the caller, encode before they can reach page output
-                throw new InvalidArgumentException("Can't store boolean in encrypted column '{$h((string)$col)}': booleans aren't auto-encrypted. Pass a string or number instead.");
+                throw new InvalidArgumentException("Can't store boolean in encrypted column `{$h((string)$col)}`:booleans aren't auto-encrypted. Pass a string or number instead.");
             }
             if (!is_string($value) && !is_int($value) && !is_float($value)) {
                 continue; // skip null (nothing to encrypt) and RawSql (deliberate raw SQL); arrays throw in buildSetClause
@@ -1060,7 +1060,7 @@ class Connection
         if (!isset($cache[$this])) {
             $encryptionKey = $this->secret('encryptionKey');
             if ($encryptionKey === null || $encryptionKey === '') {
-                throw new RuntimeException("aesKey() requires 'encryptionKey' in connection config.");
+                throw new RuntimeException("Encrypting or decrypting needs 'encryptionKey' in the connection config. Set it in DB::connect() or new Connection().");
             }
             $keyBytes = hash('sha512', $encryptionKey, true);
             $cache[$this]  = substr($keyBytes, 0, 16);

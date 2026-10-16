@@ -49,7 +49,7 @@ class SingleTableFastPathTest extends BaseTestCase
             'comma in SELECT list'     => ['Commas before FROM are column lists, not joins', 'SELECT num, name FROM users WHERE num = ?', [':1' => 5], true],
             'no FROM at all'           => ['Expression-only query', 'SELECT DATABASE() AS db', [], true],
             'join in template'         => ['JOIN needs SmartJoins metadata', 'SELECT * FROM users u JOIN orders o ON u.num = o.user_id', [], false],
-            'union in template'        => ['UNION columns are never table-attributed (behavior matrix), so no metadata needed', 'SELECT num FROM users UNION SELECT num FROM orders', [], true],
+            'union in template'        => ['No server reports a source table for UNION columns (behavior matrix), so no metadata needed', 'SELECT num FROM users UNION SELECT num FROM orders', [], true],
             'comma join'               => ['Comma after FROM could be a comma-join', 'SELECT * FROM users, orders WHERE users.num = orders.user_id', [], false],
             'multi-column ORDER BY'    => ['Conservative: any comma after FROM says no', 'SELECT * FROM users ORDER BY name, num', [], false],
             'join substring in name'   => ['Conservative: JOIN as substring says no', 'SELECT num, title AS joined_at FROM users', [], false],

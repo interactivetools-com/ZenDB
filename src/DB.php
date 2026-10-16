@@ -374,7 +374,7 @@ class DB
         foreach ($parts as $part) {
             if (count($parts) > 2 || !self::isIdentifier($part)) {
                 $h = self::h(...); // SECURITY: column failed validation, encode before it can reach page output
-                throw new InvalidArgumentException("Invalid column name '{$h($column)}' in decryptExpr(), expected column or table.column with characters: a-z, A-Z, 0-9, _, -");
+                throw new InvalidArgumentException("Invalid column name `{$h($column)}` in decryptExpr(), expected column or table.column with characters: a-z, A-Z, 0-9, _, -");
             }
         }
         $column = str_replace('.', '`.`', $column); // "blog.title" => "blog`.`title"

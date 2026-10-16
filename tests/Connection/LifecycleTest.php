@@ -96,7 +96,7 @@ class LifecycleTest extends BaseTestCase
     public function testConnectWithMissingCredentials(): void
     {
         $this->expectException(RuntimeException::class);
-        $this->expectExceptionMessage("Missing required config: 'hostname'");
+        $this->expectExceptionMessage("Missing required config: `hostname`");
         new Connection();
     }
 
@@ -105,7 +105,7 @@ class LifecycleTest extends BaseTestCase
         // getenv() returns false when the env var is unset; the error must name the
         // config key, not be a TypeError that doesn't say which setting is wrong
         $this->expectException(RuntimeException::class);
-        $this->expectExceptionMessage("Config 'encryptionKey' must be a string, got bool");
+        $this->expectExceptionMessage("Config `encryptionKey` must be a string, got bool");
         $config = array_merge(self::$configDefaults, ['encryptionKey' => false]);
         DB::connect($config);
     }
@@ -145,7 +145,7 @@ class LifecycleTest extends BaseTestCase
     public function testUnknownConfigKeyThrowsException(): void
     {
         $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage("Unknown configuration key: 'invalidKey'");
+        $this->expectExceptionMessage("Unknown configuration key: `invalidKey`");
         $config = array_merge(self::$configDefaults, ['invalidKey' => 'value']);
         DB::connect($config);
     }
@@ -159,7 +159,7 @@ class LifecycleTest extends BaseTestCase
     public function testInternalPropertiesRejectedAsConfigKeys(string $key, mixed $value): void
     {
         $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage("Unknown configuration key: '$key'");
+        $this->expectExceptionMessage("Unknown configuration key: `$key`");
         $config = array_merge(self::$configDefaults, [$key => $value]);
         DB::connect($config);
     }

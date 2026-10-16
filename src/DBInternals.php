@@ -230,7 +230,7 @@ trait DBInternals
     {
         if (!self::isIdentifier($identifier)) {
             $h = self::h(...); // SECURITY: identifier failed validation, encode before it can reach page output
-            throw new InvalidArgumentException("Invalid $what '{$h($identifier)}', allowed characters: a-z, A-Z, 0-9, _, -");
+            throw new InvalidArgumentException("Invalid $what `{$h($identifier)}`, allowed characters: a-z, A-Z, 0-9, _, -");
         }
     }
 

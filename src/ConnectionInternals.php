@@ -182,16 +182,16 @@ trait ConnectionInternals
                 $hasNamed = true;
                 $name     = match (true) {
                     // SECURITY: key failed validation, encode before it can reach page output (match arm, so no room for the $h variable)
-                    !preg_match("/^:\w+\z/", $key) => throw new InvalidArgumentException("Invalid param name '" . DB::h($key) . "'. Must start with ':' followed by (a-z, A-Z, 0-9, _)"),
-                    str_starts_with($key, ':_')    => throw new InvalidArgumentException("Invalid param name '$key'. Names can't start with :_ (the deprecated table-prefix syntax); start the name with a letter or digit"),
-                    str_starts_with($key, ':zdb')  => throw new InvalidArgumentException("Invalid param name '$key'. Names can't start with :zdb (reserved prefix)"),
+                    !preg_match("/^:\w+\z/", $key) => throw new InvalidArgumentException("Invalid param name `" . DB::h($key) . "`. Must start with ':' followed by (a-z, A-Z, 0-9, _)"),
+                    str_starts_with($key, ':_')    => throw new InvalidArgumentException("Invalid param name `$key`. Names can't start with :_ (the deprecated table-prefix syntax); start the name with a letter or digit"),
+                    str_starts_with($key, ':zdb')  => throw new InvalidArgumentException("Invalid param name `$key`. Names can't start with :zdb (reserved prefix)"),
                     default                        => $key,
                 };
             }
 
             // Check for duplicates
             if (array_key_exists($name, $values)) {
-                throw new InvalidArgumentException("Duplicate param name '$name'");
+                throw new InvalidArgumentException("Duplicate param name `$name`");
             }
 
             $values[$name] = !is_object($value) ? $value : $this->unwrapParamObject($value);
@@ -217,7 +217,7 @@ trait ConnectionInternals
             $value instanceof SmartString    => $value->value(),
             $value instanceof SmartNull      => null,
             $value instanceof SmartArrayBase => $value->toArray(),
-            default                          => throw new InvalidArgumentException("Parameters cannot be " . get_debug_type($value)),
+            default                          => throw new InvalidArgumentException("Parameters cannot be " . get_debug_type($value) . ". Pass a string, number, bool, null, array, or DB::rawSql() value."),
         };
     }
 
@@ -286,13 +286,14 @@ trait ConnectionInternals
          *
          *   // This throws the moment $city contains any real value like "Vancouver"
          *   DB::query("SELECT * FROM ::users WHERE city = '$city'");
-         *   // Throws: Quotes not allowed in template. Replace 'Vancouver' with ...
+         *   // Throws: Quotes not allowed in template. Replace `Vancouver`, quotes included, with :paramName ...
          */
         if (preg_match('/[\'"]/', $sqlForQuoteCheck, $matches)) {
             if (preg_match('/([\'"])(.*?)\1/', $sqlForQuoteCheck, $matches)) {
-                $h          = DB::h(...); // SECURITY: quoted text can carry interpolated user data, encode before it can reach page output (quote chars stay literal)
-                $quotedText = $matches[1] . $h($matches[2]) . $matches[1];
-                throw new InvalidArgumentException("Quotes not allowed in template. Replace $quotedText with :paramName and add: [ ':paramName' => $quotedText ]");
+                // SECURITY: quoted text can carry interpolated user data. Encode it, show it once, and put it
+                // before any quote in the message, so an echo inside a quoted HTML attribute can't end the attribute
+                $h = DB::h(...);
+                throw new InvalidArgumentException("Quotes not allowed in template. Replace `{$h($matches[2])}`, quotes included, with :paramName and pass the value as [':paramName' => \$value]");
             }
 
             throw new InvalidArgumentException("Quotes not allowed in template. Use :paramName placeholder instead.");
@@ -332,14 +333,14 @@ trait ConnectionInternals
                 $n = $matches[1];
                 throw new InvalidArgumentException("Standalone number in template. Replace $n with :n$n and add: [ ':n$n' => $n ]");
             }
-            throw new InvalidArgumentException("Numeric literal '$matches[0]' in template. Replace it with a :paramName placeholder.");
+            throw new InvalidArgumentException("Numeric literal $matches[0] in template. Replace it with a :paramName placeholder.");
         }
 
         // Potentially dangerous characters - backslashes, NULL bytes, CTRL-Z
         $error = match (true) {
-            str_contains($sql, "\\")   => "Backslashes not allowed in template",
-            str_contains($sql, "\x00") => "NULL character not allowed in template",
-            str_contains($sql, "\x1a") => "CTRL-Z character not allowed in template",
+            str_contains($sql, "\\")   => "Backslashes not allowed in template. Pass the value through a :paramName placeholder.",
+            str_contains($sql, "\x00") => "NULL character not allowed in template. Pass the value through a :paramName placeholder.",
+            str_contains($sql, "\x1a") => "CTRL-Z character not allowed in template. Pass the value through a :paramName placeholder.",
             default                    => null,
         };
         if ($error) {
@@ -435,7 +436,7 @@ trait ConnectionInternals
 
         // Trailing line comment - would comment out the appended LIMIT 1, so every matching row comes back
         if (preg_match('/(?:--|#)[^\r\n]*\z/', $where)) {
-            throw new InvalidArgumentException("This method appends LIMIT 1 automatically; a trailing '--' or '#' comment would swallow it and cause a full-table scan. Remove the comment or use query(...)->first() instead.");
+            throw new InvalidArgumentException("This method appends LIMIT 1 automatically; a trailing '--' or '#' comment would comment it out and the query would return every matching row. Remove the comment or use query(...)->first() instead.");
         }
 
         // Trailing semicolon - appended LIMIT 1 would become '; LIMIT 1' and fail parsing
@@ -523,7 +524,7 @@ trait ConnectionInternals
             } elseif (is_int($value)) {
                 $setElements[] = "`$column` = $value";
             } else {
-                $setElements[] = "`$column` = " . $this->escapeValue($value, "column '$column'");
+                $setElements[] = "`$column` = " . $this->escapeValue($value, "column `$column`");
             }
         }
 
@@ -540,7 +541,7 @@ trait ConnectionInternals
         // Record numbers as the WHERE argument are deprecated; numeric strings (usually an
         // uncast query value) work like ints but always log a warning. Both will throw in a future release.
         if (is_string($where) && preg_match('/^\s*\d+\s*$/', $where)) {
-            DB::logWarning("Numeric string '$where' used as record number, cast to int: (int) \$value or use array syntax: ['num' => $where]");
+            DB::logWarning("Numeric string `$where` used as record number, cast to int: (int) \$value or use array syntax: ['num' => $where]");
             $where = (int)$where;
         } elseif (is_int($where)) {
             DB::logDeprecation("Numeric WHERE is deprecated, use array syntax instead: ['num' => $where]");
@@ -796,7 +797,7 @@ trait ConnectionInternals
             throw new InvalidArgumentException(
                 $isPositional
                     ? "Missing value for ? parameter at position $positionalCount"
-                    : "Missing value for '$paramKey' parameter",
+                    : "Missing value for $paramKey parameter",
             );
         }
 
@@ -1117,7 +1118,7 @@ trait ConnectionInternals
             } elseif (is_array($value)) {
                 $conditions[] = "`$column` IN (" . $this->escapeCSV($value) . ")";
             } else {
-                $conditions[] = "`$column` = " . $this->escapeValue($value, "column '$column'");
+                $conditions[] = "`$column` = " . $this->escapeValue($value, "column `$column`");
             }
         }
 
@@ -1482,10 +1483,10 @@ trait ConnectionInternals
             $value = $config[$key] ?? null;
 
             if ($value === null && $key !== 'encryptionKey') { // encryptionKey is the one optional secret
-                throw new RuntimeException("Missing required config: '$key'");
+                throw new RuntimeException("Missing required config: `$key`");
             }
             if ($value !== null && !is_string($value)) {
-                throw new RuntimeException("Config '$key' must be a string, got " . get_debug_type($value));
+                throw new RuntimeException("Config `$key` must be a string, got " . get_debug_type($value));
             }
             // '0' never worked as a key (PHP-falsey, presence checks read it as "no key"), so
             // accepting it now would write ciphertext into tables holding plaintext - reject it

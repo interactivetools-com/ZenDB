@@ -18,7 +18,7 @@ Contents:
 ### "Quotes not allowed in template"
 
 Full message includes the quoted text and the fix, for example:
-`Quotes not allowed in template. Replace 'John' with :paramName and add: [ ':paramName' => 'John' ]`
+``Quotes not allowed in template. Replace `John`, quotes included, with :paramName and pass the value as [':paramName' => $value]``
 
 **What happened:** The SQL template contains a quote character (single or
 double). Templates are code, values are data; the guard rejects quotes, so a
@@ -125,7 +125,7 @@ DB::select('users', "name = ? AND city = ?", 'Alice');
 DB::select('users', "name = ? AND city = ?", 'Alice', 'Vancouver');
 ```
 
-### "Missing value for ':name' parameter"
+### "Missing value for :name parameter"
 
 **What happened:** The template references a named placeholder that isn't in
 the params array.
@@ -209,7 +209,7 @@ DB::update('users', ['status' => 'inactive'], "TRUE");
 // UPDATE `users` SET `status` = 'inactive' WHERE TRUE
 ```
 
-### "Suspicious SET clause: only updating 'num'. Did you reverse the arguments? Signature is: update($table, $values, $whereEtc)"
+### "Suspicious SET clause: only updating `num`. Did you reverse the arguments? Signature is: update($table, $values, $whereEtc)"
 
 **What happened:** The UPDATE sets exactly one column and it's named `num`,
 `id`, or `ID`. That almost always means the values and WHERE arguments are

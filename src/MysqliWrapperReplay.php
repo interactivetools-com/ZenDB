@@ -141,7 +141,7 @@ class MysqliWrapperReplay
         // Same check as MysqliWrapper, minus the server call
         if ($charset !== 'utf8mb4') {
             $h = DB::h(...); // SECURITY: charset comes from the caller, encode before it can reach page output
-            throw new InvalidArgumentException("ZenDB connections are always utf8mb4; set_charset('{$h($charset)}') is not supported.");
+            throw new InvalidArgumentException("ZenDB connections are always utf8mb4; set_charset() doesn't accept `{$h($charset)}`.");
         }
         return true;
     }

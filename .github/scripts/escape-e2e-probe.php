@@ -116,7 +116,7 @@ $out = [
 // A live MariaDB query cache would turn repeated interpolated SELECTs into cache
 // hits (prepared statements bypass it), inverting every comparison below
 if ($queryCache !== null && strtoupper($queryCache) === 'ON') {
-    fwrite(STDERR, "FATAL: query_cache_type=ON would poison interpolated-vs-prepared comparisons.\n");
+    fwrite(STDERR, "FATAL: query_cache_type=ON serves repeated interpolated SELECTs from the query cache, so interpolated-vs-prepared timings would be wrong. Turn the query cache off on this server and rerun.\n");
     exit(1);
 }
 
@@ -647,7 +647,7 @@ $mysqli->query('DROP TABLE IF EXISTS escape_e2e_kv, escape_e2e_bin, escape_e2e_b
 //endregion
 //region Report
 
-printf("### %s | PHP %s%s | %s | ping %sus | flush=%s binlog=%s%s\n\n",
+printf("### %s | PHP %s%s | %s | ping %sµs | flush=%s binlog=%s%s\n\n",
     $label, $out['php'], $out['zts'] ? ' ZTS' : '', $out['server'], $out['ping_us'],
     $out['durability']['innodb_flush_log_at_trx_commit'] ?? '?',
     $out['durability']['log_bin'] ?? '?',

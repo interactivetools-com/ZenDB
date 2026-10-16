@@ -219,7 +219,7 @@ class PrefixedValuesTest extends BaseTestCase
     {
         // Error message references the underlying param name
         $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage("Missing value for ':table' parameter");
+        $this->expectExceptionMessage("Missing value for :table parameter");
 
         DB::query("SELECT :::table AS val", [':wrongName' => 'users']);
     }

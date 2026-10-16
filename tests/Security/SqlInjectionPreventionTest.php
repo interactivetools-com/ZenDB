@@ -313,9 +313,9 @@ class SqlInjectionPreventionTest extends BaseTestCase
             'hardcoded string'         => ["Quotes not allowed in template",          "SELECT * FROM ::users WHERE name = 'admin'"],
             'hardcoded number'         => ["Standalone number in template",           "SELECT * FROM ::users WHERE num = 1"],
             'concatenated'             => ["Standalone number in template",           'SELECT * FROM ::users WHERE num = ' . '5'],
-            'hex literal'              => ["Numeric literal '0xDEAD' in template",    'SELECT * FROM ::users WHERE num = 0xDEAD'],
-            'binary literal'           => ["Numeric literal '0b1010' in template",    'SELECT * FROM ::users WHERE num = 0b1010'],
-            'scientific literal'       => ["Numeric literal '1e10' in template",      'SELECT * FROM ::users WHERE num = 1e10'],
+            'hex literal'              => ["Numeric literal 0xDEAD in template",      'SELECT * FROM ::users WHERE num = 0xDEAD'],
+            'binary literal'           => ["Numeric literal 0b1010 in template",      'SELECT * FROM ::users WHERE num = 0b1010'],
+            'scientific literal'       => ["Numeric literal 1e10 in template",        'SELECT * FROM ::users WHERE num = 1e10'],
         ];
     }
 

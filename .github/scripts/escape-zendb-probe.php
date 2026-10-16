@@ -416,13 +416,13 @@ $mysqli->query('DROP TABLE IF EXISTS zenbench_news');
 //endregion
 //region Report
 
-printf("### %s | PHP %s%s | %s | ping %sus%s\n\n",
+printf("### %s | PHP %s%s | %s | ping %sµs%s\n\n",
     $out['server_label'], $out['php'], $out['zts'] ? ' ZTS' : '', $out['server'], $out['ping_us'],
     $out['xdebug'] ? ' **XDEBUG LOADED - RESULTS INVALID**' : '');
 if (isset($opts['json'])) {
     // CI / research report: every cell with its paired A/B timings
     echo "Ratios read as B vs A: >1.00 means the candidate beats raw mysqli; <1.00 measures what the candidate's extra work currently costs.\n\n";
-    echo "| test                       | A                              | B                                    |     A us |     B us | B vs A | verdict  |\n";
+    echo "| test                       | A                              | B                                    |     A µs |     B µs | B vs A | verdict  |\n";
     echo "|:---------------------------|:-------------------------------|:-------------------------------------|---------:|---------:|-------:|:---------|\n";
     foreach ($out['tests'] as $id => $t) {
         printf("| %-26s | %-30s | %-36s | %8.1f | %8.1f | %5.2fx | %-8s |\n",
@@ -442,8 +442,8 @@ else {
             $raw  = (int)round($out['tests'][$zenId]['a_us']);
             $zen  = (int)round($out['tests'][$zenId]['b_us']);
             $diff = $zen - $raw;
-            $vs   = $out['tests'][$zenId]['verdict'] === 'TIE' ? 'tie' : sprintf('%+d us (%.6fs)', $diff, $diff / 1_000_000);
-            printf("| %-17s | %5d us | %5d us | %5d us | %20s |\n", $label, $prep, $raw, $zen, $vs);
+            $vs   = $out['tests'][$zenId]['verdict'] === 'TIE' ? 'tie' : sprintf('%+d µs (%.6fs)', $diff, $diff / 1_000_000);
+            printf("| %-17s | %5d µs | %5d µs | %5d µs | %20s |\n", $label, $prep, $raw, $zen, $vs);
         }
     };
 

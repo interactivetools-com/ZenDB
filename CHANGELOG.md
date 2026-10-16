@@ -135,7 +135,8 @@ produce wrong SQL now throw with a message naming the fix (list in
 [UPGRADING.md](UPGRADING.md)). Also: `Table::columnDefinitions()` returns
 the same output on every supported server, the database password,
 encryption key, and encrypted-column values stay out of stack traces on PHP
-8.2+, fixes for PHP builds without mysqlnd, and clearer error messages.
+8.2+, fixes for PHP builds without mysqlnd, and clearer error messages
+that wrap names and values in backticks instead of quotes.
 
 ## [0.9.1] - 2026-04-22
 

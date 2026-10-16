@@ -105,7 +105,7 @@ class NamedParamsTest extends BaseTestCase
     public function testNamedParamWithoutColonInArrayThrows(): void
     {
         $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage("Invalid param name 'num'");
+        $this->expectExceptionMessage("Invalid param name `num`");
 
         DB::query("SELECT * FROM ::users WHERE num = :num", ['num' => 1]);
     }
@@ -148,7 +148,7 @@ class NamedParamsTest extends BaseTestCase
     public function testMissingNamedParamThrows(): void
     {
         $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage("Missing value for ':name' parameter");
+        $this->expectExceptionMessage("Missing value for :name parameter");
 
         DB::query("SELECT * FROM ::users WHERE name = :name", [':num' => 1]);
     }

@@ -33,7 +33,7 @@ class MysqliStmtWrapper extends mysqli_stmt
     public static function enableTestResultPolyfill(bool $enable): void
     {
         if (!class_exists('PHPUnit\Framework\TestCase', false)) {
-            throw new RuntimeException("forceResultPolyfill can only be set in test environment");
+            throw new RuntimeException("enableTestResultPolyfill() only works in tests: PHPUnit isn't loaded");
         }
         self::$forceResultPolyfill = $enable;
     }
