@@ -27,9 +27,9 @@ Full lists of what changed per release: [CHANGELOG.md](CHANGELOG.md).
 
 ### Config changes
 
-> - `tablePrefix` can no longer contain dots; `connect()` throws
->   "Invalid tablePrefix" naming the allowed characters
->   (`a-z A-Z 0-9 _ -`). An install with a dotted prefix (CMS Builder's
+> - `tablePrefix` can no longer contain dots or any other character
+>   outside `a-z A-Z 0-9 _ -`; `connect()` throws "Invalid tablePrefix"
+>   naming the allowed characters. An install with a dotted prefix (CMS Builder's
 >   installer used to accept ones like `'client2.cms_'`) needs a one-time
 >   rename before upgrading:
 >
@@ -42,6 +42,13 @@ Full lists of what changed per release: [CHANGELOG.md](CHANGELOG.md).
 >   ```
 >
 >   Search: `tablePrefix` in your config.
+>
+> - `connect()` throws when `NO_BACKSLASH_ESCAPES` is on, whether it's set
+>   in `sqlMode` or, when `sqlMode` is `''`, in the server's global
+>   `sql_mode`. Remove the mode to connect.
+>
+>   Search: `NO_BACKSLASH_ESCAPES` in your config; if `sqlMode` is `''`,
+>   also check `SELECT @@GLOBAL.sql_mode` on the server.
 
 ### Behavior changes
 
@@ -49,7 +56,7 @@ Full lists of what changed per release: [CHANGELOG.md](CHANGELOG.md).
 >   can throw on a server it used to accept:
 >
 >   ```php
->   'versionRequired' => '10.6.0',
+>   'versionRequired' => '10.5.30',
 >   // server "10.5.29-MariaDB-ubu2004":
 >   // before this read: 10.5.292004 - passed the check
 >   // after this reads: 10.5.29     - throws, names the server's real version
@@ -57,22 +64,27 @@ Full lists of what changed per release: [CHANGELOG.md](CHANGELOG.md).
 >
 >   Search: `versionRequired`
 >
-> - `Table::exists()` and `Table::existsFull()` throw
->   `InvalidArgumentException` for names with characters outside
->   `a-z A-Z 0-9 _ -`. The deprecated `DB::hasTable()` and
->   `DB::tableExists()` still return false, so this only matters when you
->   switch to the new methods.
-> - Table existence checks throw on a dead connection instead of answering
->   false. A missing table, broken view, or missing privilege still answers
->   false.
+> - `DB::hasTable()`, `DB::tableExists()`, and `DB::getColumnDefinitions()`
+>   throw on a dead connection instead of returning false or `[]`. A missing
+>   table, broken view, or missing privilege still returns false or `[]`.
 
 ### Silent changes
 
-> - A result field (a SmartString) passed back into a query as a value
->   keeps its type: a null field writes SQL NULL and matches IS NULL, not
->   `''`. NOT NULL columns reject the write with a MySQL error; nullable
->   columns store NULL. This is uncommon; review code that writes query
->   results back with `insert()` or `update()`.
+> - A null result field (a SmartString) passed to `insert()`, `update()`,
+>   or a WHERE array writes SQL NULL, not `''`: NOT NULL columns reject the
+>   write, and `['col' => $field]` matches `col IS NULL`. Placeholders are
+>   unchanged. Review code that passes query results back into these.
+> - A SmartNull (a field read from a lookup that found no row) in
+>   `insert()`/`update()` values or a WHERE array writes NULL and matches
+>   `IS NULL`. Check the lookup first when a miss should stop the write:
+>
+>   ```php
+>   $user = DB::selectOne('users', ['email' => $email]);  // no row found
+>   DB::delete('sessions', ['userNum' => $user->num]);
+>   // before this threw: Unsupported value type for column 'userNum'
+>   // after this runs:   DELETE ... WHERE `userNum` IS NULL
+>   ```
+>
 > - IN lists skip null values, and `NOT IN` with an empty list matches every
 >   row (it matched none). `IN` with an empty list still matches nothing.
 >   Search: `NOT IN` where the list can be empty or contain null.
@@ -88,6 +100,13 @@ Full lists of what changed per release: [CHANGELOG.md](CHANGELOG.md).
 >   Search: `DB::transaction(` and check catch blocks that look for that
 >   message.
 >
+> - `DB::getColumnDefinitions()` returns the same strings on every server,
+>   so some definitions read differently. On MariaDB,
+>   `tinyint NOT NULL DEFAULT 0` now reads
+>   `tinyint(1) NOT NULL DEFAULT '0'`, and `DEFAULT current_timestamp()`
+>   reads `DEFAULT CURRENT_TIMESTAMP`. Search: `getColumnDefinitions(`
+>   where the result is compared to saved definitions.
+>
 > - Floats are written with exact precision, and `NAN` or `INF` throws:
 >
 >   ```php
@@ -99,14 +118,17 @@ Full lists of what changed per release: [CHANGELOG.md](CHANGELOG.md).
 ### New errors for inputs that used to produce wrong SQL
 
 > Edge cases only; normal queries and placeholders are unchanged. Each of
-> these used to produce wrong SQL and now throws with a message naming the
-> fix, the first time the query runs:
+> these now throws the first time the query runs, with a message naming the
+> fix:
 >
 > - Hex, binary, and scientific literals (`0x1AF`, `0b1010`, `1e10`) in
 >   query templates - pass the value through a placeholder instead
 > - Empty strings in backtick identifier placeholders
 > - Param names starting with `:_` (the value never bound)
 > - Table or column names with a trailing newline
+> - Placeholders inside `/* */` comments (a value containing `*/` closed
+>   the comment, so the rest ran as SQL) - move the value out of the
+>   comment
 > - A spread named-param array - `DB::query($sql, ...$params)` where
 >   `$params` is `[':id' => 5]`. Drop the `...`:
 >
@@ -124,11 +146,19 @@ Full lists of what changed per release: [CHANGELOG.md](CHANGELOG.md).
 >   a named placeholder (`"id IN (:ids)"` with `[':ids' => [1, 2, 3]]`) or up
 >   to 3 direct values. Fix these first: with an IN list the array form runs
 >   as `IN (1)`, first value only, and it will throw in a future release.
+>   Regex:
+>   `["']\s*,\s*\[\s*(?:"(?!:)[^"]*"\s*[,\]]|'(?!:)[^']*'\s*[,\]]|[^"'\s])`
+>   finds an array of values right after a quoted SQL template and skips
+>   named-placeholder arrays (starting `':` or `":`) and `'column' =>`
+>   arrays. Also check calls that pass the SQL in a variable.
+> - More direct values than `?` placeholders -
+>   `DB::select('users', 'num = ?', 5, 6)` - the extra values are never
+>   used. Drop them, or use a named placeholder for an IN list. This will
+>   throw in a future release.
 > - `escape()`, `escapef()`, and `escapeCSV()` are marked `@internal` (IDEs
 >   flag them); placeholders are the supported API. No runtime change.
 > - Record numbers as the WHERE argument - `DB::select('users', 5)` - use
->   `['num' => 5]` instead. Numeric strings used to throw "Numeric string
->   detected"; now both forms run as `['num' => 5]` and log:
+>   `['num' => 5]` instead. `5` and `'5'` both run as `['num' => 5]` and log:
 >
 >   ```php
 >   DB::select('users', 5);            // works, logs a deprecation notice
@@ -138,11 +168,6 @@ Full lists of what changed per release: [CHANGELOG.md](CHANGELOG.md).
 >
 >   Both forms will throw in a future release. No search needed: each log
 >   entry names your file and line.
->
-> Regex: `["']\s*,\s*\[\s*(?:["'](?!:)|[^"'\s])` - an array of values right
-> after the SQL template (single- or double-quoted); named-placeholder
-> arrays (starting `':` or `":`) are fine - also check calls that pass the
-> SQL in a variable
 
 ### Parameter renames
 
@@ -174,8 +199,10 @@ will throw, so rename when convenient.
 | `DB::getTableNames()`        | `Table::names()`             |
 | `DB::getColumnDefinitions()` | `Table::columnDefinitions()` |
 
-One difference when migrating: `Table::columnDefinitions()` throws for
-unknown tables where `getColumnDefinitions()` returned `[]`.
+Two differences when migrating: `Table::exists()` throws for names with
+characters outside `a-z A-Z 0-9 _ -` where `DB::hasTable()` returns false,
+and `Table::columnDefinitions()` throws for unknown tables where
+`getColumnDefinitions()` returns `[]`.
 
 ## v0.9.1
 

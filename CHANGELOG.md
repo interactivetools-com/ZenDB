@@ -4,14 +4,20 @@
 > per version - tagged releases roll up every change since the previous tag.
 > Versions bundled with CMS Builder are marked on their sections.
 
-## [1.0.0] - [UNRELEASED]
+## [1.0.0] - 2026-10-16
 
 > **Bundled with CMS Builder v3.85**
 
-The headlines: ZenDB's own code runs 3x faster (real pages, MySQL time
+The headlines: ZenDB runs 3x faster in PHP (real pages, MySQL time
 included, run up to 40% faster), and 1.0 has complete online docs plus
 [ai-reference.md](docs/ai-reference.md), the whole API in one file for AI
 coding assistants. Everything else is fixes and stricter checks.
+
+### Requirements
+
+- **SmartArray 3.0+ and SmartString 3.0+** - query results are their
+  objects, so check their upgrade notes too (linked from
+  [UPGRADING.md](UPGRADING.md))
 
 ### Added
 
@@ -67,6 +73,8 @@ and your file and line.
 - **Positional values as a single array** - `"id IN (?)"` with `[1, 2, 3]`
   runs as `IN (1)`. Use a named placeholder: `"id IN (:ids)"` with
   `[':ids' => [1, 2, 3]]`
+- **Extra positional values** - `DB::select('users', 'num = ?', 5, 6)`
+  logs a deprecation notice; drop the unused values
 - **Record numbers as the WHERE argument** - `DB::select('users', 5)` logs
   a deprecation notice and `'5'` logs a warning; use `['num' => 5]`
 - **Table helpers** - old names still work, IDE strikethrough only:
@@ -95,21 +103,23 @@ and your file and line.
 - **`DB::transaction()` reports the real error** - when the connection dies
   mid-transaction, the catch block gets your exception, not "server has
   gone away"
-- **`versionRequired` reads real server versions** - distro suffixes
-  (`10.5.29-MariaDB-ubu2004`), MariaDB's handshake prefix, and Aurora's
-  format, so servers below the minimum fail to connect. See
-  [UPGRADING.md](UPGRADING.md)
+- **`versionRequired` reads real server versions** - including distro
+  builds (`10.5.29-MariaDB-ubu2004`) and Aurora, so servers below the
+  minimum fail to connect. See [UPGRADING.md](UPGRADING.md)
 - **`DB::pagingSql()` accepts huge page numbers** - a page number from the
   URL can't cause a MySQL syntax error
-- **LIMIT/OFFSET checks only see the top level** - in `selectOne()`,
-  `queryOne()` and `count()`, a column named `offset` or `limit`, a keyword
-  in a comment, or a LIMIT inside a subquery no longer throws. The same goes
-  for `FOR UPDATE` in `selectOne()` and `queryOne()`
+- **LIMIT in a subquery or comment no longer throws** - in `selectOne()`,
+  `queryOne()` and `count()`, and neither does a backtick-quoted column
+  named `offset` or `limit`. Same for `FOR UPDATE` in `selectOne()` and
+  `queryOne()`
 - **Failed decryption warns** - a MEDIUMBLOB value that won't decrypt comes
   back as raw bytes with one warning per connection naming the column
 - **Invisible MEDIUMBLOB columns are encrypted** - `insert()` and `update()`
   encrypt `INVISIBLE` columns (MySQL 8.0.23+, MariaDB 10.3+) like any other
   MEDIUMBLOB
+- **Encrypted columns match in any letter case** - `insert()` and
+  `update()` encrypt `['Token' => ...]` for a `token` MEDIUMBLOB column.
+  Booleans for an encrypted column throw
 - **Encryption follows schema changes** - after DDL or `USE` through
   `DB::query()` on any clone, writes and reads use the new column types.
   After DDL through raw `DB::$mysqli`, reconnect
@@ -119,13 +129,13 @@ and your file and line.
 ### Minor
 
 Stricter checks: invalid table names, multibyte table prefixes, hex and
-binary literals in query templates, spread named-param arrays
-(`...$params`), and other inputs that used to produce wrong SQL now throw
-with a message naming the fix (list in [UPGRADING.md](UPGRADING.md)). Also:
-`Table::columnDefinitions()` returns the same output on every supported
-server, the encryption key and encrypted-column values stay out of stack
-traces on PHP 8.2+, fixes for PHP builds without mysqlnd, and clearer
-error messages.
+binary literals in query templates, placeholders inside `/* */` comments,
+spread named-param arrays (`...$params`), and other inputs that used to
+produce wrong SQL now throw with a message naming the fix (list in
+[UPGRADING.md](UPGRADING.md)). Also: `Table::columnDefinitions()` returns
+the same output on every supported server, the database password,
+encryption key, and encrypted-column values stay out of stack traces on PHP
+8.2+, fixes for PHP builds without mysqlnd, and clearer error messages.
 
 ## [0.9.1] - 2026-04-22
 
