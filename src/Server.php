@@ -12,7 +12,7 @@ use function implode, in_array, preg_match, preg_replace, rtrim, str_contains, s
 /**
  * INTERNAL: Method names and return values may change between releases.
  *
- * Identity facts about the connected database server.
+ * Version, vendor, TLS, and query-log facts about the connected database server.
  */
 class Server
 {
@@ -24,7 +24,7 @@ class Server
      *     DB::$server->version();  // "10.6.27"
      *
      * Every server reports its version in four places. Example values from mariadb:10.6;
-     * docs/internal/db-behavior-matrix.md compares all four across all 17 supported servers:
+     * docs/internal/db-behavior-matrix.md compares all four across every supported server:
      *
      *   $mysqli->server_info     "10.6.27-MariaDB-ubu2204"          free with the handshake, no query
      *   SELECT VERSION()         "10.6.27-MariaDB-ubu2204"          same string, costs a query (@@version too)
@@ -89,11 +89,10 @@ class Server
      * anyway. Hosting is not a vendor - RDS-hosted stock MySQL reports "mysql".
      *
      * @see \Itools\ZenDB\Tests\Connection\ServerTest every vendor's strings and the token each returns
-     * @see docs/internal/db-behavior-matrix.md @@version_comment values for all 17 supported servers
+     * @see docs/internal/db-behavior-matrix.md @@version_comment values for every supported server
      */
     public function vendor(): string
     {
-        // Return cached answer if available
         if ($this->vendor !== null) {
             return $this->vendor;
         }
@@ -145,7 +144,8 @@ class Server
      *   MySQL                  also anything unrecognized (see vendor())
      *
      * RDS hosting is detected from install paths: "/rdsdbbin/" (@@basedir) or
-     * "/rdsdbdata/" (@@datadir). Costs the same single cached query as vendor().
+     * "/rdsdbdata/" (@@datadir). Costs one query on first use, even on MariaDB; the
+     * result is cached and shared with vendor().
      *
      * This string is for humans; code that branches on behavior should use vendor()
      * or version() instead.
@@ -178,9 +178,10 @@ class Server
      *   (missing)      MySQL/Percona 8.4+ removed the variable because
      *                  TLS is always on with auto-generated certificates   → true
      *
-     * Built to gate "encrypt the connection" UI: false only when enabling `requireSSL`
-     * is guaranteed to fail. True means the server side will accept TLS. ZenDB doesn't
-     * verify certificates, so a self-signed or expired one still connects.
+     * Meant for deciding whether to offer an "encrypt the connection" option: false
+     * only when enabling `requireSSL` is guaranteed to fail. True means the server side
+     * will accept TLS. ZenDB doesn't verify certificates, so a self-signed or expired
+     * one still connects.
      *
      * @see docs/internal/db-behavior-matrix.md how every supported server answers the TLS probes
      */
@@ -199,12 +200,13 @@ class Server
     /**
      * True when traffic between PHP and the database server is encrypted.
      *
-     *     DB::$server->isSSLConnection();  // true when connected with requireSSL or the server forced TLS
+     *     DB::$server->isSSLConnection();  // true when connected with `requireSSL`
      *
      * Reads session status Ssl_cipher, which is non-empty (e.g. "TLS_AES_256_GCM_SHA384")
      * exactly when this connection negotiated TLS. Every supported server reports it,
      * making it the one encryption signal that works everywhere - the config variables
-     * all have version holes (see docs/internal/db-behavior-matrix.md).
+     * are missing or read differently on some server versions (see
+     * docs/internal/db-behavior-matrix.md).
      *
      * Local connections (Unix socket, named pipe) report false: no TLS was negotiated
      * because nothing leaves the machine.
@@ -228,7 +230,7 @@ class Server
      * log_output names a destination: log_output is a set (FILE, TABLE, or both), and
      * NONE anywhere in it discards everything even while general_log is on.
      *
-     * Built to gate features that put secrets in query text - when `encryptionKey` is
+     * Meant for features that put secrets in query text - when `encryptionKey` is
      * set, a logged statement can include the key - so encryption UIs warn or refuse
      * while this returns true. Both variables exist on every supported server.
      *
@@ -249,7 +251,7 @@ class Server
     /** Live connection, a MysqliWrapperReplay, or a stdClass with a server_info property in tests */
     public mysqli|MysqliWrapperReplay|stdClass $mysqli;
 
-    /** Cached vendor() answer, so the fingerprint query runs at most once per connection */
+    /** Cached vendor() answer */
     private ?string $vendor = null;
 
     /** Cached isSSLConnection() answer */

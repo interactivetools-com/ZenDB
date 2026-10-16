@@ -58,7 +58,7 @@ class PagingSqlTest extends BaseTestCase
     public function testZeroPageDefaultsToOne(): void
     {
         $sql = DB::pagingSql(0, 10);
-        // 0 becomes 1 via abs() + ||1
+        // 0 becomes 1 via abs() ?: 1
         $this->assertSame('LIMIT 10 OFFSET 0', (string) $sql);
     }
 
@@ -72,7 +72,7 @@ class PagingSqlTest extends BaseTestCase
     public function testZeroPerPageDefaultsToTen(): void
     {
         $sql = DB::pagingSql(1, 0);
-        // 0 becomes 10 via abs() + ||10
+        // 0 becomes 10 via abs() ?: 10
         $this->assertSame('LIMIT 10 OFFSET 0', (string) $sql);
     }
 

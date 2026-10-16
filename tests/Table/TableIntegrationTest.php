@@ -68,7 +68,7 @@ class TableIntegrationTest extends BaseTestCase
                    ) ENGINE=InnoDB", $this->fullTable);
 
         // add FKs after the table exists. fk_parent is covered by idx_fkcomposite (no auto index created);
-        // fk_owner has no covering index, so MySQL auto-creates a single index named "owner_num".
+        // fk_owner has no covering index, so MySQL auto-creates a single index (its name varies by server).
         // fk_owner gets an explicit ON DELETE rule so foreignKeys() tests can assert an exact value;
         // fk_parent keeps the default, which reports as RESTRICT (MariaDB) or NO ACTION (MySQL).
         DB::query("ALTER TABLE `?` ADD CONSTRAINT fk_parent FOREIGN KEY (parent_num) REFERENCES `?` (num)", $this->fullTable, $this->fullTable);
@@ -435,7 +435,7 @@ class TableIntegrationTest extends BaseTestCase
     {
         $indexes = Table::indexes($this->baseTable);
 
-        // the five deterministically-named indexes plus one server-named FK auto-index for owner_num
+        // the five indexes with fixed names, plus one FK auto-index for owner_num that the server names
         foreach (['PRIMARY', '_auto_title', 'idx_single', 'idx_ab', 'idx_fkcomposite'] as $name) {
             $this->assertArrayHasKey($name, $indexes, "$name should be reported");
         }

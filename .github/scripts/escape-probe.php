@@ -12,7 +12,7 @@ declare(strict_types=1);
  * gate verifies every candidate against the live escaper before timing. The
  * connection is a prerequisite, not part of the measurement - real_escape_string
  * runs client-side in mysqlnd with no per-call round trip, so every number here
- * is pure CPU. Round-trip comparisons live in escape-e2e-probe.php.
+ * is pure CPU. Round-trip comparisons are in escape-e2e-probe.php.
  *
  * The CI matrix (escape-results.md) is the citable source; local runs are for
  * direction checks only. For a clean local run:
@@ -26,7 +26,7 @@ declare(strict_types=1);
  * - Every number is a ratio from interleaved A/B pairs in one process (A,B,A,B...),
  *   best-of-7 per side, so shared-VM speed wobble cancels out.
  * - Input strings are runtime-built and cycled from pools of >= 64 distinct values
- *   (8 for the 1MB pool); literals are interned, which flatters repeated-literal loops.
+ *   (8 for the 1MB pool); literals are interned, which makes repeated-literal loops look faster.
  * - Every result is consumed (strlen accumulator) so dead code can't be eliminated.
  * - Candidates must pass the corpus gate BEFORE timing; a failing escaper reports
  *   CORPUS_FAIL and its timings are withheld.
@@ -36,7 +36,7 @@ declare(strict_types=1);
  *   a strlen-only sink would overstate every zero-copy candidate. Scan-cost cells
  *   keep the strlen sink and say so in their sink tag.
  * - The selftie cell (A and B identical) must report TIE; anything else measures
- *   harness bias on that platform and widens the trustworthy dead band.
+ *   harness bias on that platform, and ratios that close to 1.00 count as ties there.
  */
 
 require __DIR__ . '/escape-corpus.php';
@@ -57,7 +57,7 @@ const ESC_TAIL3_TO   = ["\\n", "\\r", "\\Z"];
 const ESC_2PAIR_FROM = ["\\", "'"];
 const ESC_2PAIR_TO   = ["\\\\", "\\'"];
 
-/** The proven winner from the prior research: 7 sequential pairs, backslash first. */
+/** The candidate the alternatives are timed against: 7 sequential pairs, backslash first. */
 function esc_str_replace(string $s): string
 {
     return str_replace(ZENDB_ESCAPE_FROM, ZENDB_ESCAPE_TO, $s);
@@ -73,7 +73,8 @@ function esc_strtr(string $s): string
  * addslashes covers 4 of the 7 (backslash, both quotes, NUL as \0) with an
  * SSE4.2/NEON fast path and zero-copy clean return; the 3-pair tail finishes
  * LF, CR, and Ctrl-Z. Ordering is safe: the tail's FROM bytes are never
- * produced by addslashes, and the tail's backslashes land after doubling.
+ * produced by addslashes, and the tail adds its backslashes after addslashes
+ * has doubled the existing ones.
  */
 function esc_addslashes_tail(string $s): string
 {
@@ -94,9 +95,9 @@ function esc_addcslashes_tail(string $s): string
 /**
  * Quote-only fast path: if nothing but apostrophes needs escaping (the dominant
  * dirty case in prose), run the single-pair replacement; otherwise full 7-pair.
- * Differs from the prior research's failed scan-first tier, which bailed to the
- * FULL escaper on any escapable including apostrophes, so common text paid
- * scan + full price.
+ * This differs from a scan-first check that falls back to the FULL escaper on any
+ * escapable, apostrophes included: with that check, text with apostrophes pays for
+ * both the scan and the full escape.
  */
 function esc_quote_premask(string $s): string
 {
@@ -430,7 +431,7 @@ function looped(callable $perString, array $pool): callable
  *
  * Sink tags: "quoted" = strlen("'" . esc($v) . "'"), the materializing sink that
  * headline ratios must come from; "strlen" = strlen(esc($v)), scan-cost isolation
- * only (flatters zero-copy candidates on clean pools); "expr" = a larger
+ * only (makes zero-copy candidates look faster on clean pools); "expr" = a larger
  * expression described by the labels.
  */
 function build_tests(array $pools, mysqli $mysqli, ?PDO $pdo): array
@@ -612,7 +613,7 @@ function build_tests(array $pools, mysqli $mysqli, ?PDO $pdo): array
             looped(static fn(string $v): int => strlen(EscStyles::escStatic($v)), $pools['clean10']),
             looped(static fn(string $v): int => strlen(EscStyles::escStaticProp($v)), $pools['clean10']), []],
 
-        // --- ZenDB integration shapes (the ConnectionInternals.php:789 decision) ---
+        // --- ZenDB integration shapes (the escaping in replacePlaceholders(), src/ConnectionInternals.php) ---
         ['zen-guard-vs-real', 'short', 'quoted', 'real_escape_string (today)', 'shape A: bool-property inline ternary',
             looped($quotedReal, $pools['mix']),
             looped(static fn(string $v): int => strlen("'" . ($obj->fastEscapeOk ? str_replace(ZENDB_ESCAPE_FROM, ZENDB_ESCAPE_TO, $v) : $mysqli->real_escape_string($v)) . "'"), $pools['mix']), ['esc_str_replace']],
@@ -669,7 +670,7 @@ function build_tests(array $pools, mysqli $mysqli, ?PDO $pdo): array
 
 /**
  * Compile a WHERE-shaped query with N quoted string values per iteration,
- * mirroring the interpolation loop at src/ConnectionInternals.php:789.
+ * mirroring the value interpolation in replacePlaceholders() (src/ConnectionInternals.php).
  */
 function query_compile_loop(array $pool, callable $escape, int $values): callable
 {

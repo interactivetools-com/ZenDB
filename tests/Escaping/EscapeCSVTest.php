@@ -182,7 +182,6 @@ class EscapeCSVTest extends BaseTestCase
 
     public function testEscapeCSVCanBeUsedInQuery(): void
     {
-        // Test that the result can be used directly in a query via placeholder
         $csv = DB::escapeCSV([1, 2, 3]);
         $result = DB::query("SELECT * FROM ::users WHERE num IN (?)", $csv);
         $this->assertCount(3, $result);

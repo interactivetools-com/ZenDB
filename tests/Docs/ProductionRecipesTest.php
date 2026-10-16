@@ -17,7 +17,7 @@ use RuntimeException;
  * The chains a real template or plugin runs: list pages, detail pages, search,
  * paging, form saves, joins, dashboard totals, transactions - each pinned end
  * to end with its exact output. If these chains still produce the same output
- * after a refactor, real sites survive it.
+ * after a refactor, real sites still work.
  *
  * Every test starts from the fixture data in resetTestTables(), so the
  * pinned ids and totals hold no matter what order the tests run in.
@@ -130,7 +130,7 @@ class ProductionRecipesTest extends BaseTestCase
 
     /**
      * Stored markup: encoded by default, raw only where the template asks for
-     * it, and textOnly() for a preview that keeps encoding what it strips down to.
+     * it, and textOnly() for a plain-text preview that is still encoded on output.
      */
     public function testStoredHtmlIsEncodedUnlessAskedForRaw(): void
     {
@@ -312,7 +312,7 @@ class ProductionRecipesTest extends BaseTestCase
         $this->assertNull($noFlag->isAdmin->value());
         $this->assertSame('not set', (string)$noFlag->isAdmin->or('not set'));
 
-        // null and 0 are different rows: the array WHERE form writes IS NULL for null
+        // null and 0 match different rows: the array WHERE form writes IS NULL for null
         $this->assertSame(['Jane Janey Doe', 'Erin Davis', 'Linda Harris', 'Quentin Adams'], DB::select('users', ['isAdmin' => null])->pluck('name')->toArray());
         $this->assertSame(8, DB::count('users', ['isAdmin' => 0]));
     }

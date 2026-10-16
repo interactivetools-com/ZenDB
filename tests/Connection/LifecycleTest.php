@@ -102,8 +102,8 @@ class LifecycleTest extends BaseTestCase
 
     public function testConnectWithNonStringEncryptionKey(): void
     {
-        // getenv() returns false when the env var is unset; fail with the config key's
-        // name instead of a TypeError from the vault that mentions neither
+        // getenv() returns false when the env var is unset; the error must name the
+        // config key, not be a TypeError that doesn't say which setting is wrong
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage("Config 'encryptionKey' must be a string, got bool");
         $config = array_merge(self::$configDefaults, ['encryptionKey' => false]);
@@ -242,8 +242,8 @@ class LifecycleTest extends BaseTestCase
     }
 
     /**
-     * stat() throws Error (not mysqli_sql_exception) when the handle was closed behind ZenDB's
-     * back, e.g. DB::$mysqli->close(). A liveness probe must answer false, not throw.
+     * stat() throws Error (not mysqli_sql_exception) when the handle was closed outside ZenDB,
+     * e.g. DB::$mysqli->close(). isConnected(true) must return false, not throw.
      */
     public function testIsConnectedPingReturnsFalseAfterExternalClose(): void
     {
@@ -257,7 +257,7 @@ class LifecycleTest extends BaseTestCase
 
     /**
      * disconnect() must release what's left and never throw, even when the handle was already
-     * closed behind ZenDB's back: a second close() raises Error "mysqli object is already closed".
+     * closed outside ZenDB: a second close() raises Error "mysqli object is already closed".
      */
     public function testDisconnectAfterExternalCloseDoesNotThrow(): void
     {

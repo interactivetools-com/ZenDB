@@ -11,7 +11,7 @@ use mysqli_sql_exception;
  * Old Connection method names, phased out in stages.
  *
  * Everything here is at the Silent stage: it works, PHPStorm shows a
- * strikethrough and one-click rename via #[Deprecated], static analyzers see
+ * strikethrough and the reason via #[Deprecated], static analyzers see
  * each method's deprecation tag, and there is no runtime signal. See
  * DBDeprecations for the full five-stage ladder these move down in later releases.
  */
@@ -37,9 +37,9 @@ trait ConnectionDeprecations
     }
 
     /**
-     * @deprecated Use $connection->table->names() or ->namesFull() instead
-     * @see        Table::names()
-     * @see        Table::namesFull()
+     * @deprecated Use $connection->table->names() or ->table->namesFull() instead
+     * @see        TableInfo::names()
+     * @see        TableInfo::namesFull()
      */
     #[Deprecated(reason: 'use ->table->names() or ->table->namesFull() instead')]
     public function getTableNames(bool $withPrefix = false): array

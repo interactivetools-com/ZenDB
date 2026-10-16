@@ -55,7 +55,7 @@ class MysqliWrapperReplay
 {
     //region Public Properties
 
-    // The MysqliWrapper/mysqli surface ZenDB and calling code read
+    // The MysqliWrapper/mysqli properties ZenDB and calling code read
     public string     $lastQuery     = '';
     public bool       $inTransaction = false;
     public mixed      $queryLogger   = null;
@@ -75,17 +75,23 @@ class MysqliWrapperReplay
     //endregion
     //region Corpus State
 
-    /** sql => list of outcome arrays (type: rows|ok|error) */
+    /**
+     * sql => list of outcome arrays (type: rows|ok|error)
+     */
     private array $queries;
 
-    /** sql => list of next_result() sequences, one per multi_query() call */
+    /**
+     * sql => list of next_result() sequences, one per multi_query() call
+     */
     private array $multi;
 
-    /** Per-sql replay cursors */
+    // Per-sql replay cursors
     private array $queryCursor = [];
     private array $multiCursor = [];
 
-    /** Remaining next_result() returns for the last multi_query() */
+    /**
+     * Remaining next_result() returns for the last multi_query()
+     */
     private array $pendingNextResults = [];
 
     //endregion
@@ -132,7 +138,7 @@ class MysqliWrapperReplay
 
     public function set_charset(string $charset): bool
     {
-        // Same guard as MysqliWrapper, minus the server call
+        // Same check as MysqliWrapper, minus the server call
         if ($charset !== 'utf8mb4') {
             $h = DB::h(...); // SECURITY: charset comes from the caller, encode before it can reach page output
             throw new InvalidArgumentException("ZenDB connections are always utf8mb4; set_charset('{$h($charset)}') is not supported.");
@@ -145,10 +151,12 @@ class MysqliWrapperReplay
         return 'utf8mb4';
     }
 
-    /** @disregard P1003 signature mirrors MysqliWrapper; parameter unused on purpose (intelephense) */
+    /**
+     * @disregard P1003 signature mirrors MysqliWrapper; parameter unused on purpose (intelephense)
+     */
     public function setEncryptionKeyCallback(callable $callback): void
     {
-        // Nothing to SET: @ek only feeds server-side AES_DECRYPT, and replayed rows
+        // Nothing to SET: only server-side AES_DECRYPT reads @ek, and replayed rows
         // already hold whatever the server returned. PHP-side decryption reads the
         // key from the connection config as usual.
     }
@@ -282,8 +290,9 @@ class MysqliWrapperReplay
     }
 
     /**
-     * Same contract as MysqliWrapper::logQuery(), so query loggers see replayed
-     * queries exactly as they'd see live ones.
+     * Same contract as MysqliWrapper::logQuery(), but only query() logs here. A live
+     * connection also logs its connect, real_query(), multi_query(), and encryption-key
+     * SET calls; replay skips those.
      */
     public function logQuery(string $query, float $startTime, ?Throwable $exception = null): void
     {

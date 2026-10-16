@@ -53,7 +53,8 @@ class Connection
     public static ?Closure $mysqliWrapperFactory = null;
 
     /**
-     * Identity facts about the connected database server. Set at connect, null when disconnected.
+     * Version, vendor, TLS, and query-log facts about the connected database server.
+     * Set at connect, null when disconnected.
      *
      *     $db->server->version();  // "10.6.27"
      *
@@ -117,7 +118,7 @@ class Connection
      *     connectTimeout?:       int,       // Connection timeout in seconds (default: 3)
      *     readTimeout?:          int,       // Read timeout in seconds (default: 60)
      *     queryLogger?:          callable,  // @internal fn(string $query, float $secs, ?Throwable $exception) - logged queries have values inlined, so redacting sensitive data is the callback's job; don't run queries from inside the callback; signature may change
-     *     sqlMode?:              string,    // MySQL SQL mode
+     *     sqlMode?:              string,    // Session sql_mode; '' keeps the server's (default: 'STRICT_ALL_TABLES,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION')
      *     encryptionKey?:        string,    // AES encryption key, sets MySQL @ek session variable on first use
      * } $config
      *
@@ -183,7 +184,7 @@ class Connection
         $this->mysqli->options(MYSQLI_OPT_CONNECT_TIMEOUT, $this->connectTimeout);
         $this->mysqli->options(MYSQLI_OPT_READ_TIMEOUT, $this->readTimeout);
         $this->mysqli->options(MYSQLI_OPT_LOCAL_INFILE, 0); // disable "LOAD DATA LOCAL INFILE" for security
-        $this->mysqli->options(MYSQLI_SET_CHARSET_NAME, 'utf8mb4'); // charset rides the connect handshake; see the set_charset gate below
+        $this->mysqli->options(MYSQLI_SET_CHARSET_NAME, 'utf8mb4'); // charset is sent in the connect handshake; see the set_charset() check below
 
         // Return native PHP types (int/float) instead of strings
         if (defined('MYSQLI_OPT_INT_AND_FLOAT_NATIVE')) {
@@ -210,8 +211,8 @@ class Connection
                     isset(DB::$safeIdentifiers[$database]) || DB::assertIdentifier($database, 'database name');
                     // CHARACTER SET utf8mb4: without it, MySQL 5.7 creates a latin1 database.
                     // No COLLATE on purpose: each server uses its default utf8mb4 collation,
-                    // same as our CREATE TABLE statements, so every table in the database lands
-                    // on one collation however it was created
+                    // same as our CREATE TABLE statements, so every table in the database gets
+                    // the same collation however it was created
                     $dbCreateQuery = "CREATE DATABASE `$database` CHARACTER SET utf8mb4";
                     $this->mysqli->real_connect($this->secret('hostname'), $this->secret('username'), $this->secret('password'), null, null, null, $flags);
                     try {
@@ -329,8 +330,9 @@ class Connection
         $this->server = null;
         $this->table  = null;
 
-        // Re-arm the one-per-connection decrypt warning on reconnect. The column-type caches
-        // went with the wrapper, so a reconnect re-probes a schema that may have changed
+        // Reset the one-per-connection decrypt warning on reconnect. The column-type caches
+        // were dropped with the wrapper, so a reconnect looks up column types again in case
+        // the schema changed
         $this->decryptWarned = false;
     }
 
@@ -612,7 +614,7 @@ class Connection
      *
      *     // For large unindexed result sets, queryOne() is faster because
      *     // COUNT(*) scans all matching rows while this stops at the first:
-     *     if (DB::queryOne("SELECT 1 FROM ::users WHERE status = ?", 'active')->isNotEmpty()) { ... }
+     *     if (DB::queryOne("SELECT id FROM ::users WHERE status = ?", 'active')->isNotEmpty()) { ... }
      *
      * @param string                  $baseTable Table name (without prefix)
      * @param int|array|string|RawSql $whereEtc  WHERE and other clauses (but not LIMIT/OFFSET)
@@ -681,7 +683,7 @@ class Connection
      *     });
      *
      *     // TIP - single queries are already atomic, no transaction needed
-     *     DB::query("UPDATE ::counters SET views = views + 1 WHERE id = ?", $pageId);
+     *     DB::update('counters', ['views' => DB::rawSql('views + 1')], ['id' => $pageId]);
      *
      * ***WARNING:*** Only use DML (SELECT, INSERT, UPDATE, DELETE) inside transactions.
      * When MySQL encounters a DDL statement (CREATE, ALTER, DROP, TRUNCATE, etc.),
@@ -889,7 +891,7 @@ class Connection
      * 10.11 has no block_encryption_mode variable (always aes-128-ecb); MySQL/Percona and
      * MariaDB 11.4+ have it and default to aes-128-ecb. See docs/internal/db-behavior-matrix.md (2026-07).
      *
-     * Requires `encryptionKey` on the connection; aesKey() throws RuntimeException without one.
+     * Requires `encryptionKey` on the connection; throws RuntimeException without one.
      *
      * @param string|int|float|null|SmartString $value Plaintext value to encrypt
      * @return string|null Encrypted binary string, or null if value is null
@@ -926,11 +928,12 @@ class Connection
      * You rarely need to call this directly. Reach for it when you've bypassed the query
      * methods and want PHP-side decryption on raw mysqli rows:
      *
-     *     $rows          = $result->fetch_all(MYSQLI_ASSOC);
-     *     $mysqliNumRows = $result->fetch_all(MYSQLI_NUM);
-     *     DB::decryptRows($rows, $result->fetch_fields());         // detect encrypted cols from field metadata
-     *     DB::decryptRows($rows, ['token', 'secret']);             // assoc rows: pass column names
-     *     DB::decryptRows($mysqliNumRows, [0, 3]);                 // numeric rows: pass field indexes
+     *     $rows = $result->fetch_all(MYSQLI_ASSOC);
+     *     DB::decryptRows($rows, $result->fetch_fields());         // assoc rows: detect encrypted cols from field metadata
+     *     DB::decryptRows($rows, ['token', 'secret']);             // or pass the column names yourself
+     *
+     *     $numRows = $otherResult->fetch_all(MYSQLI_NUM);
+     *     DB::decryptRows($numRows, [0, 3]);                       // numeric rows: pass field indexes
      *
      * To decrypt in MySQL instead of PHP, use AES_DECRYPT with @ek:
      *
@@ -939,7 +942,7 @@ class Connection
      *
      * @param array $rows              Fetched rows (modified in place)
      * @param array $keysOrFetchFields Either a list of row keys (column names for assoc rows, indexes for numeric rows),
-     *                                 or field objects from fetch_fields() (auto-detects encrypted cols)
+     *                                 or field objects from fetch_fields() for assoc rows (auto-detects encrypted cols)
      * @noinspection PhpFullyQualifiedNameUsageInspection - TODO-PHP82: import SensitiveParameter and drop the FQN; the FQN only keeps PHPStorm quiet at the 8.1 language level
      */
     public function decryptRows(#[\SensitiveParameter] array &$rows, array $keysOrFetchFields): void

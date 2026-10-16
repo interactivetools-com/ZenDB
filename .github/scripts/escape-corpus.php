@@ -5,7 +5,7 @@ declare(strict_types=1);
  * Correctness corpus for MySQL escape fast-path candidates.
  *
  * The reference is a LIVE $mysqli->real_escape_string() on a utf8mb4 connection
- * with backslash escaping enabled (no NO_BASH... sql_mode), never a hardcoded
+ * with backslash escaping enabled (NO_BACKSLASH_ESCAPES not in sql_mode), never a hardcoded
  * expectation, so the gate re-verifies against whatever driver actually runs.
  * escape-probe.php runs this gate before timing anything, and
  * tests/Escaping/EscapeEquivalenceTest.php runs the same corpus in the test suite.
@@ -102,7 +102,7 @@ function escape_corpus(): array
     foreach ($mb as $s) {
         $corpus[] = $s;
         $corpus[] = "pre $s post";
-        $corpus[] = "'{$s}'";          // escapables hugging multibyte
+        $corpus[] = "'{$s}'";          // escapables right next to multibyte characters
         $corpus[] = "\\{$s}\\";
     }
 
@@ -286,8 +286,8 @@ function escape_corpus_assert(callable $escaper, mysqli $mysqli, array $corpus, 
 /**
  * The shipping guard, both conditions: connection charset is utf8mb4 AND the
  * probe string escapes identically through the fast path and the C escaper.
- * The gbk finding proves neither check alone suffices: the ASCII probe passes
- * under gbk, and the charset check passes under NO_BASH... sql_mode.
+ * The gbk test shows neither check alone is enough: the ASCII probe passes
+ * under gbk, and the charset check passes with NO_BACKSLASH_ESCAPES in sql_mode.
  */
 function escape_fast_path_ok(mysqli $mysqli): bool
 {
@@ -296,7 +296,7 @@ function escape_fast_path_ok(mysqli $mysqli): bool
 }
 
 /**
- * Which single bytes does the live escaper modify? The whole fast path rests on
+ * Which single bytes does the live escaper modify? The whole fast path depends on
  * the answer being exactly {5C 27 22 0A 0D 00 1A}; any deviation means the
  * FROM/TO pairs are wrong for this server/driver and fails the build.
  *

@@ -44,7 +44,6 @@ class SqlInjectionPreventionTest extends BaseTestCase
         // MySQL does type coercion, so "1 OR 1=1" becomes integer 1
         // This is MySQL's behavior, not a security issue since the string is escaped
         $result = DB::query("SELECT * FROM ::users WHERE num = ?", "1 OR 1=1");
-        // MySQL interprets "1 OR 1=1" as 1 due to type coercion, returns user with num=1
         $this->assertCount(1, $result);
     }
 
@@ -156,7 +155,7 @@ class SqlInjectionPreventionTest extends BaseTestCase
 
     public function testTrailingLimitNumberAllowed(): void
     {
-        // LIMIT 10 at end of query should be allowed
+        // LIMIT 5 at end of query should be allowed
         $result = DB::query("SELECT * FROM ::users LIMIT 5");
         $this->assertCount(5, $result);
     }
@@ -309,7 +308,7 @@ class SqlInjectionPreventionTest extends BaseTestCase
 
     public static function provideInvalidTemplates(): array
     {
-        // [expected message fragment, template] - each row pins its own guard
+        // [expected message fragment, template]
         return [
             'hardcoded string'         => ["Quotes not allowed in template",          "SELECT * FROM ::users WHERE name = 'admin'"],
             'hardcoded number'         => ["Standalone number in template",           "SELECT * FROM ::users WHERE num = 1"],

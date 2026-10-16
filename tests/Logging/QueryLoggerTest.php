@@ -14,7 +14,7 @@ use mysqli_sql_exception;
 /**
  * Tests for query logging functionality
  *
- * @covers \Itools\ZenDB\MysqliWrapper::log
+ * @covers \Itools\ZenDB\MysqliWrapper::logQuery
  * @covers \Itools\ZenDB\Connection::__construct
  */
 class QueryLoggerTest extends BaseTestCase
@@ -140,7 +140,7 @@ class QueryLoggerTest extends BaseTestCase
 
     public function testLoggerNullDisables(): void
     {
-        // Create fresh connection with temp tables
+        // Create a connection with logging turned off
         $conn = new Connection(array_merge(self::$configDefaults, [
             'queryLogger' => null
         ]));
@@ -148,7 +148,7 @@ class QueryLoggerTest extends BaseTestCase
         // The wrapper is what invokes the logger; null must reach it for logging to be off
         $this->assertNull($conn->mysqli->queryLogger);
 
-        // Create test table using raw mysqli (bypasses template validation for DDL)
+        // Create test table using raw mysqli
         $conn->mysqli->query("DROP TEMPORARY TABLE IF EXISTS test_logger_null_test");
         $conn->mysqli->query("CREATE TEMPORARY TABLE test_logger_null_test (id INT)");
 

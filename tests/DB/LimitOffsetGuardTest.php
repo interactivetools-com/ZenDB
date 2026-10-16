@@ -13,9 +13,11 @@ use Itools\ZenDB\DB;
 use Itools\ZenDB\Tests\BaseTestCase;
 
 /**
- * selectOne(), queryOne() and count() reject LIMIT/OFFSET because they append their own,
- * and selectOne()/queryOne() reject row-locking clauses that MySQL requires after LIMIT.
- * Those guards must only fire on a real top-level clause: the same keyword inside a
+ * selectOne() and queryOne() reject LIMIT/OFFSET because they append their own LIMIT 1, and
+ * count() rejects them because on a COUNT(*) query they limit the one result row, not the
+ * rows counted, and selectOne()/queryOne() reject row-locking clauses that MySQL requires
+ * after LIMIT.
+ * Those checks must only reject a real top-level clause: the same keyword inside a
  * backtick identifier, a comment or a parenthesised subquery is valid SQL and must pass.
  */
 class LimitOffsetGuardTest extends BaseTestCase
@@ -158,7 +160,7 @@ class LimitOffsetGuardTest extends BaseTestCase
     }
 
     //endregion
-    //region quoted text: the template guard's error wins, not a misleading keyword error
+    //region quoted text: the quotes error is reported, not a misleading keyword error
 
     public function testQuotedKeywordReportsQuotesErrorNotLimitError(): void
     {

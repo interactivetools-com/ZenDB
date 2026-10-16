@@ -189,7 +189,7 @@ foreach ($report['identity'] as $k => $v) {
 echo "\n";
 
 //
-// Q1. TEXT/BLOB family with no prefix - expect 1170 everywhere
+// Q1. TEXT/BLOB family with no prefix - 1170, except MariaDB 10.4+ picks a prefix itself
 //
 $q1 = [];
 foreach (['TINYTEXT', 'TEXT', 'MEDIUMTEXT', 'LONGTEXT', 'TINYBLOB', 'BLOB', 'MEDIUMBLOB', 'LONGBLOB'] as $type) {
@@ -236,7 +236,7 @@ foreach (['no prefix' => '', '(255)' => '(255)', '(250)' => '(250)'] as $name =>
     $query   = "SELECT * FROM t ORDER BY col LIMIT 10";
     $explain = $mysqli->query("EXPLAIN $query")->fetch_assoc();
     // MySQL 9.x (hypergraph optimizer) leaves key/Extra empty in the traditional
-    // format, so the TREE format decides where the server supports it
+    // format, so the TREE format is checked too where the server supports it
     try {
         $tree = str_replace("\n", ' / ', trim($mysqli->query("EXPLAIN FORMAT=TREE $query")->fetch_row()[0]));
     } catch (mysqli_sql_exception) {

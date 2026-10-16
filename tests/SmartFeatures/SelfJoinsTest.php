@@ -160,7 +160,7 @@ class SelfJoinsTest extends BaseTestCase
 
     public function testSelfJoinWithSelectStar(): void
     {
-        // e.* and m.* produce duplicate column names; the aliased m.name was no duplicate at all
+        // e.* and m.* produce duplicate column names
         $result = DB::query(
             "SELECT e.*, m.*
              FROM ::employees e

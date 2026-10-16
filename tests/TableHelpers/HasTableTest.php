@@ -11,8 +11,8 @@ use Itools\ZenDB\Tests\BaseTestCase;
 
 /**
  * Tests for the deprecated hasTable() wrappers, kept until removal to pin their behavior,
- * including the isPrefixed flag that Table::exists() doesn't have. The living API's
- * coverage is in tests/Table/TableIntegrationTest.
+ * including the isPrefixed flag that Table::exists() doesn't have. Table::exists() is
+ * tested in tests/Table/TableIntegrationTest.
  *
  * @covers \Itools\ZenDB\Connection::hasTable
  * @covers \Itools\ZenDB\DB::hasTable

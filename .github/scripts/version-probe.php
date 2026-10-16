@@ -29,7 +29,7 @@ declare(strict_types=1);
  * listings usually query, selecting the columns they print instead of the body.
  *
  * Each page also runs in hand-written mysqli, which is not a candidate but a
- * reference: it shows what the query costs on the machine of the day, so the
+ * reference: it shows what the query costs on the machine running the probe, so the
  * library's own share of a page can be read off the table.
  *
  * Two gates run before any timing: both versions must produce byte-identical
@@ -238,7 +238,7 @@ $out['gates']['round_trips'] = $roundTrips;
 
 /**
  * Interleaved n-way benchmark: every version of a page runs once per round, so
- * a slow patch of machine reaches all of them. Returns best-of-reps per
+ * a slowdown on the machine affects all of them. Returns best-of-reps per
  * version, in microseconds per page.
  */
 function bench(array $versions, int $iters, int $reps = 9): array
@@ -401,7 +401,7 @@ foreach ($tests as [$id, $baseIters, $label, $rawFn, $oldFn, $newFn]) {
 
 // The multiple, over every page at once: all of the baseline's added time
 // against all of the working copy's. Summing first keeps one page whose added
-// time lands near zero from dominating an average of per-page multiples.
+// time is near zero from dominating an average of per-page multiples.
 $addedOld = 0.0;
 $addedNew = 0.0;
 $baseline = 0.0;

@@ -104,7 +104,7 @@ class PolyfillDuplicateColumnsTest extends BaseTestCase
     }
 
     /**
-     * Differential oracle - the strongest form. Same SQL through native mysqlnd get_result()
+     * Same SQL through native mysqlnd get_result()
      * (the source of truth) and through the forced polyfill must return identical rows.
      */
     public function testPolyfillMatchesNativeForDuplicateColumns(): void

@@ -41,8 +41,9 @@ class MysqliWrapper extends mysqli
     /**
      * @var array<string, string[]> Encrypted (MEDIUMBLOB) column names per full table name,
      * for the read path (select/selectOne). Stored here, not on Connection, so clones share
-     * it. Cleared when query()/queryOne() on any clone runs DDL, so schema changes can't
-     * leave a stale list that would skip decryption. A reconnect starts a new wrapper.
+     * it. Cleared when query()/queryOne() on any clone runs DDL or USE, so schema or
+     * database changes can't leave a stale list that would skip decryption. A reconnect
+     * starts a new wrapper.
      *
      * @internal API may change between releases
      */
@@ -64,8 +65,8 @@ class MysqliWrapper extends mysqli
 
     /**
      * Keep-alive reference to the last prepared statement (for execute_query polyfill).
-     * Writing to this property holds the mysqli_stmt open so affected_rows and insert_id stay available
-     * after the method returns; without it, the destructor runs and resets both to zero.
+     * Writing to this property holds the mysqli_stmt open so affected_rows stays available
+     * after the method returns; without it, the destructor runs and resets affected_rows to -1.
      *
      * @disregard P1003 keep-alive reference, write-only on purpose (intelephense)
      */
@@ -76,8 +77,8 @@ class MysqliWrapper extends mysqli
      *
      * Runs mid-query, before the calling code has read its results, so a logger must not
      * query this connection. Doing so overwrites what ZenDB is about to read: insert()
-     * returns 0 instead of the new id, update() and delete() report the logger's row
-     * count, and joined queries lose their table-qualified keys. To log to MySQL, give
+     * returns 0 instead of the new id, and update() and delete() report the logger's row
+     * count. To log to MySQL, give
      * the logger its own connection. Reading properties like thread_id is fine.
      */
     public mixed $queryLogger = null;
@@ -104,11 +105,15 @@ class MysqliWrapper extends mysqli
     {
         $this->queryLogger = $queryLogger;
 
-        // Initialize the parent mysqli object
         parent::__construct();
     }
 
-    /** @noinspection PhpFullyQualifiedNameUsageInspection - TODO-PHP82: import SensitiveParameter and drop the FQN; the FQN only keeps PHPStorm quiet at the 8.1 language level */
+    /**
+     * mysqli::real_connect() wrapper that logs each connection, and each failed attempt with its exception.
+     *
+     * @see mysqli::real_connect()
+     * @noinspection PhpFullyQualifiedNameUsageInspection - TODO-PHP82: import SensitiveParameter and drop the FQN; the FQN only keeps PHPStorm quiet at the 8.1 language level
+     */
     public function real_connect(
         #[\SensitiveParameter] ?string $hostname = null,
         #[\SensitiveParameter] ?string $username = null,
@@ -130,7 +135,6 @@ class MysqliWrapper extends mysqli
             throw $e;
         }
 
-        // log connection
         if ($this->queryLogger) {
             $this->logQuery("real_connect[$this->thread_id] ($this->host_info): $request", $startTime);
         }
@@ -155,7 +159,6 @@ class MysqliWrapper extends mysqli
         $this->ensureEncryptionKey($query);
         $startTime = $this->queryLogger ? microtime(true) : 0.0;   // only needed for logger
 
-        // execute query
         try {
             $result = parent::query($query, $result_mode);
         } catch (mysqli_sql_exception $e) {
@@ -174,10 +177,11 @@ class MysqliWrapper extends mysqli
      * mysqli::set_charset() restricted to utf8mb4. ZenDB connections are always utf8mb4:
      * escaping, SmartString encoding, and backups all assume it, and a changed charset
      * survives pooled-connection reuse into later requests. Throws on any other charset
-     * so an accidental change fails loudly instead of corrupting data.
+     * so an accidental change is caught right away instead of corrupting data.
      *
-     * This only covers the method. "SET NAMES" through query() switches the server while
-     * mysqli keeps escaping for utf8mb4, which allows SQL injection; see docs/security-gotchas.md.
+     * This only covers the method. "SET NAMES" through query() changes the connection
+     * charset on the server while mysqli keeps escaping for utf8mb4, which allows SQL
+     * injection; see docs/security-gotchas.md.
      *
      * @see mysqli::set_charset()
      *
@@ -232,7 +236,7 @@ class MysqliWrapper extends mysqli
      * mysqli::multi_query() wrapper with logging and automatic &#64;ek encryption-key setup. Throws on failure.
      *
      * Executes multiple semicolon-separated statements. Advance with next_result() and fetch each via store_result()
-     * or use_result(); errors in statements after the first surface through next_result(), not as throws here.
+     * or use_result(); errors in statements after the first are thrown by next_result(), not here.
      *
      * @see mysqli::multi_query()
      *
@@ -334,14 +338,14 @@ class MysqliWrapper extends mysqli
         $stmt = $this->prepare($query);
         $stmt->execute($params ?? []);
 
-        // Keep stmt alive so affected_rows/insert_id remain accessible after return
+        // Keep stmt alive so affected_rows remains accessible after return
         $this->stmtKeepAlive = $stmt;
 
         return $stmt->get_result() ?: true;
     }
 
     /**
-     * Close the connection and clean up resources.
+     * Close the connection and free the statement kept open for execute_query().
      */
     #[ReturnTypeWillChange]
     public function close(): bool
@@ -390,9 +394,10 @@ class MysqliWrapper extends mysqli
      *   in MySQL, off by default in MariaDB.
      *
      * Where it doesn't appear: SHOW PROCESSLIST and performance_schema statement
-     * history see only "SET @ek = UNHEX(SHA2(?, 512))", and the binary log gets no
-     * User_var event because @ek is only ever read (AES_DECRYPT) - writes encrypt
-     * in PHP.
+     * history see only "SET @ek = UNHEX(SHA2(?, 512))". The binary log doesn't record
+     * SELECTs, and ZenDB encrypts writes in PHP, so reads and ZenDB's own writes log no
+     * User_var event. A write that uses @ek, like UPDATE ... WHERE {{column}} = ?, does
+     * log the derived key in a User_var event when binlog_format is STATEMENT or MIXED.
      *
      * Uses parent::prepare() to bypass the logging wrapper and avoid recursion.
      */
@@ -420,6 +425,9 @@ class MysqliWrapper extends mysqli
     //endregion
     //region Debug
 
+    /**
+     * Control what's shown in var_dump/print_r - shows '(set)' in place of the encryption key callback.
+     */
     public function __debugInfo(): array
     {
         $props                     = get_object_vars($this);

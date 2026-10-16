@@ -22,8 +22,8 @@ class GetBaseTableTest extends BaseTestCase
         self::createDefaultConnection();
         self::resetTestTables();
 
-        // Create double-prefixed tables for checkDb-mode tests.
-        // These simulate base names that happen to start with the prefix string.
+        // Create a double-prefixed table for checkDb-mode tests.
+        // It simulates a base name that happens to start with the prefix string.
         // e.g., base name "test_cities" with prefix "test_" becomes "test_test_cities"
         DB::$mysqli->query("DROP TABLE IF EXISTS test_test_cities");
         DB::$mysqli->query("CREATE TABLE test_test_cities (id INT PRIMARY KEY)");

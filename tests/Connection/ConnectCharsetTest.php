@@ -11,7 +11,7 @@ use mysqli;
 
 /**
  * Tests that connect()'s handshake charset plus the version-gated set_charset call
- * land the exact session state a plain set_charset('utf8mb4') connection gets,
+ * produce the same session state a plain set_charset('utf8mb4') connection gets,
  * on whatever server the suite runs against.
  *
  * @covers \Itools\ZenDB\Connection::connect
@@ -26,7 +26,7 @@ class ConnectCharsetTest extends BaseTestCase
         $zendbCharset = $conn->mysqli->character_set_name();
         $zendbState   = $conn->mysqli->query($stateSql)->fetch_row();
 
-        // Reference route: plain mysqli + set_charset, the way connect() worked for every server
+        // Reference: plain mysqli + set_charset('utf8mb4')
         $reference = new mysqli(
             self::$configDefaults['hostname'],
             self::$configDefaults['username'],

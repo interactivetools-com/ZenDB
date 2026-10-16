@@ -9,7 +9,7 @@ name: Escape Matrix
 # +/-5% as a tie (the selftie rows verify that band per cell). Every cell starts
 # one MySQL 8.0 via actions-setup-mysql: the real_escape_string baseline needs a
 # live handle and the corpus gate verifies candidates against it, but escaping is
-# client-side mysqlnd CPU - the server version doesn't move these numbers, so one
+# client-side mysqlnd CPU - the server version doesn't change these numbers, so one
 # fixed server serves all cells on every OS (service containers are Linux-only).
 # See .github/scripts/escape-probe.php for tests and design rules, and
 # .github/scripts/escape-results.md for the latest full-run grid and verdicts.
@@ -162,7 +162,7 @@ jobs:
     needs: probe
     timeout-minutes: 15
     # Aggregates every matrix job and runs even when some fail, so partial grids
-    # still get built; !cancelled() keeps it out of manual cancellations only
+    # still get built; !cancelled() skips it only when someone cancels the run
     if: ${{ !cancelled() }}
 
     steps:

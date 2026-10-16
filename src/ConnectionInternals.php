@@ -87,7 +87,7 @@ trait ConnectionInternals
             foreach ($params as $key => $value) {
                 // Int keys (deprecated positional array, or mixed with named) and invalid
                 // names take the general path, which logs or throws the canonical message
-                if (!is_string($key) || !preg_match('/^:(?!_|zdb)\w+\z/', $key)) {
+                if (!is_string($key) || !preg_match('/^:(?!_|zdb)\w+\z/', $key)) {  // ':' then letters, digits, or _, not starting with _ or zdb
                     return $this->parseParamsGeneral($args);
                 }
                 if ($key[1] <= '9' && strspn($key, '0123456789', 1) === strlen($key) - 1) {
@@ -127,8 +127,9 @@ trait ConnectionInternals
     }
 
     /**
-     * Parser for the shapes parseParams() doesn't fast-path, and the single owner of
-     * every param-shape error and deprecation message. parseParams() has already
+     * Parses the shapes parseParams() doesn't handle itself. It throws or logs every
+     * param-shape error and deprecation message except the named-arguments one, which
+     * parseParams() throws itself. parseParams() has already
      * handled empty args and reset the per-call state when this runs.
      *
      * @param array $args Variadic args from query method
@@ -254,7 +255,7 @@ trait ConnectionInternals
          * Fast path: skip checks if template has no digits, quotes, backslashes,
          * NULL bytes, or CTRL-Z. \b\d covers every number-based check below (standalone
          * numbers, hex, binary, scientific) because each starts with a digit at a word
-         * boundary - so new literal forms can't slip past this gate. Digits embedded in
+         * boundary - so this fast path can't skip a new literal form. Digits embedded in
          * identifiers like col2, user_id3, address1 don't match (no boundary before them).
          */
         if (!preg_match('/\b\d|[\'\"\\\\\\x00\\x1a]/', $sql)) {
@@ -349,9 +350,9 @@ trait ConnectionInternals
     /**
      * Reject LIMIT/OFFSET - these methods add their own LIMIT internally.
      *
-     * Only a top-level clause counts: a column named `offset`, a LIMIT inside a subquery
-     * and a keyword in a comment all pass. The plain match runs first, so templates
-     * without either keyword skip sqlForKeywordCheck().
+     * Only a top-level clause counts: a backtick-quoted column like `offset`, a LIMIT
+     * inside a subquery and a keyword in a comment all pass. The plain match runs
+     * first, so templates without either keyword skip sqlForKeywordCheck().
      *
      * @throws InvalidArgumentException
      */
@@ -380,9 +381,9 @@ trait ConnectionInternals
      * MariaDB run what's inside them, and `--` only starts a comment when a space or
      * control character follows it (`?--?` is minus minus).
      *
-     * If PCRE gives up on a huge input, that step returns its input unchanged, so the
-     * check sees more SQL and may refuse it, but nothing crashes. The result is only
-     * matched against, never run.
+     * If a regex reaches a PCRE limit on a huge input, that step returns its input
+     * unchanged, so the check sees more SQL and may refuse it, but nothing crashes.
+     * The result is only matched against, never run.
      */
     private function sqlForKeywordCheck(string $sql): string
     {
@@ -394,23 +395,23 @@ trait ConnectionInternals
     /**
      * Reject template patterns that conflict with the auto-appended `LIMIT 1`.
      *
-     * queryOne() and selectOne() unconditionally append ` LIMIT 1` to the caller's
-     * template. Three end-of-template shapes break that splice:
+     * selectOne() always appends ` LIMIT 1` to the caller's template, and queryOne()
+     * does for SELECT and WITH templates. Three template endings break that:
      *
      * 1. Row-locking clauses (FOR UPDATE / FOR SHARE / LOCK IN SHARE MODE).
      *    MySQL grammar requires LIMIT to come before these, so the appended
-     *    LIMIT lands in the wrong spot and produces a parse error.
+     *    LIMIT comes after them and produces a parse error.
      *
-     * 2. Trailing line comments (`--` or `#`). The appended ` LIMIT 1` lands
-     *    on the same line as the comment marker, so MySQL silently ignores
-     *    it and runs the full query (silent full-table scan).
+     * 2. Trailing line comments (`--` or `#`). The appended ` LIMIT 1` ends
+     *    up inside the comment, so MySQL ignores it and returns every
+     *    matching row.
      *
      * 3. Trailing semicolons (`;`). The appended ` LIMIT 1` produces `...; LIMIT 1`,
      *    which MySQL rejects with a confusing "near 'LIMIT 1'" parse error.
      *
      * INTO OUTFILE / INTO DUMPFILE are also post-LIMIT, but calling queryOne
-     * on them is nonsensical (they don't return rows), so we let MySQL's parse
-     * error surface instead of guarding here.
+     * on them is nonsensical (they don't return rows), so they get MySQL's own
+     * parse error instead of a check here.
      *
      * Callers needing any of these should use query()->first() instead.
      *
@@ -432,7 +433,7 @@ trait ConnectionInternals
             throw new InvalidArgumentException("This method doesn't support $clause. Use query(...)->first() instead.");
         }
 
-        // Trailing line comment - would swallow the appended LIMIT 1 and cause a silent full-table scan
+        // Trailing line comment - would comment out the appended LIMIT 1, so every matching row comes back
         if (preg_match('/(?:--|#)[^\r\n]*\z/', $where)) {
             throw new InvalidArgumentException("This method appends LIMIT 1 automatically; a trailing '--' or '#' comment would swallow it and cause a full-table scan. Remove the comment or use query(...)->first() instead.");
         }
@@ -626,8 +627,9 @@ trait ConnectionInternals
             default  => $m[0],
         }, $sql);
 
-        // Without JIT, PCRE gives up (returns null) at about a million escape sequences. Check the raw SQL then:
-        // a keyword inside a value may be refused, but nothing crashes.
+        // Without JIT, preg_replace_callback() reaches pcre.backtrack_limit and returns null at a few
+        // hundred thousand escape sequences. Check the raw SQL then: a keyword inside a value may be
+        // refused, but nothing crashes.
         return $stripped ?? $sql;
     }
 
@@ -637,7 +639,8 @@ trait ConnectionInternals
      *
      * Replacements:
      *   ?, :name           - quoted and escaped
-     *   ::?, :::name       - same as above with table prefix prepended (prefix lands inside the quotes)
+     *   ::?, :::name       - same as above with table prefix prepended
+     *                        (prefix goes inside the quotes)
      *   `?`, `:name`       - backtick-wrapped and unescaped, throws if unsafe chars
      *   `::?`, `:::name`   - same as above with table prefix prepended
      *   ::                 - table prefix alone
@@ -674,8 +677,8 @@ trait ConnectionInternals
         /*
          * Placeholder types, one regex alternative each (in match-priority order):
          *
-         *   \?                    ?         O'Brien → "O\'Brien"        - value, quoted and escaped
-         *   :[a-zA-Z]\w*\b        :name     O'Brien → "O\'Brien"        - value, quoted and escaped
+         *   \?                    ?         O'Brien → 'O\'Brien'        - value, quoted and escaped
+         *   :[a-zA-Z]\w*\b        :name     O'Brien → 'O\'Brien'        - value, quoted and escaped
          *   `\?`                  `?`       users → `users`             - identifier, unquoted, throws if unsafe chars
          *   `:[a-zA-Z]\w*\b`      `:name`   users → `users`             - identifier, unquoted, throws if unsafe chars
          *   `::\?`                `::?`     users → `cms_users`         - identifier with table prefix
@@ -771,7 +774,8 @@ trait ConnectionInternals
      *   - Prefixed:    ::?, :::name       → returns table prefix + value (backticked or not)
      *   - Bare prefix: ::                 → returns table prefix as RawSql
      *
-     * @throws InvalidArgumentException If placeholder has no corresponding param
+     * @throws InvalidArgumentException If placeholder has no corresponding param, or its value's type
+     *                                  doesn't fit the placeholder
      */
     private function getPlaceholderValue(string $match, int &$positionalCount): string|int|float|bool|null|array|RawSql
     {
@@ -808,7 +812,8 @@ trait ConnectionInternals
         }
 
         // Backtick prefix placeholders (`::?`, `:::name`) require a string; otherwise PHP silently coerces
-        // bool/null/array via string concat and the result sneaks past the \w- identifier check below
+        // bool/null/array via string concat and the result passes the \w- identifier check in
+        // replacePlaceholders()
         if ($match[0] === '`') {
             if (!is_string($value)) {
                 throw new InvalidArgumentException("Backtick prefix placeholder $match requires a string value, got " . get_debug_type($value));
@@ -818,7 +823,7 @@ trait ConnectionInternals
 
         // Bare prefix placeholders (::?, :::name) work like ? and :name with the prefix prepended first:
         // the string gets quoted, arrays prefix each element then expand to CSV. String values only:
-        // the prefix is a table prefix, so anything else is a mistake worth surfacing
+        // the prefix is a table prefix, so anything else is a mistake and throws
         $allowedTypes = $isPositional ? "string" : "string or array";
         return match (true) {
             is_string($value)        => $this->tablePrefix . $value,
@@ -1001,8 +1006,8 @@ trait ConnectionInternals
 
     /**
      * Convert one PHP value to a SQL literal. Every value ZenDB writes into SQL goes
-     * through here or through an inlined copy of the string/int arms in a hot path
-     * (whereSql(), buildSetClause(), escapeCSV(), replacePlaceholders() fast
+     * through here or through an inlined copy of its arms in a hot path
+     * (whereSql(), buildSetClause(), escapeCSV(), escapef(), replacePlaceholders() fast
      * arms); EscapeParityTest pins those copies byte-identical to this function.
      *
      *   "O'Brien"        →  'O\'Brien'    escaped and quoted
@@ -1127,7 +1132,7 @@ trait ConnectionInternals
      * isn't needed: no SmartJoins possible, and duplicate columns are detectable
      * structurally (assoc fetch collapses them).
      *
-     * Sniffs the template BEFORE placeholder expansion, so escaped string values
+     * Checks the template BEFORE placeholder expansion, so escaped string values
      * (which can legally contain 'join' or commas) can't affect the answer. RawSql
      * params are the one way SQL text enters after expansion, so their text is
      * checked too (paramValues is set by the caller, bare or inside IN-list arrays).
@@ -1137,7 +1142,7 @@ trait ConnectionInternals
      * no: a statement that isn't SELECT or WITH (CALL and EXECUTE run SQL the
      * template doesn't contain), JOIN, or a comma anywhere after the first FROM
      * (comma-joins, and conservatively multi-column ORDER BY). RawSql fragments
-     * can land anywhere in the SQL, so they also reject FROM and bare commas;
+     * can appear anywhere in the SQL, so they also reject FROM and bare commas;
      * pagingSql's 'LIMIT x OFFSET y' passes. UNIONs are single-table-equivalent: no server
      * attributes union result columns in fetch_fields() (table/orgtable empty on
      * all 22 matrix servers), so SmartJoins can't trigger and duplicate columns
@@ -1150,7 +1155,7 @@ trait ConnectionInternals
         }
 
         // [^,]* rather than .*: same answer, no backtracking. preg_match returns false when
-        // PCRE gives up, and that has to land on the metadata path, not the fast one.
+        // PCRE reaches one of its limits, and that has to take the metadata path, not the fast one.
         if (preg_match('/join|from[^,]*,/i', $template) !== 0) {
             return false;
         }
@@ -1194,14 +1199,14 @@ trait ConnectionInternals
      *
      * - $singleTable: caller guarantees a single-table `SELECT *` (no duplicate columns or
      *   SmartJoins possible), skipping metadata checks entirely; $fullTable names the table
-     *   so keyed connections can cache its encrypted-column list
+     *   so connections with `encryptionKey` set can cache its encrypted-column list
      * - $sqlTemplate: query()'s pre-expansion template; when it (and any RawSql params)
      *   can only produce single-table columns, metadata is skipped the same way
      * - Fast path: direct C-level MYSQLI_ASSOC fetch when no remapping is needed
      * - "First wins": duplicate column names use the first occurrence
      * - SmartJoins: multi-table queries add qualified names (e.g., 'users.name')
      * - Self-joins: adds alias-based names (e.g., 'a.name', 'b.name')
-     * - Auto-decryption: MEDIUMBLOB columns are decrypted when an encryption key is configured
+     * - Auto-decryption: MEDIUMBLOB columns are decrypted when `encryptionKey` is set
      */
     private function fetchMappedRows(mysqli_result|MysqliResultReplay|bool $mysqliResult, bool $singleTable = false, string $fullTable = '', string $sqlTemplate = ''): array
     {
@@ -1211,7 +1216,7 @@ trait ConnectionInternals
 
         // Single-table `SELECT *` (select/selectOne build that SQL themselves) can't have
         // duplicate columns or joined tables, so rows need no remapping. Encrypted columns
-        // are looked up once per table per connection: the first select harvests the
+        // are looked up once per table per connection: the first select reads the
         // MEDIUMBLOB column list from this result's own field metadata, later selects skip
         // fetch_fields() entirely (it builds a stdClass per column on every call)
         if ($singleTable) {
@@ -1225,8 +1230,8 @@ trait ConnectionInternals
             return $rows;
         }
 
-        // query() fast path: single-table template on an unkeyed connection. The only
-        // remap trigger left is duplicate SELECT-list columns, and those show up
+        // query() fast path: single-table template on a connection without `encryptionKey` set.
+        // The only remap trigger left is duplicate SELECT-list columns, and those show up
         // structurally: assoc fetch collapses them, leaving fewer keys than field_count.
         if ($sqlTemplate !== '' && !$this->hasEncryptionKey && $this->isSingleTableQuery($sqlTemplate)) {
             $rows = $mysqliResult->fetch_all(MYSQLI_ASSOC);
@@ -1235,7 +1240,7 @@ trait ConnectionInternals
                 return $rows;
             }
             $mysqliResult->data_seek(0);  // duplicate columns: refetch through the metadata path
-            unset($rows);                 // assoc collapse is last-wins, we return first-wins: unusable, and it would sit here through the numeric fetch
+            unset($rows);                 // assoc collapse is last-wins, we return first-wins: unusable, and it would stay in memory through the numeric fetch
         }
 
         // Field metadata finds encrypted columns (when a key is set) plus, for arbitrary
@@ -1445,8 +1450,8 @@ trait ConnectionInternals
     private static array $secretKeys = ['hostname', 'username', 'password', 'database', 'encryptionKey'];
 
     /**
-     * Credentials stored outside instance properties to prevent leakage
-     * via serialize(), var_export(), and (array) cast.
+     * Credentials are stored outside instance properties, so serialize(),
+     * var_export(), and (array) casts don't include them.
      */
     private static WeakMap $secrets;
 
@@ -1464,7 +1469,7 @@ trait ConnectionInternals
      * source's vault entry through the copied $vaultKey.
      *
      * @param array $config Config array; credential keys are consumed
-     * @throws RuntimeException If a required credential is missing, or any credential isn't a string
+     * @throws RuntimeException If a required credential is missing, any credential isn't a string, or `encryptionKey` is '0'
      * @noinspection PhpFullyQualifiedNameUsageInspection - TODO-PHP82: import SensitiveParameter and drop the FQN; the FQN only keeps PHPStorm quiet at the 8.1 language level
      */
     private function sealSecrets(#[\SensitiveParameter] array &$config): void
@@ -1492,8 +1497,8 @@ trait ConnectionInternals
             unset($config[$key]);                          // consume key so it won't hit the property loop
         }
 
-        // Hoisted so per-query paths can check key presence without a vault lookup.
-        // Strict compare: only null and '' mean "no encryption"
+        // Stored on the object so per-query code can check for an encryption key without a vault
+        // lookup. Strict compare: only null and '' mean "no encryption"
         $this->hasEncryptionKey = (self::$secrets[$this->vaultKey]['encryptionKey'] ?? '') !== '';
     }
 
@@ -1508,7 +1513,7 @@ trait ConnectionInternals
     //endregion
     //region Connection Settings
 
-    // Connection credentials (values live in the WeakMap vault; the properties exist so
+    // Connection credentials (values are stored in the WeakMap vault; the properties exist so
     // sealSecrets()'s $this->$key = null writes aren't PHP 8.2+ deprecated dynamic properties)
     private ?string $hostname      = null;
     private ?string $username      = null;

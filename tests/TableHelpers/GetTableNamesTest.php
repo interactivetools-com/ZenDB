@@ -161,7 +161,7 @@ class GetTableNamesTest extends BaseTestCase
     /** @noinspection PhpDeprecationInspection */
     public function testDeprecatedDbShimMatchesTableNames(): void
     {
-        // DB::getTableNames() stays until removal; pin its $withPrefix mapping to the living API
+        // DB::getTableNames() stays until removal; pin its $withPrefix mapping to Table::names() and Table::namesFull()
         $this->assertSame(Table::names(), DB::getTableNames(), 'default is base names');
         $this->assertSame(Table::names(), DB::getTableNames(false));
         $this->assertSame(Table::namesFull(), DB::getTableNames(true), 'withPrefix returns full names');

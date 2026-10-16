@@ -37,7 +37,7 @@ class QueryTest extends BaseTestCase
 
     public function testQueryShowTables(): void
     {
-        // the test fixtures are temporary tables, which SHOW TABLES hides on MySQL/Percona and
+        // most test fixtures are temporary tables, which SHOW TABLES hides on MySQL/Percona and
         // MariaDB thru 10.11 but lists on MariaDB 11.4+, so the result count is server-dependent
         // and only the return type is asserted. See docs/internal/db-behavior-matrix.md (2026-07)
         $result = DB::query("SHOW TABLES");
@@ -85,8 +85,8 @@ class QueryTest extends BaseTestCase
     }
 
     /**
-     * queryOne() appends ` LIMIT 1`, so a trailing line comment would swallow it on the same line,
-     * causing MySQL to silently run the full query without the LIMIT (silent full-table scan).
+     * queryOne() appends ` LIMIT 1`, so a trailing line comment would comment it out,
+     * causing MySQL to run the query without the LIMIT and return every matching row.
      *
      * @dataProvider queryOneTrailingLineCommentProvider
      */

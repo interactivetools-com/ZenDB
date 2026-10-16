@@ -67,7 +67,7 @@ class SingleTableFastPathTest extends BaseTestCase
 
     public function testRawSqlJoinParamKeepsSmartJoins(): void
     {
-        // The gate must catch a JOIN that enters via RawSql AFTER the template sniff:
+        // The gate must catch a JOIN that enters via RawSql AFTER the template check:
         // if it doesn't, these qualified keys silently disappear
         $row = DB::query(
             "SELECT u.num, o.total_amount FROM ::users u :j WHERE u.num = :num",
@@ -106,7 +106,7 @@ class SingleTableFastPathTest extends BaseTestCase
 
     public function testUnionReturnsMergedRows(): void
     {
-        // UNIONs take the fast path (no server table-attributes union columns);
+        // UNIONs take the fast path (no server reports a source table for UNION columns);
         // rows from both arms must come through with the first arm's column names
         $result = DB::query(
             "SELECT num FROM ::users WHERE num = :a UNION SELECT user_id FROM ::orders WHERE user_id = :b ORDER BY num",

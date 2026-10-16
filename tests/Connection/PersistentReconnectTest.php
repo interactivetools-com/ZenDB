@@ -40,8 +40,8 @@ class PersistentReconnectTest extends BaseTestCase
      *
      * captureErrors() doesn't fit here: it collects messages but drops the
      * suppression state, which is the behavior under test. Registering for every
-     * level is deliberate for the same reason as there - PHP routes levels outside
-     * the handler's mask to its own internal handler, not to PHPUnit's.
+     * level is deliberate: PHP sends levels outside the handler's mask to its own
+     * internal handler, not to PHPUnit's.
      *
      * @return array{0: mixed, 1: array<array{errno: int, message: string, suppressed: bool}>}
      */

@@ -13,9 +13,9 @@ require_once dirname(__DIR__, 2) . '/.github/scripts/escape-corpus.php';
 /**
  * Correctness gates for the fast-escape candidates, run against the live
  * connection on every push (the full PHP x DB matrix in tests.yml re-verifies
- * the gate on every supported server for free). The same corpus feeds the
- * benchmark workflows via .github/scripts/escape-corpus.php, so the CI matrix
- * and this suite can never drift apart.
+ * the gate on every supported server for free). The benchmark
+ * workflows load the same corpus from .github/scripts/escape-corpus.php, so the
+ * CI matrix and this suite always test the same strings.
  */
 class EscapeEquivalenceTest extends BaseTestCase
 {
@@ -26,14 +26,14 @@ class EscapeEquivalenceTest extends BaseTestCase
 
     protected function tearDown(): void
     {
-        // Tests below flip charset and sql_mode; always hand the next test a
-        // connection in ZenDB's guaranteed state
+        // Tests below change charset and sql_mode; reset both so the next test
+        // gets ZenDB's default connection settings
         DB::$mysqli->set_charset('utf8mb4');
         DB::$mysqli->query("SET sql_mode = '" . self::$configDefaults['sqlMode'] . "'");
     }
 
     /**
-     * The whole fast path rests on real_escape_string modifying exactly these
+     * The whole fast path depends on real_escape_string modifying exactly these
      * 7 bytes; a server or driver that changes the set fails here first.
      */
     public function testEscapeSetCanary(): void
@@ -44,8 +44,8 @@ class EscapeEquivalenceTest extends BaseTestCase
     }
 
     /**
-     * Byte-identity over the full ~107k-string corpus for the shipping
-     * candidate and its backup primitive.
+     * str_replace (what CMS Builder's backup uses) and strtr (the fallback) must
+     * match real_escape_string byte for byte on all ~107k corpus strings.
      */
     public function testByteIdentityOnCorpus(): void
     {

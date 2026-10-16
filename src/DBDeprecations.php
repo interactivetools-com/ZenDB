@@ -14,7 +14,7 @@ use const DEBUG_BACKTRACE_IGNORE_ARGS, E_USER_DEPRECATED, E_USER_WARNING;
 /**
  * Old and retired DB method names, phased out in stages.
  *
- * Each deprecation sits at one stage of a five-stage ladder and moves down it in
+ * Each deprecation is at one stage of a five-stage ladder and moves down it in
  * later releases, per method, weighed by real-world usage. The stage names say
  * what a caller experiences:
  *
@@ -28,8 +28,8 @@ use const DEBUG_BACKTRACE_IGNORE_ARGS, E_USER_DEPRECATED, E_USER_WARNING;
  *
  * Silent, Logged, and Visible methods are real declared methods in their stage's
  * region below: IDE-visible, type-checked, called directly with no __callStatic()
- * overhead. Fatal and Removed methods no longer exist as methods, so calls land
- * in __callStatic(), which throws for both. Removed needs no code of its own: a
+ * overhead. Fatal and Removed methods no longer exist as methods, so PHP calls
+ * __callStatic() instead, which throws for both. Removed needs no code of its own: a
  * removed method is an undefined name like any other. Moving a method down the
  * ladder is a cut-paste to the next region plus updating its runtime line
  * (Silent: none, Logged: logDeprecation(), Fatal: a match arm in __callStatic).
@@ -39,8 +39,8 @@ use const DEBUG_BACKTRACE_IGNORE_ARGS, E_USER_DEPRECATED, E_USER_WARNING;
  * positional values in an array) are logged inline at their parse sites in
  * ConnectionInternals. If one of those inline chunks grows past a few lines,
  * extract the body to a private method named deprecated*() in the region
- * matching its ladder stage - the live method keeps its signature and a
- * one-line dispatch (see SmartArray's deprecatedWhereArraySyntax()).
+ * matching its ladder stage - the original method keeps its signature and one
+ * line that calls the new method (see SmartArray's deprecatedWhereArraySyntax()).
  */
 trait DBDeprecations
 {
@@ -72,7 +72,7 @@ trait DBDeprecations
     /**
      * @deprecated Use Table::columnDefinitions() instead; note it throws for unknown tables
      *             and invalid names where this returns []
-     * @see        TableInfo::columnDefinitions()
+     * @see        Table::columnDefinitions()
      * @noinspection PhpDeprecationInspection deliberate delegation, Connection::getColumnDefinitions() keeps the []-on-error contract
      */
     #[Deprecated(reason: 'use Table::columnDefinitions() instead')]
@@ -155,9 +155,9 @@ trait DBDeprecations
     //region Fatal & Undefined
 
     /**
-     * Fatal-stage deprecations: the method no longer exists, so the call lands
-     * here and throws with the replacement named. Names that were never methods
-     * get an unknown-method error.
+     * Fatal-stage deprecations: the method no longer exists, so PHP calls this
+     * method instead and it throws with the replacement named. Removed methods and
+     * names that were never methods get an unknown-method error.
      *
      * @noinspection SpellCheckingInspection lowercase method names in match arms
      */
@@ -195,9 +195,9 @@ trait DBDeprecations
      * Log a warning with caller location.
      *
      * Same delivery as logDeprecation() but at E_USER_WARNING, for deprecated
-     * forms that usually signal a latent bug (e.g. a query value used as a
+     * forms that usually signal a hidden bug (e.g. a query value used as a
      * record number without a cast). Error handlers that filter out deprecation
-     * notices still receive warnings, so these always reach the log.
+     * notices still receive warnings.
      *
      * @param string $message Warning message (caller file:line will be appended)
      * @internal

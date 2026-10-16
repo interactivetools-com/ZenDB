@@ -13,8 +13,8 @@ use ReflectionMethod;
 use ReflectionProperty;
 
 /**
- * whereSql(), buildSetClause(), escapef(), and the replacePlaceholders()
- * fast arms carry inlined copies of escapeValue()'s output for speed. These
+ * whereSql(), buildSetClause(), escapef(), escapeCSV(), and replacePlaceholders()
+ * copy some of escapeValue()'s code inline to skip the method call. These
  * tests pin every copy byte-identical to escapeValue() so they can't drift:
  * change how one path escapes and the matching test fails.
  */

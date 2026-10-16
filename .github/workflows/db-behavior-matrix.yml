@@ -55,7 +55,7 @@ jobs:
       # db-matrix.json because tests.yml passes entries straight to its service
       # container and Docker rejects "+" in image tags. Split into {label, image,
       # rocksdb} because service containers need the bare image name and
-      # expressions can't do string surgery
+      # expressions can't split strings
       - name: Read .github/db-matrix.json
         id: load
         env:

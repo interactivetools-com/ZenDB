@@ -31,13 +31,19 @@ class DB
 
     //region Constants
 
-    /** Format string for MySQL DATETIME columns: '2026-03-16 14:30:00' */
+    /**
+     * Format string for MySQL DATETIME columns: '2026-03-16 14:30:00'
+     */
     public const DATETIME = 'Y-m-d H:i:s';
 
-    /** Format string for MySQL DATE columns: '2026-03-16' */
+    /**
+     * Format string for MySQL DATE columns: '2026-03-16'
+     */
     public const DATE = 'Y-m-d';
 
-    /** Format string for MySQL TIME columns: '14:30:00' */
+    /**
+     * Format string for MySQL TIME columns: '14:30:00'
+     */
     public const TIME = 'H:i:s';
 
     //endregion
@@ -49,7 +55,8 @@ class DB
     public static MysqliWrapper|MysqliWrapperReplay|null $mysqli = null;
 
     /**
-     * Identity facts about the connected database server. Set at connect, null when disconnected.
+     * Version, vendor, TLS, and query-log facts about the connected database server.
+     * Set at connect, null when disconnected.
      *
      *     DB::$server->version();  // "10.6.27"
      *
@@ -58,7 +65,8 @@ class DB
     public static ?Server $server = null;
 
     /**
-     * Table prefix prepended to table names (e.g., 'cms_')
+     * Table prefix prepended to table names (e.g., 'cms_'), copied from the default connection
+     * at connect. Assigning it doesn't change the prefix queries use.
      */
     public static string $tablePrefix = '';
 
@@ -91,17 +99,18 @@ class DB
      *     useSmartJoins?:         bool,        // Add `table.column` keys to JOIN results, first-wins on duplicate columns (default: true)
      *     useSmartStrings?:       bool,        // Wrap values in SmartString objects (default: true)
      *     usePhpTimezone?:        bool,        // Sync MySQL timezone with PHP (default: true)
-     *     loadHandler?: callable,    // Custom result loading handler
+     *     loadHandler?:           callable,    // @internal Custom result loading handler, used by CMS Builder; signature may change
      *     versionRequired?:       string,      // Minimum MySQL version or compatible (default: '5.7.32')
-     *     requireSSL?:            bool,        // Require SSL connection (default: false)
+     *     requireSSL?:            bool,        // Encrypt the connection; no certificate verification (default: false)
      *     databaseAutoCreate?:    bool,        // Create database if missing (default: false)
      *     connectTimeout?:        int,         // Connection timeout in seconds (default: 3)
      *     readTimeout?:           int,         // Read timeout in seconds (default: 60)
-     *     queryLogger?:           callable,    // fn(string $query, float $secs, ?Throwable $exception) - logged queries have values inlined, so redacting sensitive data is the callback's job
-     *     sqlMode?:               string,      // MySQL SQL mode
+     *     queryLogger?:           callable,    // @internal fn(string $query, float $secs, ?Throwable $exception) - logged queries have values inlined, so redacting sensitive data is the callback's job; don't run queries from inside the callback; signature may change
+     *     sqlMode?:               string,      // Session sql_mode; '' keeps the server's (default: 'STRICT_ALL_TABLES,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION')
      *     encryptionKey?:         string,      // AES encryption key, sets MySQL @ek session variable on first use
      * } $config
-     * @throws RuntimeException If already connected
+     * @throws RuntimeException If already connected, a required key is missing, or the connection fails
+     * @throws InvalidArgumentException If $config has an unknown key or an invalid tablePrefix
      * @see Connection::__construct()
      * @noinspection PhpFullyQualifiedNameUsageInspection - TODO-PHP82: import SensitiveParameter and drop the FQN; the FQN only keeps PHPStorm quiet at the 8.1 language level
      */
@@ -280,8 +289,8 @@ class DB
      * million rows and PHP holds them all. Pick that number in your code, not from
      * the request.
      *
-     * @param mixed $page The current page number; zero, empty, or invalid input becomes 1
-     * @param mixed $perPage Records per page; zero, empty, or invalid input becomes 10
+     * @param mixed $page The current page number, cast to int and made positive; anything that comes out 0 (empty, non-numeric) becomes 1
+     * @param mixed $perPage Records per page, cast to int and made positive; anything that comes out 0 (empty, non-numeric) becomes 10
      * @return RawSql LIMIT/OFFSET clause
      */
     public static function pagingSql(mixed $page, mixed $perPage = 10): RawSql
@@ -332,7 +341,7 @@ class DB
     //region Encryption
 
     /**
-     * @see Connection::encryptValue()
+     * Wrapper for {@see Connection::encryptValue()}
      * @noinspection PhpFullyQualifiedNameUsageInspection - TODO-PHP82: import SensitiveParameter and drop the FQN; the FQN only keeps PHPStorm quiet at the 8.1 language level
      */
     public static function encryptValue(#[\SensitiveParameter] string|int|float|null|SmartString $value): string|null
@@ -357,7 +366,7 @@ class DB
      *
      * @param string $column Column name, optionally table-qualified ("table.column", one dot max)
      * @return string SQL expression
-     * @see Connection::encryptValue() for the write side (AES_ENCRYPT)
+     * @see Connection::encryptValue() for the write side (encrypts in PHP, same bytes as AES_ENCRYPT)
      */
     public static function decryptExpr(string $column): string
     {

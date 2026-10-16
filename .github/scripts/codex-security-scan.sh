@@ -23,7 +23,7 @@ for entry in *; do
     paths+=(--path "$entry")
 done
 
-# The scan prompt lives here (written to a temp file at runtime) so the repo
+# The scan prompt is kept here (written to a temp file at runtime) so the repo
 # needs no scratch file. It says what the library promises and lists the
 # documented decisions; without that, the scanner reports rawSql(), {{column}}
 # and the other developer-trusted routes as findings instead of tracing what

@@ -73,7 +73,7 @@ foreach ($cells as $data) {
 
 echo "## Escape matrix: B-vs-A ratios (>1.00 = candidate faster)\n\n";
 
-// Correctness status: any failure anywhere is a headline, not a footnote
+// Correctness status prints above the grid, so a failure anywhere shows before any ratio
 $corpusBad = [];
 foreach ($cells as $label => $data) {
     foreach (($data['corpus']['escapers'] ?? []) as $fn => $ok) {

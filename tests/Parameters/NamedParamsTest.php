@@ -215,7 +215,7 @@ class NamedParamsTest extends BaseTestCase
                 'description'   => 'NULL parameter becomes SQL NULL',
                 'sql'           => 'SELECT * FROM ::users WHERE isAdmin = :admin',
                 'params'        => [':admin' => null],
-                'expectedCount' => 0, // NULL = NULL is false in SQL
+                'expectedCount' => 0, // NULL = NULL is never true in SQL
             ],
         ];
     }

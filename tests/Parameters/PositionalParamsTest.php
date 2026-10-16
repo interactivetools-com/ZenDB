@@ -65,7 +65,7 @@ class PositionalParamsTest extends BaseTestCase
     public function testPositionalParamWithNull(): void
     {
         $result = DB::query("SELECT * FROM ::users WHERE isAdmin IS NULL OR isAdmin = ?", null);
-        // NULL = NULL is always false in SQL, but IS NULL should still work
+        // NULL = NULL is never true in SQL, but IS NULL should still work
         $this->assertCount(4, $result);
     }
 

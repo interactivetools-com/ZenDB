@@ -15,8 +15,11 @@ use const ENT_DISALLOWED, ENT_HTML5, ENT_QUOTES, ENT_SUBSTITUTE, MYSQLI_TYPE_BLO
  * Internal methods for DB.
  *
  * Handles:
- * - Default connection management
- * - Escape methods (escape, escapef, escapeCSV, whereSql)
+ * - The default connection
+ * - Escaping (escape, escapef, escapeCSV, whereSql, floatToSql, h)
+ * - Identifier checks (isIdentifier, assertIdentifier)
+ * - Encrypted columns (decryptRows, getEncryptedColumns)
+ * - PHP's timezone for MySQL (phpTimezoneForMysql)
  */
 trait DBInternals
 {
@@ -28,10 +31,8 @@ trait DBInternals
     private static ?Connection $db = null;
 
     /**
-     * Names that passed assertIdentifier(), precached with common ones. Call sites
+     * Names that passed isIdentifier(), prefilled with common ones. Call sites
      * check here first and skip the call for names already seen.
-     *
-     * TODO-PHP83: initializer can become array_flip(['num', 'id', ...]) - same speed
      *
      * @internal
      */
@@ -144,7 +145,7 @@ trait DBInternals
      *
      *     round(0.1 + 0.2, 2)          →  0.3                    rounded to a precision you chose
      *     (string)(0.1 + 0.2)          →  '0.3'                  strings pass through untouched...
-     *     (string)12345678901234568.0  →  '1.2345678901235E+16'  ...but the cast E-notates large floats
+     *     (string)12345678901234568.0  →  '1.2345678901235E+16'  ...but the cast writes large floats in E notation
      *
      * For exact values, use ints of the smallest unit (cents, not dollars) or a
      * DECIMAL column with string input.
@@ -171,7 +172,7 @@ trait DBInternals
      * inline in interpolated strings:
      *
      *     $h = self::h(...);
-     *     throw new RuntimeException("Unknown key '{$h($key)}', expected a column name");
+     *     throw new RuntimeException("Unknown key `{$h($key)}`, expected a column name");
      *
      * @internal
      */
@@ -249,7 +250,7 @@ trait DBInternals
      * Detect encrypted columns from field metadata. Returns column names for MEDIUMBLOB fields,
      * which are the standard storage type for AES_ENCRYPT() data.
      *
-     * Called automatically by query methods when an encryption key is configured.
+     * Called automatically by query methods when `encryptionKey` is set.
      * You don't normally need to call this directly.
      *
      *     $encryptedCols = DB::getEncryptedColumns($result->fetch_fields());
@@ -261,7 +262,7 @@ trait DBInternals
     {
         $encrypted = [];
         foreach ($fetchFields as $index => $field) {
-            $isMediumBlob = $field->type === MYSQLI_TYPE_BLOB && $field->charsetnr === 63 && $field->length === 16_777_215;
+            $isMediumBlob = $field->type === MYSQLI_TYPE_BLOB && $field->charsetnr === 63 && $field->length === 16_777_215; // charsetnr 63 = binary (BLOB, not TEXT), length 16_777_215 = MEDIUMBLOB (not TINY, plain, or LONG)
             if ($isMediumBlob) {
                 $encrypted[$index] = $field->name;
             }
@@ -275,7 +276,7 @@ trait DBInternals
     /**
      * PHP's current timezone expressed as a value MySQL's SET time_zone accepts.
      * Used at connect when `usePhpTimezone` is set; call it yourself after changing
-     * PHP's timezone mid-request to bring the database session back in step:
+     * PHP's timezone mid-request so the database session uses the new timezone too:
      *
      *     date_default_timezone_set('Pacific/Kiritimati');
      *     DB::query("SET time_zone = ?", DB::phpTimezoneForMysql());
@@ -283,7 +284,7 @@ trait DBInternals
      * Returns PHP's UTC offset (e.g. "-08:00"), except offsets past +13:00 (Kiritimati
      * +14:00, Chatham +13:45 in DST), which MariaDB and MySQL before 8.0.19 reject with
      * error 1298 (bug #63685). Those return an IANA name instead, which needs the
-     * mysql.time_zone tables: Linux servers ship them loaded, Windows installs ship them
+     * mysql.time_zone tables: most Linux packages load them, Windows installs ship them
      * empty and reject the name with "Unknown or incorrect time zone" until they're
      * loaded (import MySQL's downloadable timezone package into the mysql schema and
      * restart: https://dev.mysql.com/downloads/timezones.html).

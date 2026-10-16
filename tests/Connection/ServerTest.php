@@ -204,8 +204,9 @@ class ServerTest extends BaseTestCase
 
 /**
  * Fakes the mysqli members Server reads: the server_info property and the queries
- * behind vendor detection and the SSL checks. Extends stdClass to satisfy Server's
- * mysqli|stdClass type. $haveSSL null = variable doesn't exist (MySQL/Percona 8.4+).
+ * behind vendor detection, the SSL checks and the general query log check. Extends
+ * stdClass to satisfy Server's constructor type. $haveSSL null = variable doesn't
+ * exist (MySQL/Percona 8.4+).
  */
 class FakeMysqli extends stdClass
 {

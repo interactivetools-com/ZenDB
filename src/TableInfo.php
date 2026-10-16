@@ -19,8 +19,8 @@ use const MYSQLI_ASSOC, PREG_OFFSET_CAPTURE;
  * names() and namesFull() list the tables themselves.
  *
  * Every connection has one, bound to its table prefix. Set at connect, null when disconnected.
- * The Table class is the static front door for the default connection; reach an instance
- * directly for any other connection:
+ * The Table class calls these same methods statically on the default connection; for any
+ * other connection, call them on that connection's ->table:
  *
  *     Table::exists('users');                                        // default connection
  *     DB::clone(['tablePrefix' => 'cms_'])->table->exists('pages');  // clone with its own prefix
@@ -60,7 +60,7 @@ class TableInfo
     /**
      * Check whether a table exists and can be queried. An invalid name throws, same as
      * every other method that takes a table name; a missing table, broken view, or
-     * missing privilege answers false. A connection failure also throws - there's no
+     * missing privilege returns false. A connection failure also throws - there's no
      * answer to report, and every query behaves the same way there.
      *
      *     Table::exists('articles');       // true
@@ -211,8 +211,9 @@ class TableInfo
      *
      * Field notes:
      *   - type: the full column type, e.g. 'varchar(255)' or 'decimal(10,2) unsigned'. Deprecated int display
-     *     widths are cropped ('int(11)' → 'int') so type reads the same on every server; tinyint(1) (boolean
-     *     marker) and zerofill columns (width sets the padding) keep theirs, matching MySQL 8's output
+     *     widths are cropped ('int(11)' → 'int') so type reads the same on every server; plain signed
+     *     tinyint(1) (boolean marker) and zerofill columns (width sets the padding) keep theirs,
+     *     matching MySQL 8's output
      *   - extra: e.g. 'auto_increment', 'on update CURRENT_TIMESTAMP', 'VIRTUAL GENERATED', 'STORED GENERATED'
      *   - charset: null for non-text columns
      *   - default values are deliberately not returned: servers report information_schema's COLUMN_DEFAULT
@@ -295,9 +296,10 @@ class TableInfo
      *     'utf8mb3_*' collations → 'utf8_*'): same charset either way, and utf8 is the only spelling every
      *     supported server accepts in DDL (MySQL 5.7 rejects utf8mb3)
      *   - collations that are some server version's built-in default (utf8mb4_general_ci, utf8mb4_0900_ai_ci,
-     *     utf8mb4_uca1400_ai_ci, latin1_swedish_ci, ...) are stripped: servers disagree on whether the
-     *     default is printed at all and on which collation it is, so on replay each server applies its own.
-     *     Deliberate collations like utf8mb4_bin survive. For the server's verbatim DDL use showCreateTable()
+     *     utf8mb4_uca1400_ai_ci, latin1_swedish_ci, ...), plus the common utf8mb4_unicode_ci pin,
+     *     are stripped: servers disagree on whether the default is printed at all and on which collation it
+     *     is, so on replay each server applies its own. Deliberate collations like utf8mb4_bin survive. For
+     *     the server's verbatim DDL use showCreateTable()
      *   - deprecated display widths are cropped ('int(11)' → 'int', 'year(4)' → 'year'), same as columns();
      *     plain signed tinyint(1) (boolean marker) and zerofill columns (width sets the padding) keep theirs
      *   - MariaDB's default spelling current_timestamp() is normalized to MySQL's CURRENT_TIMESTAMP
@@ -315,11 +317,9 @@ class TableInfo
      *
      * Column CHECK clauses appear in different places in the same SHOW CREATE output: MariaDB
      * keeps them inline on the column line, so they show up here (and MODIFY COLUMN drops a
-     * CHECK unless it's restated); MySQL/Percona 8.0+ hoist them into auto-named CONSTRAINT
+     * CHECK unless it's restated); MySQL/Percona 8.0+ move them into auto-named CONSTRAINT
      * lines the parser skips, and 5.7 discards CHECK entirely.
      * See docs/internal/db-behavior-matrix.md (2026-07).
-     *
-     * Known limit: a column COMMENT containing a newline breaks the line-based parse for that column.
      *
      * @param string $baseTable Table name without prefix
      * @return array<string, string> columnName => definition SQL
@@ -395,7 +395,8 @@ class TableInfo
 
     /**
      * Normalize a CREATE TABLE statement for cross-server portability. String in, string out:
-     * no queries run, and text inside quotes (COMMENT, DEFAULT, enum values) is never modified.
+     * no queries run, and quoted text on column lines (COMMENT, DEFAULT, enum values)
+     * is never modified.
      *
      *     $sql = Table::normalizeCreateTable(Table::showCreateTable('articles'));
      *
@@ -407,10 +408,11 @@ class TableInfo
      *   - column-level CHARACTER SET / COLLATE clauses matching the table's own defaults are
      *     removed as noise: a column without them inherits those same defaults back
      *   - collations that are some server version's built-in default (utf8mb4_general_ci,
-     *     utf8mb4_0900_ai_ci, utf8mb4_uca1400_ai_ci, ...) are removed from columns and table
-     *     options, so each server applies its own default on replay and the statement never
-     *     names a collation the target server doesn't have (MariaDB's uca1400 names don't
-     *     exist on MySQL). Intentional collations like utf8mb4_bin are kept
+     *     utf8mb4_0900_ai_ci, utf8mb4_uca1400_ai_ci, ...), plus the common
+     *     utf8mb4_unicode_ci pin, are removed from columns and table options, so each
+     *     server applies its own default on replay and the statement never names
+     *     a collation the target server doesn't have (MariaDB's uca1400 names don't exist
+     *     on MySQL). Intentional collations like utf8mb4_bin are kept
      *   - the utf8mb3 charset rename is spelled the old way on columns and table options
      *     ('CHARACTER SET utf8mb3' / 'CHARSET=utf8mb3' → utf8, 'utf8mb3_*' collations →
      *     'utf8_*'): same charset either way, and MySQL 5.7 rejects the utf8mb3 spelling in DDL
@@ -472,8 +474,8 @@ class TableInfo
 
     /**
      * Normalize one column definition so it reads the same from every supported server and
-     * replays on every supported server. The single pipeline behind columnDefinitions() and
-     * normalizeCreateTable(): both call it, so they always agree on what a column looks like.
+     * replays on every supported server. columnDefinitions() and
+     * normalizeCreateTable() both call it, so they always agree on what a column looks like.
      *
      *     int(11) NOT NULL DEFAULT 0                      →  int NOT NULL DEFAULT '0'
      *     mediumtext DEFAULT NULL                         →  mediumtext
@@ -524,7 +526,7 @@ class TableInfo
     }
 
     /**
-     * Hide quoted text behind placeholders so normalization regexes can't touch it, then
+     * Replace quoted text with placeholders so normalization regexes can't match it, then
      * restore it afterward with strtr():
      *
      *     [$sql, $literals] = self::maskStringLiterals("varchar(255) DEFAULT 'a, b' COMMENT 'not int(11)'");
@@ -567,7 +569,8 @@ class TableInfo
      * Details: the ") ENGINE=..." line is found by prefix, not position (partitioned tables
      * append PARTITION lines after it); CHARSET and COLLATE are handled separately because
      * COLLATE is often omitted; \w+ captures can't pick up regex syntax from a mangled line;
-     * and the trailing \b stops a utf8 default from eating the front of a column's utf8mb4.
+     * and the trailing \b stops a utf8 default from matching the utf8 at the start of
+     * a column's utf8mb4.
      *
      * @param string $createTableSql Full CREATE TABLE statement
      * @return string The statement with redundant column charset/collate clauses removed
@@ -626,9 +629,9 @@ class TableInfo
      * Those columns come from pre-utf8mb4 installs and old backups, so without the rewrite the
      * same column reads differently per server and DDL from new servers fails to replay on old ones.
      *
-     * TODO-MYSQL80: dropping MySQL 5.7 doesn't retire this - the renamed servers still print
-     * utf8mb3 while older DDL says utf8, so one canonical spelling is still needed. Re-evaluate
-     * at the bump anyway.
+     * TODO-MYSQL80: dropping MySQL 5.7 doesn't remove the need for this - the renamed servers
+     * still print utf8mb3 while older DDL says utf8, so one canonical spelling is still needed.
+     * Re-evaluate anyway when the minimum is raised to MySQL 8.0.
      *
      * @param string $maskedSql DDL text with string literals already masked
      * @return string The text with utf8mb3 spellings rewritten to utf8
@@ -651,7 +654,7 @@ class TableInfo
      *     int GENERATED ALWAYS AS ((`num` * 2)) VIRTUAL  →  int GENERATED ALWAYS AS (`num` * 2) VIRTUAL
      *
      * Only a pair wrapping the ENTIRE expression is redundant: in AS ((`a` + 1) * (`b` + 2))
-     * the leading paren closes mid-expression, so the strip walks parens instead of trusting
+     * the leading paren closes mid-expression, so the code counts paren depth instead of using
      * a regex. Callers mask string literals first, so parens in quoted text can't miscount.
      *
      * @param string $maskedDefinition Column definition with string literals already masked
@@ -1017,7 +1020,7 @@ class TableInfo
     /** The connection whose tablePrefix applies */
     private Connection $db;
 
-    /** Raw handle for this class's queries: plain-array results, immune to connection settings */
+    /** Raw handle for this class's queries: plain-array results, unaffected by connection settings */
     private MysqliWrapper|MysqliWrapperReplay $mysqli;
 
     public function __construct(Connection $db)

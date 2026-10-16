@@ -119,7 +119,6 @@ class SmartArrayIntegrationTest extends BaseTestCase
 
         // Get with default for missing key - returns SmartString wrapping the default
         $missing = $row->get('nonexistent', 'default');
-        // SmartString wraps the default
         $this->assertSame('default', $missing->value());
     }
 
@@ -301,11 +300,10 @@ class SmartArrayIntegrationTest extends BaseTestCase
     {
         $result = DB::select('users', 'ORDER BY num LIMIT 3');
         // map() callback receives the row as array when iterating
-        // The SmartString needs to be converted to value first via string cast
         $upperNames = $result->map(fn($row) => strtoupper((string) $row['name']));
 
         $this->assertCount(3, $upperNames);
-        // first() returns SmartString, use value() to get raw value
+        // first() returns a SmartString, so cast it to compare
         $this->assertSame('JOHN DOE', (string) $upperNames->first());
     }
 

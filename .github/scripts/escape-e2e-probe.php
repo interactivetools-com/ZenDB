@@ -333,9 +333,8 @@ $censusOps = [
         $stmt->fetchAll();
     },
 ];
-// PDO sessions have their own counters; census only makes sense per connection,
-// so PDO channels are censused against the mysqli session they don't use and
-// would read zero. Census PDO channels on their own connections via a raw query.
+// Session counters are per connection, so the mysqli session would read zero for
+// the PDO channels. Each PDO channel reads SHOW SESSION STATUS on its own connection.
 foreach ($censusOps as $name => $op) {
     $conn = match (true) {
         str_starts_with($name, 'pdo-native')   => $pdoNative,

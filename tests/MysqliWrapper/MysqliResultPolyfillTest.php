@@ -278,7 +278,7 @@ class MysqliResultPolyfillTest extends BaseTestCase
         $result->free();
 
         // The buffered rows are gone: fetching after free() fails on the freed statement
-        // (native mysqli throws "already closed" here; the polyfill surfaces the stmt error)
+        // (native mysqli throws "already closed" here; the polyfill throws the statement's error)
         $this->expectException(\mysqli_sql_exception::class);
         $result->fetch_assoc();
     }

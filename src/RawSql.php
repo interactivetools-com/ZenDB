@@ -9,10 +9,10 @@ namespace Itools\ZenDB;
  * Use this for SQL functions, expressions, or pre-escaped values:
  *
  *     DB::insert('users', [
- *         'name'       => $userName,              // Escaped: "O'Brien"
+ *         'name'       => $userName,              // Escaped: 'O\'Brien'
  *         'created_at' => DB::rawSql('NOW()'),    // Raw: NOW()
- *         'sort_order' => DB::rawSql('num + 1'),  // Raw: num + 1
  *     ]);
+ *     DB::update('articles', ['views' => DB::rawSql('views + 1')], ['id' => 42]); // Raw: views + 1
  *
  * WARNING: Never pass user input to rawSql() - it bypasses all escaping.
  */

@@ -61,7 +61,7 @@ class ArrayParamsTest extends BaseTestCase
 
     public function testEmptyArrayBecomesNull(): void
     {
-        // Empty array becomes NULL, which matches nothing in IN clause
+        // Empty array becomes a zero-row subquery, so IN matches nothing
         $result = DB::query("SELECT * FROM ::users WHERE num IN (:ids)", [':ids' => []]);
         $this->assertCount(0, $result);
     }

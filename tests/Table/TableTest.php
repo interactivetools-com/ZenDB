@@ -747,7 +747,7 @@ final class TableTest extends TestCase
     #[Test]
     public function quotedStringNullStaysAStringValue(): void
     {
-        // the corruption artifact Backup.php repairs on restore; in DDL the quotes make it unambiguous
+        // a corrupted value that CMS Builder's Backup.php repairs on restore; in DDL the quotes make it unambiguous
         $this->assertSame('NULL', Table::defaultFromDefinition("varchar(20) DEFAULT 'NULL'"));
     }
 
@@ -832,7 +832,7 @@ final class TableTest extends TestCase
     #[Test]
     public function fkBackingIndexesAreNotCustom(): void
     {
-        // MySQL auto-creates an index (named after the column, no _auto_ prefix) to back a FOREIGN KEY.
+        // MySQL auto-creates an index (no _auto_ prefix; its name varies by server) to back a FOREIGN KEY.
         // Index column and constraint column use different casing to prove the match is case-insensitive
         // on both sides, like MySQL itself.
         $indexes = self::parse([
@@ -925,7 +925,7 @@ final class TableTest extends TestCase
     #[Test]
     public function returnsEmptyArrayForNoRows(): void
     {
-        // a table with no indexes (or a filtered-to-nothing result) must not warp into a stray entry
+        // a table with no indexes (or a filtered-to-nothing result) must not produce a stray entry
         $this->assertSame([], self::parse([]));
         $this->assertSame([], self::parse([], [['a', 'b']]));
     }

@@ -41,7 +41,7 @@ class MysqliStmtWrapperTest extends BaseTestCase
 
         $conn = new Connection(self::$configDefaults);
 
-        // Create a valid statement first
+        // Add id 1 so the insert below hits a duplicate key
         $conn->mysqli->query("DROP TEMPORARY TABLE IF EXISTS stmt_test");
         $conn->mysqli->query("CREATE TEMPORARY TABLE stmt_test (id INT PRIMARY KEY)");
         $conn->mysqli->query("INSERT INTO stmt_test VALUES (1)");
@@ -55,7 +55,7 @@ class MysqliStmtWrapperTest extends BaseTestCase
 
     public function testGetResultWithoutForcePolyfill(): void
     {
-        // Test the normal path (not using polyfill)
+        // Native get_result() path (the execute_query() polyfill still runs)
         MysqliWrapper::$forceExecuteQueryPolyfill = true;
         MysqliStmtWrapper::enableTestResultPolyfill(false);
 
@@ -154,7 +154,7 @@ class MysqliStmtWrapperTest extends BaseTestCase
         // get_result() maps no-field statements to false, matching native mysqlnd
         $this->assertFalse($stmt->get_result());
 
-        // The fetch_array() no-fields guard is only reachable by constructing the
+        // The fetch_array() no-fields check is only reachable by constructing the
         // polyfill directly; result_metadata() is false here so fieldObjects is empty
         $result = new MysqliResultPolyfill($stmt);
         $this->assertNull($result->fetch_array());

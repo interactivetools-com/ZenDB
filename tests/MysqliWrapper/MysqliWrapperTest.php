@@ -164,8 +164,7 @@ class MysqliWrapperTest extends BaseTestCase
             }
         ]));
 
-        // real_query is used internally for some operations
-        // Trigger it via multi-statement or specific operations
+        // ZenDB only calls real_query() for the SET on connect, so call it directly here
 
         $conn->mysqli->real_query("SET @test = 1");
 

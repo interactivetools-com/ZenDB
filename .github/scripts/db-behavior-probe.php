@@ -77,7 +77,7 @@ try {
         '@@basedir'          => $basedir,
         '@@datadir'          => $datadir,
         '@@GLOBAL.sql_mode'  => $sqlMode,
-        // databaseAutoCreate hardcodes this collation in CREATE DATABASE
+        // utf8mb4_unicode_ci is the usual explicit collation pin, chosen because every server has it
         'utf8mb4_unicode_ci collation' => $mysqli->query("SHOW COLLATION LIKE 'utf8mb4_unicode_ci'")->num_rows ? 'available' : 'missing',
     ];
 } catch (mysqli_sql_exception $e) {
@@ -124,7 +124,7 @@ echo "### TLS / SSL\n\n";
 echo mdTable($sslProbes);
 
 //
-// SHOW CREATE TABLE - raw output for a fixture that hits every getColumnDefinitions()
+// SHOW CREATE TABLE - raw output for a fixture that hits every columnDefinitions()
 // normalization: display widths, tinyint(1) variants, year, column-level charset,
 // timestamp default spelling, a column comment, and the implicit DEFAULT NULL MariaDB
 // prints on nullable text columns
@@ -196,8 +196,8 @@ echo mdTable($createProbes);
 
 //
 // ZEROFILL - definition round-trip, and how values come back over the text vs prepared
-// (binary) protocols. ZenDB runs everything as prepared statements, so a protocol
-// difference in padding is what real result sets would show
+// (binary) protocols. ZenDB sends plain SQL text (the text protocol), so the text
+// value is what ZenDB result sets show; the prepared value is there for comparison
 //
 try {
     $mysqli->query("DROP TABLE IF EXISTS zdb_probe_special");
@@ -485,9 +485,9 @@ echo mdTable($fieldProbes);
 
 //
 // Temporary table visibility - which listing commands include temp tables, and what
-// INFORMATION_SCHEMA reports for them. getTableNames() filters INFORMATION_SCHEMA on
+// INFORMATION_SCHEMA reports for them. TableInfo::namesFull() filters INFORMATION_SCHEMA on
 // TABLE_TYPE = 'BASE TABLE' because SHOW TABLES LIKE is unreliable (MDEV-32973), so
-// the INFORMATION_SCHEMA rows are the ones that keep that workaround honest
+// the INFORMATION_SCHEMA rows show whether that workaround still works
 //
 try {
     $mysqli->query("DROP VIEW IF EXISTS zdb_probe_view");
@@ -545,7 +545,7 @@ echo "### Numeric literals\n\n";
 echo mdTable($literalProbes);
 
 //
-// NULL in IN lists - why escapeCSV() rejects null values
+// NULL in IN lists - why escapeCSV() skips null values
 //
 try {
     $row = $mysqli->query("SELECT 1 IN (1, NULL), 2 IN (1, NULL), 2 NOT IN (1, NULL)")->fetch_row();
@@ -623,7 +623,7 @@ echo mdTable($loggingProbes);
 // Bare TIMESTAMP defaults - with explicit_defaults_for_timestamp OFF (MySQL 5.7
 // default, MariaDB before 10.10) the server silently adds DEFAULT CURRENT_TIMESTAMP
 // ON UPDATE CURRENT_TIMESTAMP to the first bare TIMESTAMP column, so the same DDL
-// produces different getColumnDefinitions() results per server
+// produces different columnDefinitions() results per server
 //
 try {
     $explicitDefaults = $mysqli->query("SHOW VARIABLES WHERE Variable_name = 'explicit_defaults_for_timestamp'")->fetch_row();
@@ -726,7 +726,7 @@ echo mdTable($defaultProbes);
 //
 // Connection collation - set_charset('utf8mb4') leaves the collation at each server's
 // utf8mb4 default (general_ci, 0900_ai_ci, or uca1400 depending on engine/version),
-// while databaseAutoCreate hardcodes utf8mb4_unicode_ci, so mixed comparisons and
+// while schemas often pin utf8mb4_unicode_ci explicitly, so mixed comparisons and
 // dump portability depend on what these actually resolve to
 //
 try {
@@ -1097,13 +1097,13 @@ echo "### Zero and invalid dates\n\n";
 echo mdTable($zeroDateProbes);
 
 //
-// Charset in the connection handshake - a proposed connect() change sends utf8mb4
-// inside the handshake packet (options MYSQLI_SET_CHARSET_NAME before real_connect)
-// instead of paying set_charset()'s round trip after connecting. Safe only if both
+// Charset in the connection handshake - connect() sends utf8mb4 inside the
+// handshake packet (options MYSQLI_SET_CHARSET_NAME before real_connect) and skips
+// set_charset()'s round trip on MariaDB and 5.7-family servers. Safe only if both
 // routes leave the session in the same state on every server: same character_set_*
 // values and the same collation_connection (each server resolves its own utf8mb4
-// default collation). The last probe covers the companion change of adding
-// character_set_client/connection/results to the connect-time SET statement: setting
+// default collation). The last probe checks whether adding
+// character_set_client/connection/results to a SET statement is safe: setting
 // character_set_connection must reset collation_connection to the server's utf8mb4
 // default even when another collation was active, the way SET NAMES does
 //
@@ -1241,8 +1241,8 @@ try {
     // what the reused session actually has. set_charset() changes client and server
     // state together; the three SQL statements change only the server, so mysqlnd may
     // unknowingly send the stale or the correct charset on reuse - that's the question.
-    // The answer decides whether a persistent flag needs a set_charset guard on the
-    // servers where fresh connects skip it (MariaDB and pre-8.0)
+    // The answer decides whether pooled (p:) connections need a set_charset() call on
+    // the servers where fresh connects skip it (MariaDB and pre-8.0)
     $dirtyStyles = [
         'set_charset(latin1)'    => fn(mysqli $c) => $c->set_charset('latin1'),
         'SET NAMES latin1'       => fn(mysqli $c) => $c->query("SET NAMES latin1"),
@@ -1450,9 +1450,9 @@ try {
         ($sameThread ? '' : 'NEW THREAD (reflects a fresh connection, not a pool reset); ')
         . "$whilePooled while pooled, $afterReuse after reuse";
 
-    // Dead pooled connections: the docs promise replacement with no error, no
-    // warning, and a fresh server thread. Collect PHP warnings too - mysqlnd could
-    // recover but still warn, which would fail the "silent" half of the claim
+    // Dead pooled connections: the docs promise replacement with no error and a fresh
+    // server thread, and say ZenDB suppresses the one warning a server can raise.
+    // Collect PHP warnings too, so the report shows which servers raise it
     $probeRecovery = function (int $deadThreadId) use ($openPooled): string {
         $phpWarnings = [];
         set_error_handler(function (int $errno, string $message) use (&$phpWarnings): bool {
@@ -1506,12 +1506,12 @@ echo "### Persistent connection reuse - locks, flags, and recovery\n\n";
 echo mdTable($persistentStateProbes);
 
 //
-// UNION column attribution - query()'s single-table fast path conservatively rejects
-// UNION templates. The fast path would be safe for UNIONs only if fetch_fields()
-// never attributes union result columns to tables (empty table/orgtable on every
-// server): then the metadata path can't add SmartJoins keys, and duplicate columns
-// are still caught structurally. The single-SELECT control proves the probe reads
-// attribution correctly; the verdict row is the ship/no-ship answer
+// UNION column attribution - query()'s single-table fast path accepts UNION
+// templates, which is safe only while fetch_fields() never attributes union result
+// columns to tables (empty table/orgtable on every server): then the metadata path
+// can't add SmartJoins keys, and duplicate columns are still caught structurally.
+// The single-SELECT control proves the probe reads attribution correctly; the last
+// row says whether the fast path is still safe for UNION
 //
 try {
     $mysqli->query("DROP TABLE IF EXISTS zdb_probe_u1, zdb_probe_u2");

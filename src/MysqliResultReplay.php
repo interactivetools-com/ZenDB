@@ -26,8 +26,9 @@ use const MYSQLI_ASSOC, MYSQLI_BOTH, MYSQLI_NUM;
  *
  * Field descriptors accept every property mysqli's fetch_fields() reports
  * (orgname, table, orgtable, type, flags, ...); only 'name' is required for
- * plain fetches, while ZenDB's smart joins and encryption detection read the
- * others when present.
+ * plain fetches. Smart joins read table, orgtable, and orgname. When
+ * `encryptionKey` is set, every descriptor also needs type, charsetnr, and
+ * length, or encryption detection raises an "Undefined property" warning.
  */
 class MysqliResultReplay
 {
@@ -138,7 +139,7 @@ class MysqliResultReplay
     }
 
     /**
-     * Rows live in PHP arrays, so the cleanup methods have nothing to release;
+     * Rows are stored in PHP arrays, so the cleanup methods have nothing to release;
      * they exist so result-handling code can call them on either result type.
      */
     public function free(): void

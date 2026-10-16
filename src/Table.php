@@ -10,10 +10,10 @@ use const PREG_OFFSET_CAPTURE;
 /**
  * INTERNAL: Method names and return values may change between releases.
  *
- * Static front door to {@see TableInfo}, which reads the MySQL-level facts about a table:
+ * Static wrapper for {@see TableInfo}, which reads the MySQL-level facts about a table:
  * whether it exists, its columns, its CREATE TABLE statement, its primary key, its indexes,
- * and its FOREIGN KEY constraints. Every method here runs on the default connection; for any
- * other connection call the same methods on its own instance:
+ * and its FOREIGN KEY constraints. Every method that queries the server runs on the default
+ * connection; for any other connection call the same methods on its own instance:
  *
  *     Table::exists('users');                                        // default connection
  *     DB::clone(['tablePrefix' => 'cms_'])->table->exists('pages');  // clone with its own prefix
@@ -22,25 +22,33 @@ class Table
 {
     //region Tables
 
-    /** Wrapper for {@see TableInfo::exists()} */
+    /**
+     * Wrapper for {@see TableInfo::exists()}
+     */
     public static function exists(string $baseTable): bool
     {
         return DB::connection()->table->exists($baseTable);
     }
 
-    /** Wrapper for {@see TableInfo::existsFull()} */
+    /**
+     * Wrapper for {@see TableInfo::existsFull()}
+     */
     public static function existsFull(string $fullTable): bool
     {
         return DB::connection()->table->existsFull($fullTable);
     }
 
-    /** Wrapper for {@see TableInfo::names()} */
+    /**
+     * Wrapper for {@see TableInfo::names()}
+     */
     public static function names(): array
     {
         return DB::connection()->table->names();
     }
 
-    /** Wrapper for {@see TableInfo::namesFull()} */
+    /**
+     * Wrapper for {@see TableInfo::namesFull()}
+     */
     public static function namesFull(): array
     {
         return DB::connection()->table->namesFull();
@@ -49,25 +57,33 @@ class Table
     //endregion
     //region Columns
 
-    /** Wrapper for {@see TableInfo::hasColumn()} */
+    /**
+     * Wrapper for {@see TableInfo::hasColumn()}
+     */
     public static function hasColumn(string $baseTable, string $columnName): bool
     {
         return DB::connection()->table->hasColumn($baseTable, $columnName);
     }
 
-    /** Wrapper for {@see TableInfo::columns()} */
+    /**
+     * Wrapper for {@see TableInfo::columns()}
+     */
     public static function columns(string $baseTable): array
     {
         return DB::connection()->table->columns($baseTable);
     }
 
-    /** Wrapper for {@see TableInfo::columnNames()} */
+    /**
+     * Wrapper for {@see TableInfo::columnNames()}
+     */
     public static function columnNames(string $baseTable): array
     {
         return DB::connection()->table->columnNames($baseTable);
     }
 
-    /** Wrapper for {@see TableInfo::columnDefinitions()} */
+    /**
+     * Wrapper for {@see TableInfo::columnDefinitions()}
+     */
     public static function columnDefinitions(string $baseTable): array
     {
         return DB::connection()->table->columnDefinitions($baseTable);
@@ -88,10 +104,10 @@ class Table
      * This is the one cross-server way to read a default: information_schema's COLUMN_DEFAULT reports
      * in incompatible forms (MariaDB returns DDL text, MySQL raw values), while SHOW CREATE TABLE is
      * identical in meaning everywhere. Quoted literals are unquoted and unescaped; expression defaults
-     * (current_timestamp(), MySQL 8's parenthesized expressions) return as their SQL text. Returns null
+     * (CURRENT_TIMESTAMP, parenthesized expressions like (uuid())) return as their SQL text. Returns null
      * for both DEFAULT NULL and no DEFAULT clause: MySQL treats those the same on nullable columns.
      *
-     * Lives here rather than on TableInfo because it only parses the string you pass it:
+     * Defined here rather than on TableInfo because it only parses the string you pass it:
      * no connection involved.
      *
      * Generated columns return null: they can't have a DEFAULT clause, so any DEFAULT text in
@@ -114,15 +130,16 @@ class Table
         }
         $valueOffset = (int)$match[0][1] + strlen('DEFAULT ');
 
-        // the value is a parenthesized expression (parens in quoted text are masked, so a plain
-        // walk balances them) or a single token: a masked string literal, 0, NULL, current_timestamp()
+        // the value is a parenthesized expression (parens in quoted text are masked, so a simple
+        // paren count finds the closing one) or a single token: a masked string literal, 0,
+        // NULL, current_timestamp()
         if (($masked[$valueOffset] ?? '') === '(') {
             $close = TableInfo::matchingParenPos($masked, $valueOffset);
             if ($close === null) {
                 return null;
             }
             $value = substr($masked, $valueOffset, $close - $valueOffset + 1);
-        } elseif (preg_match('/\G[^\s,]+/', $masked, $valueMatch, 0, $valueOffset)) { // stop at the column separator; quoted commas are masked
+        } elseif (preg_match('/\G[^\s,]+/', $masked, $valueMatch, 0, $valueOffset)) { // the value up to the next whitespace or comma (column separator); quoted spaces and commas are masked
             $value = $valueMatch[0];
         } else {
             return null; // nothing after DEFAULT: not a shape any server prints
@@ -151,7 +168,9 @@ class Table
     //endregion
     //region Create Table
 
-    /** Wrapper for {@see TableInfo::showCreateTable()} */
+    /**
+     * Wrapper for {@see TableInfo::showCreateTable()}
+     */
     public static function showCreateTable(string $baseTable): string
     {
         return DB::connection()->table->showCreateTable($baseTable);
@@ -178,13 +197,17 @@ class Table
     //endregion
     //region Indexes
 
-    /** Wrapper for {@see TableInfo::primaryKey()} */
+    /**
+     * Wrapper for {@see TableInfo::primaryKey()}
+     */
     public static function primaryKey(string $baseTable): string
     {
         return DB::connection()->table->primaryKey($baseTable);
     }
 
-    /** Wrapper for {@see TableInfo::indexes()} */
+    /**
+     * Wrapper for {@see TableInfo::indexes()}
+     */
     public static function indexes(string $baseTable, ?string $columnName = null): array
     {
         return DB::connection()->table->indexes($baseTable, $columnName);
@@ -193,13 +216,17 @@ class Table
     //endregion
     //region Foreign Keys
 
-    /** Wrapper for {@see TableInfo::foreignKeys()} */
+    /**
+     * Wrapper for {@see TableInfo::foreignKeys()}
+     */
     public static function foreignKeys(string $baseTable, ?string $columnName = null): array
     {
         return DB::connection()->table->foreignKeys($baseTable, $columnName);
     }
 
-    /** Wrapper for {@see TableInfo::foreignKeysReferencing()} */
+    /**
+     * Wrapper for {@see TableInfo::foreignKeysReferencing()}
+     */
     public static function foreignKeysReferencing(string $baseTable): array
     {
         return DB::connection()->table->foreignKeysReferencing($baseTable);

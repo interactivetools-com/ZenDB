@@ -82,7 +82,7 @@ class EncryptedColumnReadCacheTest extends BaseTestCase
 
     public function testTableWithNoEncryptedColumns(): void
     {
-        // Keyed connection, table with no MEDIUMBLOB: cache stores an empty list
+        // encryptionKey set, table with no MEDIUMBLOB: cache stores an empty list
         self::$conn->mysqli->query("CREATE TEMPORARY TABLE test_enc_cache_plain (num INT PRIMARY KEY, name VARCHAR(50))");
         self::$conn->mysqli->query("INSERT INTO test_enc_cache_plain VALUES (1, 'delta')");
 
@@ -218,7 +218,7 @@ class EncryptedColumnReadCacheTest extends BaseTestCase
 
     public function testUnkeyedConnectionPassesRawBytesThrough(): void
     {
-        // Without encryptionKey the cache never engages and MEDIUMBLOB values come back as stored
+        // Without encryptionKey nothing is cached and MEDIUMBLOB values come back as stored
         $conn = new Connection(self::$configDefaults);
         $conn->mysqli->query("CREATE TEMPORARY TABLE test_enc_cache_nokey (num INT PRIMARY KEY, data MEDIUMBLOB)");
         $conn->mysqli->query("INSERT INTO test_enc_cache_nokey VALUES (1, 'raw-bytes-as-stored')");

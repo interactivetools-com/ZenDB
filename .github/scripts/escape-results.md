@@ -14,10 +14,10 @@ recorded in run 31190847410). Earlier zendb-family runs: 31192294387 and
 skip, cached-blank result construction, fused selectOne/queryOne tail):
 the detail-page cells improved a few points over 31214556312 - both
 detail-html cells now measure a tie with raw mysqli - and the remaining
-cell-to-cell deltas sit inside runner variance (per-query savings are
-nanoseconds to a few microseconds against 120-140us loopback pages, and
-the largest one, the encrypted-column cache, needs a keyed connection
-while this suite connects keyless). Every escaper passed its correctness
+cell-to-cell deltas are within runner variance (per-query savings are
+nanoseconds to a few microseconds against 120-140µs loopback pages, and
+the largest one, the encrypted-column cache, needs `encryptionKey` set,
+and this suite connects without one). Every escaper passed its correctness
 gate on every cell in every family, and all three grids are below in full.
 
 Ratios are B-vs-A measured interleaved in one process; >1.00x means the
@@ -37,7 +37,7 @@ Regenerate:
 - **Inline 7-pair str_replace with probe guard, for bulk dump loops**
   (shipped in CMSB's `backupDatabase_dumpData()`). Realistic mixed data wins
   on every cell: `esc-mix` 1.10-3.53x, `bulk-assembly-500` 1.11-3.50x,
-  `query-compile-20` 1.10-2.87x. The win is version-shaped: PHP 8.1-8.3
+  `query-compile-20` 1.10-2.87x. The win depends on PHP version: PHP 8.1-8.3
   cells run 1.8-3.5x, 8.4+ cells 1.1-1.7x (the 8.4 mysqlnd rewrite closed
   most of the gap). The guarded shape A ternary keeps ~85-95% of the
   no-guard inline speed (`zen-guard-vs-inline` 0.76-1.16x) and beats both a
@@ -50,11 +50,12 @@ Regenerate:
 
 ## Rejected
 
-- **Converting ZenDB's per-query escape site** (`ConnectionInternals.php:789`).
-  At whole-query scale the escaper choice is invisible: `rt-fast-vs-real`
-  0.96-1.03x on every server. The isolated quoted-literal expression does
-  win (`zen-guard-vs-real` 0.98-3.10x) but per-query string counts are
-  single digits; not worth any complexity in the hot path.
+- **Converting ZenDB's per-query escape site** (`escapeValue()` in
+  `ConnectionInternals.php`). At whole-query scale the escaper choice is
+  invisible: `rt-fast-vs-real` 0.96-1.03x on every server. The isolated
+  quoted-literal expression does win (`zen-guard-vs-real` 0.98-3.10x) but
+  per-query string counts are single digits; not worth any complexity in
+  the hot path.
 - **addcslashes-5 + 2-pair tail**: loses to addslashes + tail on every cell
   (`alt-addcsl-prose1k` 0.29-0.64x).
 - **strtr map**: loses the sparse/clean pools badly
@@ -92,8 +93,9 @@ Regenerate:
 - **Array-subject str_replace batch**: 1.06-1.41x over a per-value loop
   (`bulk-array-subject`); the library-API shape for any future export
   feature.
-- **Floors** (close the family): preg_replace_callback 0.23-0.69x, one-pass
-  PCRE class 0.30-0.84x, userland byte loop 0.01-0.03x.
+- **Floors** (the slowest approaches, timed for reference):
+  preg_replace_callback 0.23-0.69x, one-pass PCRE class 0.30-0.84x,
+  userland byte loop 0.01-0.03x.
 - **Constant placement**: class-const operand arrays are free vs call-site
   literals (`const-classconst` ~1.0x); static-property arrays cost a little
   (`const-staticprop` 0.73-1.00x).
@@ -111,13 +113,13 @@ Regenerate:
   (`zvr-detail-raw-zendb` 0.92-0.95x, `zvr-widget5-html-zendb` 0.88-0.89x,
   `zvr-list25-html-zendb` 0.88-0.91x, `zvr-list25-raw-zendb` 0.89-0.92x,
   `zvr-list100-html-zendb` 0.88-0.94x).
-  Fresh-prepared mysqli (prepare/bind/execute per query - the PHP-FPM
-  reality) costs 1.1-1.8x raw on identical work (`zvr-*-prepared`
+  Fresh-prepared mysqli (prepare/bind/execute per query - what a PHP-FPM
+  request does) costs 1.1-1.8x raw on identical work (`zvr-*-prepared`
   0.57-0.89x, worst on point queries where prepare() is an extra round
   trip), so ZenDB with SmartString output beats prepared mysqli with
   htmlspecialchars in every scenario. Absolute ZenDB cost per page: within
-  +/-2us of raw on the HTML detail page, 13-16us detail-raw, 41-61us on
-  25-row pages, 85-145us at 100 rows - and the ratios shrink further as
+  +/-2µs of raw on the HTML detail page, 13-16µs detail-raw, 41-61µs on
+  25-row pages, 85-145µs at 100 rows - and the ratios shrink further as
   real network latency replaces loopback.
 
 ## CPU Family Grid (run 30964178143)
@@ -375,7 +377,7 @@ Correctness: ZenDB HTML output byte-identical to full-flag htmlspecialchars() on
 
 Everything-latest check: newest MariaDB, tracing JIT with a 128M buffer.
 Every ratio lands within a few points of the grid above, most list cells
-slightly closer to raw, so neither JIT nor server choice changes the story.
+slightly closer to raw, so neither JIT nor server choice changes the conclusions.
 Self-tie 1.00x.
 
 | test | B vs A |
@@ -400,7 +402,7 @@ Self-tie 1.00x.
 Two encode-only cells backing the "full flag set" Fine Print bullet on
 docs/performance.md: each page's htmlspecialchars() work with SmartString's
 full flag set (A) against PHP's default flags (B), rows pre-fetched so only
-the encoding is timed. The full set costs ~6 us per detail page and ~46 us
+the encoding is timed. The full set costs ~6µs per detail page and ~46µs
 per 100-row list. Self-tie 1.00x; this runner is slower than the page-grid
 run above, so these absolutes read slightly high against that grid.
 

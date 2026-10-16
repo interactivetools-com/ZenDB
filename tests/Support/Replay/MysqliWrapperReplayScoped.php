@@ -65,7 +65,7 @@ final class MysqliWrapperReplayScoped extends MysqliWrapperReplay
      * another scope in the same test class. The fallback covers cached metadata probes
      * (e.g. "SELECT * FROM `t` LIMIT 0"): whichever test in a class runs first issues
      * the probe and ZenDB caches the result for its siblings, so when replay order
-     * differs from record order the recording lives under a sibling test.
+     * differs from record order the recording is stored under a sibling test.
      */
     private function scopeWith(string $section, string $sql): ?string
     {

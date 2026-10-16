@@ -45,7 +45,6 @@ class TransactionTest extends BaseTestCase
 
     public function testRollbackRevertsData(): void
     {
-        // Use a real (non-temporary) table because temporary tables don't support rollback
         DB::$mysqli->query("CREATE TABLE IF NOT EXISTS test_tx_rollback (num INT PRIMARY KEY AUTO_INCREMENT, name VARCHAR(255)) ENGINE=InnoDB");
         DB::$mysqli->query("TRUNCATE TABLE test_tx_rollback");
 

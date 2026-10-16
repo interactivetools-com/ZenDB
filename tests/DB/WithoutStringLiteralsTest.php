@@ -13,8 +13,9 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use ReflectionMethod;
 
 /**
- * Tests for the literal stripper the RawSql WHERE checks run on. selectOne() and count()
- * refuse LIMIT, OFFSET, row locks, trailing comments, and trailing semicolons in a WHERE.
+ * Tests for the literal stripper the RawSql WHERE checks run on. selectOne() refuses LIMIT,
+ * OFFSET, row locks, trailing comments, and trailing semicolons in a WHERE; count() refuses
+ * LIMIT and OFFSET.
  * On a RawSql the values are inline, so those checks look at the SQL with every string
  * literal and backtick identifier blanked out. Comments stay so the trailing-comment check
  * still works.

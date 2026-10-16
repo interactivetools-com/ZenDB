@@ -13,7 +13,7 @@ use function class_exists, json_encode, method_exists, microtime;
 use const JSON_INVALID_UTF8_SUBSTITUTE, JSON_UNESCAPED_SLASHES, JSON_UNESCAPED_UNICODE;
 
 /**
- * Wraps mysqli_stmt to add query logging support.
+ * Wraps mysqli_stmt to log queries and, on PHP 8.1 without mysqlnd, provide get_result().
  */
 class MysqliStmtWrapper extends mysqli_stmt
 {
@@ -21,12 +21,14 @@ class MysqliStmtWrapper extends mysqli_stmt
     private string        $query;
     private float         $startTime;
 
-    /** @internal For testing only - forces MysqliResultPolyfill even when mysqlnd is available */
+    /**
+     * @internal For testing only - forces MysqliResultPolyfill even when mysqlnd is available
+     */
     private static bool $forceResultPolyfill = false;
 
     /**
-     * Enable result polyfill for testing purposes.
-     * Only works when PHPUnit is loaded (test environment).
+     * Turn the result polyfill on or off for tests.
+     * Throws RuntimeException when PHPUnit isn't loaded.
      */
     public static function enableTestResultPolyfill(bool $enable): void
     {
@@ -72,9 +74,9 @@ class MysqliStmtWrapper extends mysqli_stmt
     }
 
     /**
-     * Get result set from prepared statement. Native with the mysqlnd driver, PHP's
-     * default since 5.4 and mandatory since 8.2; a PHP 8.1 build without it has no
-     * native get_result(), so SELECTs get a MysqliResultPolyfill emulation instead
+     * Get result set from prepared statement. get_result() comes from the mysqlnd driver,
+     * PHP's default since 5.4 and required since 8.2. A PHP 8.1 build without mysqlnd has no
+     * native get_result(), so SELECTs get a MysqliResultPolyfill instead
      * (a mysqli_result subclass; see that class for its limitations).
      *
      * TODO-PHP82: Remove the polyfill fallback below (and the force flag); mysqlnd is always present from 8.2

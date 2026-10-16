@@ -43,7 +43,7 @@ class EscapeTest extends BaseTestCase
 
     public function testEscapeFloatIsExact(): void
     {
-        // same literal a placeholder writes: exact digits, no precision-ini rounding
+        // same literal a placeholder writes: exact digits, no rounding from the `precision` ini setting
         $this->assertSame('0.30000000000000004', DB::escape(0.1 + 0.2));
         $this->assertSame('12345678901234568.0', DB::escape(12345678901234567.0)); // ...567 is not representable
     }

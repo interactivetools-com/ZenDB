@@ -2,7 +2,7 @@
 
 PHP scripts run by the workflows in [`../workflows/`](../workflows/). Nothing
 here is part of the library. Each script's header docblock has its full usage;
-this is the map.
+this file lists what each one does.
 
 **Test timing** (`tests.yml`) - times the suite across every PHP x database job
 and builds a grid for the run-summary page.
@@ -44,8 +44,8 @@ faster it got.
 `escape-zendb-matrix.yml`) -
 measures every MySQL escaping candidate and every way values get into queries,
 gated by a byte-identity corpus against a live `real_escape_string()` before any
-timing. Results land in [escape-results.md](escape-results.md); the research,
-suite methodology, and remaining work live in
+timing. Results are in [escape-results.md](escape-results.md); the research,
+suite methodology, and remaining work are in
 [docs/internal/fast-mysql-escape.md](../../docs/internal/fast-mysql-escape.md).
 
 - `escape-corpus.php` - corpus builder, equivalence gates, escape-set canary,
@@ -62,13 +62,13 @@ suite methodology, and remaining work live in
 - `escape-merge.php` - merge probe JSONs from either family into one grid
 - `escape-results.md` - committed verdict grid from full CI runs (citable source)
 
-**Non-candidates ledger** - techniques enumerated and rejected without timing
-cells, so future passes don't re-litigate them: two-string `strtr` (1:1
+**Non-candidates** - techniques rejected without timing
+cells, so future passes don't propose them again: two-string `strtr` (1:1
 translation, cannot insert bytes); `sprintf` (transforms placeholders, not
 payload bytes); 7-char `addcslashes` (emits octal `\000`/`\032`, which MySQL
 parses as NUL + literal digits = corruption; the 5-char list is fine);
 separator-joined whole-buffer batch escape (separator collision corrupts data;
-array-subject `str_replace` supersedes it); `serialize`/`json_encode` as
+array-subject `str_replace` does the same job safely); `serialize`/`json_encode` as
 escapers (different escape grammar); type-planned escape skipping for
 user-supplied values (only server-sourced dump values may skip by column type);
 `mysqli::escape_string` (alias of `real_escape_string`, same C function);

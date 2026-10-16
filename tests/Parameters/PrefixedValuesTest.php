@@ -59,7 +59,7 @@ class PrefixedValuesTest extends BaseTestCase
 
     public function testPrefixedValueIsEscaped(): void
     {
-        // Prefix lands inside the quotes, value still escaped
+        // Prefix goes inside the quotes, value still escaped
         $result = DB::query("SELECT :::name AS val", [':name' => "O'Brien"]);
         $this->assertSame("test_O'Brien", $result->first()->get('val')->value());
         $this->assertStringContainsString("'test_O\\'Brien'", DB::$mysqli->lastQuery);

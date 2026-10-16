@@ -60,7 +60,8 @@ jobs:
           persist-credentials: false  # no step uses git with the token, so don't leave it in .git/config
 
       # Subset filter over the canonical list: representative servers only
-      # (channel rankings are round-trip-shaped; a full 19-image sweep repeats them)
+      # (channel rankings depend on round-trip counts, which are the same on
+      # every server; a full 19-image sweep repeats them)
       - name: Read .github/db-matrix.json
         id: load
         env:
@@ -165,7 +166,7 @@ jobs:
     needs: probe
     timeout-minutes: 15
     # Aggregates every matrix job and runs even when some fail, so partial grids
-    # still get built; !cancelled() keeps it out of manual cancellations only
+    # still get built; !cancelled() skips it only when someone cancels the run
     if: ${{ !cancelled() }}
 
     steps:

@@ -13,8 +13,8 @@ use Itools\ZenDB\Tests\BaseTestCase;
  * Regression tests for auto-decryption when SmartJoins adds qualified
  * (`table.column`) and self-join alias (`alias.column`) keys to each row.
  *
- * Bug: decryptRows() only mutates the bare column key, leaving qualified
- * and alias keys holding raw AES ciphertext.
+ * Bare, qualified, and alias keys must all hold the decrypted value, not
+ * raw AES ciphertext.
  *
  * @covers \Itools\ZenDB\Connection::decryptRows
  * @covers \Itools\ZenDB\ConnectionInternals::fetchMappedRows
@@ -120,11 +120,11 @@ class EncryptedSmartJoinsTest extends BaseTestCase
             2
         )->first();
 
-        // Bare keys already decrypt via existing decryptRows path (regression guard)
+        // Bare keys decrypt
         $this->assertSame('child-token', $row->get('token')->value());
         $this->assertSame('root-token',  $row->get('parent_token')->value());
 
-        // Qualified and alias keys currently hold ciphertext
+        // Qualified and alias keys decrypt too
         $this->assertSame('child-token', $row->get('enc_refs_perm.token')->value(), 'Qualified key should decrypt');
         $this->assertSame('child-token', $row->get('c.token')->value(),             'Child alias key should decrypt');
         $this->assertSame('root-token',  $row->get('p.token')->value(),             'Parent alias key should decrypt');

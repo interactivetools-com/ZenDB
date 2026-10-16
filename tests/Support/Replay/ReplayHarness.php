@@ -9,7 +9,7 @@ use Itools\ZenDB\MysqliWrapperReplay;
 use RuntimeException;
 
 /**
- * Wires recording and replay into the test suite via Connection's factory seam.
+ * Sets up recording and replay for the test suite through Connection::$mysqliWrapperFactory.
  *
  * Usage (from tests/bootstrap.php, driven by environment variables):
  *

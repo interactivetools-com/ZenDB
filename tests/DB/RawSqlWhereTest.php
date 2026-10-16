@@ -161,7 +161,7 @@ class RawSqlWhereTest extends BaseTestCase
     public function testBannedTemplatePatternRunsAsRawSqlForUpdateAndDelete(string $sql, int $expectedRows): void
     {
         $where = DB::rawSql($sql);
-        $this->assertSame($expectedRows, DB::update('users', ['dob' => '2001-01-01'], $where), 'update()');  // dob: no case filters on it
+        $this->assertSame($expectedRows, DB::update('users', ['dob' => '2001-01-01'], $where), 'update()');  // dob: no provider case filters on it, so the update can't change which rows match
         $this->assertSame($expectedRows, DB::count('users', ['dob' => '2001-01-01']), 'rows updated');
         $this->assertSame($expectedRows, DB::delete('users', $where), 'delete()');
         $this->assertSame(0, DB::count('users', $where), 'rows deleted');

@@ -617,7 +617,7 @@ class EncryptValueTest extends BaseTestCase
 
     public function testNativeCloneStillEncrypts(): void
     {
-        // PHP's clone operator copies the vault token, so a native clone keeps the key
+        // PHP's clone operator copies $vaultKey, so a native clone keeps the key
         $copy = clone self::$conn;
         $copy->insert('enc_users', ['num' => 163, 'name' => 'Native Clone', 'token' => 'native-clone-secret']);
 

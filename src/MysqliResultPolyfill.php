@@ -41,7 +41,7 @@ class MysqliResultPolyfill extends mysqli_result
      * No parent::__construct() call: it needs a live result, which a build without
      * mysqlnd can't produce. See the class docblock for what that breaks.
      *
-     * @param mysqli_stmt $stmt The mysqli statement from which results are to be fetched.
+     * @param mysqli_stmt $stmt The statement to fetch rows from.
      */
     public function __construct(mysqli_stmt $stmt)
     {
@@ -82,7 +82,7 @@ class MysqliResultPolyfill extends mysqli_result
             throw new ValueError('mysqli_result::fetch_array(): Argument #1 ($mode) must be one of MYSQLI_NUM, MYSQLI_ASSOC, or MYSQLI_BOTH');
         }
 
-        // If there are no fields, return null
+        // No result columns means no rows to fetch
         if (!$this->fieldObjects) {
             return null;
         }
@@ -149,7 +149,6 @@ class MysqliResultPolyfill extends mysqli_result
             return (object)$row;
         }
 
-        // For custom classes, create instance and set properties
         $obj = new $class(...$constructor_args);
         foreach ($row as $key => $value) {
             $obj->$key = $value;
@@ -158,7 +157,7 @@ class MysqliResultPolyfill extends mysqli_result
     }
 
     /**
-     * Adjust the result pointer to an arbitrary row, like native mysqli_result::data_seek()
+     * Jump to row $offset (0-based) so the next fetch returns it, like native mysqli_result::data_seek()
      */
     public function data_seek(int $offset): bool
     {
