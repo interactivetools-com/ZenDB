@@ -27,6 +27,16 @@ text, blob, and varchar shape on every database image. Results go in
 - `index-rules-probe.php` - probe one server, print markdown (and optional JSON)
 - `index-rules-merge.php` - merge per-server JSONs into one table per question
 
+**FK names matrix** (`fk-names-matrix.yml`) - checks how every database image
+names foreign keys and whether `Table::foreignKeys()` and
+`Table::foreignKeysReferencing()` report them correctly when two keys share a
+name: unnamed keys in two tables (MariaDB 12.1+ names them 1, 2, 3 in every
+table), the same explicit name in two tables, composite keys, and a key in
+another database.
+
+- `fk-names-probe.php` - probe one server and write JSON, or with `--merge`
+  turn the JSON files into one "who differs" report
+
 **Version speed test** (`version-matrix.yml`) - the previous release versus the
 working copy on the pages from
 [docs/performance.md](../../docs/performance.md), so a release can say how much
