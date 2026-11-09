@@ -366,7 +366,8 @@ function mergeReports(array $paths): void
         - On every server, a foreign key in another database can reference a table in this one, and it can have the same name as a key in this database. Two unnamed keys get the same generated name when their tables have the same name
         - `KEY_COLUMN_USAGE` rows for same-named keys come back in no fixed order under `ORDER BY CONSTRAINT_NAME, ORDINAL_POSITION`: the same query run twice on one server returned the two tables in a different order
         - `ALTER TABLE ... DROP FOREIGN KEY <name>` only drops that table's key on every server, so a shared name is safe to drop by
-        - `Table::foreignKeys()` reads one table at a time and is correct on every server, with the right ON DELETE and ON UPDATE rules
+        - `DROP TABLE` on a table that a foreign key references is refused with a different error on each server family: 1217 on MySQL/Percona 5.7, 3730 on MySQL/Percona 8.0+, 1451 on every MariaDB. A key in another database blocks the drop the same way. Only the 3730 message names the key and its table, and it leaves out the database. A table referenced only by its own key drops without an error
+        - `Table::foreignKeys()` reads one table at a time and is correct on every server, with the right ON DELETE and ON UPDATE rules. `refDatabase` names the other database when a key references a table there
         - `Table::foreignKeysReferencing()` groups rows by database, table, and name, and returns a plain list with a `database` field, so same-named keys each get their own entry. ZenDB 1.0.0 grouped by name alone and returned one entry for both: wrong on MariaDB 12.1+ for two tables in one database, and on every server for a key in another database
 
 

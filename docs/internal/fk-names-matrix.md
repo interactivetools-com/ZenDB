@@ -17,8 +17,9 @@ Last generated: 2026-11-09 from 22 servers. Generated file - don't hand-edit. Th
 - On every server, a foreign key in another database can reference a table in this one, and it can have the same name as a key in this database. Two unnamed keys get the same generated name when their tables have the same name
 - `KEY_COLUMN_USAGE` rows for same-named keys come back in no fixed order under `ORDER BY CONSTRAINT_NAME, ORDINAL_POSITION`: the same query run twice on one server returned the two tables in a different order
 - `ALTER TABLE ... DROP FOREIGN KEY <name>` only drops that table's key on every server, so a shared name is safe to drop by
-- `Table::foreignKeys()` reads one table at a time and is correct on every server, with the right ON DELETE and ON UPDATE rules
-- `Table::foreignKeysReferencing()` groups rows by name alone, so same-named keys end up in one entry: one `fullTable`, and `cols` holding columns from both tables. That happens on MariaDB 12.1+ for two tables in one database, and on every server for a key in another database
+- `DROP TABLE` on a table that a foreign key references is refused with a different error on each server family: 1217 on MySQL/Percona 5.7, 3730 on MySQL/Percona 8.0+, 1451 on every MariaDB. A key in another database blocks the drop the same way. Only the 3730 message names the key and its table, and it leaves out the database. A table referenced only by its own key drops without an error
+- `Table::foreignKeys()` reads one table at a time and is correct on every server, with the right ON DELETE and ON UPDATE rules. `refDatabase` names the other database when a key references a table there
+- `Table::foreignKeysReferencing()` groups rows by database, table, and name, and returns a plain list with a `database` field, so same-named keys each get their own entry. ZenDB 1.0.0 grouped by name alone and returned one entry for both: wrong on MariaDB 12.1+ for two tables in one database, and on every server for a key in another database
 
 Servers: mysql:5.7 (5.7.44), mysql:8.0 (8.0.46), mysql:8.4 (8.4.13), mysql:9.6 (9.6.0), mysql:9.7 (9.7.4), mariadb:10.2 (10.2.44-MariaDB-1:10.2.44+maria~bionic), mariadb:10.2.6 (10.2.6-MariaDB-10.2.6+maria~jessie), mariadb:10.2.7 (10.2.7-MariaDB-10.2.7+maria~jessie), mariadb:10.3 (10.3.39-MariaDB-1:10.3.39+maria~ubu2004), mariadb:10.4 (10.4.34-MariaDB-1:10.4.34+maria~ubu2004), mariadb:10.5 (10.5.29-MariaDB-ubu2004), mariadb:10.6 (10.6.28-MariaDB-ubu2204), mariadb:10.11 (10.11.19-MariaDB-ubu2204), mariadb:11.4 (11.4.13-MariaDB-ubu2404), mariadb:11.8 (11.8.9-MariaDB-ubu2404), mariadb:12.0 (12.0.2-MariaDB-ubu2404), mariadb:12.1 (12.1.2-MariaDB-ubu2404), mariadb:12.2 (12.2.2-MariaDB-ubu2404), mariadb:12.3 (12.3.3-MariaDB-ubu2404), percona/percona-server:5.7 (5.7.44-48), percona/percona-server:8.0 (8.0.46-37), percona/percona-server:8.4 (8.4.11-11)
 
@@ -36,25 +37,24 @@ Servers: mysql:5.7 (5.7.44), mysql:8.0 (8.0.46), mysql:8.4 (8.4.13), mysql:9.6 (
 
 ### 1c. Unnamed keys: foreignKeysReferencing(item) result
 
-- `{"fkp_event_ibfk_1":{"name":"fkp_event_ibfk_1","fullTable":"fkp_event","cols":["item_id"],"refCols":["num"]},"fkp_warranty_ibfk_1":{"name":"fkp_warranty_ibfk_1","fullTable":"fkp_warranty","cols":["item_id"],"refCols":["num"]}}` → all MySQL/Percona and MariaDB thru 12.0
-- `{"1":{"name":"1","fullTable":"fkp_event","cols":["item_id","item_id"],"refCols":["num","num"]}}` → MariaDB 12.1+
+- `[{"name":"fkp_event_ibfk_1","database":"zdb_fk_probe","fullTable":"fkp_event","cols":["item_id"],"refCols":["num"]},{"name":"fkp_warranty_ibfk_1","database":"zdb_fk_probe","fullTable":"fkp_warranty","cols":["item_id"],"refCols":["num"]}]` → all MySQL/Percona and MariaDB thru 12.0
+- `[{"name":"1","database":"zdb_fk_probe","fullTable":"fkp_event","cols":["item_id"],"refCols":["num"]},{"name":"1","database":"zdb_fk_probe","fullTable":"fkp_warranty","cols":["item_id"],"refCols":["num"]}]` → MariaDB 12.1+
 
 ### 1d. Unnamed keys: foreignKeysReferencing(item) verdict
 
-- `correct: 2 of 2 foreign keys` → all MySQL/Percona and MariaDB thru 12.0
-- `WRONG: 1 entries returned, 0 of 2 foreign keys reported correctly` → MariaDB 12.1+
+- all servers: `correct: 2 of 2 foreign keys`
 
 ### 1e. Unnamed keys: foreignKeys(event) result
 
-- `{"fkp_event_ibfk_1":{"name":"fkp_event_ibfk_1","cols":["item_id"],"refTable":"fkp_item","refCols":["num"],"onDelete":"CASCADE","onUpdate":"RESTRICT"}}` → MySQL/Percona 5.7 and MariaDB thru 12.0
-- `{"fkp_event_ibfk_1":{"name":"fkp_event_ibfk_1","cols":["item_id"],"refTable":"fkp_item","refCols":["num"],"onDelete":"CASCADE","onUpdate":"NO ACTION"}}` → MySQL/Percona 8.0+
-- `{"1":{"name":"1","cols":["item_id"],"refTable":"fkp_item","refCols":["num"],"onDelete":"CASCADE","onUpdate":"RESTRICT"}}` → MariaDB 12.1+
+- `{"fkp_event_ibfk_1":{"name":"fkp_event_ibfk_1","cols":["item_id"],"refDatabase":"zdb_fk_probe","refTable":"fkp_item","refCols":["num"],"onDelete":"CASCADE","onUpdate":"RESTRICT"}}` → MySQL/Percona 5.7 and MariaDB thru 12.0
+- `{"fkp_event_ibfk_1":{"name":"fkp_event_ibfk_1","cols":["item_id"],"refDatabase":"zdb_fk_probe","refTable":"fkp_item","refCols":["num"],"onDelete":"CASCADE","onUpdate":"NO ACTION"}}` → MySQL/Percona 8.0+
+- `{"1":{"name":"1","cols":["item_id"],"refDatabase":"zdb_fk_probe","refTable":"fkp_item","refCols":["num"],"onDelete":"CASCADE","onUpdate":"RESTRICT"}}` → MariaDB 12.1+
 
 ### 1f. Unnamed keys: foreignKeys(warranty) result
 
-- `{"fkp_warranty_ibfk_1":{"name":"fkp_warranty_ibfk_1","cols":["item_id"],"refTable":"fkp_item","refCols":["num"],"onDelete":"SET NULL","onUpdate":"RESTRICT"}}` → MySQL/Percona 5.7 and MariaDB thru 12.0
-- `{"fkp_warranty_ibfk_1":{"name":"fkp_warranty_ibfk_1","cols":["item_id"],"refTable":"fkp_item","refCols":["num"],"onDelete":"SET NULL","onUpdate":"NO ACTION"}}` → MySQL/Percona 8.0+
-- `{"1":{"name":"1","cols":["item_id"],"refTable":"fkp_item","refCols":["num"],"onDelete":"SET NULL","onUpdate":"RESTRICT"}}` → MariaDB 12.1+
+- `{"fkp_warranty_ibfk_1":{"name":"fkp_warranty_ibfk_1","cols":["item_id"],"refDatabase":"zdb_fk_probe","refTable":"fkp_item","refCols":["num"],"onDelete":"SET NULL","onUpdate":"RESTRICT"}}` → MySQL/Percona 5.7 and MariaDB thru 12.0
+- `{"fkp_warranty_ibfk_1":{"name":"fkp_warranty_ibfk_1","cols":["item_id"],"refDatabase":"zdb_fk_probe","refTable":"fkp_item","refCols":["num"],"onDelete":"SET NULL","onUpdate":"NO ACTION"}}` → MySQL/Percona 8.0+
+- `{"1":{"name":"1","cols":["item_id"],"refDatabase":"zdb_fk_probe","refTable":"fkp_item","refCols":["num"],"onDelete":"SET NULL","onUpdate":"RESTRICT"}}` → MariaDB 12.1+
 
 ### 1g. Unnamed keys: REFERENTIAL_CONSTRAINTS rows
 
@@ -101,14 +101,13 @@ Servers: mysql:5.7 (5.7.44), mysql:8.0 (8.0.46), mysql:8.4 (8.4.13), mysql:9.6 (
 
 ### 2d. Same name: foreignKeysReferencing(item) result
 
-- `{"fk_same":{"name":"fk_same","fullTable":"fkp_event","cols":["item_id"],"refCols":["num"]}}` → all MySQL/Percona and MariaDB thru 12.0
-- `{"fk_same":{"name":"fk_same","fullTable":"fkp_warranty","cols":["item_id","item_id"],"refCols":["num","num"]}}` → mariadb:12.1
-- `{"fk_same":{"name":"fk_same","fullTable":"fkp_event","cols":["item_id","item_id"],"refCols":["num","num"]}}` → MariaDB 12.2+
+- `[{"name":"fk_same","database":"zdb_fk_probe","fullTable":"fkp_event","cols":["item_id"],"refCols":["num"]}]` → all MySQL/Percona and MariaDB thru 12.0
+- `[{"name":"fk_same","database":"zdb_fk_probe","fullTable":"fkp_event","cols":["item_id"],"refCols":["num"]},{"name":"fk_same","database":"zdb_fk_probe","fullTable":"fkp_warranty","cols":["item_id"],"refCols":["num"]}]` → MariaDB 12.1+
 
 ### 2e. Same name: foreignKeysReferencing(item) verdict
 
 - `not possible: the server refused the second table` → all MySQL/Percona and MariaDB thru 12.0
-- `WRONG: 1 entries returned, 0 of 2 foreign keys reported correctly` → MariaDB 12.1+
+- `correct: 2 of 2 foreign keys` → MariaDB 12.1+
 
 ### 3a. Composite keys: names the server gives (event / warranty)
 
@@ -122,20 +121,18 @@ Servers: mysql:5.7 (5.7.44), mysql:8.0 (8.0.46), mysql:8.4 (8.4.13), mysql:9.6 (
 
 ### 3c. Composite keys: foreignKeysReferencing(item) result
 
-- `{"fkp_event_ibfk_1":{"name":"fkp_event_ibfk_1","fullTable":"fkp_event","cols":["ex","ey"],"refCols":["x","y"]},"fkp_warranty_ibfk_1":{"name":"fkp_warranty_ibfk_1","fullTable":"fkp_warranty","cols":["wx","wy"],"refCols":["x","y"]}}` → all MySQL/Percona and MariaDB thru 12.0
-- `{"1":{"name":"1","fullTable":"fkp_event","cols":["ex","wx","wy","ey"],"refCols":["x","x","y","y"]}}` → mariadb:12.1, mariadb:12.2
-- `{"1":{"name":"1","fullTable":"fkp_warranty","cols":["wx","ex","ey","wy"],"refCols":["x","x","y","y"]}}` → mariadb:12.3
+- `[{"name":"fkp_event_ibfk_1","database":"zdb_fk_probe","fullTable":"fkp_event","cols":["ex","ey"],"refCols":["x","y"]},{"name":"fkp_warranty_ibfk_1","database":"zdb_fk_probe","fullTable":"fkp_warranty","cols":["wx","wy"],"refCols":["x","y"]}]` → all MySQL/Percona and MariaDB thru 12.0
+- `[{"name":"1","database":"zdb_fk_probe","fullTable":"fkp_event","cols":["ex","ey"],"refCols":["x","y"]},{"name":"1","database":"zdb_fk_probe","fullTable":"fkp_warranty","cols":["wx","wy"],"refCols":["x","y"]}]` → MariaDB 12.1+
 
 ### 3d. Composite keys: foreignKeysReferencing(item) verdict
 
-- `correct: 2 of 2 foreign keys` → all MySQL/Percona and MariaDB thru 12.0
-- `WRONG: 1 entries returned, 0 of 2 foreign keys reported correctly` → MariaDB 12.1+
+- all servers: `correct: 2 of 2 foreign keys`
 
 ### 3e. Composite keys: foreignKeys(event) result
 
-- `{"fkp_event_ibfk_1":{"name":"fkp_event_ibfk_1","cols":["ex","ey"],"refTable":"fkp_item","refCols":["x","y"],"onDelete":"RESTRICT","onUpdate":"RESTRICT"}}` → MySQL/Percona 5.7 and MariaDB thru 12.0
-- `{"fkp_event_ibfk_1":{"name":"fkp_event_ibfk_1","cols":["ex","ey"],"refTable":"fkp_item","refCols":["x","y"],"onDelete":"NO ACTION","onUpdate":"NO ACTION"}}` → MySQL/Percona 8.0+
-- `{"1":{"name":"1","cols":["ex","ey"],"refTable":"fkp_item","refCols":["x","y"],"onDelete":"RESTRICT","onUpdate":"RESTRICT"}}` → MariaDB 12.1+
+- `{"fkp_event_ibfk_1":{"name":"fkp_event_ibfk_1","cols":["ex","ey"],"refDatabase":"zdb_fk_probe","refTable":"fkp_item","refCols":["x","y"],"onDelete":"RESTRICT","onUpdate":"RESTRICT"}}` → MySQL/Percona 5.7 and MariaDB thru 12.0
+- `{"fkp_event_ibfk_1":{"name":"fkp_event_ibfk_1","cols":["ex","ey"],"refDatabase":"zdb_fk_probe","refTable":"fkp_item","refCols":["x","y"],"onDelete":"NO ACTION","onUpdate":"NO ACTION"}}` → MySQL/Percona 8.0+
+- `{"1":{"name":"1","cols":["ex","ey"],"refDatabase":"zdb_fk_probe","refTable":"fkp_item","refCols":["x","y"],"onDelete":"RESTRICT","onUpdate":"RESTRICT"}}` → MariaDB 12.1+
 
 ### 4a. Other database: same explicit name on a key that references item
 
@@ -143,17 +140,16 @@ Servers: mysql:5.7 (5.7.44), mysql:8.0 (8.0.46), mysql:8.4 (8.4.13), mysql:9.6 (
 
 ### 4b. Other database: KEY_COLUMN_USAGE rows that reference item
 
-- `zdb_fk_probe.fkp_event fk_cross item_id→num; zdb_fk_probe_other.fkp_event fk_cross other_item_id→num` → mysql:5.7, mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, mariadb:10.2.6, percona/percona-server:8.0, percona/percona-server:8.4
-- `zdb_fk_probe_other.fkp_event fk_cross other_item_id→num; zdb_fk_probe.fkp_event fk_cross item_id→num` → mariadb:10.2, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8, mariadb:12.0, mariadb:12.1, mariadb:12.2, mariadb:12.3, percona/percona-server:5.7
+- `zdb_fk_probe.fkp_event fk_cross item_id→num; zdb_fk_probe_other.fkp_event fk_cross other_item_id→num` → mysql:5.7, mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, mariadb:10.2.6, percona/percona-server:5.7, percona/percona-server:8.0, percona/percona-server:8.4
+- `zdb_fk_probe_other.fkp_event fk_cross other_item_id→num; zdb_fk_probe.fkp_event fk_cross item_id→num` → mariadb:10.2, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8, mariadb:12.0, mariadb:12.1, mariadb:12.2, mariadb:12.3
 
 ### 4c. Other database: foreignKeysReferencing(item) result
 
-- `{"fk_cross":{"name":"fk_cross","fullTable":"fkp_event","cols":["item_id","other_item_id"],"refCols":["num","num"]}}` → mysql:5.7, mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, mariadb:10.2.6, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:12.0, mariadb:12.1, mariadb:12.2, percona/percona-server:5.7, percona/percona-server:8.0, percona/percona-server:8.4
-- `{"fk_cross":{"name":"fk_cross","fullTable":"fkp_event","cols":["other_item_id","item_id"],"refCols":["num","num"]}}` → mariadb:10.2, mariadb:11.8, mariadb:12.3
+- all servers: `[{"name":"fk_cross","database":"zdb_fk_probe","fullTable":"fkp_event","cols":["item_id"],"refCols":["num"]},{"name":"fk_cross","database":"zdb_fk_probe_other","fullTable":"fkp_event","cols":["other_item_id"],"refCols":["num"]}]`
 
 ### 4d. Other database: entries returned for 2 foreign keys
 
-- all servers: `1`
+- all servers: `2`
 
 ### 4e. Other database, unnamed: create the key
 
@@ -166,18 +162,45 @@ Servers: mysql:5.7 (5.7.44), mysql:8.0 (8.0.46), mysql:8.4 (8.4.13), mysql:9.6 (
 
 ### 4g. Other database, unnamed: KEY_COLUMN_USAGE rows that reference item
 
-- `zdb_fk_probe.fkp_event fkp_event_ibfk_1 item_id→num; zdb_fk_probe_other.fkp_event fkp_event_ibfk_1 other_item_id→num` → mysql:5.7, mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, mariadb:10.2.6, percona/percona-server:8.0, percona/percona-server:8.4
-- `zdb_fk_probe_other.fkp_event fkp_event_ibfk_1 other_item_id→num; zdb_fk_probe.fkp_event fkp_event_ibfk_1 item_id→num` → mariadb:10.2, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8, mariadb:12.0, percona/percona-server:5.7
+- `zdb_fk_probe.fkp_event fkp_event_ibfk_1 item_id→num; zdb_fk_probe_other.fkp_event fkp_event_ibfk_1 other_item_id→num` → mysql:5.7, mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, mariadb:10.2.6, percona/percona-server:5.7, percona/percona-server:8.0, percona/percona-server:8.4
+- `zdb_fk_probe_other.fkp_event fkp_event_ibfk_1 other_item_id→num; zdb_fk_probe.fkp_event fkp_event_ibfk_1 item_id→num` → mariadb:10.2, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:11.8, mariadb:12.0
 - `zdb_fk_probe_other.fkp_event 1 other_item_id→num; zdb_fk_probe.fkp_event 1 item_id→num` → MariaDB 12.1+
 
 ### 4h. Other database, unnamed: foreignKeysReferencing(item) result
 
-- `{"fkp_event_ibfk_1":{"name":"fkp_event_ibfk_1","fullTable":"fkp_event","cols":["item_id","other_item_id"],"refCols":["num","num"]}}` → mysql:5.7, mysql:8.0, mysql:8.4, mysql:9.6, mysql:9.7, mariadb:10.2.6, mariadb:10.2.7, mariadb:10.3, mariadb:10.4, mariadb:10.5, mariadb:10.6, mariadb:10.11, mariadb:11.4, mariadb:12.0, percona/percona-server:5.7, percona/percona-server:8.0, percona/percona-server:8.4
-- `{"fkp_event_ibfk_1":{"name":"fkp_event_ibfk_1","fullTable":"fkp_event","cols":["other_item_id","item_id"],"refCols":["num","num"]}}` → mariadb:10.2, mariadb:11.8
-- `{"1":{"name":"1","fullTable":"fkp_event","cols":["item_id","other_item_id"],"refCols":["num","num"]}}` → mariadb:12.1, mariadb:12.2
-- `{"1":{"name":"1","fullTable":"fkp_event","cols":["other_item_id","item_id"],"refCols":["num","num"]}}` → mariadb:12.3
+- `[{"name":"fkp_event_ibfk_1","database":"zdb_fk_probe","fullTable":"fkp_event","cols":["item_id"],"refCols":["num"]},{"name":"fkp_event_ibfk_1","database":"zdb_fk_probe_other","fullTable":"fkp_event","cols":["other_item_id"],"refCols":["num"]}]` → all MySQL/Percona and MariaDB thru 12.0
+- `[{"name":"1","database":"zdb_fk_probe","fullTable":"fkp_event","cols":["item_id"],"refCols":["num"]},{"name":"1","database":"zdb_fk_probe_other","fullTable":"fkp_event","cols":["other_item_id"],"refCols":["num"]}]` → MariaDB 12.1+
 
 ### 4i. Other database, unnamed: entries returned for 2 foreign keys
 
-- all servers: `1`
+- all servers: `2`
+
+### 4j. Other database: foreignKeys(event) for a key that references a table there
+
+- `{"fk_out":{"name":"fk_out","cols":["item_id"],"refDatabase":"zdb_fk_probe_other","refTable":"fkp_item","refCols":["num"],"onDelete":"CASCADE","onUpdate":"RESTRICT"}}` → MySQL/Percona 5.7 and all MariaDB
+- `{"fk_out":{"name":"fk_out","cols":["item_id"],"refDatabase":"zdb_fk_probe_other","refTable":"fkp_item","refCols":["num"],"onDelete":"CASCADE","onUpdate":"NO ACTION"}}` → MySQL/Percona 8.0+
+
+### 5a. DROP TABLE item, referenced by a key in this database
+
+- `error 1217: Cannot delete or update a parent row: a foreign key constraint fails` → MySQL/Percona 5.7
+- `error 3730: Cannot drop table 'fkp_item' referenced by a foreign key constraint 'fk_event' on table 'fkp_event'.` → MySQL/Percona 8.0+
+- `error 1451: Cannot delete or update a parent row: a foreign key constraint fails` → all MariaDB
+
+### 5b. foreignKeysReferencing(item) verdict after the refused DROP
+
+- all servers: `correct: 1 of 1 foreign keys`
+
+### 5c. DROP TABLE item, referenced only by a key in another database
+
+- `error 1217: Cannot delete or update a parent row: a foreign key constraint fails` → MySQL/Percona 5.7
+- `error 3730: Cannot drop table 'fkp_item' referenced by a foreign key constraint 'fk_other' on table 'fkp_event'.` → MySQL/Percona 8.0+
+- `error 1451: Cannot delete or update a parent row: a foreign key constraint fails` → all MariaDB
+
+### 5d. foreignKeysReferencing(item) verdict after that refused DROP
+
+- all servers: `correct: 1 of 1 foreign keys`
+
+### 5e. DROP TABLE item, referenced only by its own key
+
+- all servers: `ok`
 
