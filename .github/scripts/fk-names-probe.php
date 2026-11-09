@@ -284,6 +284,37 @@ $probes['4g. Other database, unnamed: KEY_COLUMN_USAGE rows that reference item'
 $probes['4h. Other database, unnamed: foreignKeysReferencing(item) result']       = zenJson(static fn() => Table::foreignKeysReferencing('item'));
 $probes['4i. Other database, unnamed: entries returned for 2 foreign keys']       = zenJson(static fn() => count(Table::foreignKeysReferencing('item')));
 
+// The other direction: a key in this database that references a table in the other one
+dropAllTables($mysqli, [$scratch, $otherDb]);
+$mysqli->query("CREATE TABLE `$otherDb`.$parent (num INT NOT NULL PRIMARY KEY) ENGINE=InnoDB");
+$mysqli->query("CREATE TABLE $event (num INT NOT NULL PRIMARY KEY, item_id INT, CONSTRAINT fk_out FOREIGN KEY (item_id) REFERENCES `$otherDb`.$parent (num) ON DELETE CASCADE) ENGINE=InnoDB");
+
+$probes['4j. Other database: foreignKeys(event) for a key that references a table there'] = zenJson(static fn() => Table::foreignKeys('event'));
+
+//endregion
+//region Scenario 5: dropping a table that foreign keys reference
+
+// CMS Builder catches this error by code to list the keys from foreignKeysReferencing()
+dropAllTables($mysqli, [$scratch, $otherDb]);
+$mysqli->query("CREATE TABLE $parent (num INT NOT NULL PRIMARY KEY) ENGINE=InnoDB");
+$mysqli->query("CREATE TABLE $event (num INT NOT NULL PRIMARY KEY, item_id INT, CONSTRAINT fk_event FOREIGN KEY (item_id) REFERENCES $parent (num)) ENGINE=InnoDB");
+
+$probes['5a. DROP TABLE item, referenced by a key in this database']         = run($mysqli, "DROP TABLE $parent");
+$probes['5b. foreignKeysReferencing(item) verdict after the refused DROP']    = inboundVerdict('item', [[$event, ['item_id']]]);
+
+dropAllTables($mysqli, [$scratch, $otherDb]);
+$mysqli->query("CREATE TABLE $parent (num INT NOT NULL PRIMARY KEY) ENGINE=InnoDB");
+$mysqli->query("CREATE TABLE `$otherDb`.$event (num INT NOT NULL PRIMARY KEY, other_item_id INT, CONSTRAINT fk_other FOREIGN KEY (other_item_id) REFERENCES `$scratch`.$parent (num)) ENGINE=InnoDB");
+
+$probes['5c. DROP TABLE item, referenced only by a key in another database'] = run($mysqli, "DROP TABLE $parent");
+$probes['5d. foreignKeysReferencing(item) verdict after that refused DROP']   = inboundVerdict('item', [[$event, ['other_item_id']]]);
+
+// A table that only references itself can be dropped
+dropAllTables($mysqli, [$scratch, $otherDb]);
+$mysqli->query("CREATE TABLE $parent (num INT NOT NULL PRIMARY KEY, parent_num INT, CONSTRAINT fk_self FOREIGN KEY (parent_num) REFERENCES $parent (num)) ENGINE=InnoDB");
+
+$probes['5e. DROP TABLE item, referenced only by its own key'] = run($mysqli, "DROP TABLE $parent");
+
 //endregion
 //region Output
 
@@ -336,7 +367,7 @@ function mergeReports(array $paths): void
         - `KEY_COLUMN_USAGE` rows for same-named keys come back in no fixed order under `ORDER BY CONSTRAINT_NAME, ORDINAL_POSITION`: the same query run twice on one server returned the two tables in a different order
         - `ALTER TABLE ... DROP FOREIGN KEY <name>` only drops that table's key on every server, so a shared name is safe to drop by
         - `Table::foreignKeys()` reads one table at a time and is correct on every server, with the right ON DELETE and ON UPDATE rules
-        - `Table::foreignKeysReferencing()` groups rows by name alone, so same-named keys end up in one entry: one `fullTable`, and `cols` holding columns from both tables. That happens on MariaDB 12.1+ for two tables in one database, and on every server for a key in another database
+        - `Table::foreignKeysReferencing()` groups rows by database, table, and name, and returns a plain list with a `database` field, so same-named keys each get their own entry. ZenDB 1.0.0 grouped by name alone and returned one entry for both: wrong on MariaDB 12.1+ for two tables in one database, and on every server for a key in another database
 
 
         __FINDINGS__;
