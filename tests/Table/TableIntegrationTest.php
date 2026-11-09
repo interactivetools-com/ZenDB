@@ -587,6 +587,7 @@ class TableIntegrationTest extends BaseTestCase
         $this->assertEqualsCanonicalizing(['fk_parent', 'fk_owner'], array_keys($foreignKeys));
         $this->assertSame('fk_owner',        $foreignKeys['fk_owner']['name']);
         $this->assertSame(['owner_num'],     $foreignKeys['fk_owner']['cols']);
+        $this->assertSame($this->currentDatabase(), $foreignKeys['fk_owner']['refDatabase'], 'refDatabase is where the referenced table is');
         $this->assertSame($this->fullTable,  $foreignKeys['fk_owner']['refTable'], 'refTable is the real MySQL name, prefix included');
         $this->assertSame(['num'],           $foreignKeys['fk_owner']['refCols']);
         $this->assertSame('CASCADE',         $foreignKeys['fk_owner']['onDelete'], 'explicit rule reports as written');
@@ -620,16 +621,38 @@ class TableIntegrationTest extends BaseTestCase
     }
 
     #[Test]
+    public function reportsTheDatabaseOfATableInAnotherDatabase(): void
+    {
+        $otherDb = $this->currentDatabase() . '_fk_other';
+        DB::$mysqli->query("DROP DATABASE IF EXISTS `$otherDb`");
+        DB::$mysqli->query("CREATE DATABASE `$otherDb`");
+        DB::$mysqli->query("CREATE TABLE `$otherDb`.`target` (num INT NOT NULL PRIMARY KEY) ENGINE=InnoDB");
+        try {
+            $outboundBase = $this->createSideTable('_outbound', "num INT NOT NULL PRIMARY KEY, target_num INT NULL, CONSTRAINT fk_outbound FOREIGN KEY (target_num) REFERENCES `$otherDb`.`target` (num)");
+
+            $fk = Table::foreignKeys($outboundBase)['fk_outbound'];
+            $this->assertSame($otherDb, $fk['refDatabase']);
+            $this->assertSame('target', $fk['refTable']);
+        } finally {
+            // the side table first: its key would block dropping the table it references
+            DB::$mysqli->query("DROP TABLE IF EXISTS `{$this->fullTable}_outbound`");
+            DB::$mysqli->query("DROP DATABASE IF EXISTS `$otherDb`");
+        }
+    }
+
+    #[Test]
     public function foreignKeysReferencingFindsInboundConstraints(): void
     {
         // the fixture's FKs are self-referencing (they point at the fixture table's own num column),
         // so both show up as inbound constraints on the same table
         $inbound = Table::foreignKeysReferencing($this->baseTable);
 
-        $this->assertEqualsCanonicalizing(['fk_parent', 'fk_owner'], array_keys($inbound));
-        $this->assertSame($this->fullTable, $inbound['fk_owner']['fullTable'], "fullTable is the referencing table's real MySQL name, prefix included");
-        $this->assertSame(['owner_num'],    $inbound['fk_owner']['cols']);
-        $this->assertSame(['num'],          $inbound['fk_owner']['refCols']);
+        $this->assertSame(['fk_owner', 'fk_parent'], array_column($inbound, 'name'), 'a plain list, ordered by name within one table');
+        $fkOwner = $inbound[0];
+        $this->assertSame($this->currentDatabase(), $fkOwner['database'], 'database is where the referencing table is');
+        $this->assertSame($this->fullTable,      $fkOwner['fullTable'], "fullTable is the referencing table's real MySQL name, prefix included");
+        $this->assertSame(['owner_num'],         $fkOwner['cols']);
+        $this->assertSame(['num'],               $fkOwner['refCols']);
     }
 
     #[Test]
@@ -643,15 +666,91 @@ class TableIntegrationTest extends BaseTestCase
             CONSTRAINT fk_child FOREIGN KEY (fixture_num) REFERENCES `$this->fullTable` (num)
         ");
 
-        $inbound = Table::foreignKeysReferencing($this->baseTable);
-        $this->assertArrayHasKey('fk_child', $inbound, "the child's constraint shows as inbound on the fixture");
-        $this->assertSame(DB::$tablePrefix . $childBase, $inbound['fk_child']['fullTable'], 'fullTable names the child, not the fixture');
-        $this->assertSame(['fixture_num'],               $inbound['fk_child']['cols']);
-        $this->assertSame(['num'],                       $inbound['fk_child']['refCols']);
+        $fkChild = array_column(Table::foreignKeysReferencing($this->baseTable), null, 'name')['fk_child'] ?? null;
+        $this->assertNotNull($fkChild, "the child's constraint shows as inbound on the fixture");
+        $this->assertSame(DB::$tablePrefix . $childBase, $fkChild['fullTable'], 'fullTable names the child, not the fixture');
+        $this->assertSame(['fixture_num'],               $fkChild['cols']);
+        $this->assertSame(['num'],                       $fkChild['refCols']);
 
         $this->assertArrayNotHasKey('fk_child', Table::foreignKeys($this->baseTable), "the fixture's own constraints don't include the child's");
         $this->assertSame($this->fullTable, Table::foreignKeys($childBase)['fk_child']['refTable'], "from the child's side the same constraint is outbound");
         $this->assertSame([], Table::foreignKeysReferencing($childBase), 'nothing references the child');
+    }
+
+    #[Test]
+    public function foreignKeysReferencingKeepsUnnamedKeysFromTwoTablesApart(): void
+    {
+        // MariaDB 12.1+ names both of these `1`; every other server names them <table>_ibfk_1
+        $eventBase    = $this->createSideTable('_event', "num INT NOT NULL PRIMARY KEY, event_item INT NULL, FOREIGN KEY (event_item) REFERENCES `$this->fullTable` (num)");
+        $warrantyBase = $this->createSideTable('_warranty', "num INT NOT NULL PRIMARY KEY, warranty_item INT NULL, FOREIGN KEY (warranty_item) REFERENCES `$this->fullTable` (num)");
+
+        $this->assertSame([
+            DB::$tablePrefix . $eventBase    => ['event_item'],
+            DB::$tablePrefix . $warrantyBase => ['warranty_item'],
+        ], $this->inboundColsByTable(['_event', '_warranty']), 'one entry per table, each with its own column');
+
+        // foreignKeys() reads one table at a time, so a shared name can't mix the two
+        $this->assertSame([['event_item']],    array_column(Table::foreignKeys($eventBase), 'cols'));
+        $this->assertSame([['warranty_item']], array_column(Table::foreignKeys($warrantyBase), 'cols'));
+    }
+
+    #[Test]
+    public function foreignKeysReferencingKeepsSameNamedKeysFromTwoTablesApart(): void
+    {
+        $eventBase = $this->createSideTable('_event', "num INT NOT NULL PRIMARY KEY, event_item INT NULL, CONSTRAINT fk_same FOREIGN KEY (event_item) REFERENCES `$this->fullTable` (num)");
+        try {
+            $warrantyBase = $this->createSideTable('_warranty', "num INT NOT NULL PRIMARY KEY, warranty_item INT NULL, CONSTRAINT fk_same FOREIGN KEY (warranty_item) REFERENCES `$this->fullTable` (num)");
+        } catch (mysqli_sql_exception) {
+            $this->markTestSkipped('Server needs foreign key names to be unique in the database (every server except MariaDB 12.1+).');
+        }
+
+        $this->assertSame([
+            DB::$tablePrefix . $eventBase    => ['event_item'],
+            DB::$tablePrefix . $warrantyBase => ['warranty_item'],
+        ], $this->inboundColsByTable(['_event', '_warranty']));
+    }
+
+    #[Test]
+    public function foreignKeysReferencingKeepsCompositeKeysFromTwoTablesInOrder(): void
+    {
+        // unnamed, so MariaDB 12.1+ gives both the name `1` and returns their four rows mixed together
+        DB::query("ALTER TABLE `?` ADD UNIQUE INDEX idx_ref (num, sort_date)", $this->fullTable); // MySQL 8.4+ needs UNIQUE here
+        $eventBase    = $this->createSideTable('_event', "num INT NOT NULL PRIMARY KEY, e_num INT NULL, e_date DATE NULL, FOREIGN KEY (e_num, e_date) REFERENCES `$this->fullTable` (num, sort_date)");
+        $warrantyBase = $this->createSideTable('_warranty', "num INT NOT NULL PRIMARY KEY, w_num INT NULL, w_date DATE NULL, FOREIGN KEY (w_num, w_date) REFERENCES `$this->fullTable` (num, sort_date)");
+
+        $this->assertSame([
+            DB::$tablePrefix . $eventBase    => ['e_num', 'e_date'],
+            DB::$tablePrefix . $warrantyBase => ['w_num', 'w_date'],
+        ], $this->inboundColsByTable(['_event', '_warranty']), "each key's columns in ordinal order, none from the other table");
+
+        foreach (Table::foreignKeysReferencing($this->baseTable) as $fk) {
+            if ($fk['fullTable'] !== $this->fullTable) {
+                $this->assertSame(['num', 'sort_date'], $fk['refCols'], 'refCols align with cols by position');
+            }
+        }
+    }
+
+    #[Test]
+    public function foreignKeysReferencingIncludesKeysFromOtherDatabases(): void
+    {
+        // a second database can hold a key with the same name, on every server
+        $thisDb  = $this->currentDatabase();
+        $otherDb = $thisDb . '_fk_other';
+        DB::$mysqli->query("DROP DATABASE IF EXISTS `$otherDb`");
+        DB::$mysqli->query("CREATE DATABASE `$otherDb`");
+        try {
+            $childBase  = $this->createSideTable('_child', "num INT NOT NULL PRIMARY KEY, here_num INT NULL, CONSTRAINT fk_cross FOREIGN KEY (here_num) REFERENCES `$this->fullTable` (num)");
+            $childTable = DB::$tablePrefix . $childBase;
+            DB::$mysqli->query("CREATE TABLE `$otherDb`.`$childTable` (num INT NOT NULL PRIMARY KEY, other_num INT NULL, CONSTRAINT fk_cross FOREIGN KEY (other_num) REFERENCES `$thisDb`.`$this->fullTable` (num)) ENGINE=InnoDB");
+
+            $fkCross = array_values(array_filter(Table::foreignKeysReferencing($this->baseTable), static fn($fk) => $fk['name'] === 'fk_cross'));
+            $this->assertSame([
+                ['name' => 'fk_cross', 'database' => $thisDb,  'fullTable' => $childTable, 'cols' => ['here_num'],  'refCols' => ['num']],
+                ['name' => 'fk_cross', 'database' => $otherDb, 'fullTable' => $childTable, 'cols' => ['other_num'], 'refCols' => ['num']],
+            ], $fkCross, 'same name and table name, told apart by database');
+        } finally {
+            DB::$mysqli->query("DROP DATABASE IF EXISTS `$otherDb`"); // also drops the key, so tearDown can drop the fixture
+        }
     }
 
     //endregion
@@ -663,6 +762,26 @@ class TableIntegrationTest extends BaseTestCase
 
     //endregion
     //region Helpers
+
+    /**
+     * The database the test connection is using.
+     */
+    private function currentDatabase(): string
+    {
+        return DB::$mysqli->query("SELECT DATABASE()")->fetch_row()[0];
+    }
+
+    /**
+     * foreignKeysReferencing() on the fixture, as fullTable => cols, for the side tables with these
+     * suffixes only. Fails when the number of entries isn't one per side table.
+     */
+    private function inboundColsByTable(array $suffixes): array
+    {
+        $sideTables = array_map(fn($suffix) => $this->fullTable . $suffix, $suffixes);
+        $inbound    = array_filter(Table::foreignKeysReferencing($this->baseTable), static fn($fk) => in_array($fk['fullTable'], $sideTables, true));
+        $this->assertCount(count($suffixes), $inbound, 'one entry per foreign key');
+        return array_column($inbound, 'cols', 'fullTable');
+    }
 
     /**
      * Assert a subset of an index's boolean flags, naming the index in each failure message.

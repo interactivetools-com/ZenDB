@@ -882,17 +882,18 @@ class TableInfo
      *
      *     Table::foreignKeys('articles');
      *     // [
-     *     //     'cmsb_articles_ibfk_1' => ['name' => 'cmsb_articles_ibfk_1', 'cols' => ['author_num'], 'refTable' => 'cmsb_accounts', 'refCols' => ['num'], 'onDelete' => 'SET NULL', 'onUpdate' => 'RESTRICT'],
+     *     //     'cmsb_articles_ibfk_1' => ['name' => 'cmsb_articles_ibfk_1', 'cols' => ['author_num'], 'refDatabase' => 'cms', 'refTable' => 'cmsb_accounts', 'refCols' => ['num'], 'onDelete' => 'SET NULL', 'onUpdate' => 'RESTRICT'],
      *     // ]
      *     Table::foreignKeys('articles', 'author_num'); // just that one
      *
-     * refTable is the referenced table's real MySQL name, prefix included, since a constraint can reference
-     * tables without the prefix. cols and refCols align by position: cols[0] references refCols[0].
+     * refDatabase and refTable say where the referenced table is: a constraint can reference any table
+     * in any database on the server, so refTable is its real MySQL name, prefix included.
+     * cols and refCols align by position: cols[0] references refCols[0].
      * onDelete/onUpdate are MySQL's rules: RESTRICT, CASCADE, SET NULL, or NO ACTION.
      *
      * @param string      $baseTable  Table name without prefix
      * @param string|null $columnName Only return constraints that include this column
-     * @return array<string, array{name: string, cols: list<string>, refTable: string, refCols: list<string>, onDelete: string, onUpdate: string}> constraintName => constraint details
+     * @return array<string, array{name: string, cols: list<string>, refDatabase: string, refTable: string, refCols: list<string>, onDelete: string, onUpdate: string}> constraintName => constraint details
      * @throws InvalidArgumentException For names with characters outside a-z, A-Z, 0-9, _, -
      */
     public function foreignKeys(string $baseTable, ?string $columnName = null): array
@@ -904,7 +905,7 @@ class TableInfo
         // schema/table filters to an information_schema table queried on its own, so the join reads
         // every foreign key on the server (~460ms on a 1,600-table dev box vs ~1ms for two queries).
         $result = $this->mysqli->query(
-            "SELECT CONSTRAINT_NAME, COLUMN_NAME, REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME
+            "SELECT CONSTRAINT_NAME, COLUMN_NAME, REFERENCED_TABLE_SCHEMA, REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME
                FROM information_schema.KEY_COLUMN_USAGE
               WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '$escapedFullTable' AND REFERENCED_TABLE_NAME IS NOT NULL
               ORDER BY CONSTRAINT_NAME, ORDINAL_POSITION",
@@ -929,12 +930,13 @@ class TableInfo
         foreach ($rows as $row) {
             $name                            = $row['CONSTRAINT_NAME'];
             $foreignKeys[$name]              ??= [
-                'name'     => $name,
-                'cols'     => [],
-                'refTable' => $row['REFERENCED_TABLE_NAME'],
-                'refCols'  => [],
-                'onDelete' => $onDeleteUpdateRules[$name]['DELETE_RULE'],
-                'onUpdate' => $onDeleteUpdateRules[$name]['UPDATE_RULE'],
+                'name'        => $name,
+                'cols'        => [],
+                'refDatabase' => $row['REFERENCED_TABLE_SCHEMA'],
+                'refTable'    => $row['REFERENCED_TABLE_NAME'],
+                'refCols'     => [],
+                'onDelete'    => $onDeleteUpdateRules[$name]['DELETE_RULE'],
+                'onUpdate'    => $onDeleteUpdateRules[$name]['UPDATE_RULE'],
             ];
             $foreignKeys[$name]['cols'][]    = $row['COLUMN_NAME'];
             $foreignKeys[$name]['refCols'][] = $row['REFERENCED_COLUMN_NAME'];
@@ -949,20 +951,26 @@ class TableInfo
     }
 
     /**
-     * Get every FOREIGN KEY constraint in the database that references a table, keyed by constraint name.
+     * List every FOREIGN KEY constraint that references a table, ordered by database, table, then name.
      * The reverse of foreignKeys(): which tables point at this one.
      *
      *     Table::foreignKeysReferencing('accounts');
      *     // [
-     *     //     'cmsb_articles_ibfk_1' => ['name' => 'cmsb_articles_ibfk_1', 'fullTable' => 'cmsb_articles', 'cols' => ['author_num'], 'refCols' => ['num']],
+     *     //     ['name' => 'cmsb_articles_ibfk_1', 'database' => 'cms', 'fullTable' => 'cmsb_articles', 'cols' => ['author_num'], 'refCols' => ['num']],
+     *     //     ['name' => 'cmsb_comments_ibfk_1', 'database' => 'cms', 'fullTable' => 'cmsb_comments', 'cols' => ['account_num'], 'refCols' => ['num']],
      *     // ]
      *
-     * fullTable is the referencing table's real MySQL name, prefix included, since any table in the
-     * database can hold the constraint. cols are the referencing table's columns; refCols are this
-     * table's columns they point at, aligned by position: cols[0] references refCols[0].
+     * The result is a plain list because a name doesn't identify one constraint: MariaDB 12.1+
+     * names them 1, 2, 3 in every table, and a table in another database can reuse a name on any
+     * server. name, database, and fullTable together identify one.
+     *
+     * database and fullTable say where the referencing table is: any table in any database on the
+     * server can hold the constraint, so fullTable is its real MySQL name, prefix included. cols are
+     * the referencing table's columns; refCols are this table's columns they point at, aligned by
+     * position: cols[0] references refCols[0].
      *
      * @param string $baseTable Table name without prefix
-     * @return array<string, array{name: string, fullTable: string, cols: list<string>, refCols: list<string>}> constraintName => constraint details
+     * @return list<array{name: string, database: string, fullTable: string, cols: list<string>, refCols: list<string>}>
      * @throws InvalidArgumentException For names with characters outside a-z, A-Z, 0-9, _, -
      */
     public function foreignKeysReferencing(string $baseTable): array
@@ -970,28 +978,29 @@ class TableInfo
         isset(DB::$safeIdentifiers[$baseTable]) || DB::assertIdentifier($baseTable, 'table name');
         $escapedFullTable = $this->mysqli->real_escape_string($this->db->tablePrefix . $baseTable);
         $result           = $this->mysqli->query(
-            "SELECT CONSTRAINT_NAME, TABLE_NAME, COLUMN_NAME, REFERENCED_COLUMN_NAME
+            "SELECT TABLE_SCHEMA, TABLE_NAME, CONSTRAINT_NAME, COLUMN_NAME, REFERENCED_COLUMN_NAME
                FROM information_schema.KEY_COLUMN_USAGE
               WHERE REFERENCED_TABLE_SCHEMA = DATABASE() AND REFERENCED_TABLE_NAME = '$escapedFullTable'
-              ORDER BY CONSTRAINT_NAME, ORDINAL_POSITION",
+              ORDER BY TABLE_SCHEMA, TABLE_NAME, CONSTRAINT_NAME, ORDINAL_POSITION",
         );
         $rows             = $result->fetch_all(MYSQLI_ASSOC);
         $result->free();
 
         $foreignKeys = [];
         foreach ($rows as $row) {
-            $name                            = $row['CONSTRAINT_NAME'];
-            $foreignKeys[$name]              ??= [
-                'name'      => $name,
+            $key                            = "$row[TABLE_SCHEMA]\0$row[TABLE_NAME]\0$row[CONSTRAINT_NAME]"; // \0 can't be in a name; a dot can
+            $foreignKeys[$key]              ??= [
+                'name'      => $row['CONSTRAINT_NAME'],
+                'database'  => $row['TABLE_SCHEMA'],
                 'fullTable' => $row['TABLE_NAME'],
                 'cols'      => [],
                 'refCols'   => [],
             ];
-            $foreignKeys[$name]['cols'][]    = $row['COLUMN_NAME'];
-            $foreignKeys[$name]['refCols'][] = $row['REFERENCED_COLUMN_NAME'];
+            $foreignKeys[$key]['cols'][]    = $row['COLUMN_NAME'];
+            $foreignKeys[$key]['refCols'][] = $row['REFERENCED_COLUMN_NAME'];
         }
 
-        return $foreignKeys;
+        return array_values($foreignKeys);
     }
 
     //endregion

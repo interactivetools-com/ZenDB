@@ -20,6 +20,26 @@ Full lists of what changed per release: [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
+## Unreleased
+
+*Follow this section when upgrading from ZenDB v1.0.0.*
+
+### Return value changes
+
+> - `Table::foreignKeysReferencing()` returns a plain list, no longer keyed
+>   by constraint name. Code that loops over the result keeps working. Code
+>   that reads one entry by name needs to search the list:
+>
+>   ```php
+>   $fk = Table::foreignKeysReferencing('accounts')['fk_author'];   // before
+>
+>   foreach (Table::foreignKeysReferencing('accounts') as $fk) {    // after
+>       if ($fk['name'] === 'fk_author' && $fk['fullTable'] === 'cms_articles') { ... }
+>   }
+>   ```
+>
+>   Search: `foreignKeysReferencing(`
+
 ## v1.0.0
 
 *Follow this section when upgrading from ZenDB before v1.0.0

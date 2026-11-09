@@ -4,6 +4,20 @@
 > per version - tagged releases roll up every change since the previous tag.
 > Versions bundled with CMS Builder are marked on their sections.
 
+## [UNRELEASED]
+
+### Added
+
+- **`Table::foreignKeys()` reports `refDatabase`** - a foreign key can reference a table in another database
+
+### Fixed
+
+- **`Table::foreignKeysReferencing()` lists same-named keys separately** - it was keyed by name, so two keys with the same name were merged into one entry. MariaDB 12.1+ names keys `1`, `2`, `3` in every table
+
+### Changed
+
+- **`Table::foreignKeysReferencing()` returns a plain list** - no longer keyed by name, and each entry has a new `database` field. See [UPGRADING.md](UPGRADING.md)
+
 ## [1.0.0] - 2026-10-16
 
 > **Bundled with CMS Builder v3.85**
