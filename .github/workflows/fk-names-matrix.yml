@@ -3,8 +3,14 @@ name: FK Names Matrix
 # Checks how every database in the matrix names foreign keys, and whether
 # Table::foreignKeys() and Table::foreignKeysReferencing() report them correctly.
 # Manual-only. Dispatch with: gh workflow run fk-names-matrix.yml --ref <branch>
+# To check images outside the matrix: gh workflow run fk-names-matrix.yml -f databases="mariadb:12.0 mariadb:12.1"
 on:
   workflow_dispatch:
+    inputs:
+      databases:
+        description: 'Docker images to probe, space-separated (blank = .github/db-matrix.json)'
+        required: false
+        type: string
 
 # the jobs only read the code
 permissions:
@@ -23,9 +29,16 @@ jobs:
         with:
           persist-credentials: false  # no step uses git with the token, so don't leave it in .git/config
 
-      - name: Read .github/db-matrix.json
+      - name: Read the databases input or .github/db-matrix.json
         id: load
-        run: echo "databases=$(jq -c . .github/db-matrix.json)" >> "$GITHUB_OUTPUT"
+        env:
+          DATABASES: ${{ inputs.databases }}  # free-form text: passed as an env var so the shell gets it as data
+        run: |
+          if [ -n "$DATABASES" ]; then
+            echo "databases=$(jq -cn --arg list "$DATABASES" '$list | split(" ") | map(select(. != ""))')" >> "$GITHUB_OUTPUT"
+          else
+            echo "databases=$(jq -c . .github/db-matrix.json)" >> "$GITHUB_OUTPUT"
+          fi
 
   probe:
     name: ${{ matrix.database }}
