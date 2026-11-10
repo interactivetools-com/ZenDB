@@ -754,6 +754,37 @@ class TableIntegrationTest extends BaseTestCase
     }
 
     //endregion
+    //region Column collations after a replay
+
+    #[Test]
+    public function replayedColumnsKeepTheServerDefaultInATableWithAChosenCollation(): void
+    {
+        // changing only the table's default leaves existing columns on the collation the server gave
+        // them, and the server now prints it on each one (MySQL 5.7 prints CHARACTER SET alone)
+        $sourceBase = $this->baseTable . '_collation';
+        $source     = $this->fullTable . '_collation';
+        $replay     = $this->fullTable . '_collation_replay';
+        DB::$mysqli->query("CREATE TABLE `$source` (name VARCHAR(20) NULL, pinned VARCHAR(20) COLLATE utf8mb4_unicode_ci NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+        DB::$mysqli->query("ALTER TABLE `$source` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin");
+        DB::$mysqli->query("ALTER TABLE `$source` ADD COLUMN added_later VARCHAR(20) NULL");
+        $serverDefault = $this->columnCollations($source)['name'];
+
+        $normalized = Table::normalizeCreateTable(Table::showCreateTable($sourceBase));
+        DB::$mysqli->query(str_replace("`$source`", "`$replay`", $normalized));
+
+        $this->assertSame(
+            ['name' => $serverDefault, 'pinned' => $serverDefault, 'added_later' => 'utf8mb4_bin'],
+            $this->columnCollations($replay),
+            "name and pinned get the server's default, not the table's utf8mb4_bin; added_later inherits the table's",
+        );
+
+        // MODIFY COLUMN with the columnDefinitions() string leaves the column on the collation it had
+        $nameDefinition = Table::columnDefinitions($sourceBase)['name'];
+        DB::$mysqli->query("ALTER TABLE `$source` MODIFY COLUMN name $nameDefinition");
+        $this->assertSame($serverDefault, $this->columnCollations($source)['name']);
+    }
+
+    //endregion
     //region NOT COVERED (flagged so it isn't assumed tested)
 
     // exists() name-case behavior is untestable portably: MySQL compares table names
@@ -762,6 +793,19 @@ class TableIntegrationTest extends BaseTestCase
 
     //endregion
     //region Helpers
+
+    /**
+     * Each column's collation, as columnName => collation, in table order.
+     */
+    private function columnCollations(string $fullTable): array
+    {
+        $rows = DB::$mysqli->query(
+            "SELECT COLUMN_NAME, COLLATION_NAME FROM information_schema.COLUMNS
+              WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '$fullTable'
+              ORDER BY ORDINAL_POSITION",
+        )->fetch_all(MYSQLI_ASSOC);
+        return array_column($rows, 'COLLATION_NAME', 'COLUMN_NAME');
+    }
 
     /**
      * The database the test connection is using.

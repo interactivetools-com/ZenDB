@@ -140,6 +140,53 @@ final class TableTest extends TestCase
     }
 
     #[Test]
+    public function keepsCharsetOnVendorDefaultColumnsInATableWithAChosenCollation(): void
+    {
+        // a column with no CHARACTER SET or COLLATE takes the table's collation. In a utf8mb4_bin
+        // table that would make these case-insensitive columns binary, so CHARACTER SET stays and
+        // each server gives them its own default. MySQL 5.7 prints `bare`, newer servers the others
+        $definitions = self::parseDdl(<<<'SQL'
+            CREATE TABLE `t` (
+              `inherits` varchar(80) COLLATE utf8mb4_bin NOT NULL,
+              `general` varchar(80) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL,
+              `bare` varchar(80) CHARACTER SET utf8mb4 NOT NULL,
+              `mysql8` varchar(80) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL,
+              `pinned` varchar(80) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+              `own_choice` varchar(80) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_520_ci NOT NULL,
+              `legacy` varchar(80) CHARACTER SET latin1 COLLATE latin1_swedish_ci NOT NULL
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin
+            SQL);
+
+        $this->assertSame('varchar(80) NOT NULL', $definitions['inherits'], "the table's own collation is still removed");
+        $this->assertSame('varchar(80) CHARACTER SET utf8mb4 NOT NULL', $definitions['general']);
+        $this->assertSame('varchar(80) CHARACTER SET utf8mb4 NOT NULL', $definitions['bare'], 'reads the same as on the newer servers');
+        $this->assertSame('varchar(80) CHARACTER SET utf8mb4 NOT NULL', $definitions['mysql8']);
+        $this->assertSame('varchar(80) CHARACTER SET utf8mb4 NOT NULL', $definitions['pinned']);
+        $this->assertSame('varchar(80) COLLATE utf8mb4_unicode_520_ci NOT NULL', $definitions['own_choice'], 'a chosen collation needs no CHARACTER SET in front of it');
+        $this->assertSame('varchar(80) CHARACTER SET latin1 NOT NULL', $definitions['legacy'], "a column in another charset reads as it does in any table");
+    }
+
+    #[Test]
+    public function legacyUtf8TableCollationCountsAsAVendorDefaultInEitherSpelling(): void
+    {
+        // newer servers spell it utf8mb3_general_ci; the column is handled as in any other table
+        $definitions = self::parseDdl(<<<'SQL'
+            CREATE TABLE `t` (
+              `name` varchar(80) CHARACTER SET utf8mb3 COLLATE utf8mb3_uca1400_ai_ci NOT NULL
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci
+            SQL);
+        $this->assertSame('varchar(80) NOT NULL', $definitions['name']);
+
+        // in a utf8mb3_bin table the column keeps its charset, in the spelling every server accepts
+        $definitions = self::parseDdl(<<<'SQL'
+            CREATE TABLE `t` (
+              `name` varchar(80) CHARACTER SET utf8mb3 COLLATE utf8mb3_uca1400_ai_ci NOT NULL
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_bin
+            SQL);
+        $this->assertSame('varchar(80) CHARACTER SET utf8 NOT NULL', $definitions['name']);
+    }
+
+    #[Test]
     public function charsetSpellingInsideStringDefaultsIsNeverModified(): void
     {
         // string defaults can contain the exact phrases the charset normalizations look for;
@@ -536,6 +583,24 @@ final class TableTest extends TestCase
               `name` varchar(80) NOT NULL,
               `slug` varchar(80) COLLATE utf8mb4_bin NOT NULL
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            SQL, $normalized);
+    }
+
+    #[Test]
+    public function normalizeCreateTableKeepsCharsetOnVendorDefaultColumnsInATableWithAChosenCollation(): void
+    {
+        $normalized = Table::normalizeCreateTable(<<<'SQL'
+            CREATE TABLE `t` (
+              `name` varchar(80) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL,
+              `slug` varchar(80) COLLATE utf8mb4_bin NOT NULL
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin
+            SQL);
+
+        $this->assertSame(<<<'SQL'
+            CREATE TABLE `t` (
+              `name` varchar(80) CHARACTER SET utf8mb4 NOT NULL,
+              `slug` varchar(80) NOT NULL
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin
             SQL, $normalized);
     }
 

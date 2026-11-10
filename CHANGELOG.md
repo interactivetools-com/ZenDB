@@ -18,6 +18,10 @@
 - **Connect sends one `SET NAMES utf8mb4, time_zone, sql_mode` statement on every server** - MySQL and Percona 8.0+ sent two. A `queryLogger` sees the new statement text
 - **`Table::foreignKeysReferencing()` returns a plain list** - no longer keyed by name, and each entry has a new `database` field. See [UPGRADING.md](UPGRADING.md)
 
+### Minor
+
+`Table::columnDefinitions()` and `Table::normalizeCreateTable()` keep `CHARACTER SET` on a column in a table whose collation was changed by hand.
+
 ## [1.0.0] - 2026-10-16
 
 > **Bundled with CMS Builder v3.85**

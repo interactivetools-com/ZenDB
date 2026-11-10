@@ -8,7 +8,7 @@ use RuntimeException;
 use mysqli_sql_exception;
 
 // import built-ins so calls resolve at compile time instead of per-call lookups; NamespacedCallsTest keeps this list exact
-use function array_column, array_filter, array_keys, array_map, array_values, count, explode, implode, in_array, preg_grep, preg_match, preg_replace, preg_replace_callback, str_starts_with, stripos, strlen, strpos, strtolower, strtr, substr, usort;
+use function array_column, array_filter, array_keys, array_map, array_values, count, explode, implode, in_array, preg_grep, preg_match, preg_replace, preg_replace_callback, str_replace, str_starts_with, stripos, strlen, strpos, strtolower, strtr, substr, usort;
 use const MYSQLI_ASSOC, PREG_OFFSET_CAPTURE;
 
 /**
@@ -314,6 +314,8 @@ class TableInfo
      *   - one that repeats the table's own default is removed: the column inherits it anyway
      *   - a vendor default COLLATE ({@see self::DEFAULT_COLLATIONS}) is removed: MySQL and MariaDB don't
      *     agree on which collation is the default, and don't always accept each other's
+     *   - except in a table with its own chosen collation, e.g. utf8mb4_bin: there the column comes back
+     *     as CHARACTER SET utf8mb4, because with neither clause it would mean utf8mb4_bin
      *   - anything chosen on purpose stays: a different charset, or a collation such as utf8mb4_bin
      *
      * Not changed:
@@ -431,6 +433,8 @@ class TableInfo
      *   - one that repeats the table's own default is removed: the column inherits it anyway
      *   - a vendor default COLLATE ({@see self::DEFAULT_COLLATIONS}) is removed: MySQL and MariaDB don't
      *     agree on which collation is the default, and don't always accept each other's
+     *   - except in a table with its own chosen collation, e.g. utf8mb4_bin: there the column comes back
+     *     as CHARACTER SET utf8mb4, because with neither clause it would mean utf8mb4_bin
      *   - anything chosen on purpose stays: a different charset, or a collation such as utf8mb4_bin
      *
      * The table options line gets two of these rules: CHARSET=utf8mb3 → CHARSET=utf8 (and
@@ -583,6 +587,15 @@ class TableInfo
      * A column with a DIFFERENT charset or collation keeps it, and the table-options line
      * itself is never modified.
      *
+     * One exception, for a table with its own chosen collation (anything but a vendor default, e.g.
+     * utf8mb4_bin). There `varchar(80)` with no clause means utf8mb4_bin, so a column on the server's
+     * default collation keeps CHARACTER SET, and each server gives it its own default on replay:
+     *
+     *     CHARACTER SET utf8mb4 COLLATE utf8mb4_bin             →  (both removed)                  // the table's own default
+     *     CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_520_ci  →  COLLATE utf8mb4_unicode_520_ci  // a chosen collation needs no CHARACTER SET
+     *     CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci      →  unchanged                       // a later step removes the vendor default COLLATE, CHARACTER SET utf8mb4 is left
+     *     CHARACTER SET utf8mb4                                 →  unchanged                       // how MySQL 5.7 prints the row above
+     *
      * Details:
      *   - the ") ENGINE=..." line is found by prefix, not position: partitioned tables append
      *     PARTITION lines after it
@@ -601,9 +614,15 @@ class TableInfo
         preg_match('/\bCHARSET=(\w+)/', $tableLine, $charsetMatch);
         preg_match('/\bCOLLATE=(\w+)/', $tableLine, $collateMatch);
 
+        // In a table with its own chosen collation (the exception above), CHARACTER SET is removed
+        // only when a COLLATE that stays follows it
+        $vendorDefaultsRx           = str_replace('utf8_', 'utf8(?:mb3)?_', implode('|', self::DEFAULT_COLLATIONS)); // either spelling of legacy utf8
+        $tableHasChosenCollation    = isset($collateMatch[1]) && !preg_match("/^(?:$vendorDefaultsRx)\$/", $collateMatch[1]);
+        $onlyBeforeCollateThatStays = $tableHasChosenCollation ? "(?= COLLATE (?!(?:$vendorDefaultsRx)\\b))" : '';
+
         $redundantRxs = [];
         if (isset($charsetMatch[1])) {
-            $redundantRxs[] = "/ CHARACTER SET $charsetMatch[1]\\b/";
+            $redundantRxs[] = "/ CHARACTER SET $charsetMatch[1]\\b$onlyBeforeCollateThatStays/";
         }
         if (isset($collateMatch[1])) {
             $redundantRxs[] = "/ COLLATE $collateMatch[1]\\b/";
