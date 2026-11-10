@@ -1,0 +1,255 @@
+name: Connect Charset Matrix
+
+# Checks what Connection::openConnection() sends to set the connection charset, and the
+# session it leaves, on every database in the matrix started with default settings and
+# with charset settings that change what login does. Compares with a baseline release.
+# Manual-only. Dispatch with: gh workflow run connect-charset-matrix.yml --ref <branch>
+# One image and one PHP version: gh workflow run connect-charset-matrix.yml -f databases="mariadb:11.8" -f php="8.4"
+# This checkout only, no comparison: gh workflow run connect-charset-matrix.yml -f baseline=""
+on:
+  workflow_dispatch:
+    inputs:
+      databases:
+        description: 'Docker images to probe, space-separated (blank = .github/db-matrix.json)'
+        required: false
+        type: string
+      php:
+        description: 'PHP versions, space-separated (blank = 8.1 8.2 8.3 8.4 8.5 8.6)'
+        required: false
+        type: string
+      baseline:
+        description: 'Git tag whose src/ is the "old" side of the comparison (blank = no comparison)'
+        required: false
+        type: string
+        default: v1.0.0
+
+# the jobs only read the code
+permissions:
+  contents: read
+
+jobs:
+  db-matrix:
+    name: Load database and PHP matrix
+    runs-on: ubuntu-slim  # starts faster; has no PHP or Docker
+    timeout-minutes: 15
+    outputs:
+      databases: ${{ steps.load.outputs.databases }}
+      php: ${{ steps.load.outputs.php }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false  # no step uses git with the token, so don't leave it in .git/config
+
+      - name: Read the inputs or .github/db-matrix.json
+        id: load
+        env:
+          DATABASES: ${{ inputs.databases }}    # free-form text: passed as env vars so the shell gets it as data
+          PHP_VERSIONS: ${{ inputs.php }}
+        run: |
+          if [ -n "$DATABASES" ]; then
+            echo "databases=$(jq -cn --arg list "$DATABASES" '$list | split(" ") | map(select(. != ""))')" >> "$GITHUB_OUTPUT"
+          else
+            echo "databases=$(jq -c . .github/db-matrix.json)" >> "$GITHUB_OUTPUT"
+          fi
+          echo "php=$(jq -cn --arg list "${PHP_VERSIONS:-8.1 8.2 8.3 8.4 8.5 8.6}" '$list | split(" ") | map(select(. != ""))')" >> "$GITHUB_OUTPUT"
+
+  probe:
+    name: PHP ${{ matrix.php }} / ${{ matrix.database }}
+    runs-on: ubuntu-latest
+    needs: db-matrix
+    timeout-minutes: 30
+    # 8.6 is prerelease: report its result but never fail the run, same as tests.yml
+    continue-on-error: ${{ matrix.php == '8.6' }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ${{ fromJSON(needs.db-matrix.outputs.php) }}
+        database: ${{ fromJSON(needs.db-matrix.outputs.databases) }}
+
+    # No service container: every server, the default one included, is started by
+    # connect-charset-servers.sh, because service containers can't take mysqld flags
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false  # no step uses git with the token, so don't leave it in .git/config
+
+      # The "old" side of every comparison: the whole src/ of the baseline tag. A fixed
+      # release, because main's own src/ is the "new" side once the change is merged
+      - name: Fetch the baseline's src/
+        env:
+          BASELINE: ${{ inputs.baseline }}  # free-form text: passed as an env var so the shell gets it as data
+        run: |
+          if [ -z "$BASELINE" ]; then
+            echo "No baseline: probing this checkout only"
+            exit 0
+          fi
+          git fetch --no-tags --depth=1 origin "refs/tags/$BASELINE:refs/tags/$BASELINE"
+          mkdir -p "$RUNNER_TEMP/baseline"
+          git archive "refs/tags/$BASELINE" src | tar -x -C "$RUNNER_TEMP/baseline"
+          ls "$RUNNER_TEMP/baseline/src/Connection.php"
+
+      # composer.json path repositories point at ../SmartString and ../SmartArray
+      - name: Checkout SmartString and SmartArray
+        run: |
+          git clone --depth 1 https://github.com/interactivetools-com/SmartString.git ../SmartString
+          git clone --depth 1 https://github.com/interactivetools-com/SmartArray.git ../SmartArray
+
+      - name: Setup PHP ${{ matrix.php }}
+        uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
+        timeout-minutes: 5  # takes under 3 min; setup-php can hang on macOS
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: mysqli, openssl, mbstring
+          coverage: none
+
+      - name: Install dependencies
+        run: composer install --no-interaction --prefer-dist
+
+      - name: Start server variants
+        env:
+          DB_IMAGE: ${{ matrix.database }}
+        run: bash .github/scripts/connect-charset-servers.sh "$DB_IMAGE" "$RUNNER_TEMP/variants.json"
+
+      - name: Run probe
+        env:
+          DB_LABEL:  ${{ matrix.database }}
+          PHP_LABEL: ${{ matrix.php }}
+          BASELINE:  ${{ inputs.baseline }}
+        run: |
+          SLUG=$(echo "$PHP_LABEL-$DB_LABEL" | tr ':/' '--')
+          echo "SLUG=$SLUG" >> "$GITHUB_ENV"
+          OLD=()
+          if [ -n "$BASELINE" ]; then
+            OLD=(--old="$RUNNER_TEMP/baseline/src" --baseline="$BASELINE")
+          fi
+          php .github/scripts/connect-charset-probe.php --variants="$RUNNER_TEMP/variants.json" "${OLD[@]}" --json="connect-charset-probe-$SLUG.json"
+
+      - name: Upload probe results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: connect-charset-probe-${{ env.SLUG }}
+          path: connect-charset-probe-*.json
+          if-no-files-found: ignore
+
+  # Outside the server matrix: the same connect through ProxySQL, which reads SET
+  # statements itself to track session variables for the connections it shares.
+  # Images are pinned by digest; the version each digest is goes in the matrix too
+  proxysql:
+    name: ProxySQL ${{ matrix.version }} in front of mysql:8.0
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - version: '2.5.5'
+            image: proxysql/proxysql@sha256:37eb7e46d947abe0f7b1bb87552ba909ddd5e76f874810dffa518b63e49e2992
+          - version: '2.7.3'
+            image: proxysql/proxysql@sha256:a4d6c35c29498b294d771898f747e2143bc5c8f8b338a58324b1152144f970bb
+          - version: '3.0.12'
+            image: proxysql/proxysql@sha256:3a96426ea17bb883820433908b49087b6027852bb92c981209e72ebe7897c4f2
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false  # no step uses git with the token, so don't leave it in .git/config
+
+      - name: Fetch the baseline's src/
+        env:
+          BASELINE: ${{ inputs.baseline }}  # free-form text: passed as an env var so the shell gets it as data
+        run: |
+          if [ -z "$BASELINE" ]; then
+            echo "No baseline: probing this checkout only"
+            exit 0
+          fi
+          git fetch --no-tags --depth=1 origin "refs/tags/$BASELINE:refs/tags/$BASELINE"
+          mkdir -p "$RUNNER_TEMP/baseline"
+          git archive "refs/tags/$BASELINE" src | tar -x -C "$RUNNER_TEMP/baseline"
+          ls "$RUNNER_TEMP/baseline/src/Connection.php"
+
+      # composer.json path repositories point at ../SmartString and ../SmartArray
+      - name: Checkout SmartString and SmartArray
+        run: |
+          git clone --depth 1 https://github.com/interactivetools-com/SmartString.git ../SmartString
+          git clone --depth 1 https://github.com/interactivetools-com/SmartArray.git ../SmartArray
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
+        timeout-minutes: 5  # takes under 3 min; setup-php can hang on macOS
+        with:
+          php-version: '8.3'
+          extensions: mysqli, openssl, mbstring
+          coverage: none
+
+      - name: Install dependencies
+        run: composer install --no-interaction --prefer-dist
+
+      # ProxySQL uses the host's network, so it reaches the server on 127.0.0.1:3306.
+      # The probe waits for both, then sets up the user and ProxySQL itself
+      - name: Start MySQL 8.0 and ProxySQL
+        env:
+          PROXYSQL_IMAGE: ${{ matrix.image }}
+        run: |
+          docker run -d --name backend -p 3306:3306 -e MYSQL_ALLOW_EMPTY_PASSWORD=yes -e MYSQL_ROOT_HOST=% --security-opt seccomp=unconfined mysql:8.0
+          docker run -d --name proxysql --network host "$PROXYSQL_IMAGE"
+
+      - name: Run probe through ProxySQL
+        env:
+          DB_LABEL:          mysql:8.0
+          PROXYSQL_VERSION:  ${{ matrix.version }}
+          BASELINE:          ${{ inputs.baseline }}
+        run: |
+          OLD=()
+          if [ -n "$BASELINE" ]; then
+            OLD=(--old="$RUNNER_TEMP/baseline/src" --baseline="$BASELINE")
+          fi
+          php .github/scripts/connect-charset-probe.php --proxysql="$PROXYSQL_VERSION" "${OLD[@]}" --json="connect-charset-probe-proxysql-$PROXYSQL_VERSION.json"
+
+      - name: ProxySQL log
+        if: always()
+        run: docker logs proxysql 2>&1 | tail -n 80
+
+      - name: Upload probe results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: connect-charset-probe-proxysql-${{ matrix.version }}
+          path: connect-charset-probe-*.json
+          if-no-files-found: ignore
+
+  summary:
+    name: Compare servers
+    runs-on: ubuntu-latest
+    needs: [probe, proxysql]
+    timeout-minutes: 15
+    # Folds every job and succeeds even when they fail; !cancelled() still builds the comparison for failed runs
+    if: ${{ !cancelled() }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false  # no step uses git with the token, so don't leave it in .git/config
+
+      - name: Download probe results
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: connect-charset-probe-*
+          merge-multiple: true
+          path: probes
+
+      - name: Build comparison
+        run: php .github/scripts/connect-charset-probe.php --merge probes/*.json | tee connect-charset-matrix.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload comparison
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: connect-charset-matrix
+          path: connect-charset-matrix.md

@@ -37,6 +37,21 @@ another database.
 - `fk-names-probe.php` - probe one server and write JSON, or with `--merge`
   turn the JSON files into one "who differs" report
 
+**Connect charset matrix** (`connect-charset-matrix.yml`) - checks what
+`Connection::openConnection()` sends to set the connection charset and the
+session it leaves, on every database image and PHP version, with each image
+started several times: default settings, other default charsets,
+`skip-character-set-client-handshake`, `init_connect`, and a non-default
+collation. Compares with the `src/` of a baseline tag (default `v1.0.0`), and
+runs the same connect through ProxySQL. Results go in
+[docs/internal/connect-charset-matrix.md](../../docs/internal/connect-charset-matrix.md).
+
+- `connect-charset-servers.sh` - start one container per server variant from
+  one image, each on its own port, and write the list as JSON
+- `connect-charset-probe.php` - probe every variant in that list and write
+  JSON, or with `--proxysql` probe through ProxySQL, or with `--merge` turn
+  the JSON files into one "who differs" report
+
 **Version speed test** (`version-matrix.yml`) - the previous release versus the
 working copy on the pages from
 [docs/performance.md](../../docs/performance.md), so a release can say how much
