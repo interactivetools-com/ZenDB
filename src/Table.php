@@ -101,18 +101,22 @@ class Table
      *     Table::defaultFromDefinition("varchar(10) NOT NULL DEFAULT 'draft',");           // 'draft' - a line copied
      *                                                                                      // from SHOW CREATE TABLE keeps its comma; that's fine
      *
+     * What comes back:
+     *   - a quoted literal: unquoted and unescaped
+     *   - an expression default (CURRENT_TIMESTAMP, or a parenthesized one like (uuid())): its SQL text
+     *   - DEFAULT NULL or no DEFAULT clause: null, because MySQL treats those the same on nullable columns
+     *   - a generated column: null. It can't have a DEFAULT clause, so any DEFAULT text in its definition
+     *     is inside the expression
+     *
      * This is the one cross-server way to read a default: information_schema's COLUMN_DEFAULT reports
      * in incompatible forms (MariaDB returns DDL text, MySQL raw values), while SHOW CREATE TABLE is
-     * identical in meaning everywhere. Quoted literals are unquoted and unescaped; expression defaults
-     * (CURRENT_TIMESTAMP, parenthesized expressions like (uuid())) return as their SQL text. Returns null
-     * for both DEFAULT NULL and no DEFAULT clause: MySQL treats those the same on nullable columns.
+     * identical in meaning everywhere.
+     *
+     * DEFAULT only counts as the keyword outside quotes: comment text, enum values, and defaults can
+     * all contain it as plain text.
      *
      * Defined here rather than on TableInfo because it only parses the string you pass it:
      * no connection involved.
-     *
-     * Generated columns return null: they can't have a DEFAULT clause, so any DEFAULT text in
-     * their definition is inside the expression. DEFAULT only counts as the keyword outside
-     * quotes; comment text, enum values, and defaults can all contain it as plain text.
      *
      * @param string $definitionSql One column's definition SQL, as returned by columnDefinitions()
      * @return string|null The default value, or null when the column has none

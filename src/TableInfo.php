@@ -209,16 +209,25 @@ class TableInfo
      *
      * For just the names use columnNames(); for a name => type map use array_column($columns, 'type', 'name').
      *
-     * Field notes:
-     *   - type: the full column type, e.g. 'varchar(255)' or 'decimal(10,2) unsigned'. Deprecated int display
-     *     widths are cropped ('int(11)' → 'int') so type reads the same on every server; plain signed
-     *     tinyint(1) (boolean marker) and zerofill columns (width sets the padding) keep theirs,
-     *     matching MySQL 8's output
-     *   - extra: e.g. 'auto_increment', 'on update CURRENT_TIMESTAMP', 'VIRTUAL GENERATED', 'STORED GENERATED'
-     *   - charset: null for non-text columns
-     *   - default values are deliberately not returned: servers report information_schema's COLUMN_DEFAULT
-     *     in incompatible forms (MariaDB returns DDL text, MySQL raw values). Use columnDefinitions() with
-     *     defaultFromDefinition() instead
+     * Fields:
+     *
+     *     type      // the full column type, e.g. 'varchar(255)' or 'decimal(10,2) unsigned'
+     *     extra     // e.g. 'auto_increment', 'on update CURRENT_TIMESTAMP', 'VIRTUAL GENERATED', 'STORED GENERATED'
+     *     charset   // null for non-text columns
+     *
+     * type reads the same on every server, because deprecated display widths are cropped the way MySQL 8
+     * prints them:
+     *
+     *     int(11)                    →  int                        // also the other int types and year(4)
+     *     tinyint(1)                 →  tinyint(1)                 // the boolean marker keeps its width
+     *     int(5) unsigned zerofill   →  int(5) unsigned zerofill   // the width sets the zero padding
+     *
+     * Default values are deliberately not returned: servers report information_schema's COLUMN_DEFAULT in
+     * incompatible forms (MariaDB returns DDL text, MySQL raw values). Use columnDefinitions() with
+     * defaultFromDefinition() instead.
+     *
+     * All-digit column names: PHP converts the key to an int ('2024' → 2024). $columns['2024'] still works,
+     * but the key fails === and string type checks: cast it with (string) before passing it on.
      *
      * @param string $baseTable Table name without prefix
      * @return array<string, array{name: string, type: string, isNullable: bool, extra: string, charset: ?string}> columnName => column details
@@ -286,40 +295,44 @@ class TableInfo
      *     //     'full_name' => "varchar(101) GENERATED ALWAYS AS (concat(`last_name`,', ',`first_name`)) STORED",
      *     // ]
      *
-     * Definitions are parsed from SHOW CREATE TABLE, the only source that reports a column complete and
-     * in executable form (a generated column's expression, for example, appears nowhere else as valid SQL).
-     * Every string works in ALTER TABLE ... MODIFY COLUMN, and identical schemas return identical strings
-     * on MySQL and MariaDB thanks to these normalizations (MODIFY still accepts every result):
-     *   - CHARACTER SET / COLLATE clauses matching the table's own defaults are removed as noise: a column
-     *     without them inherits those same defaults back. A column with a different charset keeps it
-     *   - the utf8mb3 charset rename is spelled the old way ('CHARACTER SET utf8mb3' → 'CHARACTER SET utf8',
-     *     'utf8mb3_*' collations → 'utf8_*'): same charset either way, and utf8 is the only spelling every
-     *     supported server accepts in DDL (MySQL 5.7 rejects utf8mb3)
-     *   - collations that are some server version's built-in default (utf8mb4_general_ci, utf8mb4_0900_ai_ci,
-     *     utf8mb4_uca1400_ai_ci, latin1_swedish_ci, ...), plus the common utf8mb4_unicode_ci pin,
-     *     are stripped: servers disagree on whether the default is printed at all and on which collation it
-     *     is, so on replay each server applies its own. Deliberate collations like utf8mb4_bin survive. For
-     *     the server's verbatim DDL use showCreateTable()
-     *   - deprecated display widths are cropped ('int(11)' → 'int', 'year(4)' → 'year'), same as columns();
-     *     plain signed tinyint(1) (boolean marker) and zerofill columns (width sets the padding) keep theirs
-     *   - MariaDB's default spelling current_timestamp() is normalized to MySQL's CURRENT_TIMESTAMP
-     *   - MySQL's redundant outer parens on generated-column expressions are stripped
-     *     ('AS ((`num` * 2))' → 'AS (`num` * 2)'), matching MariaDB; both accept the single pair
-     *   - MariaDB's bare expression defaults gain the parens MySQL's DDL grammar requires
-     *     ('DEFAULT uuid()' → 'DEFAULT (uuid())'); CURRENT_TIMESTAMP stays bare per the rule above
-     *   - MariaDB's bare numeric defaults are quoted the way MySQL prints them ('DEFAULT 0' → "DEFAULT '0'");
-     *     both servers accept either form in DDL, the quoting is spelling, not type
-     *   - the implicit DEFAULT NULL MariaDB prints on nullable text/blob columns is dropped
-     *     ('mediumtext DEFAULT NULL' → 'mediumtext'), matching MySQL's output; real text defaults
-     *     survive, both MariaDB's quoted form (DEFAULT '123') and MySQL's expression form (DEFAULT ('abc'))
+     * Every string works in ALTER TABLE ... MODIFY COLUMN, and the same schema returns the same strings
+     * on MySQL and MariaDB. Definitions are read from SHOW CREATE TABLE, the only place a server reports
+     * a whole column as valid SQL (a generated column's expression, for example, is valid SQL nowhere
+     * else), then the server differences are spelled one way:
      *
-     * COMMENT text is never modified: it is split off before normalizing and reattached after.
+     *     int(11)                      →  int                        // deprecated display width; MySQL 8.0.19+ doesn't print it
+     *     year(4)                      →  year                       // same, for YEAR columns
+     *     CHARACTER SET utf8mb3        →  CHARACTER SET utf8         // same charset; MySQL 5.7 rejects the utf8mb3 spelling
+     *     COLLATE utf8mb3_general_ci   →  COLLATE utf8_general_ci    // same rename, in collation names
+     *     DEFAULT current_timestamp()  →  DEFAULT CURRENT_TIMESTAMP  // MariaDB prints the call form, MySQL the keyword; every server accepts the keyword
+     *     DEFAULT uuid()               →  DEFAULT (uuid())           // MySQL requires parens around an expression default; MariaDB prints it without
+     *     DEFAULT 0                    →  DEFAULT '0'                // MySQL quotes numbers, MariaDB prints them bare; same value, every server accepts quoted
+     *     mediumtext DEFAULT NULL      →  mediumtext                 // text and blob only: MariaDB prints it, MySQL doesn't; NULL is the default either way
+     *     AS ((`num` * 2))             →  AS (`num` * 2)             // generated columns: MySQL prints an extra pair; every server accepts one
      *
-     * Column CHECK clauses appear in different places in the same SHOW CREATE output: MariaDB
-     * keeps them inline on the column line, so they show up here (and MODIFY COLUMN drops a
-     * CHECK unless it's restated); MySQL/Percona 8.0+ move them into auto-named CONSTRAINT
-     * lines the parser skips, and 5.7 discards CHECK entirely.
+     * CHARACTER SET and COLLATE clauses:
+     *   - one that repeats the table's own default is removed: the column inherits it anyway
+     *   - a vendor default COLLATE ({@see self::DEFAULT_COLLATIONS}) is removed: MySQL and MariaDB don't
+     *     agree on which collation is the default, and don't always accept each other's
+     *   - anything chosen on purpose stays: a different charset, or a collation such as utf8mb4_bin
+     *
+     * Not changed:
+     *
+     *     tinyint(1)                  // the boolean marker keeps its width; tinyint(1) unsigned loses it
+     *     int(5) unsigned zerofill    // the width sets the zero padding
+     *     DEFAULT CURRENT_TIMESTAMP   // never gains parens: (CURRENT_TIMESTAMP) is a syntax error on MySQL 5.7
+     *     mediumtext DEFAULT 'abc'    // a real text default stays, in MySQL's form DEFAULT ('abc') too
+     *     COMMENT 'was int(11)'       // quoted text is returned as printed: COMMENT, DEFAULT and enum values
+     *     CHECK (`num` > 0)           // MariaDB only (on the column line); MySQL 8.0+ prints CONSTRAINT lines, 5.7 keeps none
+     *
+     * On MariaDB, MODIFY COLUMN drops a CHECK that the new definition doesn't repeat.
      * See docs/internal/db-behavior-matrix.md (2026-07).
+     *
+     * normalizeCreateTable() applies the same rules to a whole statement; showCreateTable() returns the
+     * server's own text.
+     *
+     * All-digit column names: PHP converts the key to an int ('2024' → 2024). $definitions['2024'] still works,
+     * but the key fails === and string type checks: cast it with (string) before passing it on.
      *
      * @param string $baseTable Table name without prefix
      * @return array<string, string> columnName => definition SQL
@@ -401,39 +414,41 @@ class TableInfo
      *     $sql = Table::normalizeCreateTable(Table::showCreateTable('articles'));
      *
      * Servers print the same schema differently, and some print DDL other servers reject, so
-     * statements saved for replay elsewhere (backups, schema exports) are normalized first:
-     *   - deprecated int/year display widths are cropped ('int(11)' → 'int'), matching MySQL 8's
-     *     own output; plain signed tinyint(1) (boolean marker) and zerofill columns (the width
-     *     sets the padding) keep theirs
-     *   - column-level CHARACTER SET / COLLATE clauses matching the table's own defaults are
-     *     removed as noise: a column without them inherits those same defaults back
-     *   - collations that are some server version's built-in default (utf8mb4_general_ci,
-     *     utf8mb4_0900_ai_ci, utf8mb4_uca1400_ai_ci, ...), plus the common
-     *     utf8mb4_unicode_ci pin, are removed from columns and table options, so each
-     *     server applies its own default on replay and the statement never names
-     *     a collation the target server doesn't have (MariaDB's uca1400 names don't exist
-     *     on MySQL). Intentional collations like utf8mb4_bin are kept
-     *   - the utf8mb3 charset rename is spelled the old way on columns and table options
-     *     ('CHARACTER SET utf8mb3' / 'CHARSET=utf8mb3' → utf8, 'utf8mb3_*' collations →
-     *     'utf8_*'): same charset either way, and MySQL 5.7 rejects the utf8mb3 spelling in DDL
-     *   - MySQL's redundant outer parens on generated-column expressions are stripped
-     *     ('AS ((`num` * 2))' → 'AS (`num` * 2)'): both vendors accept the single pair
-     *   - bare expression defaults gain parens ('DEFAULT uuid()' → 'DEFAULT (uuid())'): MariaDB
-     *     prints them bare but MySQL's DDL grammar rejects that form, so the bare spelling
-     *     doesn't replay there; current_timestamp defaults never gain parens (the parenthesized
-     *     form is a syntax error on MySQL 5.7)
-     *   - timestamp defaults are spelled 'CURRENT_TIMESTAMP' ('DEFAULT current_timestamp()' →
-     *     'DEFAULT CURRENT_TIMESTAMP'): MariaDB prints the lowercase call form, MySQL the bare
-     *     keyword, and every supported server accepts the keyword
-     *   - bare numeric defaults are quoted ('DEFAULT 0' → "DEFAULT '0'"): MariaDB prints them
-     *     bare, MySQL prints them quoted, and every supported server accepts the quoted form
-     *   - the implicit DEFAULT NULL MariaDB prints on nullable text/blob columns is dropped
-     *     ('mediumtext DEFAULT NULL' → 'mediumtext'), matching MySQL's output; a nullable column
-     *     defaults to NULL either way, so replay is identical, and real text defaults survive,
-     *     both MariaDB's quoted form (DEFAULT '123') and MySQL's expression form (DEFAULT ('abc'))
+     * statements saved for replay elsewhere (backups, schema exports) are normalized first.
+     * Column lines get the same rules as columnDefinitions():
      *
-     * Engine, charset, and everything else replay as-is: this removes server-version noise,
-     * it doesn't upgrade schemas. See docs/internal/db-behavior-matrix.md (2026-07).
+     *     int(11)                      →  int                        // deprecated display width; MySQL 8.0.19+ doesn't print it
+     *     year(4)                      →  year                       // same, for YEAR columns
+     *     CHARACTER SET utf8mb3        →  CHARACTER SET utf8         // same charset; MySQL 5.7 rejects the utf8mb3 spelling
+     *     COLLATE utf8mb3_general_ci   →  COLLATE utf8_general_ci    // same rename, in collation names
+     *     DEFAULT current_timestamp()  →  DEFAULT CURRENT_TIMESTAMP  // MariaDB prints the call form, MySQL the keyword; every server accepts the keyword
+     *     DEFAULT uuid()               →  DEFAULT (uuid())           // MySQL requires parens around an expression default; MariaDB prints it without
+     *     DEFAULT 0                    →  DEFAULT '0'                // MySQL quotes numbers, MariaDB prints them bare; same value, every server accepts quoted
+     *     mediumtext DEFAULT NULL      →  mediumtext                 // text and blob only: MariaDB prints it, MySQL doesn't; NULL is the default either way
+     *     AS ((`num` * 2))             →  AS (`num` * 2)             // generated columns: MySQL prints an extra pair; every server accepts one
+     *
+     * CHARACTER SET and COLLATE clauses on column lines:
+     *   - one that repeats the table's own default is removed: the column inherits it anyway
+     *   - a vendor default COLLATE ({@see self::DEFAULT_COLLATIONS}) is removed: MySQL and MariaDB don't
+     *     agree on which collation is the default, and don't always accept each other's
+     *   - anything chosen on purpose stays: a different charset, or a collation such as utf8mb4_bin
+     *
+     * The table options line gets two of these rules: CHARSET=utf8mb3 → CHARSET=utf8 (and
+     * COLLATE=utf8mb3_* → utf8_*), and a vendor default COLLATE= is removed, so each server applies its
+     * own default on replay.
+     *
+     * Not changed:
+     *
+     *     tinyint(1)                  // the boolean marker keeps its width; tinyint(1) unsigned loses it
+     *     int(5) unsigned zerofill    // the width sets the zero padding
+     *     DEFAULT CURRENT_TIMESTAMP   // never gains parens: (CURRENT_TIMESTAMP) is a syntax error on MySQL 5.7
+     *     mediumtext DEFAULT 'abc'    // a real text default stays, in MySQL's form DEFAULT ('abc') too
+     *     COMMENT 'was int(11)'       // quoted text is returned as printed: COMMENT, DEFAULT and enum values
+     *     CHECK (`num` > 0)           // on a column line (MariaDB) or as a CONSTRAINT line (MySQL 8.0+)
+     *     KEY `title` (`title`)       // PRIMARY KEY, KEY and CONSTRAINT lines
+     *
+     * Engine, charset, and everything else replay as-is: this removes differences between server
+     * versions, it doesn't upgrade schemas. See docs/internal/db-behavior-matrix.md (2026-07).
      *
      * @param string $createTableSql Full CREATE TABLE statement, as returned by showCreateTable()
      * @return string The normalized statement
@@ -476,6 +491,7 @@ class TableInfo
      * Normalize one column definition so it reads the same from every supported server and
      * replays on every supported server. columnDefinitions() and
      * normalizeCreateTable() both call it, so they always agree on what a column looks like.
+     * Their docblocks show these rules in the same table: a rule added here goes in both.
      *
      *     int(11) NOT NULL DEFAULT 0                      →  int NOT NULL DEFAULT '0'
      *     mediumtext DEFAULT NULL                         →  mediumtext
@@ -509,15 +525,16 @@ class TableInfo
         $definition = self::parenthesizeExpressionDefault($definition);
 
         // Last two cleanups in one call, one pass each (TableTest pins all of these):
-        //   - strip the DEFAULT NULL MariaDB prints on nullable text/blob columns - MySQL prints
-        //     nothing there, and a nullable column defaults to NULL either way
-        //     ('mediumtext DEFAULT NULL' → 'mediumtext'). Only text/blob: on every other type both
-        //     vendors print DEFAULT NULL, so it's already identical and stays. Real text defaults
-        //     can't match: MariaDB's are quoted (masked by the caller), MySQL's keep their
-        //     expression parens
-        //   - quote bare numeric defaults the way MySQL prints them ('DEFAULT 0' → "DEFAULT '0'") -
-        //     numbers only, since NULL and CURRENT_TIMESTAMP and uuid() must stay bare to keep
-        //     their meaning, and string defaults are masked so they can't match
+        //
+        //     mediumtext DEFAULT NULL  →  mediumtext    // MariaDB prints it on nullable text/blob columns, MySQL prints nothing
+        //     DEFAULT 0                →  DEFAULT '0'   // the way MySQL prints numeric defaults
+        //
+        // DEFAULT NULL: a nullable column defaults to NULL either way. Only text/blob, because on every
+        // other type both vendors print DEFAULT NULL, so it's already identical and stays. Real text
+        // defaults can't match: MariaDB's are quoted (masked by the caller), MySQL's keep their
+        // expression parens.
+        // Numeric defaults: numbers only, since NULL, CURRENT_TIMESTAMP and uuid() must stay bare to keep
+        // their meaning, and string defaults are masked so they can't match.
         return preg_replace(
             ['/^((?:tiny|medium|long)?(?:text|blob)\b.*?) DEFAULT NULL\b/', "/\bDEFAULT (-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)(?=,| |$)/"],
             ['$1',                                                          "DEFAULT '$1'"],
@@ -566,11 +583,12 @@ class TableInfo
      * A column with a DIFFERENT charset or collation keeps it, and the table-options line
      * itself is never modified.
      *
-     * Details: the ") ENGINE=..." line is found by prefix, not position (partitioned tables
-     * append PARTITION lines after it); CHARSET and COLLATE are handled separately because
-     * COLLATE is often omitted; \w+ captures can't pick up regex syntax from a mangled line;
-     * and the trailing \b stops a utf8 default from matching the utf8 at the start of
-     * a column's utf8mb4.
+     * Details:
+     *   - the ") ENGINE=..." line is found by prefix, not position: partitioned tables append
+     *     PARTITION lines after it
+     *   - CHARSET and COLLATE are handled separately, because COLLATE is often omitted
+     *   - the \w+ captures can't pick up regex syntax from a mangled line
+     *   - the trailing \b stops a utf8 default from matching the utf8 at the start of a column's utf8mb4
      *
      * @param string $createTableSql Full CREATE TABLE statement
      * @return string The statement with redundant column charset/collate clauses removed
@@ -777,24 +795,28 @@ class TableInfo
      *     // ]
      *     Table::indexes('articles', 'publish_date'); // just the second one
      *
-     * How each index is classified:
-     *   - isAuto: indexes named with the `_auto_` prefix, the ones CMS Builder's field editor manages
-     *   - isFk: the index MySQL creates automatically to back a FOREIGN KEY constraint (the constrained
-     *     columns need an index, and MySQL won't let you drop it while the constraint exists). A UNIQUE
-     *     index is never isFk, even when its columns match a constraint's: MySQL never auto-creates a
-     *     UNIQUE one, so it's something the admin added on purpose, and it counts as custom
-     *   - isCustom: everything else except PRIMARY: indexes added manually, e.g. straight through MySQL
+     * Fields:
      *
-     * MySQL-level details, straight from SHOW INDEX:
-     *   - indexType: BTREE, FULLTEXT, SPATIAL, or HASH
-     *   - isVisible: false when the index is INVISIBLE (MySQL 8) or IGNORED (MariaDB)
-     *   - comment: the index's COMMENT text, '' when none
+     *     cols        // plain column names
+     *     colsCsv     // the display form of cols, with prefix lengths, e.g. 'email(10)'
+     *     isAuto      // named with the `_auto_` prefix: the indexes CMS Builder's field editor manages
+     *     isFk        // the index MySQL creates automatically to back a FOREIGN KEY constraint
+     *     isCustom    // everything else except PRIMARY: added manually, e.g. straight through MySQL
+     *     indexType   // BTREE, FULLTEXT, SPATIAL, or HASH, straight from SHOW INDEX
+     *     isVisible   // false when the index is INVISIBLE (MySQL 8) or IGNORED (MariaDB)
+     *     comment     // the index's COMMENT text, '' when none
      *
-     * cols holds plain column names; colsCsv is the display form and adds prefix lengths, e.g. 'email(10)'.
+     * isFk: the constrained columns need an index, and MySQL won't let you drop it while the constraint
+     * exists. A UNIQUE index is never isFk, even when its columns match a constraint's: MySQL never
+     * auto-creates a UNIQUE one, so the admin added it on purpose and it counts as isCustom.
+     *
      * A functional index part (MySQL 8) has no column name, so cols holds the parenthesized expression,
-     * e.g. '(lower(`name`))', or '(expression)' on servers that don't report it. That also means the
-     * columnName filter can't match a functional part: an index on (lower(`name`)) is NOT returned when
-     * filtering by 'name', so callers cleaning up a column's indexes won't see it.
+     * e.g. '(lower(`name`))', or '(expression)' on servers that don't report it. The columnName filter
+     * can't match one: an index on (lower(`name`)) is NOT returned when filtering by 'name', so callers
+     * cleaning up a column's indexes won't see it.
+     *
+     * All-digit index names: PHP converts the key to an int ('2024' → 2024). $indexes['2024'] still works,
+     * but the key fails === and string type checks: cast it with (string) before passing it on.
      *
      * @param string      $baseTable  Table name without prefix
      * @param string|null $columnName Only return indexes that include this column
@@ -1007,13 +1029,18 @@ class TableInfo
     //region Internal Helpers
 
     /**
-     * Crop the deprecated display width from the start of a column type or definition,
-     * e.g. 'int(11) unsigned NOT NULL' → 'int unsigned NOT NULL', 'year(4)' → 'year'. Widths never
+     * Crop the deprecated display width from the start of a column type or definition. Widths never
      * affected storage or range, and MySQL 8.0.19+ omits them from its output, so cropping makes
-     * types read the same on every server. Two keep their width, matching MySQL 8's own output:
-     * plain signed tinyint(1), which connectors treat as boolean (unsigned loses the width, MySQL
-     * bugs #100309/#105667), and ZEROFILL columns, where the width sets the zero-padding amount.
-     * \w*int matches the five int types; point/multipoint never take parens.
+     * types read the same on every server:
+     *
+     *     int(11) unsigned NOT NULL  →  int unsigned NOT NULL
+     *     year(4)                    →  year
+     *     tinyint(1) unsigned        →  tinyint unsigned           // unsigned loses the width (MySQL bugs #100309/#105667)
+     *     tinyint(1)                 →  tinyint(1)                 // kept: connectors treat plain signed tinyint(1) as boolean
+     *     int(5) unsigned zerofill   →  int(5) unsigned zerofill   // kept: the width sets the zero-padding amount
+     *
+     * The two kept forms match MySQL 8's own output. \w*int matches the five int types;
+     * point/multipoint never take parens.
      */
     private static function cropIntDisplayWidth(string $typeSql): string
     {
