@@ -174,8 +174,9 @@ broken in this mode regardless of this optimization.
 1. **Connection charset must be utf8mb4** (or any charset whose multibyte
    sequences never contain bytes < 0x80). ZenDB hard-sets utf8mb4 at connect, in
    `openConnection()` (`src/Connection.php`): the connect handshake carries
-   utf8mb4, and `set_charset('utf8mb4')` runs after it on MySQL 8.0+ and on
-   pooled connections that come back with another charset. There is no
+   utf8mb4, `set_charset('utf8mb4')` runs after it on pooled connections that
+   come back with another charset, and every connect then sends
+   `SET NAMES utf8mb4` as part of its one `SET` statement. There is no
    config option to change it; someone would have to edit ZenDB source.
    Runtime confirmation: `$mysqli->character_set_name()`.
 2. **sql_mode must not contain NO_BACKSLASH_ESCAPES.** ZenDB sets sql_mode

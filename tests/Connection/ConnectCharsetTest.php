@@ -6,13 +6,15 @@ declare(strict_types=1);
 
 namespace Itools\ZenDB\Tests\Connection;
 
+use Itools\ZenDB\Connection;
+use Itools\ZenDB\MysqliWrapper;
 use Itools\ZenDB\Tests\BaseTestCase;
 use mysqli;
 
 /**
- * Tests that connect()'s handshake charset plus the version-gated set_charset call
- * produce the same session state a plain set_charset('utf8mb4') connection gets,
- * on whatever server the suite runs against.
+ * Tests that connect()'s handshake charset plus its SET NAMES statement produce the
+ * same session state a plain set_charset('utf8mb4') connection gets, on whatever
+ * server the suite runs against.
  *
  * @covers \Itools\ZenDB\Connection::connect
  */
@@ -41,6 +43,46 @@ class ConnectCharsetTest extends BaseTestCase
         $this->assertSame('utf8mb4', $zendbCharset);
         $this->assertSame($referenceCharset, $zendbCharset);
         $this->assertSame($referenceState, $zendbState);
+    }
+
+    public function testServerOnAnotherCharsetAfterLoginEndsOnUtf8mb4(): void
+    {
+        self::requiresLiveMysql();
+
+        // A server with a charset in init_connect, or one started with skip-character-set-client-handshake,
+        // has the session on its own charset when login returns, while the PHP side is utf8mb4.
+        // This wrapper gives any server that state: it sends SET NAMES latin1 right after login
+        $factory = Connection::$mysqliWrapperFactory;
+        Connection::$mysqliWrapperFactory = static fn(?callable $queryLogger): MysqliWrapper => new class($queryLogger) extends MysqliWrapper {
+            public function real_connect(?string $hostname = null, ?string $username = null, ?string $password = null, ?string $database = null, ?int $port = null, ?string $socket = null, int $flags = 0): bool
+            {
+                $connected = parent::real_connect($hostname, $username, $password, $database, $port, $socket, $flags);
+                parent::real_query("SET NAMES latin1");
+                return $connected;
+            }
+        };
+        try {
+            $conn = new Connection(self::$configDefaults);
+        } finally {
+            Connection::$mysqliWrapperFactory = $factory;
+        }
+
+        $this->assertSame('utf8mb4', $conn->mysqli->character_set_name());
+        $this->assertSame(
+            ['utf8mb4', 'utf8mb4', 'utf8mb4'],
+            $conn->mysqli->query("SELECT @@character_set_client, @@character_set_connection, @@character_set_results")->fetch_row(),
+        );
+    }
+
+    public function testConnectSendsOneStatement(): void
+    {
+        self::requiresLiveMysql();
+
+        $conn = new Connection(self::$configDefaults);
+
+        // Questions counts every statement this session has sent, including the SHOW that reads it
+        $questions = (int)$conn->mysqli->query("SHOW SESSION STATUS LIKE 'Questions'")->fetch_row()[1];
+        $this->assertSame(2, $questions, "connect() sends one SET statement; the second is this SHOW");
     }
 
     public function testPooledReuseRestoresCharset(): void

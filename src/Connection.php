@@ -13,7 +13,7 @@ use mysqli_sql_exception;
 use WeakMap;
 
 // import built-ins so calls resolve at compile time instead of per-call lookups; NamespacedCallsTest keeps this list exact
-use function array_change_key_case, array_diff, array_diff_key, array_key_first, array_keys, count, defined, hash, implode, in_array, is_bool, is_float, is_int, is_null, is_object, is_string, mysqli_report, openssl_decrypt, openssl_encrypt, preg_match, reset, rtrim, str_replace, str_starts_with, strlen, strtolower, substr, trigger_error, version_compare;
+use function array_change_key_case, array_diff, array_diff_key, array_key_first, array_keys, count, defined, hash, implode, in_array, is_bool, is_float, is_int, is_null, is_object, is_string, mysqli_report, openssl_decrypt, openssl_encrypt, preg_match, reset, str_replace, str_starts_with, strlen, strtolower, substr, trigger_error, version_compare;
 use const E_USER_WARNING, MYSQLI_CLIENT_SSL, MYSQLI_OPT_CONNECT_TIMEOUT, MYSQLI_OPT_INT_AND_FLOAT_NATIVE, MYSQLI_OPT_LOCAL_INFILE, MYSQLI_OPT_READ_TIMEOUT, MYSQLI_REPORT_ERROR, MYSQLI_REPORT_STRICT, MYSQLI_SET_CHARSET_NAME, OPENSSL_RAW_DATA;
 
 /**
@@ -184,7 +184,9 @@ class Connection
         $this->mysqli->options(MYSQLI_OPT_CONNECT_TIMEOUT, $this->connectTimeout);
         $this->mysqli->options(MYSQLI_OPT_READ_TIMEOUT, $this->readTimeout);
         $this->mysqli->options(MYSQLI_OPT_LOCAL_INFILE, 0); // disable "LOAD DATA LOCAL INFILE" for security
-        $this->mysqli->options(MYSQLI_SET_CHARSET_NAME, 'utf8mb4'); // charset is sent in the connect handshake; see the set_charset() check below
+        // PHP side and server side, with no query: PHP uses this charset for real_escape_string(), and asks the
+        // server for it in the login step. Without it, PHP starts on whatever charset the server announces
+        $this->mysqli->options(MYSQLI_SET_CHARSET_NAME, 'utf8mb4');
 
         // Return native PHP types (int/float) instead of strings
         if (defined('MYSQLI_OPT_INT_AND_FLOAT_NATIVE')) {
@@ -247,21 +249,10 @@ class Connection
         $this->server = new Server($this->mysqli);
         $this->table  = new TableInfo($this);
 
-        // utf8mb4 was already set during the connect handshake (MYSQLI_SET_CHARSET_NAME above).
-        // Most servers are done at that point; two cases still need a set_charset() call:
-        //   - MySQL/Percona 8.0+: the handshake can only carry utf8mb4_general_ci, so the
-        //     connection would compare string literals with general_ci rules where the
-        //     server's default is utf8mb4_0900_ai_ci; set_charset() switches it to the
-        //     server's default. Only the connection's own comparisons are affected -
-        //     CREATE TABLE/DATABASE get the server's default collation either way.
-        //     MariaDB and 5.7-family servers already get their default from the
-        //     handshake alone, so they skip the call and save its round trip.
-        //   - Pooled connections (p: hostname): reuse keeps the previous session's charset,
-        //     whatever it was. The charset check below catches that for free (client-side).
-        // Server-by-server results: docs/internal/db-behavior-matrix.md (2026-08)
-        $charsetLeakedFromPool = $this->mysqli->character_set_name() !== 'utf8mb4';   // fresh connects are always utf8mb4
-        $newerDefaultCollation = !$this->server->isMariaDb() && version_compare($this->server->version(), '8.0', '>=');
-        if ($charsetLeakedFromPool || $newerDefaultCollation) {
+        // PHP side: fresh connects are already utf8mb4 (option above), so this sends nothing.
+        // A pooled connection (p: hostname) can come back on another charset. set_charset()
+        // switches both sides; SET NAMES in a query only switches the server
+        if ($this->mysqli->character_set_name() !== 'utf8mb4') { // reads a PHP-side value, no query sent
             $this->mysqli->set_charset('utf8mb4');
         }
 
@@ -276,12 +267,18 @@ class Connection
             }
         }
 
-        // Set MySQL server variables
-        $sets = $this->usePhpTimezone ? "time_zone = '" . DB::phpTimezoneForMysql() . "', " : '';
-        $sets .= $this->sqlMode ? "sql_mode = '$this->sqlMode', " : '';
-        if ($sets = rtrim($sets, ', ')) {
-            $this->mysqli->real_query("SET $sets");
-        }
+        // Server side: charset, time zone and sql_mode in one statement.
+        // NAMES is needed even though login asked for utf8mb4:
+        //   - The server may not be on utf8mb4 after login (skip-character-set-client-handshake, init_connect)
+        //   - MySQL/Percona 8.0+: login asks for utf8mb4_general_ci by number. NAMES sends only the charset name,
+        //     so the server uses its own default collation for utf8mb4 (utf8mb4_0900_ai_ci unless its config says otherwise)
+        // NAMES also replaces a connection collation that the server's config set at login
+        // NAMES in a query is safe here because the PHP side is already utf8mb4
+        // Server-by-server results: docs/internal/connect-charset-matrix.md
+        $sql  = "SET NAMES utf8mb4";
+        $sql .= $this->usePhpTimezone ? ", time_zone = '" . DB::phpTimezoneForMysql() . "'" : '';
+        $sql .= $this->sqlMode ? ", sql_mode = '$this->sqlMode'" : '';
+        $this->mysqli->real_query($sql);
 
         // Value escaping, the LIKE helpers, and placeholders in -- comments all need backslash escapes.
         // The client tracks NO_BACKSLASH_ESCAPES from the server's replies, so escaping a newline shows it without a query

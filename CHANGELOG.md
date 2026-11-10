@@ -11,9 +11,11 @@
 ### Fixed
 
 - **`Table::foreignKeysReferencing()` lists same-named keys separately** - it was keyed by name, so two keys with the same name were merged into one entry. MariaDB 12.1+ names keys `1`, `2`, `3` in every table
+- **Connections are utf8mb4 on servers that override the charset at login** - with `skip-character-set-client-handshake` or a charset in `init_connect`, the connection stayed on the server's charset: non-ASCII text was stored and read wrong, and values were escaped for the wrong charset. On those servers the connection collation is now the server's default for utf8mb4
 
 ### Changed
 
+- **Connect sends one `SET NAMES utf8mb4, time_zone, sql_mode` statement on every server** - MySQL and Percona 8.0+ sent two. A `queryLogger` sees the new statement text
 - **`Table::foreignKeysReferencing()` returns a plain list** - no longer keyed by name, and each entry has a new `database` field. See [UPGRADING.md](UPGRADING.md)
 
 ## [1.0.0] - 2026-10-16
