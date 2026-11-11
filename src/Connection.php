@@ -14,7 +14,7 @@ use WeakMap;
 
 // import built-ins so calls resolve at compile time instead of per-call lookups; NamespacedCallsTest keeps this list exact
 use function array_change_key_case, array_diff, array_diff_key, array_key_first, array_keys, count, defined, hash, implode, in_array, is_bool, is_float, is_int, is_null, is_object, is_string, mysqli_report, openssl_decrypt, openssl_encrypt, preg_match, reset, str_replace, str_starts_with, strlen, strtolower, substr, trigger_error, version_compare;
-use const E_USER_WARNING, MYSQLI_CLIENT_SSL, MYSQLI_OPT_CONNECT_TIMEOUT, MYSQLI_OPT_INT_AND_FLOAT_NATIVE, MYSQLI_OPT_LOCAL_INFILE, MYSQLI_OPT_READ_TIMEOUT, MYSQLI_REPORT_ERROR, MYSQLI_REPORT_STRICT, MYSQLI_SET_CHARSET_NAME, OPENSSL_RAW_DATA;
+use const E_USER_WARNING, MYSQLI_CLIENT_SSL, MYSQLI_OPT_CONNECT_TIMEOUT, MYSQLI_OPT_INT_AND_FLOAT_NATIVE, MYSQLI_OPT_READ_TIMEOUT, MYSQLI_REPORT_ERROR, MYSQLI_REPORT_STRICT, MYSQLI_SET_CHARSET_NAME, OPENSSL_RAW_DATA;
 
 /**
  * Connection class for ZenDB - manages a single database connection with its own settings.
@@ -183,7 +183,6 @@ class Connection
             : new MysqliWrapper(queryLogger: $this->queryLogger);
         $this->mysqli->options(MYSQLI_OPT_CONNECT_TIMEOUT, $this->connectTimeout);
         $this->mysqli->options(MYSQLI_OPT_READ_TIMEOUT, $this->readTimeout);
-        $this->mysqli->options(MYSQLI_OPT_LOCAL_INFILE, 0); // disable "LOAD DATA LOCAL INFILE" for security
         // PHP side and server side, with no query: PHP uses this charset for real_escape_string(), and asks the
         // server for it in the login step. Without it, PHP starts on whatever charset the server announces
         $this->mysqli->options(MYSQLI_SET_CHARSET_NAME, 'utf8mb4');

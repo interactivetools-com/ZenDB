@@ -19,6 +19,10 @@
 - **Connect sends one `SET NAMES utf8mb4, time_zone, sql_mode` statement on every server** - MySQL and Percona 8.0+ sent two. A `queryLogger` sees the new statement text
 - **`Table::foreignKeys()` and `Table::foreignKeysReferencing()` return a plain list** - no longer keyed by name, so read `name` from each entry. `foreignKeysReferencing()` entries have a new `database` field. See [UPGRADING.md](UPGRADING.md)
 
+### Internal
+
+- **`connect()` no longer sets `MYSQLI_OPT_LOCAL_INFILE`** - the call ran before the connect, where it has no effect: PHP sets the option from `mysqli.allow_local_infile` when it connects. `LOAD DATA LOCAL INFILE` is controlled by that php.ini setting, as it was before, and PHP has it off by default
+
 ### Minor
 
 `Table::columnDefinitions()` and `Table::normalizeCreateTable()` keep `CHARACTER SET` on a column in a table whose collation was changed by hand.
