@@ -918,14 +918,17 @@ class TableInfo
     //region Foreign Keys
 
     /**
-     * Get every FOREIGN KEY constraint on a table, keyed by constraint name.
+     * List every FOREIGN KEY constraint on a table, ordered by name.
      * Pass a column name to get only the constraints that include that column (case-insensitive, like MySQL).
      *
      *     Table::foreignKeys('articles');
      *     // [
-     *     //     'cmsb_articles_ibfk_1' => ['name' => 'cmsb_articles_ibfk_1', 'cols' => ['author_num'], 'refDatabase' => 'cms', 'refTable' => 'cmsb_accounts', 'refCols' => ['num'], 'onDelete' => 'SET NULL', 'onUpdate' => 'RESTRICT'],
+     *     //     ['name' => 'cmsb_articles_ibfk_1', 'cols' => ['author_num'], 'refDatabase' => 'cms', 'refTable' => 'cmsb_accounts', 'refCols' => ['num'], 'onDelete' => 'SET NULL', 'onUpdate' => 'RESTRICT'],
      *     // ]
      *     Table::foreignKeys('articles', 'author_num'); // just that one
+     *
+     * The result is a plain list because a name doesn't work as an array key: MariaDB 12.1+ names
+     * constraints 1, 2, 3, and PHP converts an all-digit key to an int ('1' → 1). name is always a string.
      *
      * refDatabase and refTable say where the referenced table is: a constraint can reference any table
      * in any database on the server, so refTable is its real MySQL name, prefix included.
@@ -934,7 +937,7 @@ class TableInfo
      *
      * @param string      $baseTable  Table name without prefix
      * @param string|null $columnName Only return constraints that include this column
-     * @return array<string, array{name: string, cols: list<string>, refDatabase: string, refTable: string, refCols: list<string>, onDelete: string, onUpdate: string}> constraintName => constraint details
+     * @return list<array{name: string, cols: list<string>, refDatabase: string, refTable: string, refCols: list<string>, onDelete: string, onUpdate: string}>
      * @throws InvalidArgumentException For names with characters outside a-z, A-Z, 0-9, _, -
      */
     public function foreignKeys(string $baseTable, ?string $columnName = null): array
@@ -988,7 +991,7 @@ class TableInfo
             $foreignKeys = array_filter($foreignKeys, static fn($fk) => in_array($colLower, array_map('strtolower', $fk['cols']), true));
         }
 
-        return $foreignKeys;
+        return array_values($foreignKeys);
     }
 
     /**

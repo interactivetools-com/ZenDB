@@ -26,9 +26,21 @@ Full lists of what changed per release: [CHANGELOG.md](CHANGELOG.md).
 
 ### Return value changes
 
-> - `Table::foreignKeysReferencing()` returns a plain list, no longer keyed
->   by constraint name. Code that loops over the result keeps working. Code
->   that reads one entry by name needs to search the list:
+> - `Table::foreignKeys()` and `Table::foreignKeysReferencing()` return a
+>   plain list, no longer keyed by constraint name. Loops that only read
+>   each entry's fields keep working. Code that reads the key
+>   (`as $name => $fk`, `array_keys()`, `array_key_first()`) now gets a
+>   list position, so read the name from each entry:
+>
+>   ```php
+>   foreach (Table::foreignKeys('articles') as $name => $fk) { ... }   // before
+>
+>   foreach (Table::foreignKeys('articles') as $fk) {                  // after
+>       $name = $fk['name'];
+>   }
+>   ```
+>
+>   Code that reads one entry by name needs to search the list:
 >
 >   ```php
 >   $fk = Table::foreignKeysReferencing('accounts')['fk_author'];   // before
@@ -38,7 +50,7 @@ Full lists of what changed per release: [CHANGELOG.md](CHANGELOG.md).
 >   }
 >   ```
 >
->   Search: `foreignKeysReferencing(`
+>   Search: `foreignKeys(` and `foreignKeysReferencing(`
 
 ## v1.0.0
 

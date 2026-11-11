@@ -580,26 +580,38 @@ class TableIntegrationTest extends BaseTestCase
     //region foreignKeys()
 
     #[Test]
-    public function reportsEveryConstraintKeyedByName(): void
+    public function listsEveryConstraintOrderedByName(): void
     {
         $foreignKeys = Table::foreignKeys($this->baseTable);
 
-        $this->assertEqualsCanonicalizing(['fk_parent', 'fk_owner'], array_keys($foreignKeys));
-        $this->assertSame('fk_owner',        $foreignKeys['fk_owner']['name']);
-        $this->assertSame(['owner_num'],     $foreignKeys['fk_owner']['cols']);
-        $this->assertSame($this->currentDatabase(), $foreignKeys['fk_owner']['refDatabase'], 'refDatabase is where the referenced table is');
-        $this->assertSame($this->fullTable,  $foreignKeys['fk_owner']['refTable'], 'refTable is the real MySQL name, prefix included');
-        $this->assertSame(['num'],           $foreignKeys['fk_owner']['refCols']);
-        $this->assertSame('CASCADE',         $foreignKeys['fk_owner']['onDelete'], 'explicit rule reports as written');
-        $this->assertContains($foreignKeys['fk_owner']['onUpdate'], ['RESTRICT', 'NO ACTION'], 'unspecified rule reports as the server default');
+        $this->assertSame(['fk_owner', 'fk_parent'], array_column($foreignKeys, 'name'), 'a plain list, ordered by name');
+        $fkOwner = $foreignKeys[0];
+        $this->assertSame(['owner_num'],     $fkOwner['cols']);
+        $this->assertSame($this->currentDatabase(), $fkOwner['refDatabase'], 'refDatabase is where the referenced table is');
+        $this->assertSame($this->fullTable,  $fkOwner['refTable'], 'refTable is the real MySQL name, prefix included');
+        $this->assertSame(['num'],           $fkOwner['refCols']);
+        $this->assertSame('CASCADE',         $fkOwner['onDelete'], 'explicit rule reports as written');
+        $this->assertContains($fkOwner['onUpdate'], ['RESTRICT', 'NO ACTION'], 'unspecified rule reports as the server default');
     }
 
     #[Test]
     public function filtersToConstraintsIncludingOneColumn(): void
     {
-        $this->assertSame(['fk_parent'], array_keys(Table::foreignKeys($this->baseTable, 'parent_num')));
-        $this->assertSame(['fk_parent'], array_keys(Table::foreignKeys($this->baseTable, 'PARENT_NUM')), 'case-insensitive, like MySQL');
+        $this->assertSame(['fk_parent'], array_column(Table::foreignKeys($this->baseTable, 'parent_num'), 'name'));
+        $this->assertSame(['fk_parent'], array_column(Table::foreignKeys($this->baseTable, 'PARENT_NUM'), 'name'), 'case-insensitive, like MySQL');
+        $this->assertSame([0],           array_keys(Table::foreignKeys($this->baseTable, 'parent_num')), 'still a plain list: fk_parent is second before the filter');
         $this->assertSame([],            Table::foreignKeys($this->baseTable, 'title'), 'no FK on a plain column');
+    }
+
+    #[Test]
+    public function reportsAnAllDigitConstraintNameAsAString(): void
+    {
+        // MariaDB 12.1+ names unnamed keys 1, 2, 3; every server accepts 1 as a name that's written out
+        $numberedBase = $this->createSideTable('_numbered', "num INT NOT NULL PRIMARY KEY, fixture_num INT NULL, CONSTRAINT `1` FOREIGN KEY (fixture_num) REFERENCES `$this->fullTable` (num)");
+
+        $foreignKeys = Table::foreignKeys($numberedBase);
+        $this->assertSame([0],   array_keys($foreignKeys), 'a list position, not the name');
+        $this->assertSame(['1'], array_column($foreignKeys, 'name'));
     }
 
     #[Test]
@@ -612,12 +624,12 @@ class TableIntegrationTest extends BaseTestCase
         DB::query("ALTER TABLE `?` ADD UNIQUE INDEX idx_ref (num, sort_date)", $this->fullTable);
         DB::query("ALTER TABLE `?` ADD CONSTRAINT fk_composite FOREIGN KEY (parent_num, sort_date) REFERENCES `?` (num, sort_date)", $this->fullTable, $this->fullTable);
 
-        $fk = Table::foreignKeys($this->baseTable)['fk_composite'];
+        $fk = array_column(Table::foreignKeys($this->baseTable), null, 'name')['fk_composite'];
         $this->assertSame(['parent_num', 'sort_date'], $fk['cols'], 'constraint columns in ordinal order');
         $this->assertSame(['num', 'sort_date'],        $fk['refCols'], 'referenced columns align with cols by position');
 
         // filtering by a non-lead member column still finds it
-        $this->assertArrayHasKey('fk_composite', Table::foreignKeys($this->baseTable, 'sort_date'));
+        $this->assertSame(['fk_composite'], array_column(Table::foreignKeys($this->baseTable, 'sort_date'), 'name'));
     }
 
     #[Test]
@@ -630,7 +642,7 @@ class TableIntegrationTest extends BaseTestCase
         try {
             $outboundBase = $this->createSideTable('_outbound', "num INT NOT NULL PRIMARY KEY, target_num INT NULL, CONSTRAINT fk_outbound FOREIGN KEY (target_num) REFERENCES `$otherDb`.`target` (num)");
 
-            $fk = Table::foreignKeys($outboundBase)['fk_outbound'];
+            $fk = Table::foreignKeys($outboundBase)[0];
             $this->assertSame($otherDb, $fk['refDatabase']);
             $this->assertSame('target', $fk['refTable']);
         } finally {
@@ -672,8 +684,8 @@ class TableIntegrationTest extends BaseTestCase
         $this->assertSame(['fixture_num'],               $fkChild['cols']);
         $this->assertSame(['num'],                       $fkChild['refCols']);
 
-        $this->assertArrayNotHasKey('fk_child', Table::foreignKeys($this->baseTable), "the fixture's own constraints don't include the child's");
-        $this->assertSame($this->fullTable, Table::foreignKeys($childBase)['fk_child']['refTable'], "from the child's side the same constraint is outbound");
+        $this->assertNotContains('fk_child', array_column(Table::foreignKeys($this->baseTable), 'name'), "the fixture's own constraints don't include the child's");
+        $this->assertSame($this->fullTable, Table::foreignKeys($childBase)[0]['refTable'], "from the child's side the same constraint is outbound");
         $this->assertSame([], Table::foreignKeysReferencing($childBase), 'nothing references the child');
     }
 
