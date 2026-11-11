@@ -5,6 +5,8 @@ declare(strict_types=1);
 
 namespace Itools\ZenDB\Tests\DB;
 
+use Error;
+use Itools\ZenDB\Connection;
 use Itools\ZenDB\DB;
 use Itools\ZenDB\Tests\BaseTestCase;
 use mysqli;
@@ -165,5 +167,93 @@ class TransactionTest extends BaseTestCase
         // Should not throw - flag was reset by finally block
         $result = DB::transaction(fn() => 'recovered');
         $this->assertSame('recovered', $result);
+    }
+
+    /**
+     * @dataProvider closeTheConnectionProvider
+     */
+    public function testClosureExceptionReachesCallerWhenClosureClosesTheConnection(callable $closeTheConnection): void
+    {
+        try {
+            DB::transaction(function () use ($closeTheConnection) {
+                $closeTheConnection();
+                throw new RuntimeException("original failure");
+            });
+            $this->fail("transaction() should have thrown");
+        } catch (Throwable $e) {
+            $this->assertSame(
+                [RuntimeException::class, "original failure"],
+                [get_class($e), $e->getMessage()],
+                "The closure's exception should reach the caller",
+            );
+        } finally {
+            DB::disconnect();
+            DB::connect(self::$configDefaults);
+            self::resetTestTables();
+        }
+    }
+
+    public static function closeTheConnectionProvider(): array
+    {
+        return [
+            'disconnects' => [
+                function () {
+                    DB::disconnect();
+                },
+            ],
+            'disconnects and reconnects' => [
+                function () {
+                    DB::disconnect();
+                    DB::connect(self::$configDefaults);
+                },
+            ],
+        ];
+    }
+
+    /**
+     * MySQL rolls back the open transaction when its connection closes, so there is nothing
+     * left to commit and transaction() must not return as if it had.
+     *
+     * @dataProvider reconnectThenReturnProvider
+     */
+    public function testThrowsWhenClosureReconnectsThenReturns(callable $runTransaction): void
+    {
+        self::requiresLiveMysql();
+
+        try {
+            $runTransaction();
+            $this->fail("transaction() should have thrown, the connection it started on is closed");
+        } catch (Error $e) {
+            $this->assertStringContainsString("already closed", $e->getMessage());
+        } finally {
+            DB::disconnect();
+            DB::connect(self::$configDefaults);
+            self::resetTestTables();
+        }
+    }
+
+    public static function reconnectThenReturnProvider(): array
+    {
+        return [
+            'DB::' => [
+                function () {
+                    return DB::transaction(function () {
+                        DB::disconnect();
+                        DB::connect(self::$configDefaults);
+                        return 'ok';
+                    });
+                },
+            ],
+            'new Connection' => [
+                function () {
+                    $db = new Connection(self::$configDefaults);
+                    return $db->transaction(function () use ($db) {
+                        $db->disconnect();
+                        $db->connect();
+                        return 'ok';
+                    });
+                },
+            ],
+        ];
     }
 }

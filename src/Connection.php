@@ -721,26 +721,27 @@ class Connection
      */
     public function transaction(callable $fn): mixed
     {
-        if ($this->mysqli->inTransaction) {
+        $transactionMysqli = $this->mysqli; // $fn can disconnect or reconnect, which replaces $this->mysqli
+        if ($transactionMysqli->inTransaction) {
             throw new RuntimeException("transaction() cannot be nested - already in a transaction");
         }
 
-        $this->mysqli->query("START TRANSACTION");
-        $this->mysqli->inTransaction = true;
+        $transactionMysqli->query("START TRANSACTION");
+        $transactionMysqli->inTransaction = true;
         try {
             $result = $fn();
-            $this->mysqli->query("COMMIT");
+            $transactionMysqli->query("COMMIT");
             return $result;
         } catch (Throwable $e) {
             try {
-                $this->mysqli->query("ROLLBACK");
+                $transactionMysqli->query("ROLLBACK");
             } catch (Throwable) {
                 // ROLLBACK only fails when the connection is gone, and MySQL rolls back
                 // an open transaction on disconnect; the closure's exception is the real cause
             }
             throw $e;
         } finally {
-            $this->mysqli->inTransaction = false;
+            $transactionMysqli->inTransaction = false;
         }
     }
 
