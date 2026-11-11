@@ -441,7 +441,7 @@ class TableIntegrationTest extends BaseTestCase
     #[Test]
     public function classifiesEveryIndexKind(): void
     {
-        $indexes = Table::indexes($this->baseTable);
+        $indexes = $this->indexesByName($this->baseTable);
 
         // the five indexes with fixed names, plus one FK auto-index for owner_num that the server names
         foreach (['PRIMARY', '_auto_title', 'idx_single', 'idx_ab', 'idx_fkcomposite'] as $name) {
@@ -477,17 +477,28 @@ class TableIntegrationTest extends BaseTestCase
         // SHOW INDEX order isn't the CREATE order, so compare as sets
         $this->assertEqualsCanonicalizing(
             ['_auto_title', 'idx_ab'],
-            array_keys(Table::indexes($this->baseTable, 'title')),
+            array_column(Table::indexes($this->baseTable, 'title'), 'name'),
             'only indexes that include title'
         );
 
         // case-insensitive, like MySQL
         $this->assertEqualsCanonicalizing(
             ['_auto_title', 'idx_ab'],
-            array_keys(Table::indexes($this->baseTable, 'TITLE'))
+            array_column(Table::indexes($this->baseTable, 'TITLE'), 'name')
         );
 
+        $this->assertSame([0, 1], array_keys(Table::indexes($this->baseTable, 'title')), 'still a plain list after the filter');
         $this->assertSame([], Table::indexes($this->baseTable, 'no_such_column'), 'a column with no indexes returns none');
+    }
+
+    #[Test]
+    public function reportsAnAllDigitIndexNameAsAString(): void
+    {
+        $numberedBase = $this->createSideTable('_numbered', 'num INT NOT NULL, INDEX `2024` (num)');
+
+        $indexes = Table::indexes($numberedBase);
+        $this->assertSame([0],      array_keys($indexes), 'a list position, not the name');
+        $this->assertSame(['2024'], array_column($indexes, 'name'));
     }
 
     #[Test]
@@ -502,7 +513,7 @@ class TableIntegrationTest extends BaseTestCase
             FULLTEXT INDEX ft_body (body)
         ");
 
-        $indexes = Table::indexes($extraBase);
+        $indexes = $this->indexesByName($extraBase);
         $this->assertSame('FULLTEXT',               $indexes['ft_body']['indexType']);
         $this->assertSame(['email'],                $indexes['idx_email']['cols'], 'cols stays plain column names');
         $this->assertSame('email(10)',              $indexes['idx_email']['colsCsv'], 'the prefix length comes through Sub_part');
@@ -530,7 +541,7 @@ class TableIntegrationTest extends BaseTestCase
             }
         }
 
-        $indexes = Table::indexes($this->baseTable);
+        $indexes = $this->indexesByName($this->baseTable);
         $this->assertFalse($indexes['idx_single']['isVisible']);
         $this->assertTrue($indexes['_auto_title']['isVisible'], 'other indexes stay visible');
     }
@@ -550,7 +561,7 @@ class TableIntegrationTest extends BaseTestCase
             $this->markTestSkipped('Server does not support functional index parts (MySQL 8.0.13+ only).');
         }
 
-        $cols = Table::indexes($extraBase)['idx_lower']['cols'];
+        $cols = $this->indexesByName($extraBase)['idx_lower']['cols'];
         $this->assertCount(1, $cols);
         $this->assertStringStartsWith('(', $cols[0], 'expression parts are parenthesized, not column names');
         $this->assertStringContainsStringIgnoringCase('lower', $cols[0]);
@@ -813,6 +824,14 @@ class TableIntegrationTest extends BaseTestCase
 
     //endregion
     //region Helpers
+
+    /**
+     * Table::indexes() as indexName => index details, for tests that read one index by name.
+     */
+    private function indexesByName(string $baseTable): array
+    {
+        return array_column(Table::indexes($baseTable), null, 'name');
+    }
 
     /**
      * Each column's collation, as columnName => collation, in table order.

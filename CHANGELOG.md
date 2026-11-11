@@ -21,7 +21,7 @@
 ### Changed
 
 - **Connect sends one `SET NAMES utf8mb4, time_zone, sql_mode` statement on every server** - MySQL and Percona 8.0+ sent two. A `queryLogger` sees the new statement text
-- **`Table::foreignKeys()` and `Table::foreignKeysReferencing()` return a plain list** - no longer keyed by name, so read `name` from each entry. `foreignKeysReferencing()` entries have a new `database` field. See [UPGRADING.md](UPGRADING.md)
+- **`Table::indexes()`, `Table::foreignKeys()` and `Table::foreignKeysReferencing()` return a plain list** - no longer keyed by name, so read `name` from each entry. `foreignKeysReferencing()` entries have a new `database` field. See [UPGRADING.md](UPGRADING.md)
 
 ### Internal
 

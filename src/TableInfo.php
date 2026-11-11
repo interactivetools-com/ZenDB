@@ -810,10 +810,14 @@ class TableInfo
      *
      *     Table::indexes('articles');
      *     // [
-     *     //     '_auto_title'    => ['name' => '_auto_title',    'cols' => ['title'],                 'isAuto' => true,  'isPrimary' => false, 'isUnique' => false, 'indexType' => 'BTREE', 'isVisible' => true, 'comment' => '', 'colsCsv' => 'title',               'isFk' => false, 'isCustom' => false],
-     *     //     'idx_title_date' => ['name' => 'idx_title_date', 'cols' => ['title', 'publish_date'], 'isAuto' => false, 'isPrimary' => false, 'isUnique' => true,  'indexType' => 'BTREE', 'isVisible' => true, 'comment' => '', 'colsCsv' => 'title, publish_date', 'isFk' => false, 'isCustom' => true],
+     *     //     ['name' => '_auto_title',    'cols' => ['title'],                 'isAuto' => true,  'isPrimary' => false, 'isUnique' => false, 'indexType' => 'BTREE', 'isVisible' => true, 'comment' => '', 'colsCsv' => 'title',               'isFk' => false, 'isCustom' => false],
+     *     //     ['name' => 'idx_title_date', 'cols' => ['title', 'publish_date'], 'isAuto' => false, 'isPrimary' => false, 'isUnique' => true,  'indexType' => 'BTREE', 'isVisible' => true, 'comment' => '', 'colsCsv' => 'title, publish_date', 'isFk' => false, 'isCustom' => true],
      *     // ]
      *     Table::indexes('articles', 'publish_date'); // just the second one
+     *
+     * The result is a plain list because a name doesn't work as an array key: PHP converts an all-digit
+     * key to an int ('2024' → 2024). name is always a string. To read one index by name use
+     * array_column($indexes, null, 'name')['idx_title_date'].
      *
      * Fields:
      *
@@ -835,12 +839,9 @@ class TableInfo
      * can't match one: an index on (lower(`name`)) is NOT returned when filtering by 'name', so callers
      * cleaning up a column's indexes won't see it.
      *
-     * All-digit index names: PHP converts the key to an int ('2024' → 2024). $indexes['2024'] still works,
-     * but the key fails === and string type checks: cast it with (string) before passing it on.
-     *
      * @param string      $baseTable  Table name without prefix
      * @param string|null $columnName Only return indexes that include this column
-     * @return array<int|string, array{name: string, cols: list<string>, isAuto: bool, isPrimary: bool, isUnique: bool, indexType: string, isVisible: bool, comment: string, colsCsv: string, isFk: bool, isCustom: bool}> indexName => index details
+     * @return list<array{name: string, cols: list<string>, isAuto: bool, isPrimary: bool, isUnique: bool, indexType: string, isVisible: bool, comment: string, colsCsv: string, isFk: bool, isCustom: bool}>
      * @throws InvalidArgumentException For names with characters outside a-z, A-Z, 0-9, _, -
      */
     public function indexes(string $baseTable, ?string $columnName = null): array
@@ -863,7 +864,7 @@ class TableInfo
             $indexes  = array_filter($indexes, static fn($index) => in_array($colLower, array_map('strtolower', $index['cols']), true));
         }
 
-        return $indexes;
+        return array_values($indexes); // a plain list: each index's name is in its row
     }
 
     /**

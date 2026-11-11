@@ -26,11 +26,12 @@ Full lists of what changed per release: [CHANGELOG.md](CHANGELOG.md).
 
 ### Return value changes
 
-> - `Table::foreignKeys()` and `Table::foreignKeysReferencing()` return a
->   plain list, no longer keyed by constraint name. Loops that only read
->   each entry's fields keep working. Code that reads the key
->   (`as $name => $fk`, `array_keys()`, `array_key_first()`) now gets a
->   list position, so read the name from each entry:
+> - `Table::indexes()`, `Table::foreignKeys()` and
+>   `Table::foreignKeysReferencing()` return a plain list, no longer keyed
+>   by index or constraint name. Loops that only read each entry's fields
+>   keep working. Code that reads the key (`as $name => $fk`,
+>   `array_keys()`, `array_key_first()`) now gets a list position, so read
+>   the name from each entry:
 >
 >   ```php
 >   foreach (Table::foreignKeys('articles') as $name => $fk) { ... }   // before
@@ -50,7 +51,16 @@ Full lists of what changed per release: [CHANGELOG.md](CHANGELOG.md).
 >   }
 >   ```
 >
->   Search: `foreignKeys(` and `foreignKeysReferencing(`
+>   Index names are unique per table, so `array_column()` gives the lookup
+>   back:
+>
+>   ```php
+>   $cols = Table::indexes('articles')['idx_title']['cols'];                         // before
+>
+>   $cols = array_column(Table::indexes('articles'), 'cols', 'name')['idx_title'];   // after
+>   ```
+>
+>   Search: `indexes(`, `foreignKeys(` and `foreignKeysReferencing(`
 
 ## v1.0.0
 
