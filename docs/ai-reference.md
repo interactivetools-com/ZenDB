@@ -683,6 +683,28 @@ DB::decryptExpr('users.apiToken');  // "AES_DECRYPT(`users`.`apiToken`, @ek)"
 DB::getEncryptedColumns($result->fetch_fields());  // [fieldIndex => columnName], e.g. [0 => 'token', 3 => 'ssn']
 ```
 
+On read, ZenDB decrypts a result column when MySQL reports all three of:
+type 252 (blob), charset `binary`, length 16777215. Most queries need
+nothing extra: `SELECT apiToken` and `SELECT *` are decrypted in PHP, and
+`{{apiToken}}` in WHERE, ORDER BY, or a plain SELECT list is decrypted in
+MySQL. Write `CONVERT({{column}} USING utf8mb4)` only in these three cases:
+
+```php
+// 1. {{column}} in a SELECT list with DISTINCT, GROUP BY, or UNION. MySQL can report the decrypted
+//    value with the same three properties, and ZenDB decrypts it a second time. Text has another charset
+$rows = DB::query("SELECT DISTINCT CONVERT({{apiToken}} USING utf8mb4) AS apiToken FROM ::users");
+
+// 2. Matching that ignores case. {{column}} compares as bytes, so '%ABC%' doesn't match 'abc'
+$users = DB::select('users', "CONVERT({{apiToken}} USING utf8mb4) LIKE ?", '%ABC%');
+
+// 3. An encrypted column inside a function or UNION ALL in a SELECT list. A bare column there
+//    can come back still encrypted (MariaDB)
+$rows = DB::query("SELECT COALESCE(CONVERT({{apiToken}} USING utf8mb4), ?) AS apiToken FROM ::users", '');
+```
+
+The conversion is for text values; binary values that aren't valid UTF-8
+come back changed.
+
 ---
 
 ## Template Safety Rules

@@ -12,6 +12,7 @@ Contents:
 - [Writing and Reading Encrypted Data](#writing-and-reading-encrypted-data)
 - [Searching Encrypted Columns - `DB::encryptValue()`](#searching-encrypted-columns---dbencryptvalue)
 - [Decrypting in MySQL with `{{column}}`](#decrypting-in-mysql-with-column)
+- [Special Cases: Ignoring Case and Values Decrypted Twice or Not at All](#special-cases-ignoring-case-and-values-decrypted-twice-or-not-at-all)
 - [Decrypting Raw mysqli Results - `DB::decryptRows()`](#decrypting-raw-mysqli-results---dbdecryptrows)
 - [When Decryption Fails](#when-decryption-fails)
 - [Schema Changes Mid-Request](#schema-changes-mid-request)
@@ -177,6 +178,41 @@ $rows = DB::query("SELECT * FROM ::users u WHERE {{u.apiToken}} LIKE ?", '%token
 can't use an index. On large tables, prefer exact match with
 `encryptValue()` where the query allows it.
 
+## Special Cases: Ignoring Case and Values Decrypted Twice or Not at All
+
+Most queries never need this section.
+
+ZenDB decrypts a result column when MySQL reports it as a blob (type 252)
+with charset `binary` and length 16777215, which is how a `MEDIUMBLOB`
+column is reported. A `{{column}}` value has already been decrypted by
+MySQL, but in a SELECT list with DISTINCT, GROUP BY, or UNION, MySQL can
+report it with those same three values, and ZenDB decrypts it a second
+time. Converting the value to text changes its charset, so ZenDB leaves it
+alone:
+
+```php
+$rows = DB::query("SELECT DISTINCT CONVERT({{apiToken}} USING utf8mb4) AS apiToken FROM ::users");
+// SELECT DISTINCT CONVERT(AES_DECRYPT(`apiToken`, @ek) USING utf8mb4) AS apiToken FROM users
+```
+
+The same conversion covers three cases:
+
+- **A search should ignore case.** MySQL compares a `{{column}}` value as
+  bytes, so "TOKEN" doesn't match "token". With
+  `CONVERT({{apiToken}} USING utf8mb4) LIKE ?` it matches, as it would on a
+  regular text column.
+- **A value is decrypted twice.** A query with `{{column}}` in the SELECT
+  list raises the "can't decrypt" warning, although the stored data is
+  fine. Convert it as shown above.
+- **A value isn't decrypted at all.** A column inside a function or a
+  UNION ALL comes back still encrypted. Some servers (MariaDB among them)
+  report `COALESCE(apiToken, ?)` differently from the column itself, so
+  ZenDB doesn't decrypt it. Written as
+  `COALESCE(CONVERT({{apiToken}} USING utf8mb4), ?)`, MySQL decrypts it.
+
+The conversion is for text. A binary value that isn't valid UTF-8 comes back
+changed, so read those by selecting the column by itself.
+
 ## Decrypting Raw mysqli Results - `DB::decryptRows()`
 
 Every regular ZenDB read method decrypts results automatically; there's
@@ -209,11 +245,14 @@ One warning, not one per row, so a table of pre-encryption data doesn't flood
 the log. The check can miss: a value encrypted with a different key, or
 unencrypted data whose length is a multiple of 16 bytes, decrypts without an
 error about 1 time in 255 and comes back as garbage bytes, with no warning.
-If you see this warning, either the key changed or the column still
-holds unencrypted rows from before encryption was turned on. For a changed
-key, set the original key back, or read the rows with the old key and write
-them back with the new one. For unencrypted rows, encrypt them as described in
-[Turning Encryption On](#turning-encryption-on).
+If you see this warning, the key changed, the column still holds
+unencrypted rows from before encryption was turned on, or a `{{column}}`
+value was decrypted twice. For a changed key, set the original key back, or
+read the rows with the old key and write them back with the new one. For
+unencrypted rows, encrypt them as described in
+[Turning Encryption On](#turning-encryption-on). For a value decrypted
+twice, the stored data is fine: convert it to text as shown in
+[Special Cases](#special-cases-ignoring-case-and-values-decrypted-twice-or-not-at-all).
 
 ## Schema Changes Mid-Request
 

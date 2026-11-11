@@ -364,6 +364,12 @@ class DB
      *     DB::decryptExpr('u.email')              // "AES_DECRYPT(`u`.`email`, @ek)" - join alias
      *     DB::decryptExpr('cms_users.apiToken')   // "AES_DECRYPT(`cms_users`.`apiToken`, @ek)" - prefix written in
      *
+     * The expression returns bytes, not text. Wrap it in CONVERT(... USING utf8mb4) for these:
+     *
+     *     SELECT DISTINCT CONVERT({{email}} USING utf8mb4) AS email FROM ::users   // SELECT list with DISTINCT, GROUP BY or UNION: decrypted once, not twice
+     *     WHERE CONVERT({{email}} USING utf8mb4) LIKE ?                            // matching that ignores case
+     *     SELECT COALESCE(CONVERT({{email}} USING utf8mb4), ?) FROM ::users        // an encrypted column inside a function
+     *
      * @param string $column Column name, optionally table-qualified ("table.column", one dot max)
      * @return string SQL expression
      * @see Connection::encryptValue() for the write side (encrypts in PHP, same bytes as AES_ENCRYPT)

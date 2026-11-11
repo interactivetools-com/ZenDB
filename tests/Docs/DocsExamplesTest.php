@@ -1988,6 +1988,39 @@ class DocsExamplesTest extends BaseTestCase
         $this->assertSame(['Alice'], $rows->pluck('name')->toArray());
     }
 
+    public function testEncryptionDoubleBraceConvertedToText(): void
+    {
+        $db = new Connection(array_merge(self::$configDefaults, ['encryptionKey' => 'docs-example-key']));
+        $db->mysqli->query("CREATE TEMPORARY TABLE test_secrets (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(255), apiToken MEDIUMBLOB)");
+        $db->insert('secrets', ['name' => 'Alice', 'apiToken' => 'secret-token-value']);
+        $db->insert('secrets', ['name' => 'Bob', 'apiToken' => 'Other-TOKEN']);
+        $db->insert('secrets', ['name' => 'Carol', 'apiToken' => null]);
+
+        // in a SELECT list with DISTINCT: decrypted once, so no "can't decrypt" warning
+        [$rows, $warnings] = $this->captureErrors(
+            fn() => $db->query("SELECT DISTINCT CONVERT({{apiToken}} USING utf8mb4) AS apiToken FROM ::secrets WHERE {{apiToken}} IS NOT NULL ORDER BY apiToken"),
+            E_USER_WARNING
+        );
+        $this->assertSame(
+            "SELECT DISTINCT CONVERT(AES_DECRYPT(`apiToken`, @ek) USING utf8mb4) AS apiToken FROM test_secrets WHERE AES_DECRYPT(`apiToken`, @ek) IS NOT NULL ORDER BY apiToken",
+            $db->mysqli->lastQuery
+        );
+        $this->assertSame([], $warnings);
+        $this->assertSame(['Other-TOKEN', 'secret-token-value'], $rows->column('apiToken')->toArray());
+
+        // a search that ignores case: bytes don't match, text does
+        $this->assertSame([], $db->select('secrets', "{{apiToken}} LIKE ?", '%TOKEN-VALUE%')->column('name')->toArray());
+        $this->assertSame(['Alice'], $db->select('secrets', "CONVERT({{apiToken}} USING utf8mb4) LIKE ?", '%TOKEN-VALUE%')->column('name')->toArray());
+
+        // inside a function: MySQL decrypts, and nothing is decrypted again
+        [$rows, $warnings] = $this->captureErrors(
+            fn() => $db->query("SELECT COALESCE(CONVERT({{apiToken}} USING utf8mb4), ?) AS apiToken FROM ::secrets ORDER BY id", 'none'),
+            E_USER_WARNING
+        );
+        $this->assertSame([], $warnings);
+        $this->assertSame(['secret-token-value', 'Other-TOKEN', 'none'], $rows->column('apiToken')->toArray());
+    }
+
     public function testEncryptionDecryptRawMysqliRows(): void
     {
         $db = new Connection(array_merge(self::$configDefaults, ['encryptionKey' => 'docs-example-key']));
