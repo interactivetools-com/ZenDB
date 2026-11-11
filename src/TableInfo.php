@@ -8,7 +8,7 @@ use RuntimeException;
 use mysqli_sql_exception;
 
 // import built-ins so calls resolve at compile time instead of per-call lookups; NamespacedCallsTest keeps this list exact
-use function array_column, array_filter, array_keys, array_map, array_values, count, explode, implode, in_array, preg_grep, preg_match, preg_replace, preg_replace_callback, str_replace, str_starts_with, stripos, strlen, strpos, strtolower, strtr, substr, usort;
+use function array_column, array_filter, array_map, array_values, count, explode, implode, in_array, preg_grep, preg_match, preg_replace, preg_replace_callback, str_replace, str_starts_with, stripos, strlen, strpos, strtolower, strtr, substr, usort;
 use const MYSQLI_ASSOC, PREG_OFFSET_CAPTURE;
 
 /**
@@ -230,7 +230,7 @@ class TableInfo
      * but the key fails === and string type checks: cast it with (string) before passing it on.
      *
      * @param string $baseTable Table name without prefix
-     * @return array<string, array{name: string, type: string, isNullable: bool, extra: string, charset: ?string}> columnName => column details
+     * @return array<int|string, array{name: string, type: string, isNullable: bool, extra: string, charset: ?string}> columnName => column details
      * @throws InvalidArgumentException For names with characters outside a-z, A-Z, 0-9, _, -
      */
     public function columns(string $baseTable): array
@@ -282,7 +282,8 @@ class TableInfo
      */
     public function columnNames(string $baseTable): array
     {
-        return array_keys($this->columns($baseTable));
+        // array_column(), not array_keys(): PHP turns the array key '2024' into int(2024)
+        return array_column($this->columns($baseTable), 'name');
     }
 
     /**
@@ -337,7 +338,7 @@ class TableInfo
      * but the key fails === and string type checks: cast it with (string) before passing it on.
      *
      * @param string $baseTable Table name without prefix
-     * @return array<string, string> columnName => definition SQL
+     * @return array<int|string, string> columnName => definition SQL
      * @throws InvalidArgumentException For names with characters outside a-z, A-Z, 0-9, _, -
      */
     public function columnDefinitions(string $baseTable): array
@@ -350,7 +351,7 @@ class TableInfo
      * Separate from columnDefinitions() so tests can feed it fixture DDL without a database.
      *
      * @param string $createTableSql Full SHOW CREATE TABLE statement
-     * @return array<string, string> columnName => definition SQL
+     * @return array<int|string, string> columnName => definition SQL
      */
     private static function parseCreateTableColumns(string $createTableSql): array
     {
@@ -839,7 +840,7 @@ class TableInfo
      *
      * @param string      $baseTable  Table name without prefix
      * @param string|null $columnName Only return indexes that include this column
-     * @return array<string, array{name: string, cols: list<string>, isAuto: bool, isPrimary: bool, isUnique: bool, indexType: string, isVisible: bool, comment: string, colsCsv: string, isFk: bool, isCustom: bool}> indexName => index details
+     * @return array<int|string, array{name: string, cols: list<string>, isAuto: bool, isPrimary: bool, isUnique: bool, indexType: string, isVisible: bool, comment: string, colsCsv: string, isFk: bool, isCustom: bool}> indexName => index details
      * @throws InvalidArgumentException For names with characters outside a-z, A-Z, 0-9, _, -
      */
     public function indexes(string $baseTable, ?string $columnName = null): array
@@ -871,7 +872,7 @@ class TableInfo
      *
      * @param array<array<string, mixed>> $rows         Rows as returned by SHOW INDEX
      * @param list<list<string>>          $fkColumnSets Column lists of the table's FOREIGN KEY constraints, one list per constraint
-     * @return array<string, array{name: string, cols: list<string>, isAuto: bool, isPrimary: bool, isUnique: bool, indexType: string, isVisible: bool, comment: string, colsCsv: string, isFk: bool, isCustom: bool}> indexName => index details
+     * @return array<int|string, array{name: string, cols: list<string>, isAuto: bool, isPrimary: bool, isUnique: bool, indexType: string, isVisible: bool, comment: string, colsCsv: string, isFk: bool, isCustom: bool}> indexName => index details
      */
     private static function parseShowIndexRows(array $rows, array $fkColumnSets = []): array
     {

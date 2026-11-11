@@ -29,7 +29,7 @@
 
 ### Minor
 
-`Table::columnDefinitions()` and `Table::normalizeCreateTable()` keep `CHARACTER SET` on a column in a table whose collation was changed by hand.
+`Table::columnDefinitions()` and `Table::normalizeCreateTable()` keep `CHARACTER SET` on a column in a table whose collation was changed by hand. `Table::columnNames()` returns an all-digit column name such as `2024` as a string, not an int.
 
 ## [1.0.0] - 2026-10-16
 

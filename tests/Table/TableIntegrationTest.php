@@ -345,6 +345,14 @@ class TableIntegrationTest extends BaseTestCase
     }
 
     #[Test]
+    public function columnNamesReportsAnAllDigitColumnNameAsAString(): void
+    {
+        $yearsTable = $this->createSideTable('_years', 'num INT NOT NULL, `2024` INT NULL');
+
+        $this->assertSame(['num', '2024'], Table::columnNames($yearsTable));
+    }
+
+    #[Test]
     public function columnsReturnsEmptyArrayForUnknownTable(): void
     {
         $this->assertSame([], Table::columns($this->baseTable . '_no_such_table'));
