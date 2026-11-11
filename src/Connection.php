@@ -187,11 +187,6 @@ class Connection
         // server for it in the login step. Without it, PHP starts on whatever charset the server announces
         $this->mysqli->options(MYSQLI_SET_CHARSET_NAME, 'utf8mb4');
 
-        // Return native PHP types (int/float) instead of strings
-        if (defined('MYSQLI_OPT_INT_AND_FLOAT_NATIVE')) {
-            $this->mysqli->options(MYSQLI_OPT_INT_AND_FLOAT_NATIVE, 1);
-        }
-
         // Pass encryption key callback to MysqliWrapper for automatic @ek session variable setup
         if ($this->hasEncryptionKey) {
             $this->mysqli->setEncryptionKeyCallback(fn() => $this->secret('encryptionKey'));
@@ -243,6 +238,16 @@ class Connection
                 default                                  => "$baseErrorMsg: {$h($errorDetail)}",
             };
             throw new RuntimeException($errorMsg);
+        }
+
+        // PHP side: return ints and floats as PHP ints and floats, not strings. This sends nothing.
+        // Set after connecting, because of pooled connections (p: hostname):
+        //   - still open: mysqli reuses it, and it keeps the options it was opened with
+        //   - closed while idle (wait_timeout, server restart, KILL): mysqli opens a new one with none of the
+        //     options set before connecting, and later requests reuse that one
+        // TODO-PHP82: Remove the defined() check; from PHP 8.2 mysqli always builds with mysqlnd, so the constant always exists
+        if (defined('MYSQLI_OPT_INT_AND_FLOAT_NATIVE')) {
+            $this->mysqli->options(MYSQLI_OPT_INT_AND_FLOAT_NATIVE, 1);
         }
 
         $this->server = new Server($this->mysqli);

@@ -95,10 +95,7 @@ DB::connect([
 ]);
 ```
 
-Queries, results, and transactions behave the same either way, with one
-exception: a connection that mysqli opened to replace a dead kept one
-returns integer and float columns as strings (see
-[Reuse Stays Clean](#reuse-stays-clean)).
+Queries, results, and transactions behave the same either way.
 
 ## Reuse Stays Clean
 
@@ -121,9 +118,9 @@ transaction, its temp tables, its variables. That does not happen.
   time and replaced with a fresh one. No error reaches your code; the one
   warning a server can raise here is suppressed by ZenDB (see
   [Timeouts](#timeouts)). One difference remains: mysqli opens the
-  replacement without the options ZenDB set, so on that connection, and on
-  every later request that reuses it, integer and float columns come back as
-  strings and `readTimeout` doesn't apply.
+  replacement without the options ZenDB set before connecting, so on that
+  connection, and on every later request that reuses it, `readTimeout`
+  doesn't apply.
 - **Verified on all 22 supported servers.** Permanent probes in ZenDB's CI
   behavior matrix confirm every behavior in this section - the reset, the
   connect-time setup, lock release, prepared statement cleanup, and

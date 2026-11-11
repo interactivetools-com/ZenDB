@@ -24,6 +24,10 @@ use mysqli;
  * error handler still sees it, PHP's own display and log never do. Real connect
  * failures still throw (MYSQLI_REPORT_STRICT).
  *
+ * The replacement returns ints and floats as PHP ints and floats, like every
+ * other connection. mysqli opens it without the options set before the connect,
+ * so connect() sets that one after.
+ *
  * @covers \Itools\ZenDB\Connection::connect
  * @group slow
  */
@@ -32,6 +36,17 @@ class PersistentReconnectTest extends BaseTestCase
     private static function connectPooled(): Connection
     {
         return self::createDefaultConnection(['hostname' => 'p:' . self::$configDefaults['hostname']]);
+    }
+
+    /**
+     * Select an int and a float on the default connection and return the row as PHP got it.
+     * A connection without MYSQLI_OPT_INT_AND_FLOAT_NATIVE returns ['i' => '5', 'f' => '1.5'].
+     *
+     * @return array<string, mixed>
+     */
+    private static function selectIntAndFloat(): array
+    {
+        return DB::query("SELECT :i AS i, SQRT(:n) AS f", [':i' => 5, ':n' => 2.25])->first()->toArray(); // a BIGINT 5 and a DOUBLE 1.5
     }
 
     /**
@@ -81,6 +96,7 @@ class PersistentReconnectTest extends BaseTestCase
 
         $this->assertTrue(DB::isConnected(true), 'reconnect must hand back a working connection');
         $this->assertNotSame($expiredThreadId, $conn->mysqli->thread_id, 'the dead slot must be replaced with a fresh connection');
+        $this->assertSame(['i' => 5, 'f' => 1.5], self::selectIntAndFloat(), 'the replacement must return ints and floats as PHP ints and floats');
         foreach ($events as $event) {
             $this->assertTrue($event['suppressed'], "diagnostic escaped suppression: [{$event['errno']}] {$event['message']}");
         }
@@ -117,6 +133,7 @@ class PersistentReconnectTest extends BaseTestCase
 
         $this->assertTrue(DB::isConnected(true), 'reconnect must hand back a working connection');
         $this->assertNotSame($victimThreadId, $conn->mysqli->thread_id, 'the killed slot must be replaced with a fresh connection');
+        $this->assertSame(['i' => 5, 'f' => 1.5], self::selectIntAndFloat(), 'the replacement must return ints and floats as PHP ints and floats');
         $this->assertSame([], $events, 'reuse after KILL is silent on every server in the behavior matrix');
 
         // Leave a clean default connection for later test classes

@@ -12,6 +12,7 @@
 
 - **`Table::foreignKeysReferencing()` lists same-named keys separately** - it was keyed by name, so two keys with the same name were merged into one entry. MariaDB 12.1+ names keys `1`, `2`, `3` in every table
 - **`Table::foreignKeys()` gives every constraint name as a string** - on MariaDB 12.1+ the names `1`, `2`, `3` came back as int array keys
+- **Ints and floats stay native after a persistent connection is replaced** - with a `p:` hostname, once the server closed an idle connection (a restart, `wait_timeout`, a KILL), that PHP worker returned int and float columns as strings until it restarted. Connections that stayed open were not affected
 - **Connections are utf8mb4 on servers that override the charset at login** - with `skip-character-set-client-handshake` or a charset in `init_connect`, the connection stayed on the server's charset: non-ASCII text was stored and read wrong, and values were escaped for the wrong charset. On those servers the connection collation is now the server's default for utf8mb4
 
 ### Changed
