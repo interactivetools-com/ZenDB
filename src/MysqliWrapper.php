@@ -5,6 +5,7 @@ namespace Itools\ZenDB;
 
 use Closure;
 use InvalidArgumentException;
+use ReflectionProperty;
 use ReturnTypeWillChange;
 use Throwable;
 use mysqli;
@@ -160,7 +161,7 @@ class MysqliWrapper extends mysqli
         $startTime = $this->queryLogger ? microtime(true) : 0.0;   // only needed for logger
 
         try {
-            $result = parent::query($query, $result_mode);
+            $result = parent::query($query, $result_mode) ?: self::throwLastError($this);
         } catch (mysqli_sql_exception $e) {
             $this->logQuery($query, $startTime, $e);
             throw $e;
@@ -217,7 +218,7 @@ class MysqliWrapper extends mysqli
         $startTime = $this->queryLogger ? microtime(true) : 0.0;   // only needed for logger
 
         try {
-            $result = parent::real_query($query);
+            $result = parent::real_query($query) ?: self::throwLastError($this);
         } catch (mysqli_sql_exception $e) {
             if ($this->queryLogger) {
                 $this->logQuery("real_query: $query", $startTime, $e);
@@ -252,7 +253,7 @@ class MysqliWrapper extends mysqli
         $startTime = $this->queryLogger ? microtime(true) : 0.0;   // only needed for logger
 
         try {
-            $result = parent::multi_query($query);
+            $result = parent::multi_query($query) ?: self::throwLastError($this);
         } catch (mysqli_sql_exception $e) {
             if ($this->queryLogger) {
                 $this->logQuery("multi_query: $query", $startTime, $e);
@@ -317,7 +318,7 @@ class MysqliWrapper extends mysqli
             $startTime = $this->queryLogger ? microtime(true) : 0.0;   // only needed for logger
 
             try {
-                $result = parent::execute_query($query, $params);
+                $result = parent::execute_query($query, $params) ?: self::throwLastError($this);
             } catch (mysqli_sql_exception $e) {
                 $this->logQuery($query, $startTime, $e);
                 throw $e;
@@ -352,6 +353,34 @@ class MysqliWrapper extends mysqli
     {
         $this->stmtKeepAlive = null;
         return parent::close();
+    }
+
+    //endregion
+    //region Errors
+
+    /**
+     * Throw the last error on a connection or statement as a mysqli_sql_exception. The query methods
+     * call this when mysqli returns false, which only happens after other code in the same request
+     * calls mysqli_report() and stops mysqli from throwing (WordPress does that when it connects).
+     *
+     * The exception has the message, code and SQLSTATE mysqli would have thrown, with a note added:
+     *
+     *     Unknown column 'nope' in 'field list' (mysqli_report() was turned off by other code)
+     *
+     * @internal API may change between releases
+     *
+     * @param mysqli|mysqli_stmt $source The connection or statement whose call returned false
+     * @throws mysqli_sql_exception Always
+     */
+    public static function throwLastError(mysqli|mysqli_stmt $source): never
+    {
+        $e = new mysqli_sql_exception("$source->error (mysqli_report() was turned off by other code)", $source->errno);
+
+        // getSqlState() returns the protected $sqlstate property, and the constructor can't set it, so copy in the server's value
+        $sqlstateProperty = new ReflectionProperty(mysqli_sql_exception::class, 'sqlstate');
+        $sqlstateProperty->setValue($e, $source->sqlstate);
+
+        throw $e;
     }
 
     //endregion

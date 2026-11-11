@@ -427,4 +427,119 @@ class MysqliWrapperTest extends BaseTestCase
     }
 
     //endregion
+    //region mysqli_report() turned off by other code
+
+    /**
+     * Recreate test_report_off with one row, id 1. InnoDB so a ROLLBACK removes rows.
+     */
+    private static function resetReportOffTable(): void
+    {
+        DB::$mysqli->query("DROP TEMPORARY TABLE IF EXISTS test_report_off");
+        DB::$mysqli->query("CREATE TEMPORARY TABLE test_report_off (id INT PRIMARY KEY, name VARCHAR(50)) ENGINE=InnoDB");
+        DB::$mysqli->query("INSERT INTO test_report_off VALUES (1, 'first')");
+    }
+
+    /**
+     * Run a call that should fail and return the exception it threw.
+     */
+    private static function exceptionFrom(callable $failingCall): mysqli_sql_exception
+    {
+        try {
+            $failingCall();
+        } catch (mysqli_sql_exception $e) {
+            return $e;
+        }
+        self::fail("The call returned without throwing mysqli_sql_exception");
+    }
+
+    /**
+     * Same as exceptionFrom(), with mysqli's own exceptions turned off for the call.
+     */
+    private static function exceptionWithReportingOff(callable $failingCall): mysqli_sql_exception
+    {
+        mysqli_report(MYSQLI_REPORT_OFF);   // WordPress does this when it connects
+        try {
+            return self::exceptionFrom($failingCall);
+        } finally {
+            mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
+        }
+    }
+
+    /**
+     * Every query method on the wrapper and its statements, then the DB methods built on them.
+     * The second value forces the PHP 8.1 execute_query() polyfill.
+     */
+    public static function failingCallProvider(): array
+    {
+        $duplicateKey = [1, 'again'];
+        return [
+            '$mysqli->query()'                               => [fn() => DB::$mysqli->query("SELECT nope FROM test_report_off")],
+            '$mysqli->real_query()'                          => [fn() => DB::$mysqli->real_query("SELECT nope FROM test_report_off")],
+            '$mysqli->multi_query()'                         => [fn() => DB::$mysqli->multi_query("SELECT nope FROM test_report_off; SELECT 1")],
+            '$mysqli->execute_query(), unknown column'       => [fn() => DB::$mysqli->execute_query("SELECT nope FROM test_report_off WHERE id = ?", [1])],
+            '$mysqli->execute_query(), duplicate key'        => [fn() => DB::$mysqli->execute_query("INSERT INTO test_report_off VALUES (?, ?)", $duplicateKey)],
+            'execute_query() polyfill, unknown column'       => [fn() => DB::$mysqli->execute_query("SELECT nope FROM test_report_off WHERE id = ?", [1]), true],
+            'execute_query() polyfill, duplicate key'        => [fn() => DB::$mysqli->execute_query("INSERT INTO test_report_off VALUES (?, ?)", $duplicateKey), true],
+            '$mysqli->prepare()'                             => [fn() => DB::$mysqli->prepare("SELECT nope FROM test_report_off WHERE id = ?")],
+            '$stmt->execute()'                               => [fn() => DB::$mysqli->prepare("INSERT INTO test_report_off VALUES (?, ?)")->execute($duplicateKey)],
+            'DB::query()'                                    => [fn() => DB::query("SELECT nope FROM ::report_off")],
+            'DB::select()'                                   => [fn() => DB::select('report_off', "nope = ?", 'x')],
+            'DB::count()'                                    => [fn() => DB::count('report_off', "nope = ?", 'x')],
+            'DB::insert()'                                   => [fn() => DB::insert('report_off', ['id' => 1, 'name' => 'again'])],
+            'DB::update()'                                   => [fn() => DB::update('report_off', ['nope' => 'x'], ['id' => 1])],
+            'DB::delete()'                                   => [fn() => DB::delete('report_off', "nope = ?", 'x')],
+        ];
+    }
+
+    /**
+     * @dataProvider failingCallProvider
+     */
+    public function testFailedCallThrowsTheSameExceptionWithReportingOff(callable $failingCall, bool $forcePolyfill = false): void
+    {
+        self::resetReportOffTable();
+        $original = MysqliWrapper::$forceExecuteQueryPolyfill;
+
+        try {
+            MysqliWrapper::$forceExecuteQueryPolyfill = $forcePolyfill;
+            $fromMysqli = self::exceptionFrom($failingCall);
+            $fromZenDB  = self::exceptionWithReportingOff($failingCall);
+        } finally {
+            MysqliWrapper::$forceExecuteQueryPolyfill = $original;
+        }
+
+        $this->assertSame($fromMysqli->getMessage() . " (mysqli_report() was turned off by other code)", $fromZenDB->getMessage());
+        $this->assertSame($fromMysqli->getCode(), $fromZenDB->getCode());
+        $this->assertSame($fromMysqli->getSqlState(), $fromZenDB->getSqlState());
+    }
+
+    public function testTransactionRollsBackWithReportingOff(): void
+    {
+        self::resetReportOffTable();
+
+        self::exceptionWithReportingOff(fn() => DB::transaction(static function (): void {
+            DB::insert('report_off', ['id' => 2, 'name' => 'second']);
+            DB::query("SELECT nope FROM ::report_off");
+            DB::insert('report_off', ['id' => 3, 'name' => 'third']);
+        }));
+
+        $this->assertSame(1, DB::count('report_off'), "Row 2 was inserted before the failing query, so the ROLLBACK must remove it");
+    }
+
+    public function testQueryLoggerGetsTheExceptionWithReportingOff(): void
+    {
+        $loggedErrors = [];
+        $conn         = new Connection(array_merge(self::$configDefaults, [
+            'queryLogger' => function ($query, $duration, $error) use (&$loggedErrors) {
+                if ($error !== null) {
+                    $loggedErrors[] = $error;
+                }
+            },
+        ]));
+
+        $thrown = self::exceptionWithReportingOff(fn() => $conn->query("SELECT nope"));
+
+        $this->assertSame([$thrown], $loggedErrors);
+    }
+
+    //endregion
 }

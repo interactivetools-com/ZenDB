@@ -45,6 +45,9 @@ class MysqliStmtWrapper extends mysqli_stmt
         $this->startTime     = $startTime;
 
         parent::__construct($mysqliWrapper, $query);
+        if ($mysqliWrapper->errno !== 0) {   // with mysqli_report() off, a failed prepare doesn't throw, it leaves a statement that can't be used
+            MysqliWrapper::throwLastError($mysqliWrapper);
+        }
     }
 
     public function execute(?array $params = null): bool
@@ -62,7 +65,7 @@ class MysqliStmtWrapper extends mysqli_stmt
         $this->startTime = 0.0;
 
         try {
-            $result = parent::execute($params);
+            $result = parent::execute($params) ?: MysqliWrapper::throwLastError($this);
         } catch (mysqli_sql_exception $e) {
             $this->mysqliWrapper->logQuery("$this->query /* params: $paramsJson */", $startTime, $e);
             throw $e;
