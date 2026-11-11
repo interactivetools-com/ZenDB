@@ -15,6 +15,7 @@
 - **Ints and floats stay native after a persistent connection is replaced** - with a `p:` hostname, once the server closed an idle connection (a restart, `wait_timeout`, a KILL), that PHP worker returned int and float columns as strings until it restarted. Connections that stayed open were not affected
 - **Connections are utf8mb4 on servers that override the charset at login** - with `skip-character-set-client-handshake` or a charset in `init_connect`, the connection stayed on the server's charset: non-ASCII text was stored and read wrong, and values were escaped for the wrong charset. On those servers the connection collation is now the server's default for utf8mb4
 - **Failed queries throw when other code has turned off mysqli error reporting** - after another library in the same request called `mysqli_report(MYSQLI_REPORT_OFF)` (WordPress does when it connects), a failed query returned an empty result, `0` or `-1`, and `transaction()` committed the statements that had worked. It now throws `mysqli_sql_exception` as usual, with `(mysqli_report() was turned off by other code)` added to the message
+- **`DB::count()` throws when a paging value leaves no count to return** - with `DB::pagingSql()` in the WHERE it returned `0` with a PHP warning from page 2 on (page 1 gave the right total). It now throws `InvalidArgumentException`: pass `count()` the WHERE without the paging value. A `GROUP BY` or `HAVING` that leaves no row returns `0` without the warning
 
 ### Changed
 

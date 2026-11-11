@@ -629,7 +629,7 @@ class Connection
         $this->mysqli->lastQuery = "SELECT COUNT(*) FROM `$fullTable` [WHERE ...]";
 
         isset(DB::$safeIdentifiers[$baseTable]) || DB::assertIdentifier($baseTable, 'table name');
-        $this->rejectLimitAndOffset($whereEtc);
+        $this->rejectLimitAndOffset($whereEtc);             // LIMIT or OFFSET typed in the WHERE
 
         $this->paramValues = $this->parseParams($params);
         $sql               = "SELECT COUNT(*) FROM `$fullTable` {$this->whereFromArgs($whereEtc)}";
@@ -637,6 +637,11 @@ class Connection
         $result = $this->mysqli->query($sql);
         $row    = $result->fetch_row();
         $result->free();
+
+        if ($row === null) {
+            $this->rejectLimitAndOffset(new RawSql($sql));  // LIMIT or OFFSET passed in as a value, e.g. DB::pagingSql()
+            return 0;                                       // GROUP BY or HAVING left no row
+        }
 
         return (int)$row[0];
     }
