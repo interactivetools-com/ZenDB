@@ -359,6 +359,34 @@ handle that.
 
 ---
 
+## CALL Through query() - DECIDED: Won't fix (2026-11)
+
+`DB::query("CALL ...")` returns the procedure's first result set and leaves
+the rest unread, so the next query on that connection throws "Commands out
+of sync; you can't run this command now" (2014). Plain mysqli does the same.
+
+No change: this is one of many edge cases, and someone who writes a `CALL`
+can read the leftover results with mysqli:
+
+```php
+$result = DB::$mysqli->query("CALL top_customers()");
+$rows   = $result->fetch_all(MYSQLI_ASSOC);
+$result->free();
+while (DB::$mysqli->more_results() && DB::$mysqli->next_result()) {
+    // read past the final status
+}
+```
+
+Rejected:
+
+- **Reading past the leftover results in `query()`** - a check on every query
+  for a statement CMS Builder never sends.
+- **Throwing when results are left** - every procedure that returns rows
+  sends a final status, so none could run.
+- **A `DB::call()` method** - nothing would use it.
+
+---
+
 ## Other Ideas Rejected (2026-03)
 
 - **Schema awareness** (cache table schemas, ignore non-column keys, fuzzy column
