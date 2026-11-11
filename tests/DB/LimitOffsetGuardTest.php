@@ -132,6 +132,14 @@ class LimitOffsetGuardTest extends BaseTestCase
         DB::selectOne('users', "num IN (SELECT user_id FROM ::orders) FOR UPDATE");
     }
 
+    public function testSelectOneStillRejectsForUpdateWithCommentBetweenTheWords(): void
+    {
+        // MySQL reads a comment as a space, so FOR/**/UPDATE is a locking clause
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage("doesn't support FOR UPDATE");
+        DB::selectOne('users', "num = ? FOR/**/UPDATE", 1);
+    }
+
     //endregion
     //region comments MySQL runs or doesn't treat as comments are still checked
 

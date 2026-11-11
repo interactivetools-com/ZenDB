@@ -429,7 +429,10 @@ trait ConnectionInternals
 
         // Row-locking clauses - grammar requires LIMIT before these. Only top-level ones count, so a
         // subquery or comment can't trigger it; the trailing checks below must see the comments.
-        if (preg_match('/\bFOR\s+(?:UPDATE|SHARE)\b|\bLOCK\s+IN\s+SHARE\s+MODE\b/i', $this->sqlForKeywordCheck($where), $m)) {
+        // A template without the word FOR or LOCK skips sqlForKeywordCheck(). The first match looks
+        // for single words, not the whole phrase: FOR/**/UPDATE is a locking clause too, and the
+        // comment only becomes a space inside sqlForKeywordCheck().
+        if (preg_match('/\b(?:FOR|LOCK)\b/i', $where) && preg_match('/\bFOR\s+(?:UPDATE|SHARE)\b|\bLOCK\s+IN\s+SHARE\s+MODE\b/i', $this->sqlForKeywordCheck($where), $m)) {
             $clause = preg_replace('/\s+/', ' ', strtoupper($m[0]));
             throw new InvalidArgumentException("This method doesn't support $clause. Use query(...)->first() instead.");
         }
