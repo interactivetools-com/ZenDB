@@ -88,7 +88,7 @@ class SmartStringsOffTest extends BaseTestCase
         $this->assertSame('num', $table->primaryKey('sstest'));
         $this->assertSame(['num', 'name'], $table->columnNames('sstest'));
         $this->assertSame("varchar(50) NOT NULL DEFAULT ''", $table->columnDefinitions('sstest')['name']);
-        $this->assertArrayHasKey('PRIMARY', $table->indexes('sstest'));
+        $this->assertContains('PRIMARY', array_column($table->indexes('sstest'), 'name'));
     }
 
     public function testGetColumnDefinitionsWorksWithSmartStringsOff(): void
