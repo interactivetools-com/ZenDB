@@ -1879,7 +1879,7 @@ class DocsExamplesTest extends BaseTestCase
                     $disconnect();
                     $this->fail("disconnect() should have thrown");
                 } catch (RuntimeException $e) {
-                    $this->assertStringContainsString("can't disconnect while holding lock `import_products`", $e->getMessage());
+                    $this->assertStringContainsString("can't disconnect until releaseLock() is called for lock `import_products`", $e->getMessage());
                 }
             }
 
@@ -2237,7 +2237,7 @@ class DocsExamplesTest extends BaseTestCase
             DB::disconnect();
             $this->fail("DB::disconnect() should have thrown");
         } catch (RuntimeException $e) {
-            $this->assertSame("disconnect(): can't disconnect while holding lock `import_products`, a new connection wouldn't hold it. Call releaseLock() first, on the `Connection` that took it.", $e->getMessage());
+            $this->assertSame("disconnect(): can't disconnect until releaseLock() is called for lock `import_products`, a new connection wouldn't hold it. Call it on the `Connection` that took the lock.", $e->getMessage());
         } finally {
             DB::releaseLock('import_products');
         }

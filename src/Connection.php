@@ -319,7 +319,7 @@ class Connection
      * Disconnect from the database.
      *
      * @throws RuntimeException Inside transaction(), because MySQL would roll the transaction back
-     * @throws RuntimeException While this connection holds a lock from getLock(), because a new connection wouldn't hold it
+     * @throws RuntimeException Until releaseLock() is called for each lock this connection took with getLock(), because a new connection wouldn't hold it
      */
     public function disconnect(): void
     {
@@ -330,7 +330,7 @@ class Connection
         if ($this->mysqli?->heldLocks) {
             $h    = DB::h(...); // SECURITY: lock names come from the caller, encode before they can reach page output
             $name = $this->mysqli->heldLocks[array_key_first($this->mysqli->heldLocks)]['name'];
-            throw new RuntimeException("disconnect(): can't disconnect while holding lock `{$h($name)}`, a new connection wouldn't hold it. Call releaseLock() first, on the `Connection` that took it.");
+            throw new RuntimeException("disconnect(): can't disconnect until releaseLock() is called for lock `{$h($name)}`, a new connection wouldn't hold it. Call it on the `Connection` that took the lock.");
         }
 
         if ($this->mysqli !== null) {
