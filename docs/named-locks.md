@@ -92,7 +92,8 @@ wouldn't have it, so `DB::disconnect()` throws while you hold one. A lock
 still held when the request ends (after `exit`, `die()`, or a fatal error
 inside the function) is released then. A persistent `p:` connection stays
 open after the request, and in three cases its lock waits until the
-connection is next reused (see
+connection is next reused, or until the server closes the idle connection
+after `wait_timeout` (8 hours by default), whichever is first (see
 [Persistent Connections](persistent-connections.md#a-crash-mid-transaction-blocks-others-briefly)).
 If the lock is already gone when the
 function returns, because the server closed the connection during the job,
