@@ -169,7 +169,16 @@ number, so none of the three accepts a `LIMIT` in the template.
 DB::selectOne('users', "status = ? LIMIT 5", 'active');
 ```
 
-**Fix:** Use `select()` (or `query()`) when you want your own `LIMIT`, or
+`count()` also throws this for a `DB::pagingSql()` value past page 1, where
+the `OFFSET` would skip the one row that holds the count:
+
+```php
+// Throws - the paging value adds LIMIT 5 OFFSET 5
+DB::count('users', "status = ? ?", 'active', DB::pagingSql(2, 5));
+```
+
+**Fix:** Pass `count()` the WHERE without the paging value. For the other
+two, use `select()` (or `query()`) when you want your own `LIMIT`, or
 `query(...)->first()` when you want one row from a query these methods
 reject:
 

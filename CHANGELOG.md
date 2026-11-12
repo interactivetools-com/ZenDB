@@ -2,39 +2,44 @@
 
 > **Upgrading?** See [UPGRADING.md](UPGRADING.md) for the checks that matter, per version - tagged releases roll up every change since the previous tag. Versions bundled with CMS Builder are marked on their sections.
 
-## [UNRELEASED]
+## [1.1.0] - 2026-11-12
+
+> **Bundled with CMS Builder v4.0.0**
+
+This release adds named locks: `DB::withLock()` runs a function while holding a MySQL named lock, so two copies of the same job never run at the same time. Everything else is fixes; the checks for code written against 1.0.0 are in [UPGRADING.md](UPGRADING.md).
 
 ### Added
 
-- **Named locks: `DB::withLock()`, `DB::getLock()` and `DB::releaseLock()`** - `withLock()` runs a function while holding a MySQL named lock, so two copies of the same job never run at the same time. When another connection holds the lock it returns `false` without calling the function. Lock names are specific to the database and `tablePrefix`, and a lock still held when the request ends is released then, on persistent connections too. `DB::disconnect()` throws while the connection holds one. See [Named Locks](docs/named-locks.md)
-- **`Table::foreignKeys()` reports `refDatabase`** - a foreign key can reference a table in another database
+- **Named locks keep two copies of a job from running at the same time** - `DB::withLock()` runs a function while holding a MySQL named lock, and returns `false` without calling it when another connection holds the lock. Lock names are specific to the database and `tablePrefix`, a lock still held when the request ends is released then, and `DB::disconnect()` throws while the connection holds one. See [Named Locks](docs/named-locks.md)
+
+  | Method                                       | Returns                                                                   |
+  |----------------------------------------------|---------------------------------------------------------------------------|
+  | `DB::withLock($name, $fn, $waitSeconds = 0)` | `true` when `$fn` ran, `false` when another connection holds the lock     |
+  | `DB::getLock($name, $waitSeconds = 0)`       | `true` when this connection now holds the lock, `false` when another does |
+  | `DB::releaseLock($name)`                     | `true` when released, `false` when this connection didn't hold it         |
 
 ### Fixed
 
-- **`Table::foreignKeysReferencing()` lists same-named keys separately** - it was keyed by name, so two keys with the same name were merged into one entry. MariaDB 12.1+ names keys `1`, `2`, `3` in every table
-- **`Table::foreignKeys()` gives every constraint name as a string** - on MariaDB 12.1+ the names `1`, `2`, `3` came back as int array keys
-- **Ints and floats stay native after a persistent connection is replaced** - with a `p:` hostname, once the server closed an idle connection (a restart, `wait_timeout`, a KILL), that PHP worker returned int and float columns as strings until it restarted. Connections that stayed open were not affected
-- **Connections are utf8mb4 on servers that override the charset at login** - with `skip-character-set-client-handshake` or a charset in `init_connect`, the connection stayed on the server's charset: non-ASCII text was stored and read wrong, and values were escaped for the wrong charset. On those servers the connection collation is now the server's default for utf8mb4
-- **Failed queries throw when other code has turned off mysqli error reporting** - after another library in the same request called `mysqli_report(MYSQLI_REPORT_OFF)` (WordPress does when it connects), a failed query returned an empty result, `0` or `-1`, and `transaction()` committed the statements that had worked. It now throws `mysqli_sql_exception` as usual, with `(mysqli_report() was turned off by other code)` added to the message
-- **`DB::count()` throws when a paging value leaves no count to return** - with `DB::pagingSql()` in the WHERE it returned `0` with a PHP warning from page 2 on (page 1 gave the right total). It now throws `InvalidArgumentException`: pass `count()` the WHERE without the paging value. A `GROUP BY` or `HAVING` that leaves no row returns `0` without the warning
-- **`DB::disconnect()` throws inside `DB::transaction()`** - closing the connection makes MySQL roll the transaction back, and queries the callback ran after reconnecting were committed on their own. In 1.0.0 `transaction()` then threw `Error: Attempt to assign property "inTransaction" on null`, and on a `new Connection()` it returned as if it had committed
+- **Failed queries throw when other code has turned off mysqli error reporting** - after another library in the same request called `mysqli_report(MYSQLI_REPORT_OFF)` (WordPress does when it connects), a failed query returned an empty result, `0` or `-1`, and `transaction()` committed the statements that had worked. It now throws `mysqli_sql_exception`, with `(mysqli_report() was turned off by other code)` added to the message
+- **Connections are utf8mb4 on servers that override the charset at login** - with `skip-character-set-client-handshake` or a charset in `init_connect`, 1.0.0 left the connection on the server's charset, and non-ASCII text was stored and read wrong
+- **Ints and floats stay native after a persistent connection is replaced** - with a `p:` hostname, once the server closed an idle connection (a restart, `wait_timeout`, a KILL), that PHP worker returned int and float columns as strings until it restarted
+- **`DB::count()` throws when a paging value leaves no count to return** - with a `DB::pagingSql()` value in the WHERE it returned `0` with a PHP warning from page 2 on. It now throws `InvalidArgumentException`; pass `count()` the WHERE without the paging value
+- **`DB::disconnect()` throws inside `DB::transaction()`** - closing the connection makes MySQL roll the transaction back, so `disconnect()` throws `RuntimeException` there. Disconnect after `transaction()` returns
 
 ### Changed
 
-- **Connect sends one `SET NAMES utf8mb4, time_zone, sql_mode` statement on every server** - MySQL and Percona 8.0+ sent two. A `queryLogger` sees the new statement text
-- **`Table::indexes()`, `Table::foreignKeys()` and `Table::foreignKeysReferencing()` return a plain list** - no longer keyed by name, so read `name` from each entry. `foreignKeysReferencing()` entries have a new `database` field. See [UPGRADING.md](UPGRADING.md)
-
-### Internal
-
-- **`connect()` no longer sets `MYSQLI_OPT_LOCAL_INFILE`** - the call ran before the connect, where it has no effect: PHP sets the option from `mysqli.allow_local_infile` when it connects. `LOAD DATA LOCAL INFILE` is controlled by that php.ini setting, as it was before, and PHP has it off by default
+- **`Table::indexes()`, `Table::foreignKeys()` and `Table::foreignKeysReferencing()` return a plain list** - no longer keyed by name, so read `name` from each entry. MariaDB 12.1+ names foreign keys `1`, `2`, `3` in every table, so the names came back as int keys and `foreignKeysReferencing()` merged keys that shared a name into one entry. New fields: `refDatabase` in `foreignKeys()` and `database` in `foreignKeysReferencing()`. See [UPGRADING.md](UPGRADING.md)
 
 ### Minor
 
-`Table::columnDefinitions()` and `Table::normalizeCreateTable()` keep `CHARACTER SET` on a column in a table whose collation was changed by hand. `Table::columnNames()` returns an all-digit column name such as `2024` as a string, not an int. `DB::queryOne()` and `DB::selectOne()` with a string WHERE take about 0.3 µs less PHP time per call.
+- Connect sends exactly one statement on every server, `SET NAMES utf8mb4` with `time_zone` and `sql_mode` in it. A `queryLogger` sees the new text
+- `DB::count()` returns `0` without a PHP warning when a `GROUP BY` or `HAVING` leaves no row
+- `Table::columnDefinitions()` and `Table::normalizeCreateTable()` keep `CHARACTER SET` on a column in a table whose collation was changed by hand
+- `Table::columnNames()` returns an all-digit column name such as `2024` as a string
+- `connect()` no longer sets `MYSQLI_OPT_LOCAL_INFILE`. The call had no effect: `mysqli.allow_local_infile` in php.ini controls `LOAD DATA LOCAL INFILE`, as before
+- Docs: [Encryption](docs/encryption.md#special-cases-ignoring-case-and-values-decrypted-twice-or-not-at-all) has a new section on `{{column}}` values that need converting to text
 
 ## [1.0.0] - 2026-10-16
-
-> **Bundled with CMS Builder v3.85**
 
 The headlines: ZenDB runs 3x faster in PHP (real pages, MySQL time included, run up to 40% faster), and 1.0 has complete online docs plus [ai-reference.md](docs/ai-reference.md), the whole API in one file for AI coding assistants. Everything else is fixes and stricter checks.
 

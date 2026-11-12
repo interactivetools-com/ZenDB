@@ -20,18 +20,18 @@ Full lists of what changed per release: [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
-## Unreleased
+## v1.1.0
 
-*Follow this section when upgrading from ZenDB v1.0.0.*
+*Follow this section when upgrading from ZenDB before v1.1.0
+(or CMS Builder before 4.0.0).*
 
 ### Return value changes
 
 > - `Table::indexes()`, `Table::foreignKeys()` and
 >   `Table::foreignKeysReferencing()` return a plain list, no longer keyed
 >   by index or constraint name. Loops that only read each entry's fields
->   keep working. Code that reads the key (`as $name => $fk`,
->   `array_keys()`, `array_key_first()`) now gets a list position, so read
->   the name from each entry:
+>   keep working. Code that reads the key, or looks an entry up by name,
+>   reads `name` from each entry:
 >
 >   ```php
 >   foreach (Table::foreignKeys('articles') as $name => $fk) { ... }   // before
@@ -39,33 +39,41 @@ Full lists of what changed per release: [CHANGELOG.md](CHANGELOG.md).
 >   foreach (Table::foreignKeys('articles') as $fk) {                  // after
 >       $name = $fk['name'];
 >   }
->   ```
 >
->   Code that reads one entry by name needs to search the list:
->
->   ```php
->   $fk = Table::foreignKeysReferencing('accounts')['fk_author'];   // before
->
->   foreach (Table::foreignKeysReferencing('accounts') as $fk) {    // after
->       if ($fk['name'] === 'fk_author' && $fk['fullTable'] === 'cms_articles') { ... }
->   }
->   ```
->
->   Index names are unique per table, so `array_column()` gives the lookup
->   back:
->
->   ```php
 >   $cols = Table::indexes('articles')['idx_title']['cols'];                         // before
 >
 >   $cols = array_column(Table::indexes('articles'), 'cols', 'name')['idx_title'];   // after
 >   ```
 >
+>   Foreign key names can repeat across tables, so a lookup in
+>   `foreignKeysReferencing()` matches `fullTable` as well as `name`.
+>
 >   Search: `indexes(`, `foreignKeys(` and `foreignKeysReferencing(`
+
+### New errors
+
+> - `DB::count()` throws "This method doesn't support LIMIT or OFFSET" for
+>   a `DB::pagingSql()` value from page 2 on, where it returned `0` with a
+>   PHP warning. Code that shares one WHERE between `select()` and
+>   `count()` passes `count()` the WHERE without the paging value:
+>
+>   ```php
+>   DB::count('users', "status = ? ?", 'Active', DB::pagingSql(2, 5));   // throws
+>   DB::count('users', "status = ?", 'Active');                          // correct
+>   ```
+>
+>   Search: `count(` calls whose values include `pagingSql(`
+>
+> - A failed query throws `mysqli_sql_exception` when other code in the
+>   request has called `mysqli_report(MYSQLI_REPORT_OFF)` (WordPress does
+>   when it connects). It used to return an empty result, `0` or `-1`, so
+>   a page that loads WordPress can show errors that were hidden before.
+>   The message ends with `(mysqli_report() was turned off by other code)`.
 
 ## v1.0.0
 
 *Follow this section when upgrading from ZenDB before v1.0.0
-(or CMS Builder before 3.85).*
+(or CMS Builder before 4.0.0).*
 
 ### Config changes
 
