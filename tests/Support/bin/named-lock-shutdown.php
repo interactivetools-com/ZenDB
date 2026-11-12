@@ -15,8 +15,8 @@ declare(strict_types=1);
  *
  *     php named-lock-shutdown.php <scenario> <hostname> <username> <password> <database>
  *
- * Scenarios: exit, out-of-memory, no-release, taken-three-times, released, two-connections,
- * connection-gone, connection-gone-release.
+ * Scenarios: exit, fatal-error, out-of-memory, no-release, taken-three-times, released,
+ * two-connections, connection-gone, connection-gone-release.
  * <hostname> can start with p: for a pooled connection.
  */
 
@@ -81,6 +81,10 @@ match ($scenario) {
     'exit' => DB::withLock($name, static function () use ($report): void {
         register_shutdown_function($report);
         exit;
+    }),
+    'fatal-error' => DB::withLock($name, static function () use ($report): void {
+        register_shutdown_function($report);
+        eval('function declared_twice() {} function declared_twice() {}'); // "Cannot redeclare" is a fatal error, not an exception: withLock()'s finally doesn't run
     }),
     'out-of-memory' => DB::withLock($name, static function () use ($report): void {
         register_shutdown_function($report);

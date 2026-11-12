@@ -742,8 +742,14 @@ class NamedLockTest extends BaseTestCase
     #[DataProvider('shutdownReleaseProvider')]
     public function testHeldLocksAreReleasedWhenTheScriptEnds(string $scenario, string $hostnamePrefix, bool $heldInShutdownFunction, int $releaseQueries, int $releaseCalls): void
     {
-        [$stdout, $stderr,] = $this->runShutdownChild($scenario, $hostnamePrefix);
-        $reports            = array_values(array_filter(array_map(
+        [$stdout, $stderr, $exitCode] = $this->runShutdownChild($scenario, $hostnamePrefix);
+
+        // PHP 8.1 builds patched for CVE-2026-109618 call _exit(1) on a memory-limit error, so no shutdown function runs
+        if (PHP_VERSION_ID < 80200 && $scenario === 'out-of-memory' && $exitCode === 1) {
+            $this->markTestSkipped('This PHP 8.1 build ends the process on a memory-limit error and runs no shutdown functions (the CVE-2026-109618 patch)');
+        }
+
+        $reports = array_values(array_filter(array_map(
             static fn(string $line): ?array => json_decode($line, true),  // null for the fatal error's own lines
             explode("\n", $stdout),
         )));
@@ -763,6 +769,8 @@ class NamedLockTest extends BaseTestCase
         return [
             'exit inside withLock()'                  => ['exit', '', true, 1, 1],
             'exit inside withLock(), pooled'          => ['exit', 'p:', true, 1, 1],
+            'fatal error inside withLock()'           => ['fatal-error', '', true, 1, 1],
+            'fatal error inside withLock(), pooled'   => ['fatal-error', 'p:', true, 1, 1],
             'out of memory inside withLock()'         => ['out-of-memory', '', true, 1, 1],
             'out of memory inside withLock(), pooled' => ['out-of-memory', 'p:', true, 1, 1],
             'getLock() with no release'               => ['no-release', '', true, 1, 1],
