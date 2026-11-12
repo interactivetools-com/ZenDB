@@ -827,7 +827,7 @@ template by hand are not; the guard has no schema to check them against.
 | "This method doesn't support FOR UPDATE" (also FOR SHARE, LOCK IN SHARE MODE)           | Use `query(...)->first()`; queryOne()'s LIMIT 1 must come before locking clauses |
 | "This method appends LIMIT 1 automatically"                                             | Remove the trailing `--`/`#` comment or `;`, or use `query(...)->first()`        |
 | "Invalid table name `...`, allowed characters: a-z, A-Z, 0-9, _, -" (also column name)  | Only `a-z, A-Z, 0-9, _, -` allowed                                               |
-| "can't disconnect until releaseLock() is called for lock"                               | Call `releaseLock()` first, or reconnect after `withLock()` returns              |
+| "cannot disconnect until releaseLock() is called for lock"                              | Call `releaseLock()` first, or reconnect after `withLock()` returns              |
 | "can't disconnect inside transaction()"                                                 | Disconnect after `transaction()` returns                                         |
 
 ## Gotchas

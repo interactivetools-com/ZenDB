@@ -330,7 +330,7 @@ class Connection
         if ($this->mysqli?->heldLocks) {
             $h    = DB::h(...); // SECURITY: lock names come from the caller, encode before they can reach page output
             $name = $this->mysqli->heldLocks[array_key_first($this->mysqli->heldLocks)]['name'];
-            throw new RuntimeException("disconnect(): can't disconnect until releaseLock() is called for lock `{$h($name)}`, a new connection wouldn't hold it. Call it on the `Connection` that took the lock.");
+            throw new RuntimeException("disconnect(): cannot disconnect until releaseLock() is called for lock `{$h($name)}`, a new connection wouldn't hold it. Call it on the `Connection` that took the lock.");
         }
 
         if ($this->mysqli !== null) {

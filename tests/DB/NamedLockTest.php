@@ -587,7 +587,7 @@ class NamedLockTest extends BaseTestCase
             $db->disconnect();
             $this->fail("disconnect() should have thrown");
         } catch (RuntimeException $e) {
-            $this->assertSame("disconnect(): can't disconnect until releaseLock() is called for lock `disconnect_held`, a new connection wouldn't hold it. Call it on the `Connection` that took the lock.", $e->getMessage());
+            $this->assertSame("disconnect(): cannot disconnect until releaseLock() is called for lock `disconnect_held`, a new connection wouldn't hold it. Call it on the `Connection` that took the lock.", $e->getMessage());
         }
         $this->assertTrue($db->isConnected(true), "The connection must still run queries");
         $this->assertSame($db->mysqli->thread_id, self::holderOf(self::serverName('disconnect_held')), "The lock must still be held");
@@ -607,7 +607,7 @@ class NamedLockTest extends BaseTestCase
             $db->disconnect();
             $this->fail("disconnect() should have thrown");
         } catch (RuntimeException $e) {
-            $this->assertSame("disconnect(): can't disconnect until releaseLock() is called for lock `clone_held`, a new connection wouldn't hold it. Call it on the `Connection` that took the lock.", $e->getMessage());
+            $this->assertSame("disconnect(): cannot disconnect until releaseLock() is called for lock `clone_held`, a new connection wouldn't hold it. Call it on the `Connection` that took the lock.", $e->getMessage());
         }
         $this->assertFalse($db->releaseLock('clone_held'), "The original asks for the name with its own tablePrefix, so only the clone can release it");
 
