@@ -2036,7 +2036,7 @@ class DocsExamplesTest extends BaseTestCase
         $db->insert('secrets', ['name' => 'Bob', 'apiToken' => 'Other-TOKEN']);
         $db->insert('secrets', ['name' => 'Carol', 'apiToken' => null]);
 
-        // in a SELECT list with DISTINCT: decrypted once, so no "can't decrypt" warning
+        // in a SELECT list with DISTINCT: decrypted once, so no "cannot decrypt" warning
         [$rows, $warnings] = $this->captureErrors(
             fn() => $db->query("SELECT DISTINCT CONVERT({{apiToken}} USING utf8mb4) AS apiToken FROM ::secrets WHERE {{apiToken}} IS NOT NULL ORDER BY apiToken"),
             E_USER_WARNING
@@ -2109,7 +2109,7 @@ class DocsExamplesTest extends BaseTestCase
 
         $this->assertCount(1, $warnings);
         $this->assertSame(
-            "ZenDB: can't decrypt MEDIUMBLOB column `apiToken`, returning raw bytes. Wrong encryptionKey, or the column holds unencrypted data.",
+            "ZenDB: cannot decrypt MEDIUMBLOB column `apiToken`, returning raw bytes. Wrong encryptionKey, or the column holds unencrypted data.",
             $warnings[0]
         );
         $this->assertSame('raw-bytes', $rows->first()->apiToken->value());

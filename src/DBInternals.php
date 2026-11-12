@@ -158,7 +158,7 @@ trait DBInternals
     {
         return is_finite($value)
             ? var_export($value, true) // exact: php.ini serialize_precision, -1 (shortest round-trip) by default since PHP 7.1
-            : throw new InvalidArgumentException("NAN and INF have no SQL literal, can't escape $context");
+            : throw new InvalidArgumentException("NAN and INF have no SQL literal, cannot escape $context");
     }
 
     /**

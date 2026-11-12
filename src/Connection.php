@@ -1185,14 +1185,14 @@ class Connection
                 } elseif (!$this->decryptWarned) {
                     $this->decryptWarned = true;
                     $h                   = DB::h(...); // SECURITY: column names come from query results (aliases included), encode before they can reach page output
-                    trigger_error("ZenDB: can't decrypt MEDIUMBLOB column `{$h($key)}`, returning raw bytes. Wrong encryptionKey, or the column holds unencrypted data.", E_USER_WARNING);
+                    trigger_error("ZenDB: cannot decrypt MEDIUMBLOB column `{$h($key)}`, returning raw bytes. Wrong encryptionKey, or the column holds unencrypted data.", E_USER_WARNING);
                 }
             }
         }
         unset($row);
     }
 
-    /** @var bool One "can't decrypt" warning, not one per row */
+    /** @var bool One "cannot decrypt" warning, not one per row */
     private bool $decryptWarned = false;
 
     /**
@@ -1254,7 +1254,7 @@ class Connection
             }
             if (is_bool($value)) {
                 $h = DB::h(...); // SECURITY: column names come from the caller, encode before they can reach page output
-                throw new InvalidArgumentException("Can't store boolean in encrypted column `{$h((string)$col)}`:booleans aren't auto-encrypted. Pass a string or number instead.");
+                throw new InvalidArgumentException("Cannot store boolean in encrypted column `{$h((string)$col)}`:booleans aren't auto-encrypted. Pass a string or number instead.");
             }
             if (!is_string($value) && !is_int($value) && !is_float($value)) {
                 continue; // skip null (nothing to encrypt) and RawSql (deliberate raw SQL); arrays throw in buildSetClause

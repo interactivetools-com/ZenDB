@@ -202,7 +202,7 @@ The same conversion covers three cases:
   `CONVERT({{apiToken}} USING utf8mb4) LIKE ?` it matches, as it would on a
   regular text column.
 - **A value is decrypted twice.** A query with `{{column}}` in the SELECT
-  list raises the "can't decrypt" warning, although the stored data is
+  list raises the "cannot decrypt" warning, although the stored data is
   fine. Convert it as shown above.
 - **A value isn't decrypted at all.** A column inside a function or a
   UNION ALL comes back still encrypted. Some servers (MariaDB among them)
@@ -238,7 +238,7 @@ that was never encrypted) passes through as its raw bytes, and the first
 failure triggers an `E_USER_WARNING`:
 
 ```
-ZenDB: can't decrypt MEDIUMBLOB column `apiToken`, returning raw bytes. Wrong encryptionKey, or the column holds unencrypted data.
+ZenDB: cannot decrypt MEDIUMBLOB column `apiToken`, returning raw bytes. Wrong encryptionKey, or the column holds unencrypted data.
 ```
 
 One warning, not one per row, so a table of pre-encryption data doesn't flood

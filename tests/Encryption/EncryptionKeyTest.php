@@ -297,7 +297,7 @@ class EncryptionKeyTest extends BaseTestCase
         }, E_USER_WARNING);
 
         $this->assertSame($binaryData, $rows[0]['data'], 'Non-encrypted binary data should be left untouched');
-        $this->assertStringContainsString("can't decrypt", $warnings[0] ?? '', 'Failed decrypt should trigger the warning');
+        $this->assertStringContainsString("cannot decrypt", $warnings[0] ?? '', 'Failed decrypt should trigger the warning');
     }
 
     public function testDecryptRowsSkipsNullValues(): void

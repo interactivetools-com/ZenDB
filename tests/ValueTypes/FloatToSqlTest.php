@@ -38,21 +38,21 @@ class FloatToSqlTest extends TestCase
     public function testNanThrowsWithContext(): void
     {
         $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage("can't escape backup value");
+        $this->expectExceptionMessage("cannot escape backup value");
         DB::floatToSql(NAN, 'backup value');
     }
 
     public function testInfThrowsWithContext(): void
     {
         $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage("can't escape backup value");
+        $this->expectExceptionMessage("cannot escape backup value");
         DB::floatToSql(INF, 'backup value');
     }
 
     public function testNegativeInfThrowsWithDefaultContext(): void
     {
         $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage("can't escape value");
+        $this->expectExceptionMessage("cannot escape value");
         DB::floatToSql(-INF);
     }
 }
