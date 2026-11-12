@@ -13,7 +13,7 @@ use mysqli_sql_exception;
 use WeakMap;
 
 // import built-ins so calls resolve at compile time instead of per-call lookups; NamespacedCallsTest keeps this list exact
-use function array_change_key_case, array_diff, array_diff_key, array_key_first, array_keys, count, defined, hash, implode, in_array, is_bool, is_float, is_int, is_null, is_object, is_string, md5, mysqli_report, openssl_decrypt, openssl_encrypt, preg_match, reset, rtrim, str_ends_with, str_replace, str_starts_with, strlen, strtolower, strtr, substr, trigger_error, version_compare;
+use function array_change_key_case, array_diff, array_diff_key, array_key_first, array_keys, count, defined, hash, implode, in_array, is_bool, is_float, is_int, is_null, is_object, is_string, md5, mysqli_report, openssl_decrypt, openssl_encrypt, preg_match, reset, rtrim, str_contains, str_replace, str_starts_with, strlen, strtolower, strtr, substr, trigger_error, version_compare;
 use const E_USER_WARNING, MYSQLI_CLIENT_SSL, MYSQLI_OPT_CONNECT_TIMEOUT, MYSQLI_OPT_INT_AND_FLOAT_NATIVE, MYSQLI_OPT_READ_TIMEOUT, MYSQLI_REPORT_ERROR, MYSQLI_REPORT_STRICT, MYSQLI_SET_CHARSET_NAME, OPENSSL_RAW_DATA;
 
 /**
@@ -787,7 +787,7 @@ class Connection
      * @param string $name        Lock name, e.g. 'import' or __FUNCTION__
      * @param int    $waitSeconds How long to wait when another connection holds the lock (default 0, don't wait)
      * @return bool True when this connection now holds the lock, false when another connection holds it
-     * @throws InvalidArgumentException For an empty $name or one ending in "{closure}", a negative $waitSeconds, or a wait of `readTimeout` or longer
+     * @throws InvalidArgumentException For an empty $name or a closure's name, a negative $waitSeconds, or a wait of `readTimeout` or longer
      * @throws RuntimeException When the server can't take the lock
      */
     public function getLock(string $name, int $waitSeconds = 0): bool
@@ -827,7 +827,7 @@ class Connection
      *
      * @param string $name The name passed to getLock()
      * @return bool True when the lock was released, false when this connection didn't hold it or is gone
-     * @throws InvalidArgumentException For an empty $name or one ending in "{closure}"
+     * @throws InvalidArgumentException For an empty $name or a closure's name
      * @throws mysqli_sql_exception When the release fails on an open connection, e.g. "Commands out of sync" while a result is still unread; the lock stays held
      */
     public function releaseLock(string $name): bool
@@ -887,7 +887,7 @@ class Connection
      * @param callable $fn          The work to run while holding the lock; its return value is dropped
      * @param int      $waitSeconds How long to wait when another connection holds the lock (default 0, don't wait)
      * @return bool True when $fn ran, false when another connection holds the lock and $fn was not called
-     * @throws InvalidArgumentException For an empty $name or one ending in "{closure}", a negative $waitSeconds, or a wait of `readTimeout` or longer
+     * @throws InvalidArgumentException For an empty $name or a closure's name, a negative $waitSeconds, or a wait of `readTimeout` or longer
      * @throws RuntimeException When the server can't take the lock, or the lock was no longer held after $fn returned
      * @throws mysqli_sql_exception When the lock can't be released on an open connection, as for releaseLock()
      * @throws Throwable Re-throws any exception from $fn after releasing the lock
@@ -923,21 +923,23 @@ class Connection
      *
      *     interactivetools_production_cms.cms_.nlb_mailer_queueScheduledMessages  →  interactivetools_production_cms.cms_.nlb_mailer~e370ad136b1587b0
      *
-     * A name ending in "{closure}" is refused: PHP 8.3 and older return it from __FUNCTION__
-     * for every closure, so unrelated code would share one lock. From PHP 8.4 a closure's
-     * name has its function and line in it ("{closure:sendQueuedEmails():6}"), and that is
-     * accepted.
+     * A name with "{closure" in it is refused. That is what __FUNCTION__ and __METHOD__ return
+     * inside a closure or arrow function:
      *
-     * @throws InvalidArgumentException For an empty $name or one ending in "{closure}"
+     *     {closure}                        // PHP 8.3 and older; the same for every closure, so unrelated code would share one lock
+     *     {closure:sendQueuedEmails():6}   // PHP 8.4+; the line number changes when a line is added above the closure
+     *     {closure:/var/www/cron.php:3}    // PHP 8.4+ outside a function; the path is different on each web server
+     *
+     * @throws InvalidArgumentException For an empty $name or a closure's name
      */
     private function lockName(string $name): string
     {
         if ($name === '') {
             throw new InvalidArgumentException("Lock name can't be empty");
         }
-        if (str_ends_with($name, '{closure}')) {
+        if (str_contains($name, '{closure')) {
             $h = DB::h(...); // SECURITY: lock names come from the caller, encode before they can reach page output
-            throw new InvalidArgumentException("Lock name `{$h($name)}` isn't unique: __FUNCTION__ returns it for every closure. Use __FUNCTION__ in a named function, or pass a name of your own.");
+            throw new InvalidArgumentException("Lock name `{$h($name)}`: closure names aren't supported, pass a name of your own.");
         }
 
         // TODO-PHP82: use strtolower(); before 8.2 it follows setlocale(), so two PHP processes could send different names for one lock

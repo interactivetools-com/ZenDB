@@ -422,10 +422,12 @@ Why each rule is the way it is:
   5-second wait on a held name ended with error 2006 after 2 seconds, and the
   connection was unusable afterwards. A `readTimeout` of 0 or less sets no
   limit.
-- **A name ending in `{closure}` throws** - PHP 8.3 and older return it from
-  `__FUNCTION__` for every closure, so unrelated code would share one lock.
-  The PHP 8.4 form (`{closure:sendQueuedEmails():6}`) is accepted, because it
-  is different for each closure.
+- **A name with `{closure` in it throws** - PHP 8.3 and older return
+  `{closure}` from `__FUNCTION__` for every closure, so unrelated code would
+  share one lock. The PHP 8.4 form (`{closure:sendQueuedEmails():6}`) has a
+  line number in it, which changes when a line is added above the closure,
+  and outside a function it has the file's full path, which is different on
+  each web server. Refusing both gives the same result on every PHP version.
 - **`disconnect()` throws while a lock is held** - every reconnect starts
   with `disconnect()`, and the new connection wouldn't hold the lock, so the
   rest of the job would run without it.

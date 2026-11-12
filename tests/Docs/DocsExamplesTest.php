@@ -2220,12 +2220,12 @@ class DocsExamplesTest extends BaseTestCase
         $this->assertSame('phpunit_test_db.test_.testnamedlocksfunctionnameaslockname', $lockNameInside);
     }
 
-    public function testNamedLocksNameEndingInClosureThrows(): void
+    public function testNamedLocksFunctionNameInsideAClosureThrows(): void
     {
         $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage("Lock name `{closure}` isn't unique: __FUNCTION__ returns it for every closure. Use __FUNCTION__ in a named function, or pass a name of your own.");
+        $this->expectExceptionMessage("closure names aren't supported, pass a name of your own."); // the name in front is different on each PHP version
 
-        DB::withLock('{closure}', fn() => null);
+        (fn() => DB::withLock(__FUNCTION__, fn() => null))();
     }
 
     public function testNamedLocksDisconnectThrowsWhileHoldingALock(): void

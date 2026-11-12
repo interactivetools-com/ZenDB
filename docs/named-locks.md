@@ -81,9 +81,9 @@ In a method, use `__METHOD__`, which has the class name in it; `__FUNCTION__`
 is the method name alone there, so two classes with a `run()` method would
 share one lock.
 
-Code that runs inside a closure needs a name of its own. PHP 8.3 and older
-return `{closure}` from `__FUNCTION__` for every closure, which isn't unique,
-so ZenDB throws for a name that ends in `{closure}`.
+Code that runs inside a closure or arrow function needs a name of its own.
+`__FUNCTION__` and `__METHOD__` return a closure name there (`{closure}`, or
+`{closure:job():5}` from PHP 8.4), and ZenDB throws for it.
 
 ## When the Connection Ends
 

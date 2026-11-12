@@ -694,10 +694,9 @@ if (DB::getLock('import_products')) {       // true = this connection now holds 
   of its md5.
 - **`__FUNCTION__` as the name:** works in a named function. In a method use
   `__METHOD__`: `__FUNCTION__` has no class name there, so two classes with the
-  same method name would share a lock. A name ending in `{closure}` throws
-  `InvalidArgumentException`: PHP 8.3 and older return it from `__FUNCTION__`
-  for every closure, so pass a name of your own in code that runs inside one.
-  From PHP 8.4 a closure's name is `{closure:name():line}`, which is accepted.
+  same method name would share a lock. Inside a closure or arrow function both
+  return a closure name (`{closure}`, or `{closure:name():line}` from PHP 8.4),
+  which throws `InvalidArgumentException`, so pass a name of your own there.
 - **`$waitSeconds`:** 0 (the default) doesn't wait. Negative throws
   `InvalidArgumentException`, and so does a wait of `readTimeout` (default 60)
   or longer, because the connection would time out first.

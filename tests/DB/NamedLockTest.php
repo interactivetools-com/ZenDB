@@ -209,7 +209,7 @@ class NamedLockTest extends BaseTestCase
         $negativeWait = "\$waitSeconds can't be negative, got -1";
         $waitTooLong  = "Can't wait 60 seconds for a lock: `readTimeout` is 60 seconds and ends the connection first. Wait less, or raise `readTimeout` when connecting.";
 
-        $closureName  = "Lock name `%s` isn't unique: __FUNCTION__ returns it for every closure. Use __FUNCTION__ in a named function, or pass a name of your own.";
+        $closureName  = "Lock name `%s`: closure names aren't supported, pass a name of your own.";
 
         return [
             'getLock(): empty name'                   => [static fn() => DB::getLock(''), $emptyName],
@@ -219,20 +219,14 @@ class NamedLockTest extends BaseTestCase
             'releaseLock(): closure name'             => [static fn() => DB::releaseLock('{closure}'), sprintf($closureName, '{closure}')],
             'withLock(): closure name in a namespace' => [static fn() => DB::withLock('Acme\Jobs\{closure}', $mustNotRun), sprintf($closureName, 'Acme\Jobs\{closure}')],
             'getLock(): closure name with HTML'       => [static fn() => DB::getLock('<b>{closure}'), sprintf($closureName, '&lt;b&gt;{closure}')],
+            'getLock(): closure in a function, 8.4+'  => [static fn() => DB::getLock('{closure:Acme\Jobs\sendQueuedEmails():6}'), sprintf($closureName, '{closure:Acme\Jobs\sendQueuedEmails():6}')],
+            'withLock(): closure in a method, 8.4+'   => [static fn() => DB::withLock('{closure:Acme\Jobs\Mailer::run():12}', $mustNotRun), sprintf($closureName, '{closure:Acme\Jobs\Mailer::run():12}')],
+            'releaseLock(): closure in a file, 8.4+'  => [static fn() => DB::releaseLock('{closure:/var/www/cron.php:3}'), sprintf($closureName, '{closure:/var/www/cron.php:3}')],
             'getLock(): negative wait'                => [static fn() => DB::getLock('invalid_args', -1), $negativeWait],
             'withLock(): negative wait'               => [static fn() => DB::withLock('invalid_args', $mustNotRun, -1), $negativeWait],
             'getLock(): wait as long as readTimeout'  => [static fn() => DB::getLock('invalid_args', 60), $waitTooLong],
             'withLock(): wait as long as readTimeout' => [static fn() => DB::withLock('invalid_args', $mustNotRun, 60), $waitTooLong],
         ];
-    }
-
-    public function testClosureNameWithFunctionAndLineIsAllowed(): void
-    {
-        $name = '{closure:Acme\Jobs\sendQueuedEmails():6}'; // what __FUNCTION__ returns inside a closure from PHP 8.4
-
-        $this->assertTrue(DB::getLock($name));
-        $this->assertSame(DB::$mysqli->thread_id, self::holderOf(self::serverName($name)));
-        $this->assertTrue(DB::releaseLock($name));
     }
 
     public function testWaitOneSecondShorterThanReadTimeoutIsAllowed(): void
