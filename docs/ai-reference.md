@@ -829,6 +829,7 @@ template by hand are not; the guard has no schema to check them against.
 | "This method appends LIMIT 1 automatically"                                             | Remove the trailing `--`/`#` comment or `;`, or use `query(...)->first()`        |
 | "Invalid table name `...`, allowed characters: a-z, A-Z, 0-9, _, -" (also column name)  | Only `a-z, A-Z, 0-9, _, -` allowed                                               |
 | "can't disconnect while holding lock"                                                   | Call `releaseLock()` first, or reconnect after `withLock()` returns              |
+| "can't disconnect inside transaction()"                                                 | Disconnect after `transaction()` returns                                         |
 
 ## Gotchas
 

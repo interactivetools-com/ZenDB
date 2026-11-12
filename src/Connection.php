@@ -318,10 +318,15 @@ class Connection
     /**
      * Disconnect from the database.
      *
+     * @throws RuntimeException Inside transaction(), because MySQL would roll the transaction back
      * @throws RuntimeException While this connection holds a lock from getLock(), because a new connection wouldn't hold it
      */
     public function disconnect(): void
     {
+        if ($this->mysqli?->inTransaction) {
+            throw new RuntimeException("disconnect(): can't disconnect inside transaction(), MySQL would roll the transaction back. Disconnect after transaction() returns.");
+        }
+
         if ($this->mysqli?->heldLocks) {
             $h    = DB::h(...); // SECURITY: lock names come from the caller, encode before they can reach page output
             $name = $this->mysqli->heldLocks[array_key_first($this->mysqli->heldLocks)]['name'];
@@ -729,27 +734,26 @@ class Connection
      */
     public function transaction(callable $fn): mixed
     {
-        $transactionMysqli = $this->mysqli; // $fn can disconnect or reconnect, which replaces $this->mysqli
-        if ($transactionMysqli->inTransaction) {
+        if ($this->mysqli->inTransaction) {
             throw new RuntimeException("transaction() cannot be nested - already in a transaction");
         }
 
-        $transactionMysqli->query("START TRANSACTION");
-        $transactionMysqli->inTransaction = true;
+        $this->mysqli->query("START TRANSACTION");
+        $this->mysqli->inTransaction = true;
         try {
             $result = $fn();
-            $transactionMysqli->query("COMMIT");
+            $this->mysqli->query("COMMIT");
             return $result;
         } catch (Throwable $e) {
             try {
-                $transactionMysqli->query("ROLLBACK");
+                $this->mysqli->query("ROLLBACK");
             } catch (Throwable) {
                 // ROLLBACK only fails when the connection is gone, and MySQL rolls back
                 // an open transaction on disconnect; the closure's exception is the real cause
             }
             throw $e;
         } finally {
-            $transactionMysqli->inTransaction = false;
+            $this->mysqli->inTransaction = false;
         }
     }
 

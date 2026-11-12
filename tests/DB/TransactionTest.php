@@ -169,59 +169,89 @@ class TransactionTest extends BaseTestCase
         $this->assertSame('recovered', $result);
     }
 
-    /**
-     * @dataProvider closeTheConnectionProvider
-     */
-    public function testClosureExceptionReachesCallerWhenClosureClosesTheConnection(callable $closeTheConnection): void
+    private const DISCONNECT_MESSAGE = "disconnect(): can't disconnect inside transaction(), MySQL would roll the transaction back. Disconnect after transaction() returns.";
+    private const TEST_USER          = ['name' => 'Inside Transaction', 'isAdmin' => 0, 'status' => 'Active', 'city' => 'TestCity', 'dob' => '2000-01-01', 'age' => 24];
+
+    public function testDisconnectThrowsInsideTransaction(): void
     {
+        self::requiresLiveMysql();
+        self::resetTestTables();
+
         try {
-            DB::transaction(function () use ($closeTheConnection) {
-                $closeTheConnection();
-                throw new RuntimeException("original failure");
+            DB::transaction(function () {
+                DB::insert('users', self::TEST_USER);
+                try {
+                    DB::disconnect();
+                    $this->fail("DB::disconnect() should have thrown inside transaction()");
+                } catch (RuntimeException $e) {
+                    $this->assertSame(self::DISCONNECT_MESSAGE, $e->getMessage());
+                }
+                throw new RuntimeException("roll back");
             });
             $this->fail("transaction() should have thrown");
-        } catch (Throwable $e) {
-            $this->assertSame(
-                [RuntimeException::class, "original failure"],
-                [get_class($e), $e->getMessage()],
-                "The closure's exception should reach the caller",
-            );
-        } finally {
-            DB::disconnect();
-            DB::connect(self::$configDefaults);
-            self::resetTestTables();
+        } catch (RuntimeException $e) {
+            $this->assertSame("roll back", $e->getMessage());
         }
+
+        $this->assertTrue(DB::isConnected(true), "The connection is still open");
+        $this->assertSame(0, DB::count('users', ['name' => 'Inside Transaction']), "The transaction was still open, so the insert rolled back");
     }
 
-    public static function closeTheConnectionProvider(): array
+    /**
+     * @dataProvider connectionThatDisconnectsProvider
+     */
+    public function testDisconnectThrowsInsideTransactionOnAConnectionObject(callable $connectionThatDisconnects): void
+    {
+        self::requiresLiveMysql();
+        $db          = new Connection(self::$configDefaults);
+        $disconnects = $connectionThatDisconnects($db);
+
+        // a regular table: the second connection can't see the default connection's temporary tables
+        $db->mysqli->query("CREATE TABLE IF NOT EXISTS test_tx_rollback (num INT PRIMARY KEY AUTO_INCREMENT, name VARCHAR(255)) ENGINE=InnoDB");
+        $db->mysqli->query("TRUNCATE TABLE test_tx_rollback");
+
+        try {
+            $db->transaction(function () use ($db, $disconnects) {
+                $db->insert('tx_rollback', ['name' => 'Inside Transaction']);
+                try {
+                    $disconnects->disconnect();
+                    $this->fail("disconnect() should have thrown inside transaction()");
+                } catch (RuntimeException $e) {
+                    $this->assertSame(self::DISCONNECT_MESSAGE, $e->getMessage());
+                }
+                throw new RuntimeException("roll back");
+            });
+            $this->fail("transaction() should have thrown");
+        } catch (RuntimeException $e) {
+            $this->assertSame("roll back", $e->getMessage());
+        }
+
+        $this->assertTrue($db->isConnected(true), "The connection is still open");
+        $this->assertSame(0, $db->count('tx_rollback', ['name' => 'Inside Transaction']), "The transaction was still open, so the insert rolled back");
+        $db->disconnect(); // allowed again once transaction() has returned
+    }
+
+    public static function connectionThatDisconnectsProvider(): array
     {
         return [
-            'disconnects' => [
-                function () {
-                    DB::disconnect();
-                },
-            ],
-            'disconnects and reconnects' => [
-                function () {
-                    DB::disconnect();
-                    DB::connect(self::$configDefaults);
-                },
-            ],
+            'new Connection' => [fn(Connection $db): Connection => $db],
+            'a clone'        => [fn(Connection $db): Connection => $db->clone()], // clones share the mysqli object
         ];
     }
 
     /**
      * MySQL rolls back the open transaction when its connection closes, so there is nothing
      * left to commit and transaction() must not return as if it had.
-     *
-     * @dataProvider reconnectThenReturnProvider
      */
-    public function testThrowsWhenClosureReconnectsThenReturns(callable $runTransaction): void
+    public function testThrowsAtCommitWhenClosureClosesMysqliDirectly(): void
     {
         self::requiresLiveMysql();
 
         try {
-            $runTransaction();
+            DB::transaction(function () {
+                DB::$mysqli->close();
+                return 'ok';
+            });
             $this->fail("transaction() should have thrown, the connection it started on is closed");
         } catch (Error $e) {
             $this->assertStringContainsString("already closed", $e->getMessage());
@@ -230,30 +260,5 @@ class TransactionTest extends BaseTestCase
             DB::connect(self::$configDefaults);
             self::resetTestTables();
         }
-    }
-
-    public static function reconnectThenReturnProvider(): array
-    {
-        return [
-            'DB::' => [
-                function () {
-                    return DB::transaction(function () {
-                        DB::disconnect();
-                        DB::connect(self::$configDefaults);
-                        return 'ok';
-                    });
-                },
-            ],
-            'new Connection' => [
-                function () {
-                    $db = new Connection(self::$configDefaults);
-                    return $db->transaction(function () use ($db) {
-                        $db->disconnect();
-                        $db->connect();
-                        return 'ok';
-                    });
-                },
-            ],
-        ];
     }
 }
