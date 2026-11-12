@@ -591,7 +591,7 @@ DB::connect([
 ```
 
 `sqlMode` replaces the server's own `sql_mode` for the session; with `''`,
-no SET runs and the server's global `sql_mode` applies. Connecting throws if
+`sql_mode` isn't set and the server's global `sql_mode` applies. Connecting throws if
 the session ends up with `NO_BACKSLASH_ESCAPES`, because ZenDB escapes values
 with backslashes.
 
@@ -714,9 +714,10 @@ if (DB::getLock('import_products')) {       // true = this connection now holds 
 - **End of request:** locks still held are released at shutdown, after
   `exit`, `die()` and fatal errors too, and on persistent (`p:`) connections.
   Three cases on a `p:` connection keep the lock until that PHP worker's next
-  request: a fatal error in the job (e.g. out of memory) when one of the
-  application's shutdown functions calls `exit`, out of memory while a query
-  result is being read, and a query that ran past `readTimeout`.
+  request, or until the server closes the idle connection after `wait_timeout`:
+  a fatal error in the job (e.g. out of memory) when one of the application's
+  shutdown functions calls `exit`, out of memory while a query result is being
+  read, and a query that ran past `readTimeout`.
 - **One server:** the lock exists on one MySQL server. It works when every
   connection that asks for it goes to the same server.
 

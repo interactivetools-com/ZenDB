@@ -326,7 +326,8 @@ locks, and named locks taken with `GET_LOCK()` in your own SQL, clear the
 same way, at next reuse. A lock taken with
 [`DB::withLock()` or `DB::getLock()`](named-locks.md#when-the-connection-ends)
 doesn't wait for that: ZenDB releases it when the request ends. Three cases
-are the exception, and the lock then clears at next reuse like the others: a
+are the exception, and the lock then clears at next reuse like the others, or
+when the server closes the idle connection after `wait_timeout`: a
 fatal error inside the job (such as running out of memory) when one of your
 own shutdown functions calls `exit`, running out of memory while a query
 result is being read, and a query that ran longer than `readTimeout`. The

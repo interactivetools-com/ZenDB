@@ -142,7 +142,7 @@ class DB
      * Disconnect from the database.
      *
      * @throws RuntimeException Inside transaction(), because MySQL would roll the transaction back
-     * @throws RuntimeException While the connection holds a lock from getLock(), because a new connection wouldn't hold it
+     * @throws RuntimeException Until releaseLock() is called for each lock the connection took with getLock(), because a new connection wouldn't hold it
      */
     public static function disconnect(): void
     {
