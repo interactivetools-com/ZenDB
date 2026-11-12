@@ -34,6 +34,7 @@ This release adds named locks: `DB::withLock()` runs a function while holding a 
 
 - Connect sends exactly one statement on every server, `SET NAMES utf8mb4` with `time_zone` and `sql_mode` in it. A `queryLogger` sees the new text
 - `DB::count()` returns `0` without a PHP warning when a `GROUP BY` or `HAVING` leaves no row
+- `DB::isConnected(true)` returns `false` without a "Packets out of order" PHP warning when the server closed the connection for `wait_timeout` (PHP 8.1 to 8.3 with MySQL 8.0+)
 - `Table::columnDefinitions()` and `Table::normalizeCreateTable()` keep `CHARACTER SET` on a column in a table whose collation was changed by hand
 - `Table::columnNames()` returns an all-digit column name such as `2024` as a string
 - `connect()` no longer sets `MYSQLI_OPT_LOCAL_INFILE`. The call had no effect: `mysqli.allow_local_infile` in php.ini controls `LOAD DATA LOCAL INFILE`, as before

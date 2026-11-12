@@ -306,10 +306,10 @@ class Connection
             return true;
         }
 
-        // stat() throws mysqli_sql_exception when the server is gone, and Error when the handle
+        // stat() returns false when the server is gone, and throws Error when the handle
         // was closed directly (DB::$mysqli->close()); either way it's not connected
         try {
-            return $this->mysqli->stat() !== false;
+            return @$this->mysqli->stat() !== false;  // @ hides "Packets out of order", which PHP prints on a connection the server closed for wait_timeout
         } catch (Throwable) {
             return false;
         }

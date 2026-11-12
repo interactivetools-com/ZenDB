@@ -29,7 +29,9 @@ Contents:
 - [Replay Mode - DECIDED: Benchmarking only (2026-08)](#replay-mode---decided-benchmarking-only-2026-08)
 - [Empty-Quotes Gap - DECIDED: Keep allowing `''` (2026-08)](#empty-quotes-gap---decided-keep-allowing--2026-08)
 - [setlocale(): Turkish and Azeri Locales - DECIDED: Not supported (2026-10)](#setlocale-turkish-and-azeri-locales---decided-not-supported-2026-10)
+- [CALL Through query() - DECIDED: Won't fix (2026-11)](#call-through-query---decided-wont-fix-2026-11)
 - [Named Locks - DECIDED: withLock(), getLock(), releaseLock() (2026-11)](#named-locks---decided-withlock-getlock-releaselock-2026-11)
+- [Table Return Values - DECIDED: Columns keyed by name, indexes and foreign keys as lists (2026-11)](#table-return-values---decided-columns-keyed-by-name-indexes-and-foreign-keys-as-lists-2026-11)
 - [Other Ideas Rejected (2026-03)](#other-ideas-rejected-2026-03)
 
 ## Design Philosophy
@@ -484,6 +486,24 @@ Rejected:
 - **CI probe lines for name case, the 64-character limit, negative waits and
   empty names** - ZenDB changes or refuses those before the server sees
   them, and the test jobs run the lock tests on every server.
+
+---
+
+## Table Return Values - DECIDED: Columns keyed by name, indexes and foreign keys as lists (2026-11)
+
+- `Table::columns()` and `Table::columnDefinitions()` return an array keyed
+  by column name. Looking up one column by name is their main use.
+- `Table::indexes()`, `Table::foreignKeys()` and
+  `Table::foreignKeysReferencing()` return a plain list, with the name in
+  each row. The server sometimes picks these names: MariaDB 12.1+ names
+  foreign keys `1`, `2`, `3` in every table, so as array keys they became
+  ints, and two keys with the same name became one entry.
+
+Rejected:
+
+- **Plain lists for the two column methods** - every caller would search the
+  list for the column it wants.
+- **Keyed arrays for indexes and foreign keys** - see above.
 
 ---
 

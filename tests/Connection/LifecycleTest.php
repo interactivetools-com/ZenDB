@@ -561,6 +561,32 @@ class LifecycleTest extends BaseTestCase
         $this->assertFalse(DB::isConnected(true));
     }
 
+    public function testIsConnectedPrintsNothingWhenTheServerClosedTheConnection(): void
+    {
+        self::requiresLiveMysql();
+
+        DB::connect(self::$configDefaults);
+        DB::query("SET SESSION wait_timeout = :n1", [':n1' => 1]);
+        sleep(2);  // past wait_timeout, so the server has closed the connection
+
+        // MySQL 8.0+ makes PHP print "Packets out of order" for a command on a connection closed for wait_timeout
+        $warnings = [];
+        set_error_handler(static function (int $errno, string $errstr) use (&$warnings): bool {
+            if (error_reporting() & $errno) {
+                $warnings[] = $errstr;
+            }
+            return true;
+        });
+        try {
+            $isConnected = DB::isConnected(true);
+        } finally {
+            restore_error_handler();
+        }
+
+        $this->assertFalse($isConnected);
+        $this->assertSame([], $warnings);
+    }
+
     public function testReconnectAfterDisconnect(): void
     {
         DB::connect(self::$configDefaults);
