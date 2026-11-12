@@ -16,6 +16,7 @@ Contents:
 - [Results & Values](#results--values) - SmartArray/SmartString hierarchy, HTML-encoding, methods
 - [Helpers](#helpers) - pagination, LIKE patterns, raw SQL, date constants, table names
 - [Connection](#connection) - config options, connection management, raw mysqli access, multiple connections
+- [Named Locks](#named-locks) - withLock(), getLock(), releaseLock()
 - [Encryption (Opt-In)](#encryption-opt-in)
 - [Template Safety Rules](#template-safety-rules) - what SQL templates reject and allow
 - [Common Errors Quick Reference](#common-errors-quick-reference) - exact messages and fixes
@@ -642,7 +643,83 @@ $rows = $analytics->select('events', "created_at > NOW() - INTERVAL ? DAY", 1);
 ```
 
 Each Connection has the same methods as `DB::` (`select`, `selectOne`,
-`insert`, `update`, `delete`, `count`, `query`, `queryOne`, `transaction`).
+`insert`, `update`, `delete`, `count`, `query`, `queryOne`, `transaction`,
+`withLock`, `getLock`, `releaseLock`).
+
+---
+
+## Named Locks
+
+For jobs that must not run twice at the same time, such as a cron job that
+starts again before the last run has finished.
+
+Signatures: `withLock(string $name, callable $fn, int $waitSeconds = 0): bool`,
+`getLock(string $name, int $waitSeconds = 0): bool`,
+`releaseLock(string $name): bool`. They use MySQL named locks (`GET_LOCK()`).
+
+`withLock()` takes the lock, runs `$fn`, and releases the lock when `$fn`
+returns or throws. It returns `true` when `$fn` ran and `false` when another
+connection holds the lock (`$fn` is not called). The return value of `$fn` is
+dropped.
+
+```php
+$ran = DB::withLock('send_queued_emails', function() {
+    foreach (DB::select('email_queue', ['sent' => 0]) as $email) {
+        mail($email->toAddress->value(), $email->subject->value(), $email->message->value());
+        DB::update('email_queue', ['sent' => 1], ['num' => $email->num]);
+    }
+});
+if (!$ran) {
+    echo "Skipped, still running from last time";
+}
+
+// Wait up to 5 seconds for the lock; not a limit on how long $fn runs
+$ran = DB::withLock('rebuild_search_index', fn() => rebuildSearchIndex(), 5);
+
+// When the locked code doesn't fit in one function
+if (DB::getLock('import_products')) {       // true = this connection now holds the lock
+    try {
+        importProducts();
+    } finally {
+        DB::releaseLock('import_products'); // true = released, false = this connection didn't hold it
+    }
+}
+```
+
+- **Name:** required and non-empty. The server-side name is
+  `database.tablePrefix.name` in lowercase (`my_db.cms_.send_queued_emails`),
+  so installs with different databases or prefixes don't share locks, web
+  servers on one database do, and case doesn't matter for A-Z. A server-side
+  name over 64 bytes is sent as its first 47 bytes, `~`, and 16 hex characters
+  of its md5.
+- **`__FUNCTION__` as the name:** works in a named function. In a method use
+  `__METHOD__`: `__FUNCTION__` has no class name there, so two classes with the
+  same method name would share a lock. A name ending in `{closure}` throws
+  `InvalidArgumentException`: PHP 8.3 and older return it from `__FUNCTION__`
+  for every closure, so pass a name of your own in code that runs inside one.
+  From PHP 8.4 a closure's name is `{closure:name():line}`, which is accepted.
+- **`$waitSeconds`:** 0 (the default) doesn't wait. Negative throws
+  `InvalidArgumentException`, and so does a wait of `readTimeout` (default 60)
+  or longer, because the connection would time out first.
+- **Counting:** a name taken twice on one connection needs two releases.
+  Nested `withLock()` calls with the same name work.
+- **The lock belongs to the connection.** Clones share it. `disconnect()`
+  throws `RuntimeException` while a lock is held; call `releaseLock()` first.
+- **Lock lost:** `withLock()` throws `RuntimeException` when the lock is no
+  longer held after `$fn` returned (the connection dropped, or `$fn` released
+  it). When `$fn` throws, its exception is the one rethrown.
+- **Release fails:** when the release can't run on an open connection (e.g.
+  "Commands out of sync" while a result is still unread), `releaseLock()` and
+  `withLock()` throw `mysqli_sql_exception` and the lock stays held. An
+  exception from `$fn` is then its `previous`.
+- **End of request:** locks still held are released at shutdown, after
+  `exit`, `die()` and fatal errors too, and on persistent (`p:`) connections.
+  Three cases on a `p:` connection keep the lock until that PHP worker's next
+  request: a fatal error in the job (e.g. out of memory) when one of the
+  application's shutdown functions calls `exit`, out of memory while a query
+  result is being read, and a query that ran past `readTimeout`.
+- **One server:** the lock exists on one MySQL server. It works when every
+  connection that asks for it goes to the same server.
 
 ---
 
@@ -751,6 +828,7 @@ template by hand are not; the guard has no schema to check them against.
 | "This method doesn't support FOR UPDATE" (also FOR SHARE, LOCK IN SHARE MODE)           | Use `query(...)->first()`; queryOne()'s LIMIT 1 must come before locking clauses |
 | "This method appends LIMIT 1 automatically"                                             | Remove the trailing `--`/`#` comment or `;`, or use `query(...)->first()`        |
 | "Invalid table name `...`, allowed characters: a-z, A-Z, 0-9, _, -" (also column name)  | Only `a-z, A-Z, 0-9, _, -` allowed                                               |
+| "can't disconnect while holding lock"                                                   | Call `releaseLock()` first, or reconnect after `withLock()` returns              |
 
 ## Gotchas
 

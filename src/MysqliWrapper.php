@@ -8,13 +8,14 @@ use InvalidArgumentException;
 use ReflectionProperty;
 use ReturnTypeWillChange;
 use Throwable;
+use WeakMap;
 use mysqli;
 use mysqli_result;
 use mysqli_sql_exception;
 use mysqli_stmt;
 
 // import built-ins so calls resolve at compile time instead of per-call lookups; NamespacedCallsTest keeps this list exact
-use function get_object_vars, microtime, str_contains;
+use function get_object_vars, microtime, register_shutdown_function, str_contains, str_repeat, substr;
 use const MYSQLI_STORE_RESULT, PHP_VERSION_ID;
 
 /**
@@ -38,6 +39,24 @@ class MysqliWrapper extends mysqli
      * @internal API may change between releases
      */
     public bool $inTransaction = false;
+
+    /**
+     * @var array<string, array{name: string, count: int}> Named locks this connection holds,
+     * by the name sent to the server: the name the caller passed, and how many times the lock
+     * was taken (MySQL needs one release per take). Stored here, not on Connection, so clones
+     * share it. Connection::getLock() and releaseLock() update it, so it lists what ZenDB took
+     * and hasn't released, also after the server ended the connection.
+     *
+     * @internal API may change between releases
+     */
+    public array $heldLocks = [];
+
+    /**
+     * @var WeakMap<self, true>|null Every connection that took a lock and is still in memory.
+     * One shutdown function releases their locks when the request ends. A WeakMap, so the
+     * list doesn't keep a connection open that nothing else uses any more.
+     */
+    private static ?WeakMap $lockHolders = null;
 
     /**
      * @var array<string, string[]> Encrypted (MEDIUMBLOB) column names per full table name,
@@ -346,11 +365,13 @@ class MysqliWrapper extends mysqli
     }
 
     /**
-     * Close the connection and free the statement kept open for execute_query().
+     * Close the connection. Releases named locks first, and frees the statement kept open
+     * for execute_query().
      */
     #[ReturnTypeWillChange]
     public function close(): bool
     {
+        $this->releaseHeldLocks();   // a pooled connection (p: hostname) stays open on the server after close(), with its locks
         $this->stmtKeepAlive = null;
         return parent::close();
     }
@@ -449,6 +470,74 @@ class MysqliWrapper extends mysqli
         $stmt->close();
         $this->encryptionKeySet = true;
         $this->logQuery("SET @ek = UNHEX(SHA2(?, 512)) /* params: [\"********\"] */", $startTime);
+    }
+
+    //endregion
+    //region Named Locks
+
+    /**
+     * Have this connection's locks released when the request ends. Connection::getLock() calls
+     * this for every lock it takes.
+     *
+     * A pooled connection (p: hostname) stays open on the server after the request, so a lock
+     * left held by exit, die or a fatal error would block other requests until the same PHP
+     * worker connects again.
+     *
+     * @internal API may change between releases
+     */
+    public function releaseHeldLocksAtShutdown(): void
+    {
+        if (self::$lockHolders === null) {
+            self::$lockHolders   = new WeakMap();
+            $releaseAllHeldLocks = static function (): void {
+                /**
+                 * @disregard P1003 a WeakMap gives its objects as the keys; the value is unused on purpose (intelephense)
+                 */
+                foreach (self::$lockHolders as $wrapper => $unused) {
+                    $wrapper->releaseHeldLocks();
+                }
+            };
+
+            // One shutdown function for every connection, registered from inside a shutdown
+            // function: it runs after the shutdown functions other code registered directly, and
+            // those still see the locks held. Destructors and output buffer callbacks run after it.
+            register_shutdown_function(static fn() => register_shutdown_function($releaseAllHeldLocks));
+        }
+        self::$lockHolders[$this] = true;
+    }
+
+    /**
+     * Release held locks when the object is freed. A pooled connection (p: hostname) stays
+     * open on the server after that, with its locks. This also runs at the end of a request
+     * whose shutdown functions stopped early, e.g. when one of them called exit.
+     */
+    public function __destruct()
+    {
+        $this->releaseHeldLocks();
+    }
+
+    /**
+     * Release every lock in $heldLocks, in one query. Sends nothing when no lock is held.
+     * Runs before close(), when the request ends, and when the object is freed.
+     *
+     * @internal API may change between releases
+     */
+    public function releaseHeldLocks(): void
+    {
+        if (!$this->heldLocks) {
+            return;
+        }
+
+        try {
+            $releases = '';
+            foreach ($this->heldLocks as $lockName => $lock) {
+                $releases .= str_repeat(", RELEASE_LOCK('" . $this->real_escape_string($lockName) . "')", $lock['count']);  // one release per take
+            }
+            @$this->query('DO ' . substr($releases, 2));  // @ hides "Packets out of order", which PHP prints before it throws on a connection the server closed for wait_timeout
+        } catch (Throwable) {
+            // nothing can be sent on this connection any more; the server frees a connection's locks when it ends
+        }
+        $this->heldLocks = [];
     }
 
     //endregion

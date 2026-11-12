@@ -98,9 +98,10 @@ Full guides and references ([browse on GitHub](https://github.com/interactivetoo
 - **Everyday Use**
     - [Common Patterns](docs/common-patterns.md) - copy-paste recipes: record-or-404, search filters, paginated lists
     - [Helpers and Utilities](docs/helpers-and-utilities.md) - raw SQL expressions, pagination SQL, LIKE pattern builders, table prefix conversion
-- **Advanced Setup**
+- **Advanced Features**
     - [Multiple Connections](docs/multiple-connections.md) - connecting to more than one database, or one database with different settings
     - [Encryption](docs/encryption.md) - automatic column encryption with `encryptionKey`
+    - [Named Locks](docs/named-locks.md) - running one copy of a job at a time with `withLock()`
 - **Lookup**
     - [Security Gotchas](docs/security-gotchas.md) - the narrow cases that still let you write an unsafe query, and the safe form for each
     - [Performance](docs/performance.md) - measured page benchmarks: within microseconds of raw mysqli + `htmlspecialchars()`

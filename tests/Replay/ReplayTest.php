@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Itools\ZenDB\Tests\Replay;
 
+use Itools\ZenDB\Connection;
 use Itools\ZenDB\MysqliResultReplay;
 use Itools\ZenDB\MysqliWrapperReplay;
 use Itools\ZenDB\Tests\BaseTestCase;
@@ -128,6 +129,78 @@ class ReplayTest extends BaseTestCase
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('Re-record');
         (new MysqliWrapperReplay([]))->query('SELECT missing');
+    }
+
+    /**
+     * A Connection to database "replay_db" that replays $queries (query text => recorded outcomes).
+     */
+    private static function replayConnection(array $queries): Connection
+    {
+        $factoryBefore                    = Connection::$mysqliWrapperFactory;
+        Connection::$mysqliWrapperFactory = static fn(?callable $queryLogger): MysqliWrapperReplay => new MysqliWrapperReplay(['queries' => $queries], $queryLogger);
+        try {
+            return new Connection(['hostname' => 'no-such-host', 'username' => 'nobody', 'password' => '', 'database' => 'replay_db']);
+        } finally {
+            Connection::$mysqliWrapperFactory = $factoryBefore;
+        }
+    }
+
+    /**
+     * The recorded outcome of a GET_LOCK() or RELEASE_LOCK() query that returned $value.
+     */
+    private static function lockOutcome(?int $value): array
+    {
+        return [['type' => 'rows', 'fields' => [['name' => 'result']], 'rows' => [[$value]], 'insert_id' => 0, 'affected_rows' => 1]];
+    }
+
+    public function testNamedLocksReplayFromTheCorpusAndThrowWithoutARecording(): void
+    {
+        $db = self::replayConnection([
+            "SELECT GET_LOCK('replay_db..import', 0)"  => self::lockOutcome(1),
+            "SELECT RELEASE_LOCK('replay_db..import')" => self::lockOutcome(1),
+        ]);
+
+        $heldInside = null;
+        $ran        = $db->withLock('import', function () use ($db, &$heldInside) {
+            $heldInside = $db->mysqli->heldLocks;
+        });
+        $this->assertTrue($ran);
+        $this->assertSame(['replay_db..import' => ['name' => 'import', 'count' => 1]], $heldInside);
+        $this->assertSame([], $db->mysqli->heldLocks);
+
+        try {
+            $db->getLock('not_recorded');
+            $this->fail('Expected RuntimeException for a lock the corpus has no recording for');
+        } catch (RuntimeException $e) {
+            $this->assertStringContainsString("Replay corpus has no recording for query: SELECT GET_LOCK('replay_db..not_recorded', 0)", $e->getMessage());
+        }
+        $db->disconnect();
+    }
+
+    public function testGetLockThrowsWhenGetLockReturnsNull(): void
+    {
+        $db = self::replayConnection(["SELECT GET_LOCK('replay_db..<b>import</b>', 0)" => self::lockOutcome(null)]);
+
+        try {
+            $db->getLock('<b>import</b>');
+            $this->fail('Expected RuntimeException for a NULL from GET_LOCK()');
+        } catch (RuntimeException $e) {
+            $this->assertSame("getLock(): GET_LOCK() returned NULL for lock `&lt;b&gt;import&lt;/b&gt;`. MySQL returns NULL when it runs out of memory or the query is killed.", $e->getMessage());
+        }
+        $this->assertSame([], $db->mysqli->heldLocks);
+        $db->disconnect();
+    }
+
+    public function testClosingTheReplayWrapperEmptiesTheHeldLocksList(): void
+    {
+        $db = self::replayConnection(["SELECT GET_LOCK('replay_db..import', 0)" => self::lockOutcome(1)]);
+        $db->getLock('import');
+
+        $db->mysqli->close();
+
+        $this->assertSame([], $db->mysqli->heldLocks);
+        $db->disconnect(); // throws while a lock is listed
+        $this->assertFalse($db->isConnected());
     }
 
     public function testReplaysMultiQuerySequence(): void

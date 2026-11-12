@@ -29,6 +29,7 @@ Contents:
 - [Replay Mode - DECIDED: Benchmarking only (2026-08)](#replay-mode---decided-benchmarking-only-2026-08)
 - [Empty-Quotes Gap - DECIDED: Keep allowing `''` (2026-08)](#empty-quotes-gap---decided-keep-allowing--2026-08)
 - [setlocale(): Turkish and Azeri Locales - DECIDED: Not supported (2026-10)](#setlocale-turkish-and-azeri-locales---decided-not-supported-2026-10)
+- [Named Locks - DECIDED: withLock(), getLock(), releaseLock() (2026-11)](#named-locks---decided-withlock-getlock-releaselock-2026-11)
 - [Other Ideas Rejected (2026-03)](#other-ideas-rejected-2026-03)
 
 ## Design Philosophy
@@ -384,6 +385,105 @@ Rejected:
 - **Throwing when results are left** - every procedure that returns rows
   sends a final status, so none could run.
 - **A `DB::call()` method** - nothing would use it.
+
+---
+
+## Named Locks - DECIDED: withLock(), getLock(), releaseLock() (2026-11)
+
+`DB::withLock()`, `DB::getLock()` and `DB::releaseLock()` use MySQL's
+`GET_LOCK()`. The server frees the lock when the connection ends, so a job
+that died doesn't leave one held, it works across web servers that share a
+database, and it needs nothing beyond MySQL 5.7. `flock()` covers one server
+only, and a cache lock needs an expiry time and a cache most installs don't
+have.
+
+Why each rule is the way it is:
+
+- **`withLock()` returns a bool, not the callback's value** - most callbacks
+  return nothing, so "ran and returned null" and "didn't run" would look the
+  same.
+- **The name sent to the server is `database.tablePrefix.name`** - two
+  installs on one MySQL server get different locks, and two web servers on
+  one database get the same one. Nothing in it comes from a file path or a
+  host name: a client on replicated servers had a path that differed between
+  them.
+- **Lowercase, no md5** - MySQL ignores case in lock names and MariaDB
+  doesn't. Without the md5 the name can be read in `IS_USED_LOCK()` and the
+  process list. Only A-Z are lowercased, with `strtr()`: `strtolower()`
+  follows `setlocale()` before PHP 8.2, so two PHP processes could send
+  different names for one lock.
+- **Over 64 bytes: the first 47 bytes, `~`, and 16 hex characters of the
+  md5** - MySQL refuses a longer name with error 4163. Non-ASCII bytes at
+  the end of the 47 are removed, so the cut never leaves part of a UTF-8
+  character.
+- **A wait of `readTimeout` or longer throws** - with `readTimeout` 2, a
+  5-second wait on a held name ended with error 2006 after 2 seconds, and the
+  connection was unusable afterwards. A `readTimeout` of 0 or less sets no
+  limit.
+- **A name ending in `{closure}` throws** - PHP 8.3 and older return it from
+  `__FUNCTION__` for every closure, so unrelated code would share one lock.
+  The PHP 8.4 form (`{closure:sendQueuedEmails():6}`) is accepted, because it
+  is different for each closure.
+- **`disconnect()` throws while a lock is held** - every reconnect starts
+  with `disconnect()`, and the new connection wouldn't hold the lock, so the
+  rest of the job would run without it.
+- **`withLock()` throws when the lock is gone after the callback returned** -
+  another copy may have run at the same time, and the caller should know.
+- **A callback that releases its own lock isn't coded around** - once it
+  releases the lock, another copy can run, and `withLock()` reports that when
+  the callback finishes. An earlier build released on the mysqli object that
+  took the lock, so a callback could release, reconnect and take the name
+  again; that was removed.
+- **`releaseLock()` returns false on a connection that is gone, and throws
+  when the release fails on an open one** - a connection that is gone has no
+  lock left to release. "Commands out of sync" (a result is still unread)
+  means the connection is open and still holds the lock, so the name stays on
+  the list and the caller gets the mysqli error. In `withLock()` an exception
+  from the callback is then its `previous`.
+- **Held locks are released at shutdown** - a `p:` connection stays open
+  after `exit` or a fatal error and keeps its locks until that PHP worker's
+  next request. The release is registered from inside a shutdown function, so
+  shutdown functions that other code registered directly still see the lock
+  held. Destructors and output buffer callbacks run after it.
+- **One shutdown function for every connection, a `WeakMap` of the
+  connections that took a lock, and a destructor that releases too** - a
+  shutdown function that held each mysqli object kept a `new Connection()`
+  that took a lock once open until the script ended, and one function per
+  connection kept about 970 bytes each for a process that reconnects in a
+  loop. The destructor releases the locks of a pooled connection that is
+  freed mid-request. It also runs when an application shutdown function calls
+  `exit`, which stops PHP before it reaches ZenDB's shutdown function.
+- **Three cases on a `p:` connection keep the lock until that PHP worker's
+  next request** - a fatal error in the job when an application shutdown
+  function calls `exit` (PHP then runs neither ZenDB's shutdown function nor
+  destructors), out of memory while a query result is being read (the release
+  fails with "Commands out of sync"), and a query that ran past `readTimeout`
+  (PHP gets error 2006 while the server session keeps the lock). The docs
+  name them. Ending the server session with KILL from a second connection
+  was not built.
+
+Rejected:
+
+- **`tryLock()`** - the name didn't say what it does.
+- **`hasLock()`** - a check followed by a `getLock()` leaves a gap between
+  the two. It can be added later.
+- **`lock()` / `unlock()`** - the docs use "lock" for row locks.
+- **A default name taken from the caller** - closures, file scope and renamed
+  functions give wrong names without an error.
+- **Other names for `withLock()`** - `usingLock`, `lockFn`, `runLocked`,
+  `lockAndRun`, `synchronized`, `withoutOverlapping`.
+- **Chaining** - nothing to chain onto a bool.
+- **A check or a docs warning for `withLock()` inside `transaction()`** - a
+  lock taken after the transaction has already read can let two sales of one
+  item through. A check could only see `DB::transaction()`, and the docs
+  can't list every SQL edge case. Take the lock outside and run the
+  transaction inside.
+- **More than one docs line about clusters** - the lock exists on one MySQL
+  server. Multi-primary Group Replication and Galera don't share it and give
+  no error.
+- **CI probe lines for name case, the 64-character limit, negative waits and
+  empty names** - ZenDB changes or refuses those before the server sees
+  them, and the test jobs run the lock tests on every server.
 
 ---
 

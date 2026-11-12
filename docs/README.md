@@ -21,10 +21,11 @@ The rest are standalone: open whichever matches your task.
 - [Common Patterns](common-patterns.md) - Copy-paste recipes: record-or-404, search filters, paginated lists.
 - [Helpers and Utilities](helpers-and-utilities.md) - Raw SQL expressions, pagination SQL, LIKE pattern builders, table prefix conversion.
 
-## Advanced Setup
+## Advanced Features
 
 - [Multiple Connections](multiple-connections.md) - Connecting to more than one database, or one database with different settings.
 - [Encryption](encryption.md) - Automatic column encryption with `encryptionKey`.
+- [Named Locks](named-locks.md) - Running one copy of a job at a time with `withLock()`.
 
 ## Lookup
 

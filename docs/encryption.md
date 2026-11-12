@@ -274,6 +274,9 @@ DB::connect($config);
 
 Import and upgrade scripts are where this comes up. Normal page requests don't
 change schemas, so the cached list stays correct for the whole request.
+`DB::disconnect()` throws while the connection holds a
+[named lock](named-locks.md#when-the-connection-ends), so a script that
+runs under one releases it before reconnecting.
 
 ## How the Keys Line Up
 
@@ -333,4 +336,4 @@ up in-SQL search on those columns.
 
 ---
 
-[← Multiple Connections](multiple-connections.md) | [Documentation Index](README.md) | [Next: Security Gotchas →](security-gotchas.md)
+[← Multiple Connections](multiple-connections.md) | [Documentation Index](README.md) | [Next: Named Locks →](named-locks.md)

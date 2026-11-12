@@ -13,7 +13,7 @@ use mysqli_sql_exception;
 use WeakMap;
 
 // import built-ins so calls resolve at compile time instead of per-call lookups; NamespacedCallsTest keeps this list exact
-use function array_change_key_case, array_diff, array_diff_key, array_key_first, array_keys, count, defined, hash, implode, in_array, is_bool, is_float, is_int, is_null, is_object, is_string, mysqli_report, openssl_decrypt, openssl_encrypt, preg_match, reset, str_replace, str_starts_with, strlen, strtolower, substr, trigger_error, version_compare;
+use function array_change_key_case, array_diff, array_diff_key, array_key_first, array_keys, count, defined, hash, implode, in_array, is_bool, is_float, is_int, is_null, is_object, is_string, md5, mysqli_report, openssl_decrypt, openssl_encrypt, preg_match, reset, rtrim, str_ends_with, str_replace, str_starts_with, strlen, strtolower, strtr, substr, trigger_error, version_compare;
 use const E_USER_WARNING, MYSQLI_CLIENT_SSL, MYSQLI_OPT_CONNECT_TIMEOUT, MYSQLI_OPT_INT_AND_FLOAT_NATIVE, MYSQLI_OPT_READ_TIMEOUT, MYSQLI_REPORT_ERROR, MYSQLI_REPORT_STRICT, MYSQLI_SET_CHARSET_NAME, OPENSSL_RAW_DATA;
 
 /**
@@ -317,9 +317,17 @@ class Connection
 
     /**
      * Disconnect from the database.
+     *
+     * @throws RuntimeException While this connection holds a lock from getLock(), because a new connection wouldn't hold it
      */
     public function disconnect(): void
     {
+        if ($this->mysqli?->heldLocks) {
+            $h    = DB::h(...); // SECURITY: lock names come from the caller, encode before they can reach page output
+            $name = $this->mysqli->heldLocks[array_key_first($this->mysqli->heldLocks)]['name'];
+            throw new RuntimeException("disconnect(): can't disconnect while holding lock `{$h($name)}`, a new connection wouldn't hold it. Call releaseLock() first, on the `Connection` that took it.");
+        }
+
         if ($this->mysqli !== null) {
             try {
                 $this->mysqli->close();
@@ -743,6 +751,198 @@ class Connection
         } finally {
             $transactionMysqli->inTransaction = false;
         }
+    }
+
+    //endregion
+    //region Named Locks
+
+    /**
+     * Take a MySQL named lock, so only one connection at a time runs the code between
+     * getLock() and releaseLock(). When that code fits in one function, use withLock(),
+     * which releases the lock for you.
+     *
+     * The name is specific to the database and `tablePrefix`: two installs on one MySQL
+     * server don't share a lock, and two web servers on one database do. Upper and lower
+     * case are the same name for the letters A to Z. A name taken twice on one connection
+     * needs two releases.
+     *
+     * The lock belongs to this connection. disconnect() throws while you hold one, because a
+     * new connection wouldn't have it. A lock still held when the request ends is released then.
+     *
+     *     if (!DB::getLock('import')) {
+     *         return;  // another copy is running
+     *     }
+     *     try {
+     *         importProducts();
+     *     } finally {
+     *         DB::releaseLock('import');
+     *     }
+     *
+     *     DB::getLock('import', 5);  // wait up to 5 seconds for the other copy to finish
+     *
+     * @param string $name        Lock name, e.g. 'import' or __FUNCTION__
+     * @param int    $waitSeconds How long to wait when another connection holds the lock (default 0, don't wait)
+     * @return bool True when this connection now holds the lock, false when another connection holds it
+     * @throws InvalidArgumentException For an empty $name or one ending in "{closure}", a negative $waitSeconds, or a wait of `readTimeout` or longer
+     * @throws RuntimeException When the server can't take the lock
+     */
+    public function getLock(string $name, int $waitSeconds = 0): bool
+    {
+        if ($waitSeconds < 0) {
+            throw new InvalidArgumentException("\$waitSeconds can't be negative, got $waitSeconds");
+        }
+        if ($this->readTimeout > 0 && $waitSeconds >= $this->readTimeout) {
+            throw new InvalidArgumentException("Can't wait $waitSeconds seconds for a lock: `readTimeout` is $this->readTimeout seconds and ends the connection first. Wait less, or raise `readTimeout` when connecting.");
+        }
+
+        $mysqli   = $this->mysqli;
+        $lockName = $this->lockName($name);
+        $result   = $mysqli->query("SELECT GET_LOCK('" . $mysqli->real_escape_string($lockName) . "', $waitSeconds)");
+        $isLocked = $result->fetch_row()[0];  // 1 = this connection holds it, 0 = another connection does, NULL = the server couldn't take it
+        $result->free();
+
+        if ($isLocked === null) {
+            $h = DB::h(...); // SECURITY: lock names come from the caller, encode before they can reach page output
+            throw new RuntimeException("getLock(): GET_LOCK() returned NULL for lock `{$h($name)}`. MySQL returns NULL when it runs out of memory or the query is killed.");
+        }
+        if (!$isLocked) {
+            return false;
+        }
+
+        $mysqli->heldLocks[$lockName] ??= ['name' => $name, 'count' => 0];
+        $mysqli->heldLocks[$lockName]['count']++;
+        $mysqli->releaseHeldLocksAtShutdown();
+
+        return true;
+    }
+
+    /**
+     * Release a named lock taken with getLock().
+     *
+     *     DB::releaseLock('import');
+     *
+     * @param string $name The name passed to getLock()
+     * @return bool True when the lock was released, false when this connection didn't hold it or is gone
+     * @throws InvalidArgumentException For an empty $name or one ending in "{closure}"
+     * @throws mysqli_sql_exception When the release fails on an open connection, e.g. "Commands out of sync" while a result is still unread; the lock stays held
+     */
+    public function releaseLock(string $name): bool
+    {
+        $mysqli   = $this->mysqli;
+        $lockName = $this->lockName($name);
+
+        try {
+            $result     = @$mysqli->query("SELECT RELEASE_LOCK('" . $mysqli->real_escape_string($lockName) . "')");  // @ hides "Packets out of order", which PHP prints before it throws on a connection the server closed for wait_timeout
+            $isReleased = (bool)$result->fetch_row()[0];  // 1 = released, 0 = another connection holds it, NULL = nobody does
+            $result->free();
+        } catch (Throwable $e) {
+            $isOutOfSync = $e->getCode() === 2014;  // "Commands out of sync": the connection is open with a result still unread, and no query can check it
+            if ($isOutOfSync || $this->isConnected(true)) {
+                throw $e;  // the connection is open and still holds the lock
+            }
+            $isReleased = false;  // the connection is closed or gone, and the server frees a connection's locks when it ends
+        }
+
+        $takesLeft = ($mysqli->heldLocks[$lockName]['count'] ?? 0) - 1;
+        if ($isReleased && $takesLeft > 0) {
+            $mysqli->heldLocks[$lockName]['count'] = $takesLeft;
+        } else {
+            unset($mysqli->heldLocks[$lockName]);
+        }
+
+        return $isReleased;
+    }
+
+    /**
+     * Run $fn while holding a MySQL named lock, so two copies of the same job never run at
+     * the same time. When another connection holds the lock, $fn is not called and withLock()
+     * returns false. The lock is released when $fn returns or throws.
+     *
+     * `$waitSeconds` is how long to wait for the lock. It is not a limit on how long $fn runs.
+     *
+     * The lock belongs to this connection. disconnect() throws while you hold one, because a
+     * new connection wouldn't have it.
+     *
+     *     // Skip this run when the last one is still going
+     *     $ran = DB::withLock('send_queued_emails', function () {
+     *         sendQueuedEmails();
+     *     });
+     *     if (!$ran) {
+     *         echo "Skipped, still running from last time";
+     *     }
+     *
+     *     // Wait up to 5 seconds for the other copy to finish
+     *     if (!DB::withLock(__FUNCTION__, fn() => rebuildSearchIndex(), 5)) {
+     *         throw new RuntimeException("Timed out waiting for the search index lock");
+     *     }
+     *
+     *     // The return value can be dropped when a skipped run needs nothing done
+     *     DB::withLock('clear_expired_sessions', fn() => DB::delete('sessions', "expiresAt < NOW()"));
+     *
+     * @param string   $name        Lock name, e.g. 'import' or __FUNCTION__; getLock() explains how names are compared
+     * @param callable $fn          The work to run while holding the lock; its return value is dropped
+     * @param int      $waitSeconds How long to wait when another connection holds the lock (default 0, don't wait)
+     * @return bool True when $fn ran, false when another connection holds the lock and $fn was not called
+     * @throws InvalidArgumentException For an empty $name or one ending in "{closure}", a negative $waitSeconds, or a wait of `readTimeout` or longer
+     * @throws RuntimeException When the server can't take the lock, or the lock was no longer held after $fn returned
+     * @throws mysqli_sql_exception When the lock can't be released on an open connection, as for releaseLock()
+     * @throws Throwable Re-throws any exception from $fn after releasing the lock
+     */
+    public function withLock(string $name, callable $fn, int $waitSeconds = 0): bool
+    {
+        if (!$this->getLock($name, $waitSeconds)) {
+            return false;
+        }
+
+        try {
+            $fn();
+        } finally {
+            $wasStillHeld = $this->releaseLock($name);  // throws only when the release fails on an open connection; an exception from $fn is then its previous
+        }
+
+        if (!$wasStillHeld) {
+            $h = DB::h(...); // SECURITY: lock names come from the caller, encode before they can reach page output
+            throw new RuntimeException("withLock(): lock `{$h($name)}` was no longer held when the callback finished, so another copy may have run at the same time");
+        }
+
+        return true;
+    }
+
+    /**
+     * The name sent to the server for a lock: "database.tablePrefix.name" with A-Z in
+     * lowercase, e.g. "acme_live.cms_.import". Lowercase because MySQL ignores case in lock
+     * names and MariaDB doesn't.
+     *
+     * MySQL refuses a name over 64 characters, so a name over 64 bytes is sent as its first
+     * 47 bytes (without any non-ASCII bytes at their end), "~", and 16 hex characters from
+     * the md5 of the whole name:
+     *
+     *     interactivetools_production_cms.cms_.nlb_mailer_queueScheduledMessages  →  interactivetools_production_cms.cms_.nlb_mailer~e370ad136b1587b0
+     *
+     * A name ending in "{closure}" is refused: PHP 8.3 and older return it from __FUNCTION__
+     * for every closure, so unrelated code would share one lock. From PHP 8.4 a closure's
+     * name has its function and line in it ("{closure:sendQueuedEmails():6}"), and that is
+     * accepted.
+     *
+     * @throws InvalidArgumentException For an empty $name or one ending in "{closure}"
+     */
+    private function lockName(string $name): string
+    {
+        if ($name === '') {
+            throw new InvalidArgumentException("Lock name can't be empty");
+        }
+        if (str_ends_with($name, '{closure}')) {
+            $h = DB::h(...); // SECURITY: lock names come from the caller, encode before they can reach page output
+            throw new InvalidArgumentException("Lock name `{$h($name)}` isn't unique: __FUNCTION__ returns it for every closure. Use __FUNCTION__ in a named function, or pass a name of your own.");
+        }
+
+        // TODO-PHP82: use strtolower(); before 8.2 it follows setlocale(), so two PHP processes could send different names for one lock
+        $lockName = strtr("{$this->secret('database')}.$this->tablePrefix.$name", 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz');
+        if (strlen($lockName) > 64) {
+            $lockName = rtrim(substr($lockName, 0, 47), "\x80..\xFF") . '~' . substr(md5($lockName), 0, 16);  // rtrim() removes non-ASCII bytes from the end, so the cut never leaves part of a UTF-8 character
+        }
+
+        return $lockName;
     }
 
     //endregion

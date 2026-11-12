@@ -14,6 +14,7 @@ Contents:
 - [Custom SQL](#custom-sql)
 - [Table Names](#table-names)
 - [Query Helpers](#query-helpers)
+- [Named Locks](#named-locks)
 - [Encryption](#encryption)
 - [Constants](#constants)
 - [Properties](#properties)
@@ -25,7 +26,7 @@ Contents:
 |---------------------------------------------------------------------------------------------------------|--------------|-------------------------------------------------------------------------------------------------------------------------------------------|
 | [`DB::connect(array $config = [])`](getting-started.md#connecting---dbconnect)                          | `void`       | Connect and set the default connection. Throws `RuntimeException` if already connected                                                    |
 | `DB::isConnected(bool $ping = false)`                                                                   | `bool`       | Check if the default connection is set, optionally pinging the server                                                                     |
-| `DB::disconnect()`                                                                                      | `void`       | Close the default connection and clear `DB::$mysqli` and `DB::$tablePrefix`                                                               |
+| `DB::disconnect()`                                                                                      | `void`       | Close the default connection and clear `DB::$mysqli` and `DB::$tablePrefix`. Throws `RuntimeException` while it holds a named lock        |
 | [`DB::clone(array $config = [])`](multiple-connections.md#same-connection-different-settings---dbclone) | `Connection` | Copy the default connection, sharing the same mysqli link; only `tablePrefix`, `useSmartJoins`, and `useSmartStrings` can be overridden   |
 | [`new Connection(array $config = [])`](multiple-connections.md#a-second-database---new-connection)      | `Connection` | Create a standalone connection (connects in the constructor); use for a second database or different settings                             |
 
@@ -111,6 +112,17 @@ $users = DB::select('users', "ORDER BY name :pagingSQL", [
 ]);
 // for page 1 this runs: ORDER BY name LIMIT 25 OFFSET 0
 ```
+
+## Named Locks
+
+For jobs that must not run twice at the same time, such as a cron job that
+starts again before the last run has finished.
+
+| Method                                                                                                                      | Returns | Description                                                                                                                                                         |
+|-----------------------------------------------------------------------------------------------------------------------------|---------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| [`DB::withLock(string $name, callable $fn, int $waitSeconds = 0)`](named-locks.md#one-copy-of-a-job-at-a-time---dbwithlock) | `bool`  | Run `$fn` while holding a MySQL named lock, then release it; returns `true` when `$fn` ran, `false` when another connection holds the lock and `$fn` was not called |
+| [`DB::getLock(string $name, int $waitSeconds = 0)`](named-locks.md#taking-a-lock-yourself---dbgetlock-and-dbreleaselock)    | `bool`  | Take a MySQL named lock, waiting up to `$waitSeconds` for it; returns `true` when this connection now holds it, `false` when another connection does                |
+| [`DB::releaseLock(string $name)`](named-locks.md#taking-a-lock-yourself---dbgetlock-and-dbreleaselock)                      | `bool`  | Release a lock taken with `getLock()`; returns `true` when released, `false` when this connection didn't hold it                                                    |
 
 ## Encryption
 

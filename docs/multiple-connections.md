@@ -81,6 +81,11 @@ DB::clone(['database' => 'analytics']);
 The shared link also means shared transaction state: a `DB::transaction()`
 covers queries made through clones too, and starting a second `transaction()`
 on either one while the first is open throws `RuntimeException`.
+[Named locks](named-locks.md) are shared the same
+way: a lock taken through a clone is held by the one connection, and
+`disconnect()` on either throws while it's held. A clone with another
+`tablePrefix` asks for a different lock, because the prefix is part of the
+lock name.
 
 To reach a different database or server, open a separate connection.
 

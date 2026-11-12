@@ -140,6 +140,8 @@ class DB
 
     /**
      * Disconnect from the database.
+     *
+     * @throws RuntimeException While the connection holds a lock from getLock(), because a new connection wouldn't hold it
      */
     public static function disconnect(): void
     {
@@ -243,6 +245,35 @@ class DB
     public static function transaction(callable $fn): mixed
     {
         return self::connection()->transaction($fn);
+    }
+
+    //endregion
+    //region Named Locks
+
+    /**
+     * Wrapper for {@see Connection::getLock()}
+     */
+    public static function getLock(string $name, int $waitSeconds = 0): bool
+    {
+        return self::connection()->getLock($name, $waitSeconds);
+    }
+
+    /**
+     * Wrapper for {@see Connection::releaseLock()}
+     */
+    public static function releaseLock(string $name): bool
+    {
+        return self::connection()->releaseLock($name);
+    }
+
+    /**
+     * Wrapper for {@see Connection::withLock()}
+     *
+     * @throws Throwable Re-throws any exception from $fn after releasing the lock
+     */
+    public static function withLock(string $name, callable $fn, int $waitSeconds = 0): bool
+    {
+        return self::connection()->withLock($name, $fn, $waitSeconds);
     }
 
     //endregion

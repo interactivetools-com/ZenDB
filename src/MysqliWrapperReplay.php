@@ -58,6 +58,7 @@ class MysqliWrapperReplay
     // The MysqliWrapper/mysqli properties ZenDB and calling code read
     public string     $lastQuery     = '';
     public bool       $inTransaction = false;
+    public array      $heldLocks     = [];
     public mixed      $queryLogger   = null;
     public int|string $insert_id     = 0;
     public int|string $affected_rows = 0;
@@ -161,6 +162,11 @@ class MysqliWrapperReplay
         // key from the connection config as usual.
     }
 
+    public function releaseHeldLocksAtShutdown(): void
+    {
+        // Nothing to register: no server holds a lock after the request ends
+    }
+
     public function stat(): string|false
     {
         return 'Replay corpus';
@@ -173,6 +179,7 @@ class MysqliWrapperReplay
 
     public function close(): bool
     {
+        $this->heldLocks = [];  // MysqliWrapper::close() releases its locks, so disconnect() works after it
         return true;
     }
 

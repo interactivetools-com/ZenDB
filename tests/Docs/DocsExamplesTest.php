@@ -15,6 +15,7 @@ use Itools\SmartArray\SmartNull;
 use Itools\SmartString\SmartString;
 use Itools\ZenDB\Connection;
 use Itools\ZenDB\DB;
+use Itools\ZenDB\MysqliWrapper;
 use Itools\ZenDB\Tests\BaseTestCase;
 use mysqli_sql_exception;
 use RuntimeException;
@@ -46,6 +47,14 @@ class DocsExamplesTest extends BaseTestCase
         // Every test starts from the same rows and auto-increment values, so
         // examples that insert or delete can pin exact IDs and row counts.
         self::resetTestTables();
+    }
+
+    protected function tearDown(): void
+    {
+        // A failed lock test can leave a lock held, and DB::disconnect() in the next test class throws while one is
+        if (DB::$mysqli instanceof MysqliWrapper) {
+            DB::$mysqli->releaseHeldLocks();
+        }
     }
 
     //region docs/getting-started.md
@@ -1852,6 +1861,37 @@ class DocsExamplesTest extends BaseTestCase
         $this->assertSame('transaction() cannot be nested - already in a transaction', $message);
     }
 
+    public function testMultipleConnectionsCloneSharesNamedLocks(): void
+    {
+        self::requiresLiveMysql();
+
+        $clone                = DB::clone();
+        $otherCopy            = new Connection(self::$configDefaults);
+        $otherCopyOtherPrefix = $otherCopy->clone(['tablePrefix' => 'other_']);
+        try {
+            // a lock taken through a clone is held by the one connection
+            $this->assertTrue($clone->getLock('import_products'));
+            $this->assertFalse($otherCopy->getLock('import_products'));
+
+            // disconnect() on either throws while it's held
+            foreach ([DB::disconnect(...), $clone->disconnect(...)] as $disconnect) {
+                try {
+                    $disconnect();
+                    $this->fail("disconnect() should have thrown");
+                } catch (RuntimeException $e) {
+                    $this->assertStringContainsString("can't disconnect while holding lock `import_products`", $e->getMessage());
+                }
+            }
+
+            // a clone with another tablePrefix asks for a different lock
+            $this->assertTrue($otherCopyOtherPrefix->getLock('import_products'));
+        } finally {
+            $otherCopyOtherPrefix->releaseLock('import_products');
+            $otherCopy->disconnect();
+            DB::releaseLock('import_products');
+        }
+    }
+
     public function testMultipleConnectionsSecondDatabase(): void
     {
         $reports = new Connection(self::$configDefaults);
@@ -2089,6 +2129,129 @@ class DocsExamplesTest extends BaseTestCase
         }
 
         $this->assertSame("Encrypting or decrypting needs 'encryptionKey' in the connection config. Set it in DB::connect() or new Connection().", $message);
+    }
+
+    //endregion
+    //region docs/named-locks.md
+
+    public function testNamedLocksWithLockRunsTheFunctionWhileHoldingTheLock(): void
+    {
+        self::requiresLiveMysql();
+
+        $queries                 = [];
+        DB::$mysqli->queryLogger = function (string $query) use (&$queries) {
+            $queries[] = $query;
+        };
+        try {
+            $ran = DB::withLock('send_queued_emails', function() {
+                foreach (DB::select('users', ['status' => 'Suspended']) as $user) {
+                    DB::update('users', ['status' => 'Inactive'], ['num' => $user->num]);
+                }
+            });
+            $ranAfterWait = DB::withLock('rebuild_search_index', fn() => null, 5);
+        } finally {
+            DB::$mysqli->queryLogger = null;
+        }
+
+        $this->assertTrue($ran);
+        $this->assertTrue($ranAfterWait);
+        $this->assertSame(0, DB::count('users', ['status' => 'Suspended']));
+        $this->assertSame(
+            [
+                "SELECT GET_LOCK('phpunit_test_db.test_.send_queued_emails', 0)",
+                "SELECT * FROM `test_users` WHERE `status` = 'Suspended'",
+                "UPDATE `test_users` SET `status` = 'Inactive' WHERE `num` = 4",
+                "UPDATE `test_users` SET `status` = 'Inactive' WHERE `num` = 8",
+                "UPDATE `test_users` SET `status` = 'Inactive' WHERE `num` = 12",
+                "UPDATE `test_users` SET `status` = 'Inactive' WHERE `num` = 16",
+                "UPDATE `test_users` SET `status` = 'Inactive' WHERE `num` = 20",
+                "SELECT RELEASE_LOCK('phpunit_test_db.test_.send_queued_emails')",
+                "SELECT GET_LOCK('phpunit_test_db.test_.rebuild_search_index', 5)",
+                "SELECT RELEASE_LOCK('phpunit_test_db.test_.rebuild_search_index')",
+            ],
+            $queries,
+        );
+    }
+
+    public function testNamedLocksWithLockSkipsTheFunctionWhenAnotherConnectionHoldsTheLock(): void
+    {
+        self::requiresLiveMysql();
+
+        $otherCopy = new Connection(self::$configDefaults);
+        $otherCopy->getLock('send_queued_emails');
+        try {
+            $called = false;
+            $ran    = DB::withLock('send_queued_emails', function() use (&$called) {
+                $called = true;
+            });
+
+            $this->assertFalse($ran);
+            $this->assertFalse($called);
+        } finally {
+            $otherCopy->releaseLock('send_queued_emails');
+            $otherCopy->disconnect();
+        }
+    }
+
+    public function testNamedLocksNamesIgnoreCase(): void
+    {
+        self::requiresLiveMysql();
+
+        $otherCopy = new Connection(self::$configDefaults);
+        try {
+            $this->assertTrue(DB::getLock('Import'));
+            $this->assertFalse($otherCopy->getLock('import'));
+            $this->assertTrue(DB::releaseLock('Import'));
+        } finally {
+            $otherCopy->mysqli->close(); // not disconnect(), which throws when the assertion above failed and this copy holds the lock
+        }
+    }
+
+    public function testNamedLocksFunctionNameAsLockName(): void
+    {
+        self::requiresLiveMysql();
+
+        $lockNameInside = null;
+        $ran            = DB::withLock(__FUNCTION__, function() use (&$lockNameInside) {
+            $lockNameInside = array_key_first(DB::$mysqli->heldLocks);
+        });
+
+        $this->assertTrue($ran);
+        $this->assertSame('phpunit_test_db.test_.testnamedlocksfunctionnameaslockname', $lockNameInside);
+    }
+
+    public function testNamedLocksNameEndingInClosureThrows(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage("Lock name `{closure}` isn't unique: __FUNCTION__ returns it for every closure. Use __FUNCTION__ in a named function, or pass a name of your own.");
+
+        DB::withLock('{closure}', fn() => null);
+    }
+
+    public function testNamedLocksDisconnectThrowsWhileHoldingALock(): void
+    {
+        self::requiresLiveMysql();
+
+        DB::getLock('import_products');
+        try {
+            DB::disconnect();
+            $this->fail("DB::disconnect() should have thrown");
+        } catch (RuntimeException $e) {
+            $this->assertSame("disconnect(): can't disconnect while holding lock `import_products`, a new connection wouldn't hold it. Call releaseLock() first, on the `Connection` that took it.", $e->getMessage());
+        } finally {
+            DB::releaseLock('import_products');
+        }
+    }
+
+    public function testNamedLocksGetLockAndReleaseLock(): void
+    {
+        self::requiresLiveMysql();
+
+        $this->assertTrue(DB::getLock('import_products'));     // true when this connection now holds the lock
+        $this->assertTrue(DB::getLock('import_products', 5));  // taken twice
+        $this->assertTrue(DB::releaseLock('import_products')); // true when released
+        $this->assertTrue(DB::releaseLock('import_products')); // the second release
+        $this->assertFalse(DB::releaseLock('import_products')); // false when this connection didn't hold it
     }
 
     //endregion

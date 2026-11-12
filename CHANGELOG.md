@@ -6,6 +6,7 @@
 
 ### Added
 
+- **Named locks: `DB::withLock()`, `DB::getLock()` and `DB::releaseLock()`** - `withLock()` runs a function while holding a MySQL named lock, so two copies of the same job never run at the same time. When another connection holds the lock it returns `false` without calling the function. Lock names are specific to the database and `tablePrefix`, and a lock still held when the request ends is released then, on persistent connections too. `DB::disconnect()` throws while the connection holds one. See [Named Locks](docs/named-locks.md)
 - **`Table::foreignKeys()` reports `refDatabase`** - a foreign key can reference a table in another database
 
 ### Fixed

@@ -321,8 +321,15 @@ changes nothing. For locks, it does:
   nobody is waiting on the lock either.
 
 `DB::transaction()` rolls back when the callback throws, so ordinary
-exceptions never leave a transaction open; only hard failures can. Named
-locks (`GET_LOCK()`) and table locks clear the same way, at next reuse. The
+exceptions never leave a transaction open; only hard failures can. Table
+locks, and named locks taken with `GET_LOCK()` in your own SQL, clear the
+same way, at next reuse. A lock taken with
+[`DB::withLock()` or `DB::getLock()`](named-locks.md#when-the-connection-ends)
+doesn't wait for that: ZenDB releases it when the request ends. Three cases
+are the exception, and the lock then clears at next reuse like the others: a
+fatal error inside the job (such as running out of memory) when one of your
+own shutdown functions calls `exit`, running out of memory while a query
+result is being read, and a query that ran longer than `readTimeout`. The
 one pattern worth changing: code that takes a global lock and can die
 inside it (a backup running FLUSH TABLES WITH READ LOCK) belongs in a CLI
 script, where the process exit releases everything immediately.
