@@ -37,6 +37,17 @@ another database.
 - `fk-names-probe.php` - probe one server and write JSON, or with `--merge`
   turn the JSON files into one "who differs" report
 
+**Rowid matrix** (`rowid-matrix.yml`) - checks where every database image accepts
+`_rowid` in place of a table's primary key column: which key shapes have one,
+every place in a statement it can be written, a real column of that name, the
+values compared with it, engines and `sql_mode` settings, EXPLAIN against the real
+column name, and ZenDB's own methods. Then times 100,000 point lookups written both
+ways, as plain queries and as prepared statements.
+
+- `rowid-probe.php` - probe one server and write JSON (`--bench` adds the speed
+  test), or with `--merge` turn the JSON files into one grid of every check on
+  every server
+
 **Connect charset matrix** (`connect-charset-matrix.yml`) - checks what
 `Connection::openConnection()` sends to set the connection charset and the
 session it leaves, on every database image and PHP version, with each image
