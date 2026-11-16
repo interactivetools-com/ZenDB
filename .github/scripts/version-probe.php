@@ -110,6 +110,14 @@ DB::connect($config);
 OldDB::connect($config);
 $mysqli = DB::$mysqli;   // the working copy's connection doubles as the raw-side handle
 
+// The MariaDB 10.2 to 10.4 images start with the query cache on. A cached result comes back before the
+// server parses or runs the statement, so every page would time the cache. MySQL 8.0+ has no query cache
+foreach ([DB::$mysqli, OldDB::$mysqli] as $connection) {
+    if ($connection->query("SHOW VARIABLES LIKE 'query_cache_type'")->fetch_row()) {
+        $connection->query("SET SESSION query_cache_type = OFF");
+    }
+}
+
 //region Environment facts
 
 $pings = [];

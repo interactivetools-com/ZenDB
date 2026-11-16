@@ -68,6 +68,12 @@ DB::connect([
 ]);
 $mysqli = DB::$mysqli;   // ZenDB's own connection doubles as the raw-side handle
 
+// Some servers have the query cache on (the MariaDB 10.2 to 10.4 images start that way). A cached result comes
+// back before the server parses or runs the statement, so every page would time the cache. MySQL 8.0+ has no query cache
+if ($mysqli->query("SHOW VARIABLES LIKE 'query_cache_type'")->fetch_row()) {
+    $mysqli->query("SET SESSION query_cache_type = OFF");
+}
+
 //region Environment facts
 
 $pings = [];

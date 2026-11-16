@@ -4,6 +4,14 @@ PHP scripts run by the workflows in [`../workflows/`](../workflows/). Nothing
 here is part of the library. Each script's header docblock has its full usage;
 this file lists what each one does.
 
+**Query cache** - a script that times queries turns the query cache off on every
+connection it opens (`SET SESSION query_cache_type = OFF`, skipped on MySQL 8.0+,
+which has none), or stops when it's on, as `escape-e2e-probe.php` does. The
+MariaDB 10.2 to 10.4 images start with it on, and a cached result comes back
+before the server parses or runs the statement. A script that checks behavior
+leaves the server as the image starts it, so the test suite still runs on
+servers that have the cache on.
+
 **Test timing** (`tests.yml`) - times the suite across every PHP x database job
 and builds a grid for the run-summary page.
 
