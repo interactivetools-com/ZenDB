@@ -874,6 +874,7 @@ trait ConnectionInternals
      * LIKE). Nothing in the value then acts as a wildcard. The like*() helpers do
      * this for you.
      *
+     * @undocumented Supported, and left out of the docs on purpose: placeholders are the way to put values in a query
      * @param string|int|float|null|SmartString $input               Value to escape
      * @param bool                              $escapeLikeWildcards Make the value match as literal text in a LIKE pattern (escapes %, _, and \)
      * @return string Escaped value, without quotes
@@ -927,6 +928,7 @@ trait ConnectionInternals
      * Every `?` in `$format` counts, including one inside a quoted string, so the
      * number of `?` has to match the number of values.
      *
+     * @undocumented Supported, and left out of the docs on purpose: placeholders are the way to put values in a query
      * @param string $format    SQL with a `?` for each value
      * @param mixed  ...$values Values to put in, in order
      * @return string The SQL with every value in place

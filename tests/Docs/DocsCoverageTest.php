@@ -15,9 +15,10 @@ use ReflectionMethod;
  * reference, so new methods can't ship undocumented.
  *
  * Exemptions come from the source itself: magic methods are skipped, and so
- * is any method whose docblock carries @internal (library plumbing) or
- * @deprecated (old names keep working but stay out of the docs by design -
- * docs show only the current names).
+ * is any method whose docblock carries @internal (library plumbing),
+ * @undocumented (supported, but left out of the docs so people use the
+ * documented way instead) or @deprecated (old names keep working but stay out
+ * of the docs by design - docs show only the current names).
  */
 class DocsCoverageTest extends BaseTestCase
 {
@@ -32,7 +33,7 @@ class DocsCoverageTest extends BaseTestCase
         $this->assertSame(
             1,
             $documented,
-            "Public method $method() has no table row in docs/method-reference.md - document it, or mark it @internal or @deprecated in the source"
+            "Public method $method() has no table row in docs/method-reference.md - document it, or mark it @internal, @undocumented or @deprecated in the source"
         );
     }
 
@@ -44,7 +45,7 @@ class DocsCoverageTest extends BaseTestCase
             foreach ($methods as $method) {
                 $name = $method->getName();
                 $doc  = $method->getDocComment() ?: '';
-                if (str_starts_with($name, '__') || str_contains($doc, '@internal') || str_contains($doc, '@deprecated')) {
+                if (str_starts_with($name, '__') || str_contains($doc, '@internal') || str_contains($doc, '@undocumented') || str_contains($doc, '@deprecated')) {
                     continue;
                 }
                 $rows[$name] = [$name]; // same name on DB and Connection = one row; the reference documents them together

@@ -261,15 +261,19 @@ The docs deliberately omit these; the omission is a decision, not a gap:
 - **`escapeCSV()`, `whereSql()`** - `@internal`, exist so ZenDB and
   CMS Builder can build their own SQL; placeholders and WHERE arrays are the supported API.
   Docblocks open with "Internal use, undocumented by design."
-- **`escape()`, `escapef()`** - supported, not `@internal` (2026-11). CMS Builder's
-  field editor shows `escape()` to site developers for list options queries, which
-  are saved as text templates and can't take a placeholder, and CMS Builder code
-  calls `escapef()` for SQL built in pieces, so their names and behavior have to
-  stay. Each docblock says to use a placeholder wherever one can go; `escape()`'s
-  says the result is only safe between quotes, and `escapef()`'s lists what each
-  value type becomes. `ai-reference.md` gives them one paragraph with no code
-  example, so the reference doesn't show SQL built by joining strings. The guide
-  pages still leave them out.
+- **`escape()`, `escapef()`** - supported and `@undocumented`, not `@internal`
+  (2026-11). CMS Builder's field editor shows `escape()` to site developers for
+  list options queries, which are saved as text templates and can't take a
+  placeholder, and CMS Builder code calls `escapef()` for SQL built in pieces, so
+  their names and behavior have to stay. `@internal` says the opposite (may change,
+  don't call it) and makes IDEs flag those calls. They stay out of every doc,
+  `ai-reference.md` included: the docs teach placeholders, and listing two ways to
+  escape by hand next to them would invite SQL built by joining strings. The
+  docblocks are the documentation for anyone who already knows to look: each says
+  to use a placeholder wherever one can go, `escape()`'s says the result is only
+  safe between quotes, and `escapef()`'s lists what each value type becomes.
+  `DocsCoverageTest` skips methods tagged `@undocumented`, as it skips `@internal`
+  and `@deprecated`.
 - **RawSql as the WHERE argument** - `select()`, `selectOne()`, `update()`,
   `delete()`, and `count()` accept a `RawSql` object as `$whereEtc` (2026-09).
   The SQL is used as written: no template check, no placeholder replacement,

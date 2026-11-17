@@ -564,14 +564,6 @@ in the internal `Table` class - rarely needed in application code; see
 src/Table.php if you do. `DB::escapeCSV()` is internal too: use placeholders
 instead.
 
-Two methods are for SQL that's built as text and can't take a placeholder, such
-as a query saved as a text template or a WHERE string built in pieces.
-`DB::escape($value)` returns the escaped value without quotes, and the result is
-only safe inside a quoted string. `DB::escapef($format, ...$values)` replaces
-each `?` in `$format` with its value, quoted and escaped by type (an array
-becomes an IN list), and returns the SQL string. Everywhere a placeholder can
-go, use the placeholder.
-
 ---
 
 ## Connection

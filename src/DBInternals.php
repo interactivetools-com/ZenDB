@@ -91,6 +91,8 @@ trait DBInternals
      * can go.
      *
      *     $sql = "SELECT * FROM `users` WHERE `name` = '" . DB::escape($name) . "'";
+     *
+     * @undocumented Supported, and left out of the docs on purpose: placeholders are the way to put values in a query
      */
     public static function escape(string|int|float|null|SmartString $input, bool $escapeLikeWildcards = false): string
     {
@@ -103,6 +105,8 @@ trait DBInternals
      * query methods' own placeholders wherever they can go.
      *
      *     $where = DB::escapef("`tableName` = ? AND `recordNum` IN (?)", 'products', [12, 15]);
+     *
+     * @undocumented Supported, and left out of the docs on purpose: placeholders are the way to put values in a query
      */
     public static function escapef(string $format, mixed ...$values): string
     {
