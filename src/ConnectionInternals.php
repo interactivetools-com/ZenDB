@@ -542,13 +542,13 @@ trait ConnectionInternals
     private function whereFromArgs(int|array|string|RawSql $where): string
     {
         // A record number as the WHERE argument is deprecated and has to be an int. A numeric string throws,
-        // so a request value passed in without a cast fails the first time the code runs.
+        // so a request value passed in as the record number fails the first time the code runs.
         if (is_string($where) && preg_match('/^\s*\d+\s*$/', $where)) {
             $number = trim($where);
-            throw new InvalidArgumentException("Numeric string `$number` used as record number. Cast it to int: (int) \$value, or use array syntax with the primary key column, e.g. ['num' => $number]");
+            throw new InvalidArgumentException("Numeric string `$number` used as record number. Use array syntax with the primary key column instead, e.g. ['id' => $number]");
         }
         if (is_int($where)) {
-            DB::logDeprecation("Numeric WHERE is deprecated, use array syntax with the primary key column instead, e.g. ['num' => $where]");
+            DB::logDeprecation("Numeric WHERE is deprecated, use array syntax with the primary key column instead, e.g. ['id' => $where]");
         }
 
         // `_rowid` is the server's name for a table's primary key when that key is one integer column, so a

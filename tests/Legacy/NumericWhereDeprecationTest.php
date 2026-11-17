@@ -184,14 +184,14 @@ class NumericWhereDeprecationTest extends BaseTestCase
         $this->assertSame($rowsBefore, DB::count('users'));
     }
 
-    public function testNumericStringErrorSuggestsCastAndArraySyntax(): void
+    public function testNumericStringErrorSuggestsArraySyntaxOnly(): void
     {
         try {
             DB::select('users', '5');
             $this->fail('Expected InvalidArgumentException for a numeric string');
         } catch (\InvalidArgumentException $e) {
-            $this->assertStringContainsString('(int)', $e->getMessage());
-            $this->assertStringContainsString('array syntax', $e->getMessage());
+            $this->assertStringContainsString("['id' => 5]", $e->getMessage());
+            $this->assertStringNotContainsString('(int)', $e->getMessage());  // (int) on a query-result value gives 1, not the record number
         }
 
         $this->assertCount(0, self::$deprecations);

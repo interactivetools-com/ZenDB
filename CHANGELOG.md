@@ -2,59 +2,11 @@
 
 > **Upgrading?** See [UPGRADING.md](UPGRADING.md) for the checks that matter, per version - tagged releases roll up every change since the previous tag. Versions bundled with CMS Builder are marked on their sections.
 
-## [1.1.1] - 2026-11-16
-
-A record number passed as a string throws again, as it did before 1.0.0, and a record number finds its row on a table whose primary key isn't named `num`. The checks for code written against 1.1.0 are in [UPGRADING.md](UPGRADING.md).
-
-### Fixed
-
-- **A record number passed as a string throws again** - `DB::select('users', '5')` throws `InvalidArgumentException`, as it did before 1.0.0. Cast the value, `(int)$num`, or use `['num' => $num]`. See [UPGRADING.md](UPGRADING.md)
-
-### Changed
-
-- **Record numbers as the WHERE argument work with any primary key name** - `DB::select('users', 5)` matches the table's primary key whatever its name, not only `num`. Still deprecated; use `['num' => 5]`. See [UPGRADING.md](UPGRADING.md)
-
-## [1.1.0] - 2026-11-12
+## [1.1.2] - 2026-11-16
 
 > **Bundled with CMS Builder v4.0.0**
 
-This release adds named locks: `DB::withLock()` runs a function while holding a MySQL named lock, so two copies of the same job never run at the same time. Everything else is fixes; the checks for code written against 1.0.0 are in [UPGRADING.md](UPGRADING.md).
-
-### Added
-
-- **Named locks keep two copies of a job from running at the same time** - `DB::withLock()` runs a function while holding a MySQL named lock, and returns `false` without calling it when another connection holds the lock. Lock names are specific to the database and `tablePrefix`, a lock still held when the request ends is released then, and `DB::disconnect()` throws while the connection holds one. See [Named Locks](docs/named-locks.md)
-
-  | Method                                       | Returns                                                                   |
-  |----------------------------------------------|---------------------------------------------------------------------------|
-  | `DB::withLock($name, $fn, $waitSeconds = 0)` | `true` when `$fn` ran, `false` when another connection holds the lock     |
-  | `DB::getLock($name, $waitSeconds = 0)`       | `true` when this connection now holds the lock, `false` when another does |
-  | `DB::releaseLock($name)`                     | `true` when released, `false` when this connection didn't hold it         |
-
-### Fixed
-
-- **Failed queries throw when other code has turned off mysqli error reporting** - after another library in the same request called `mysqli_report(MYSQLI_REPORT_OFF)` (WordPress does when it connects), a failed query returned an empty result, `0` or `-1`, and `transaction()` committed the statements that had worked. It now throws `mysqli_sql_exception`, with `(mysqli_report() was turned off by other code)` added to the message
-- **Connections are utf8mb4 on servers that override the charset at login** - with `skip-character-set-client-handshake` or a charset in `init_connect`, 1.0.0 left the connection on the server's charset, and non-ASCII text was stored and read wrong
-- **Ints and floats stay native after a persistent connection is replaced** - with a `p:` hostname, once the server closed an idle connection (a restart, `wait_timeout`, a KILL), that PHP worker returned int and float columns as strings until it restarted
-- **`DB::count()` throws when a paging value leaves no count to return** - with a `DB::pagingSql()` value in the WHERE it returned `0` with a PHP warning from page 2 on. It now throws `InvalidArgumentException`; pass `count()` the WHERE without the paging value
-- **`DB::disconnect()` throws inside `DB::transaction()`** - closing the connection makes MySQL roll the transaction back, so `disconnect()` throws `RuntimeException` there. Disconnect after `transaction()` returns
-
-### Changed
-
-- **`Table::indexes()`, `Table::foreignKeys()` and `Table::foreignKeysReferencing()` return a plain list** - no longer keyed by name, so read `name` from each entry. MariaDB 12.1+ names foreign keys `1`, `2`, `3` in every table, so the names came back as int keys and `foreignKeysReferencing()` merged keys that shared a name into one entry. New fields: `refDatabase` in `foreignKeys()` and `database` in `foreignKeysReferencing()`. See [UPGRADING.md](UPGRADING.md)
-
-### Minor
-
-- Connect sends exactly one statement on every server, `SET NAMES utf8mb4` with `time_zone` and `sql_mode` in it. A `queryLogger` sees the new text
-- `DB::count()` returns `0` without a PHP warning when a `GROUP BY` or `HAVING` leaves no row
-- `DB::isConnected(true)` returns `false` without a "Packets out of order" PHP warning when the server closed the connection for `wait_timeout` (PHP 8.1 to 8.3 with MySQL 8.0+)
-- `Table::columnDefinitions()` and `Table::normalizeCreateTable()` keep `CHARACTER SET` on a column in a table whose collation was changed by hand
-- `Table::columnNames()` returns an all-digit column name such as `2024` as a string
-- `connect()` no longer sets `MYSQLI_OPT_LOCAL_INFILE`. The call had no effect: `mysqli.allow_local_infile` in php.ini controls `LOAD DATA LOCAL INFILE`, as before
-- Docs: [Encryption](docs/encryption.md#special-cases-ignoring-case-and-values-decrypted-twice-or-not-at-all) has a new section on `{{column}}` values that need converting to text
-
-## [1.0.0] - 2026-10-16
-
-The headlines: ZenDB runs 3x faster in PHP (real pages, MySQL time included, run up to 40% faster), and 1.0 has complete online docs plus [ai-reference.md](docs/ai-reference.md), the whole API in one file for AI coding assistants. Everything else is fixes and stricter checks.
+The headlines: ZenDB runs 3x faster in PHP (real pages, MySQL time included, run up to 40% faster), there are complete online docs plus [ai-reference.md](docs/ai-reference.md), the whole API in one file for AI coding assistants, and `DB::withLock()` keeps two copies of a job from running at the same time. Everything else is fixes and stricter checks. This section covers every change since 0.9.1; the checks for code written against it are in [UPGRADING.md](UPGRADING.md).
 
 ### Requirements
 
@@ -63,6 +15,14 @@ The headlines: ZenDB runs 3x faster in PHP (real pages, MySQL time included, run
 ### Added
 
 - **Documentation** - guides organized by task in [docs/README.md](docs/README.md), every example verified against the current source
+- **Named locks keep two copies of a job from running at the same time** - `DB::withLock()` runs a function while holding a MySQL named lock, and returns `false` without calling it when another connection holds the lock. Lock names are specific to the database and `tablePrefix`, a lock still held when the request ends is released then, and `DB::disconnect()` throws while the connection holds one. See [Named Locks](docs/named-locks.md)
+
+  | Method                                       | Returns                                                                   |
+  |----------------------------------------------|---------------------------------------------------------------------------|
+  | `DB::withLock($name, $fn, $waitSeconds = 0)` | `true` when `$fn` ran, `false` when another connection holds the lock     |
+  | `DB::getLock($name, $waitSeconds = 0)`       | `true` when this connection now holds the lock, `false` when another does |
+  | `DB::releaseLock($name)`                     | `true` when released, `false` when this connection didn't hold it         |
+
 - **Prefixed value placeholders** - `::?` and `:::name` (no backticks) add the table prefix inside the quoted value, for matching table names as strings: `SHOW TABLES LIKE ::?` with `user%` → `SHOW TABLES LIKE 'cms_user%'`
 - **`::` works inside `{{}}`** - encrypted-column reads take the table prefix like the rest of the query: `{{::users.apiToken}}` expands to `` AES_DECRYPT(`cms_users`.`apiToken`, @ek) ``. Hardcoded prefixes still work
 - **`Table` and `Server`** - internal classes for reading table facts (exists, columns, indexes, ...) and server facts (version, vendor, SSL); the old table helpers are deprecated in their favor (below)
@@ -76,6 +36,7 @@ The headlines: ZenDB runs 3x faster in PHP (real pages, MySQL time included, run
 - **SmartNull values act like `null` everywhere** - `insert()`, `update()`, and WHERE arrays treat a SmartNull (usually a missed lookup) as `null`, the same as placeholders
 - **`tablePrefix` can no longer contain dots** - `connect()` throws "Invalid tablePrefix" naming the allowed characters. Rename steps in [UPGRADING.md](UPGRADING.md)
 - **`connect()` throws if `NO_BACKSLASH_ESCAPES` is on** - whether it's set in `sqlMode` or, when `sqlMode` is `''`, in the server's global `sql_mode`. Remove the mode to connect
+- **Record numbers as the WHERE argument work with any primary key name** - `DB::select('users', 5)` matches the table's primary key whatever its name, not only `num`. Still deprecated; use `['id' => 5]`. See [UPGRADING.md](UPGRADING.md)
 - **`escape()`, `escapef()`, and `escapeCSV()` marked `@internal`** - IDEs flag them; use placeholders instead
 
 ### Parameter renames
@@ -93,7 +54,6 @@ Deprecated calls keep working and raise a notice naming their replacement and yo
 
 - **Positional values as a single array** - `"id IN (?)"` with `[1, 2, 3]` runs as `IN (1)`. Use a named placeholder: `"id IN (:ids)"` with `[':ids' => [1, 2, 3]]`
 - **Extra positional values** - `DB::select('users', 'num = ?', 5, 6)` logs a deprecation notice; drop the unused values
-- **Record numbers as the WHERE argument** - `DB::select('users', 5)` logs a deprecation notice and `'5'` logs a warning; use `['num' => 5]`
 - **Table helpers** - old names still work, IDE strikethrough only:
 
   | Old name (still works)       | Current name                 |
@@ -111,6 +71,10 @@ Deprecated calls keep working and raise a notice naming their replacement and yo
 - **SmartString values keep their type** - a wrapped int writes `5`, and a wrapped null writes `NULL` and matches `IS NULL` in WHERE arrays (both were written as strings). See [UPGRADING.md](UPGRADING.md)
 - **Floats keep exact precision** - large floats are written exactly, so equality matches can't hit the wrong rows. `NAN` and `INF` throw
 - **`DB::transaction()` reports the real error** - when the connection dies mid-transaction, the catch block gets your exception, not "server has gone away"
+- **`DB::disconnect()` throws inside `DB::transaction()`** - closing the connection makes MySQL roll the transaction back, so `disconnect()` throws `RuntimeException` there. Disconnect after `transaction()` returns
+- **Failed queries throw when other code has turned off mysqli error reporting** - after another library in the same request called `mysqli_report(MYSQLI_REPORT_OFF)` (WordPress does when it connects), a failed query didn't throw, and `transaction()` committed the statements that had worked. It now throws `mysqli_sql_exception`, with `(mysqli_report() was turned off by other code)` added to the message
+- **Ints and floats stay native after a persistent connection is replaced** - with a `p:` hostname, once the server closed an idle connection (a restart, `wait_timeout`, a KILL), that PHP worker returned int and float columns as strings until it restarted
+- **`DB::count()` throws when a paging value leaves no count to return** - with a `DB::pagingSql()` value in the WHERE it returned `0` with a PHP warning from page 2 on. It now throws `InvalidArgumentException`; pass `count()` the WHERE without the paging value. See [UPGRADING.md](UPGRADING.md)
 - **`versionRequired` reads real server versions** - including distro builds (`10.5.29-MariaDB-ubu2004`) and Aurora, so servers below the minimum fail to connect. See [UPGRADING.md](UPGRADING.md)
 - **`DB::pagingSql()` accepts huge page numbers** - a page number from the URL can't cause a MySQL syntax error
 - **LIMIT in a subquery or comment no longer throws** - in `selectOne()`, `queryOne()` and `count()`, and neither does a backtick-quoted column named `offset` or `limit`. Same for `FOR UPDATE` in `selectOne()` and `queryOne()`
@@ -123,6 +87,12 @@ Deprecated calls keep working and raise a notice naming their replacement and yo
 ### Minor
 
 Stricter checks: invalid table names, multibyte table prefixes, hex and binary literals in query templates, placeholders inside `/* */` comments, spread named-param arrays (`...$params`), and other inputs that used to produce wrong SQL now throw with a message naming the fix (list in [UPGRADING.md](UPGRADING.md)). Also: `Table::columnDefinitions()` returns the same output on every supported server, the database password, encryption key, and encrypted-column values stay out of stack traces on PHP 8.2+, fixes for PHP builds without mysqlnd, and clearer error messages that wrap names and values in backticks instead of quotes.
+
+- Connect sends exactly one statement on every server, `SET NAMES utf8mb4` with `time_zone` and `sql_mode` in it. A `queryLogger` sees the new text
+- `DB::count()` returns `0` without a PHP warning when a `GROUP BY` or `HAVING` leaves no row
+- `DB::isConnected(true)` returns `false` without a "Packets out of order" PHP warning when the server closed the connection for `wait_timeout` (PHP 8.1 to 8.3 with MySQL 8.0+)
+- `connect()` no longer sets `MYSQLI_OPT_LOCAL_INFILE`. The call had no effect: `mysqli.allow_local_infile` in php.ini controls `LOAD DATA LOCAL INFILE`, as before
+- The "Numeric string used as record number" error names only the array form, `['id' => $id]`. It no longer suggests an `(int)` cast, which gives 1 for a value read from a query result
 
 ## [0.9.1] - 2026-04-22
 

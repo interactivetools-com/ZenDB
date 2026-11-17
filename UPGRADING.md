@@ -20,97 +20,9 @@ Full lists of what changed per release: [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
-## v1.1.1
+## v1.1.2
 
-*Follow this section when upgrading from ZenDB before v1.1.1
-(or CMS Builder 4.0.0 or earlier).*
-
-### New errors
-
-> - A record number passed as a string throws "Numeric string `5` used as
->   record number". v1.0.0 and v1.1.0 ran it and logged a warning; earlier
->   versions threw. Request values are always strings, so cast them or
->   use array syntax:
->
->   ```php
->   DB::select('users', $_GET['num']);             // throws
->   DB::select('users', (int)$_GET['num']);        // works, logs a deprecation notice
->   DB::select('users', ['num' => $_GET['num']]);  // current form, nothing logged
->   ```
->
->   Search: no pattern finds these, since the value is in a variable. On a
->   site running v1.0.0 or v1.1.0, each affected call has logged a warning
->   that starts "Numeric string" and names your file and line.
-
-### Silent changes
-
-> - A record number as the WHERE argument - `DB::select('users', 5)` -
->   matches the table's primary key whatever its name. It used to match a
->   column named `num`. Nothing changes for a table whose primary key is
->   one integer column named `num`. On any other table:
->
->   ```php
->   DB::select('orders', 5);   // primary key `id`: used to throw "Unknown column 'num'", now finds the row
->   DB::select('prices', 5);   // primary key `id` plus a `num` column: used to match `num`, now matches `id`
->   DB::select('codes', 5);    // no primary key that is one integer column: throws "Unknown column '_rowid'"
->   ```
->
->   Fix: name the column, `['num' => 5]`. The form is deprecated and each
->   call logs "Numeric WHERE is deprecated" with your file and line.
-
-## v1.1.0
-
-*Follow this section when upgrading from ZenDB before v1.1.0
-(or CMS Builder before 4.0.0).*
-
-### Return value changes
-
-> - `Table::indexes()`, `Table::foreignKeys()` and
->   `Table::foreignKeysReferencing()` return a plain list, no longer keyed
->   by index or constraint name. Loops that only read each entry's fields
->   keep working. Code that reads the key, or looks an entry up by name,
->   reads `name` from each entry:
->
->   ```php
->   foreach (Table::foreignKeys('articles') as $name => $fk) { ... }   // before
->
->   foreach (Table::foreignKeys('articles') as $fk) {                  // after
->       $name = $fk['name'];
->   }
->
->   $cols = Table::indexes('articles')['idx_title']['cols'];                         // before
->
->   $cols = array_column(Table::indexes('articles'), 'cols', 'name')['idx_title'];   // after
->   ```
->
->   Foreign key names can repeat across tables, so a lookup in
->   `foreignKeysReferencing()` matches `fullTable` as well as `name`.
->
->   Search: `indexes(`, `foreignKeys(` and `foreignKeysReferencing(`
-
-### New errors
-
-> - `DB::count()` throws "This method doesn't support LIMIT or OFFSET" for
->   a `DB::pagingSql()` value from page 2 on, where it returned `0` with a
->   PHP warning. Code that shares one WHERE between `select()` and
->   `count()` passes `count()` the WHERE without the paging value:
->
->   ```php
->   DB::count('users', "status = ? ?", 'Active', DB::pagingSql(2, 5));   // throws
->   DB::count('users', "status = ?", 'Active');                          // correct
->   ```
->
->   Search: `count(` calls whose values include `pagingSql(`
->
-> - A failed query throws `mysqli_sql_exception` when other code in the
->   request has called `mysqli_report(MYSQLI_REPORT_OFF)` (WordPress does
->   when it connects). It used to return an empty result, `0` or `-1`, so
->   a page that loads WordPress can show errors that were hidden before.
->   The message ends with `(mysqli_report() was turned off by other code)`.
-
-## v1.0.0
-
-*Follow this section when upgrading from ZenDB before v1.0.0
+*Follow this section when upgrading from ZenDB before v1.1.2
 (or CMS Builder before 4.0.0).*
 
 ### Config changes
@@ -202,6 +114,45 @@ Full lists of what changed per release: [CHANGELOG.md](CHANGELOG.md).
 >   // before this ran: value = 1.2345678901235E+16   - rounded, can match the wrong rows
 >   // after this runs: value = 12345678901234568.0   - the exact value PHP holds
 >   ```
+>
+> - A record number as the WHERE argument - `DB::select('users', 5)` -
+>   matches the table's primary key whatever its name. It used to match a
+>   column named `num`. Nothing changes for a table whose primary key is
+>   one integer column named `num`. On any other table:
+>
+>   ```php
+>   DB::select('orders', 5);   // primary key `id`: used to throw "Unknown column 'num'", now finds the row
+>   DB::select('prices', 5);   // primary key `id` plus a `num` column: used to match `num`, now matches `id`
+>   DB::select('codes', 5);    // no primary key that is one integer column: throws "Unknown column '_rowid'"
+>   ```
+>
+>   Fix: name the column, `['id' => 5]`. The form is deprecated and each
+>   call logs "Numeric WHERE is deprecated" with your file and line.
+>
+>   A record number passed as a string, `DB::select('users', '5')`, throws
+>   as before. Fix that with the array form too, not an `(int)` cast: a
+>   value read from a query result is an object, and `(int)$row->id` is 1
+>   whatever the record number is.
+
+### New errors
+
+> - `DB::count()` throws "This method doesn't support LIMIT or OFFSET" for
+>   a `DB::pagingSql()` value from page 2 on, where it returned `0` with a
+>   PHP warning. Code that shares one WHERE between `select()` and
+>   `count()` passes `count()` the WHERE without the paging value:
+>
+>   ```php
+>   DB::count('users', "status = ? ?", 'Active', DB::pagingSql(2, 5));   // throws
+>   DB::count('users', "status = ?", 'Active');                          // correct
+>   ```
+>
+>   Search: `count(` calls whose values include `pagingSql(`
+>
+> - A failed query throws `mysqli_sql_exception` when other code in the
+>   request has called `mysqli_report(MYSQLI_REPORT_OFF)` (WordPress does
+>   when it connects). It didn't throw before, so a page that loads
+>   WordPress can show errors that were hidden before. The message ends
+>   with `(mysqli_report() was turned off by other code)`.
 
 ### New errors for inputs that used to produce wrong SQL
 
@@ -245,20 +196,6 @@ Full lists of what changed per release: [CHANGELOG.md](CHANGELOG.md).
 >   throw in a future release.
 > - `escape()`, `escapef()`, and `escapeCSV()` are marked `@internal` (IDEs
 >   flag them); placeholders are the supported API. No runtime change.
-> - **Superseded in v1.1.1** (see [v1.1.1](#v111)): `'5'` throws again,
->   and `5` matches the primary key whatever its name.
->
->   Record numbers as the WHERE argument - `DB::select('users', 5)` - use
->   `['num' => 5]` instead. `5` and `'5'` both run as `['num' => 5]` and log:
->
->   ```php
->   DB::select('users', 5);            // works, logs a deprecation notice
->   DB::select('users', '5');          // works, logs a warning (used to throw)
->   DB::select('users', ['num' => 5]); // current form, nothing logged
->   ```
->
->   Both forms will throw in a future release. No search needed: each log
->   entry names your file and line.
 
 ### Parameter renames
 
