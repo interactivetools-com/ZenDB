@@ -86,9 +86,11 @@ trait DBInternals
     //region Escaping
 
     /**
-     * Wrapper for {@see Connection::escape()}
+     * Wrapper for {@see Connection::escape()}. Escapes a value to go inside a
+     * quoted string in SQL that's built as text; use a placeholder wherever one
+     * can go.
      *
-     * @internal
+     *     $sql = "SELECT * FROM `users` WHERE `name` = '" . DB::escape($name) . "'";
      */
     public static function escape(string|int|float|null|SmartString $input, bool $escapeLikeWildcards = false): string
     {
@@ -96,9 +98,11 @@ trait DBInternals
     }
 
     /**
-     * Wrapper for {@see Connection::escapef()}
+     * Wrapper for {@see Connection::escapef()}. Puts values into SQL that's built
+     * as text: each `?` becomes its value, quoted and escaped by type. Use the
+     * query methods' own placeholders wherever they can go.
      *
-     * @internal
+     *     $where = DB::escapef("`tableName` = ? AND `recordNum` IN (?)", 'products', [12, 15]);
      */
     public static function escapef(string $format, mixed ...$values): string
     {

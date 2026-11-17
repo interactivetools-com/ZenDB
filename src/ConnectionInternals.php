@@ -856,23 +856,27 @@ trait ConnectionInternals
     //region Escape Methods
 
     /**
-     * Internal use, undocumented by design. Use placeholders instead; they're
-     * safer unless you know exactly what you're doing.
+     * Escapes a value to go inside a quoted string in SQL that's built as text.
+     * The quotes aren't added.
      *
-     * Escape a string for safe inclusion in raw SQL.
+     * Use a placeholder wherever one can go; a value passed as a placeholder needs
+     * no escaping. This is for SQL that can't take one, such as a query saved as a
+     * text template.
      *
-     * With $escapeLikeWildcards, the result is built for a LIKE pattern: the whole
-     * value matches as literal text, and nothing in it acts as a wildcard. To get
-     * that, % _ and \ are escaped before the SQL escape, because MySQL decodes a
-     * pattern twice (string parser first, then LIKE). The like*() helpers wrap
-     * this; reach for them first.
+     *     $sql = "SELECT * FROM `users` WHERE `name` = '" . DB::escape($name) . "'";
+     *     $sql = "`name` LIKE '%" . DB::escape($search, true) . "%'";  // $search matches as literal text, even "50%"
      *
-     *     $sql = "name LIKE '%" . $this->escape($search, true) . "%'";  // $search matches literally, even "50%"
+     * The result is only safe between quotes. Printed outside quotes, as a number
+     * or a column name, it isn't escaped for that.
      *
-     * @internal
+     * With `$escapeLikeWildcards`, `%`, `_` and `\` are escaped before the SQL
+     * escape, because MySQL decodes a LIKE pattern twice (the string parser, then
+     * LIKE). Nothing in the value then acts as a wildcard. The like*() helpers do
+     * this for you.
+     *
      * @param string|int|float|null|SmartString $input               Value to escape
      * @param bool                              $escapeLikeWildcards Make the value match as literal text in a LIKE pattern (escapes %, _, and \)
-     * @return string Escaped string (without quotes)
+     * @return string Escaped value, without quotes
      */
     public function escape(string|int|float|null|SmartString $input, bool $escapeLikeWildcards = false): string
     {
@@ -899,16 +903,34 @@ trait ConnectionInternals
     }
 
     /**
-     * Internal use, undocumented by design. Use placeholders instead; they're
-     * safer unless you know exactly what you're doing.
+     * Puts values into SQL that's built as text: each `?` in `$format` becomes its
+     * value, quoted and escaped by type. Returns the finished SQL.
      *
-     * Escapes and quotes values, inserting them into a format string with ? placeholders.
+     * Use the query methods' own placeholders wherever they can go. This is for SQL
+     * that's built in pieces, or run outside those methods.
      *
-     * @internal
-     * @param string $format    Format string with ? placeholders
-     * @param mixed  ...$values Values to escape and insert
-     * @return string SQL-safe string
-     * @throws InvalidArgumentException
+     *     $where = DB::escapef("`tableName` = ? AND `recordNum` IN (?)", 'products', [12, 15]);
+     *     // `tableName` = 'products' AND `recordNum` IN (12,15)
+     *
+     * What each value becomes:
+     *
+     *     "O'Brien"            →  'O\'Brien'  // a string is quoted and escaped, so don't put quotes around its ?
+     *     12                   →  12
+     *     1.5                  →  1.5         // a float keeps its exact value
+     *     null                 →  NULL
+     *     true                 →  TRUE
+     *     [1, 2, 3]            →  1,2,3       // an array or SmartArray, for IN (?): NULLs are skipped, duplicates removed, and an empty one matches no rows
+     *     DB::rawSql('NOW()')  →  NOW()       // used as written, not escaped
+     *
+     * A SmartString is unwrapped first. Any other type throws.
+     *
+     * Every `?` in `$format` counts, including one inside a quoted string, so the
+     * number of `?` has to match the number of values.
+     *
+     * @param string $format    SQL with a `?` for each value
+     * @param mixed  ...$values Values to put in, in order
+     * @return string The SQL with every value in place
+     * @throws InvalidArgumentException When the `?` count doesn't match the value count, or a value's type isn't supported
      */
     public function escapef(string $format, mixed ...$values): string
     {

@@ -258,9 +258,18 @@ The docs deliberately omit these; the omission is a decision, not a gap:
   (loadHandler is CMS Builder plumbing); undocumented keeps the signatures
   changeable. The PII note (logged SQL contains inlined user values) is in
   the queryLogger docblocks.
-- **`escape()`, `escapef()`, `escapeCSV()`, `whereSql()`** - `@internal`, exist so ZenDB and
+- **`escapeCSV()`, `whereSql()`** - `@internal`, exist so ZenDB and
   CMS Builder can build their own SQL; placeholders and WHERE arrays are the supported API.
   Docblocks open with "Internal use, undocumented by design."
+- **`escape()`, `escapef()`** - supported, not `@internal` (2026-11). CMS Builder's
+  field editor shows `escape()` to site developers for list options queries, which
+  are saved as text templates and can't take a placeholder, and CMS Builder code
+  calls `escapef()` for SQL built in pieces, so their names and behavior have to
+  stay. Each docblock says to use a placeholder wherever one can go; `escape()`'s
+  says the result is only safe between quotes, and `escapef()`'s lists what each
+  value type becomes. `ai-reference.md` gives them one paragraph with no code
+  example, so the reference doesn't show SQL built by joining strings. The guide
+  pages still leave them out.
 - **RawSql as the WHERE argument** - `select()`, `selectOne()`, `update()`,
   `delete()`, and `count()` accept a `RawSql` object as `$whereEtc` (2026-09).
   The SQL is used as written: no template check, no placeholder replacement,
