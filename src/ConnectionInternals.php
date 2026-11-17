@@ -541,20 +541,24 @@ trait ConnectionInternals
      */
     private function whereFromArgs(int|array|string|RawSql $where): string
     {
-        // Record numbers as the WHERE argument are deprecated; numeric strings (usually an
-        // uncast query value) work like ints but always log a warning. Both will throw in a future release.
+        // A record number as the WHERE argument is deprecated and has to be an int. A numeric string throws,
+        // so a request value passed in without a cast fails the first time the code runs.
         if (is_string($where) && preg_match('/^\s*\d+\s*$/', $where)) {
-            DB::logWarning("Numeric string `$where` used as record number, cast to int: (int) \$value or use array syntax: ['num' => $where]");
-            $where = (int)$where;
-        } elseif (is_int($where)) {
-            DB::logDeprecation("Numeric WHERE is deprecated, use array syntax instead: ['num' => $where]");
+            $number = trim($where);
+            throw new InvalidArgumentException("Numeric string `$number` used as record number. Cast it to int: (int) \$value, or use array syntax with the primary key column, e.g. ['num' => $number]");
+        }
+        if (is_int($where)) {
+            DB::logDeprecation("Numeric WHERE is deprecated, use array syntax with the primary key column instead, e.g. ['num' => $where]");
         }
 
+        // `_rowid` is the server's name for a table's primary key when that key is one integer column, so a
+        // record number finds the row whether the key is named `num`, `id` or anything else. A table with no
+        // such key gets "Unknown column '_rowid'". Details: docs/internal/rowid-matrix.md
         return match (true) {
             is_string($where)        => $this->whereFromString($where),
             is_array($where)         => $where ? "WHERE {$this->whereSql($where)}" : '',
             $where instanceof RawSql => $this->whereFromRawSql($where),
-            is_int($where)           => "WHERE `num` = $where",  // Deprecated - hardcoded for CMS Builder
+            is_int($where)           => "WHERE `_rowid` = $where",  // Deprecated
         };
     }
 

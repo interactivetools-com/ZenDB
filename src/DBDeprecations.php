@@ -195,9 +195,8 @@ trait DBDeprecations
      * Log a warning with caller location.
      *
      * Same delivery as logDeprecation() but at E_USER_WARNING, for deprecated
-     * forms that usually signal a hidden bug (e.g. a query value used as a
-     * record number without a cast). Error handlers that filter out deprecation
-     * notices still receive warnings.
+     * forms that usually signal a hidden bug. Error handlers that filter out
+     * deprecation notices still receive warnings.
      *
      * @param string $message Warning message (caller file:line will be appended)
      * @internal

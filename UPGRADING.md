@@ -20,6 +20,44 @@ Full lists of what changed per release: [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
+## v1.1.1
+
+*Follow this section when upgrading from ZenDB before v1.1.1
+(or CMS Builder 4.0.0 or earlier).*
+
+### New errors
+
+> - A record number passed as a string throws "Numeric string `5` used as
+>   record number". v1.0.0 and v1.1.0 ran it and logged a warning; earlier
+>   versions threw. Request values are always strings, so cast them or
+>   use array syntax:
+>
+>   ```php
+>   DB::select('users', $_GET['num']);             // throws
+>   DB::select('users', (int)$_GET['num']);        // works, logs a deprecation notice
+>   DB::select('users', ['num' => $_GET['num']]);  // current form, nothing logged
+>   ```
+>
+>   Search: no pattern finds these, since the value is in a variable. On a
+>   site running v1.0.0 or v1.1.0, each affected call has logged a warning
+>   that starts "Numeric string" and names your file and line.
+
+### Silent changes
+
+> - A record number as the WHERE argument - `DB::select('users', 5)` -
+>   matches the table's primary key whatever its name. It used to match a
+>   column named `num`. Nothing changes for a table whose primary key is
+>   one integer column named `num`. On any other table:
+>
+>   ```php
+>   DB::select('orders', 5);   // primary key `id`: used to throw "Unknown column 'num'", now finds the row
+>   DB::select('prices', 5);   // primary key `id` plus a `num` column: used to match `num`, now matches `id`
+>   DB::select('codes', 5);    // no primary key that is one integer column: throws "Unknown column '_rowid'"
+>   ```
+>
+>   Fix: name the column, `['num' => 5]`. The form is deprecated and each
+>   call logs "Numeric WHERE is deprecated" with your file and line.
+
 ## v1.1.0
 
 *Follow this section when upgrading from ZenDB before v1.1.0
@@ -207,7 +245,10 @@ Full lists of what changed per release: [CHANGELOG.md](CHANGELOG.md).
 >   throw in a future release.
 > - `escape()`, `escapef()`, and `escapeCSV()` are marked `@internal` (IDEs
 >   flag them); placeholders are the supported API. No runtime change.
-> - Record numbers as the WHERE argument - `DB::select('users', 5)` - use
+> - **Superseded in v1.1.1** (see [v1.1.1](#v111)): `'5'` throws again,
+>   and `5` matches the primary key whatever its name.
+>
+>   Record numbers as the WHERE argument - `DB::select('users', 5)` - use
 >   `['num' => 5]` instead. `5` and `'5'` both run as `['num' => 5]` and log:
 >
 >   ```php

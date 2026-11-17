@@ -2,6 +2,18 @@
 
 > **Upgrading?** See [UPGRADING.md](UPGRADING.md) for the checks that matter, per version - tagged releases roll up every change since the previous tag. Versions bundled with CMS Builder are marked on their sections.
 
+## [1.1.1] - 2026-11-16
+
+A record number passed as a string throws again, as it did before 1.0.0, and a record number finds its row on a table whose primary key isn't named `num`. The checks for code written against 1.1.0 are in [UPGRADING.md](UPGRADING.md).
+
+### Fixed
+
+- **A record number passed as a string throws again** - `DB::select('users', '5')` throws `InvalidArgumentException`, as it did before 1.0.0. Cast the value, `(int)$num`, or use `['num' => $num]`. See [UPGRADING.md](UPGRADING.md)
+
+### Changed
+
+- **Record numbers as the WHERE argument work with any primary key name** - `DB::select('users', 5)` matches the table's primary key whatever its name, not only `num`. Still deprecated; use `['num' => 5]`. See [UPGRADING.md](UPGRADING.md)
+
 ## [1.1.0] - 2026-11-12
 
 > **Bundled with CMS Builder v4.0.0**

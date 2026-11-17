@@ -116,4 +116,26 @@ class DeprecationLoggerTest extends BaseTestCase
         $this->assertStringContainsString("Custom deprecation", self::$capturedErrors[0]);
         $this->assertStringContainsString("newMethod()", self::$capturedErrors[0]);
     }
+
+    public function testLogWarningTriggersUserWarningWithCallerLocation(): void
+    {
+        $warnings = [];
+        set_error_handler(static function (int $errno, string $errstr) use (&$warnings): bool {
+            $warnings[] = [$errno, $errstr];
+            return true;
+        });
+
+        try {
+            DB::logWarning("Test warning message");
+        } finally {
+            restore_error_handler();
+        }
+
+        $this->assertCount(1, $warnings);
+        [$errno, $message] = $warnings[0];
+        $this->assertSame(E_USER_WARNING, $errno);
+        $this->assertStringContainsString("Test warning message", $message);
+        $this->assertStringContainsString('DeprecationLoggerTest.php', $message);
+        $this->assertCount(0, self::$capturedErrors);
+    }
 }

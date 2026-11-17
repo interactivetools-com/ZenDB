@@ -123,84 +123,132 @@ class NumericWhereDeprecationTest extends BaseTestCase
     //endregion
     //region Numeric String WHERE
 
-    public function testNumericStringWarnsAndWorks(): void
+    public function testNumericStringThrows(): void
     {
-        $result = @DB::select('users', '5');
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage("Numeric string `5` used as record number");
 
-        $this->assertCount(1, self::$warnings);
-        $this->assertStringContainsString("Numeric string `5`", self::$warnings[0]);
-        $this->assertCount(1, $result);
-        $this->assertSame('Charlie Brown', $result->first()->get('name')->value());
+        DB::select('users', '5');
     }
 
-    public function testNumericStringWithSpacesWarnsAndWorks(): void
+    public function testNumericStringWithSpacesThrows(): void
     {
-        $result = @DB::select('users', '  5  ');
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage("Numeric string `5` used as record number");
 
-        $this->assertCount(1, self::$warnings);
-        $this->assertCount(1, $result);
-        $this->assertSame('Charlie Brown', $result->first()->get('name')->value());
+        DB::select('users', '  5  ');
     }
 
-    public function testNumericStringInSelectOneWarnsAndWorks(): void
+    public function testNumericStringInSelectOneThrows(): void
     {
-        $result = @DB::selectOne('users', '5');
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage("Numeric string `5` used as record number");
 
-        $this->assertCount(1, self::$warnings);
-        $this->assertFalse($result->isEmpty());
-        $this->assertSame('Charlie Brown', $result->get('name')->value());
+        DB::selectOne('users', '5');
     }
 
-    public function testNumericStringInCountWarnsAndWorks(): void
+    public function testNumericStringInCountThrows(): void
     {
-        $count = @DB::count('users', '1');
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage("Numeric string `1` used as record number");
 
-        $this->assertSame(1, $count);
-        $this->assertCount(1, self::$warnings);
+        DB::count('users', '1');
     }
 
-    public function testNumericStringInUpdateWarnsAndWorks(): void
+    public function testNumericStringInUpdateThrowsAndChangesNothing(): void
     {
         self::resetTestTables();
 
-        @DB::update('users', ['city' => 'String Where City'], '1');
+        try {
+            DB::update('users', ['city' => 'String Where City'], '1');
+            $this->fail('Expected InvalidArgumentException for a numeric string');
+        } catch (\InvalidArgumentException $e) {
+            $this->assertStringContainsString('Numeric string `1`', $e->getMessage());
+        }
 
-        $this->assertStringContainsString('Numeric string', implode("\n", self::$warnings));
-
-        // Verify update worked
-        $row = DB::selectOne('users', ['num' => 1]);
-        $this->assertSame('String Where City', $row->get('city')->value());
+        $this->assertSame(0, DB::count('users', ['city' => 'String Where City']));
     }
 
-    public function testNumericStringInDeleteWarnsAndWorks(): void
+    public function testNumericStringInDeleteThrowsAndDeletesNothing(): void
     {
-        // Insert a row to delete
-        $insertId = DB::insert('users', ['name' => 'To Delete Str', 'status' => 'Active', 'city' => 'Test']);
+        self::resetTestTables();
+        $rowsBefore = DB::count('users');
 
-        self::$warnings = [];
-        @DB::delete('users', (string)$insertId);
+        try {
+            DB::delete('users', '1');
+            $this->fail('Expected InvalidArgumentException for a numeric string');
+        } catch (\InvalidArgumentException $e) {
+            $this->assertStringContainsString('Numeric string `1`', $e->getMessage());
+        }
 
-        $this->assertStringContainsString('Numeric string', implode("\n", self::$warnings));
-
-        // Verify delete worked
-        $result = DB::selectOne('users', ['num' => $insertId]);
-        $this->assertTrue($result->isEmpty());
+        $this->assertSame($rowsBefore, DB::count('users'));
     }
 
-    public function testNumericStringWarningSuggestsCastAndArraySyntax(): void
+    public function testNumericStringErrorSuggestsCastAndArraySyntax(): void
     {
-        @DB::select('users', '5');
-
-        $this->assertCount(1, self::$warnings);
-        $this->assertStringContainsString('(int)', self::$warnings[0]);
-        $this->assertStringContainsString('array syntax', self::$warnings[0]);
-    }
-
-    public function testNumericStringDoesNotAlsoLogDeprecation(): void
-    {
-        @DB::select('users', '5');
+        try {
+            DB::select('users', '5');
+            $this->fail('Expected InvalidArgumentException for a numeric string');
+        } catch (\InvalidArgumentException $e) {
+            $this->assertStringContainsString('(int)', $e->getMessage());
+            $this->assertStringContainsString('array syntax', $e->getMessage());
+        }
 
         $this->assertCount(0, self::$deprecations);
+        $this->assertCount(0, self::$warnings);
+    }
+
+    //endregion
+    //region Primary Key Not Named num
+
+    public function testIntegerWhereOnTableKeyedById(): void
+    {
+        $row = @DB::selectOne('employees', 2);
+
+        $this->assertSame('VP Engineering', $row->name->value());
+    }
+
+    public function testIntegerWhereOnTableKeyedByOrderId(): void
+    {
+        $row = @DB::selectOne('orders', 3);
+
+        $this->assertSame('2023-08-15', $row->order_date->value());
+    }
+
+    public function testIntegerWhereInUpdateOnTableKeyedById(): void
+    {
+        self::resetTestTables();
+
+        $changed = @DB::update('employees', ['department' => 'Int Where Dept'], 4);
+
+        $this->assertSame(1, $changed);
+        $this->assertSame('Int Where Dept', DB::selectOne('employees', ['id' => 4])->department->value());
+        $this->assertSame(1, DB::count('employees', ['department' => 'Int Where Dept']));
+    }
+
+    public function testIntegerWhereInDeleteOnTableKeyedById(): void
+    {
+        self::resetTestTables();
+
+        $deleted = @DB::delete('employees', 6);
+
+        $this->assertSame(1, $deleted);
+        $this->assertTrue(DB::selectOne('employees', ['id' => 6])->isEmpty());
+        $this->assertSame(5, DB::count('employees'));
+    }
+
+    public function testIntegerWhereOnTableWithoutIntegerKeyThrows(): void
+    {
+        DB::$mysqli->query("CREATE TEMPORARY TABLE test_rowid_none (code VARCHAR(10) PRIMARY KEY, title VARCHAR(50))");
+
+        try {
+            @DB::selectOne('rowid_none', 1);
+            $this->fail('Expected the server to refuse `_rowid` on a table with no integer key');
+        } catch (\mysqli_sql_exception $e) {
+            $this->assertStringContainsString("Unknown column '_rowid'", $e->getMessage());
+        } finally {
+            DB::$mysqli->query("DROP TEMPORARY TABLE test_rowid_none");
+        }
     }
 
     //endregion
