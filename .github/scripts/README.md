@@ -56,6 +56,23 @@ ways, as plain queries and as prepared statements.
   test), or with `--merge` turn the JSON files into one grid of every check on
   every server
 
+**Collation matrix** (`collation-matrix.yml`) - compares the utf8mb4 collations
+(`general_ci`, `unicode_ci`, `unicode_520_ci`, `0900_ai_ci`, `uca1400_ai_ci`,
+and `bin` as the floor) on every database image: which ones each server has,
+which one a `CHARSET=utf8mb4` table gets and which query reports that, what
+`ALTER TABLE ... CONVERT` does and which algorithm it uses, which statements fail
+between two collations and which rewrite fixes them, and which values compare
+equal. Then times 23 statements on one table per collation (a CMS list page
+sorted by title among them; 100,000 rows unless the `rows` input says
+otherwise), and converting a table. A second job upgrades MySQL 5.7 to 8.0 and
+MariaDB 10.11 to 11.8 on one data directory. Results go in
+[docs/internal/collation-matrix.md](../../docs/internal/collation-matrix.md).
+
+- `collation-probe.php` - probe one server and write JSON (`--bench` adds the
+  speed test), or with `--merge` turn the JSON files into one report. Several
+  files for one server are read as several runs: the checks are compared and the
+  speed numbers are the median of the runs
+
 **Connect charset matrix** (`connect-charset-matrix.yml`) - checks what
 `Connection::openConnection()` sends to set the connection charset and the
 session it leaves, on every database image and PHP version, with each image

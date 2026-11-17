@@ -1,0 +1,234 @@
+name: Collation Matrix
+
+# Compares the utf8mb4 collations on every database in the matrix: which ones each server
+# has, which one a new table gets, how fast each one sorts and searches, what converting a
+# table costs, what fails between two collations, and which values compare equal.
+# Manual-only. Dispatch with: gh workflow run collation-matrix.yml --ref <branch>
+# To check images outside the matrix: gh workflow run collation-matrix.yml -f databases="mariadb:12.0 mysql:8.3"
+# A larger speed test on a few servers: gh workflow run collation-matrix.yml -f rows=1000000 -f databases="mysql:8.4 mariadb:11.8"
+on:
+  workflow_dispatch:
+    inputs:
+      databases:
+        description: 'Docker images to probe, space-separated (blank = .github/db-matrix.json)'
+        required: false
+        type: string
+      rows:
+        description: 'Rows in each speed-test table'
+        required: false
+        default: '100000'
+        type: string
+      passes:
+        description: 'Timed passes for each statement'
+        required: false
+        default: '5'
+        type: string
+      server_options:
+        description: 'Options the database server starts with. 1,000,000 rows need about --innodb-buffer-pool-size=8G --skip-log-bin'
+        required: false
+        default: '--innodb-buffer-pool-size=3G'
+        type: string
+
+# the jobs only read the code
+permissions:
+  contents: read
+
+jobs:
+  db-matrix:
+    name: Load database matrix
+    runs-on: ubuntu-slim  # starts faster; has no PHP or Docker
+    timeout-minutes: 15
+    outputs:
+      databases: ${{ steps.load.outputs.databases }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false  # no step uses git with the token, so don't leave it in .git/config
+
+      - name: Read the databases input or .github/db-matrix.json
+        id: load
+        env:
+          DATABASES: ${{ inputs.databases }}  # free-form text: passed as an env var so the shell gets it as data
+        run: |
+          if [ -n "$DATABASES" ]; then
+            echo "databases=$(jq -cn --arg list "$DATABASES" '$list | split(" ") | map(select(. != ""))')" >> "$GITHUB_OUTPUT"
+          else
+            echo "databases=$(jq -c . .github/db-matrix.json)" >> "$GITHUB_OUTPUT"
+          fi
+
+  probe:
+    name: ${{ matrix.database }}
+    runs-on: ubuntu-latest
+    needs: db-matrix
+    timeout-minutes: 120  # about 5 minutes with 100,000 rows; the limit is for a 1,000,000-row run
+
+    strategy:
+      fail-fast: false
+      matrix:
+        database: ${{ fromJSON(needs.db-matrix.outputs.databases) }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false  # no step uses git with the token, so don't leave it in .git/config
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
+        timeout-minutes: 5  # takes under 3 min; setup-php can hang on macOS
+        with:
+          php-version: '8.1'
+          extensions: mysqli, mbstring
+          coverage: none
+
+      # Started by hand, not as a service, so the server can take an option: a service
+      # container has no way to pass one. With the default 128 MB buffer pool the tables of
+      # one collation push the last one's out of memory, and the speed test times the disk
+      - name: Start database
+        env:
+          IMAGE: ${{ matrix.database }}
+          SERVER_OPTIONS: ${{ inputs.server_options || '--innodb-buffer-pool-size=3G' }}
+        run: |
+          # $SERVER_OPTIONS is unquoted on purpose: it holds several options
+          docker run -d --name database -p 3306:3306 --security-opt seccomp=unconfined \
+            -e MYSQL_ALLOW_EMPTY_PASSWORD=yes -e MYSQL_ROOT_HOST=% \
+            -e MARIADB_ALLOW_EMPTY_ROOT_PASSWORD=yes -e MARIADB_ROOT_HOST=% \
+            "$IMAGE" $SERVER_OPTIONS
+          for i in $(seq 1 120); do
+            mysqladmin ping -h 127.0.0.1 -u root --silent 2>/dev/null && break
+            sleep 1
+          done
+          mysqladmin ping -h 127.0.0.1 -u root || { docker logs database; exit 1; }
+
+      - name: Run probe
+        env:
+          DB_HOSTNAME: 127.0.0.1
+          DB_USERNAME: root
+          DB_PASSWORD: ''
+          DB_LABEL: ${{ matrix.database }}
+          ROWS: ${{ inputs.rows || '100000' }}
+          PASSES: ${{ inputs.passes || '5' }}
+        run: |
+          SLUG=$(echo "$DB_LABEL" | tr ':/' '--')
+          echo "SLUG=$SLUG" >> "$GITHUB_ENV"
+          # The lines of the image's own config files that set a charset or collation, without comments
+          export SERVER_CONFIG="$(docker exec database sh -c 'grep -rhiE "^[^#;]*(character|collation)" /etc/mysql /etc/my.cnf /etc/my.cnf.d 2>/dev/null | sort -u' || true)"
+          php .github/scripts/collation-probe.php --bench --rows="$ROWS" --passes="$PASSES" --json="collation-probe-$SLUG.json"
+
+      - name: Upload probe results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: collation-probe-${{ env.SLUG }}
+          path: collation-probe-*.json
+          if-no-files-found: ignore
+
+  # A server upgrade across a change of default collation: create tables on the old version,
+  # start the new version on the same data directory, and see which collation the old tables
+  # have and which one a new table gets
+  upgrade:
+    name: Upgrade ${{ matrix.from }} to ${{ matrix.to }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { from: 'mysql:5.7',     to: 'mysql:8.0' }
+          - { from: 'mariadb:10.11', to: 'mariadb:11.8' }
+
+    steps:
+      - name: Create tables on the old version, then start the new version on the same data
+        env:
+          FROM: ${{ matrix.from }}
+          TO: ${{ matrix.to }}
+        run: |
+          start() {
+            docker run -d --name database -p 3306:3306 -v upgrade-data:/var/lib/mysql \
+              -e MYSQL_ALLOW_EMPTY_PASSWORD=yes -e MYSQL_ROOT_HOST=% \
+              -e MARIADB_ALLOW_EMPTY_ROOT_PASSWORD=yes -e MARIADB_ROOT_HOST=% -e MARIADB_AUTO_UPGRADE=1 "$1" >/dev/null
+            for i in $(seq 1 180); do
+              mysql -h 127.0.0.1 -u root -e "SELECT 1" >/dev/null 2>&1 && return
+              sleep 1
+            done
+            docker logs database
+            exit 1
+          }
+          sql() {
+            echo; echo "    mysql> $1"; echo
+            mysql -h 127.0.0.1 -u root --table --force -e "$1" 2>&1 | sed 's/^/    /'
+          }
+          collations="SELECT TABLE_NAME, COLUMN_NAME, COLLATION_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = 'up' AND COLUMN_NAME = 'title' ORDER BY TABLE_NAME"
+          docker volume create upgrade-data
+          {
+            echo "## Upgrade $FROM to $TO"; echo
+            echo "On $FROM:"
+            start "$FROM"
+            sql "SELECT VERSION()"
+            sql "CREATE DATABASE up CHARACTER SET utf8mb4"
+            sql "CREATE TABLE up.old_default (num INT AUTO_INCREMENT PRIMARY KEY, title VARCHAR(100) NOT NULL, KEY title (title)) ENGINE=InnoDB CHARSET=utf8mb4"
+            sql "CREATE TABLE up.old_unicode (num INT AUTO_INCREMENT PRIMARY KEY, title VARCHAR(100) NOT NULL, KEY title (title)) ENGINE=InnoDB CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+            sql "INSERT INTO up.old_default (title) VALUES ('apple'), ('Banana'), ('cherry'), ('ß'), ('ss'); INSERT INTO up.old_unicode (title) SELECT title FROM up.old_default"
+            sql "$collations"
+            sql "SELECT SCHEMA_NAME, DEFAULT_COLLATION_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME = 'up'"
+            docker stop -t 120 database >/dev/null && docker rm database >/dev/null
+            echo; echo "On $TO, same data directory:"
+            start "$TO"
+            sql "SELECT VERSION()"
+            sql "$collations"
+            sql "SELECT SCHEMA_NAME, DEFAULT_COLLATION_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME = 'up'"
+            sql "CREATE TABLE up.new_charset_only (num INT AUTO_INCREMENT PRIMARY KEY, title VARCHAR(100) NOT NULL, KEY title (title)) ENGINE=InnoDB CHARSET=utf8mb4"
+            sql "CREATE TABLE up.new_no_charset (num INT AUTO_INCREMENT PRIMARY KEY, title VARCHAR(100) NOT NULL, KEY title (title)) ENGINE=InnoDB"
+            sql "ALTER TABLE up.old_default ADD COLUMN added VARCHAR(100)"
+            sql "SELECT TABLE_NAME, COLUMN_NAME, COLLATION_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = 'up' AND COLLATION_NAME IS NOT NULL ORDER BY TABLE_NAME, COLUMN_NAME"
+            sql "INSERT INTO up.new_charset_only (title) SELECT title FROM up.old_default"
+            sql "SELECT title FROM up.old_default UNION SELECT title FROM up.new_charset_only"
+            sql "SELECT title FROM up.old_default UNION SELECT title FROM up.old_unicode"
+            sql "SELECT title FROM up.old_default WHERE title = 'banana'"
+            sql "CHECK TABLE up.old_default FOR UPGRADE"
+            sql "CHECK TABLE up.old_unicode FOR UPGRADE"
+          } > collation-upgrade.md
+          cat collation-upgrade.md >> "$GITHUB_STEP_SUMMARY"
+          echo "SLUG=$(echo "$FROM" | tr ':/' '--')" >> "$GITHUB_ENV"
+
+      - name: Upload result
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: collation-upgrade-${{ env.SLUG }}
+          path: collation-upgrade.md
+          if-no-files-found: ignore
+
+  summary:
+    name: Compare servers
+    runs-on: ubuntu-latest
+    needs: probe
+    timeout-minutes: 15
+    if: ${{ !cancelled() }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false  # no step uses git with the token, so don't leave it in .git/config
+
+      - name: Download probe results
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: collation-probe-*
+          merge-multiple: true
+          path: probes
+
+      # The full report is larger than the 1 MB a step summary holds, so the summary gets the first part
+      - name: Build comparison
+        run: |
+          php .github/scripts/collation-probe.php --merge probes/*.json > collation-matrix.md
+          head -c 900000 collation-matrix.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload comparison
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: collation-matrix
+          path: collation-matrix.md
