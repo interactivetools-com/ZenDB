@@ -28,6 +28,14 @@ on:
         required: false
         default: '--innodb-buffer-pool-size=3G'
         type: string
+      only:
+        description: 'Regex: time only the statements whose name matches, and skip the convert (blank = all)'
+        required: false
+        type: string
+      titles:
+        description: 'Titles for the speed test: blank = generated, wikipedia = English Wikipedia article titles in plain ASCII'
+        required: false
+        type: string
 
 # the jobs only read the code
 permissions:
@@ -101,6 +109,19 @@ jobs:
           done
           mysqladmin ping -h 127.0.0.1 -u root || { docker logs database; exit 1; }
 
+      # Real titles: a random sample of English Wikipedia article titles, the ones in plain ASCII
+      # (letters, digits, spaces and punctuation), with the dump's underscores turned back into spaces
+      - name: Download titles
+        if: ${{ inputs.titles == 'wikipedia' }}
+        env:
+          ROWS: ${{ inputs.rows || '100000' }}
+        run: |
+          curl -sSfL -A "collation-benchmark/1.0" -o titles.gz https://dumps.wikimedia.org/enwiki/latest/enwiki-latest-all-titles-in-ns0.gz
+          gunzip -c titles.gz | tail -n +2 | LC_ALL=C grep -E '^[ -~]+$' | tr '_' ' ' \
+            | shuf -n "$ROWS" --random-source=<(yes) > english-wikipedia-titles.txt
+          wc -l english-wikipedia-titles.txt
+          head -5 english-wikipedia-titles.txt
+
       - name: Run probe
         env:
           DB_HOSTNAME: 127.0.0.1
@@ -109,12 +130,14 @@ jobs:
           DB_LABEL: ${{ matrix.database }}
           ROWS: ${{ inputs.rows || '100000' }}
           PASSES: ${{ inputs.passes || '5' }}
+          ONLY: ${{ inputs.only }}
+          TITLES: ${{ inputs.titles == 'wikipedia' && 'english-wikipedia-titles.txt' || '' }}
         run: |
           SLUG=$(echo "$DB_LABEL" | tr ':/' '--')
           echo "SLUG=$SLUG" >> "$GITHUB_ENV"
           # The lines of the image's own config files that set a charset or collation, without comments
           export SERVER_CONFIG="$(docker exec database sh -c 'grep -rhiE "^[^#;]*(character|collation)" /etc/mysql /etc/my.cnf /etc/my.cnf.d 2>/dev/null | sort -u' || true)"
-          php .github/scripts/collation-probe.php --bench --rows="$ROWS" --passes="$PASSES" --json="collation-probe-$SLUG.json"
+          php .github/scripts/collation-probe.php --bench --rows="$ROWS" --passes="$PASSES" ${ONLY:+--only="$ONLY"} ${TITLES:+--titles="$TITLES"} --json="collation-probe-$SLUG.json"
 
       - name: Upload probe results
         if: always()

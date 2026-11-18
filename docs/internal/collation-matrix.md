@@ -6,9 +6,17 @@ The utf8mb4 collations on every supported database server: which ones each serve
     gh run download --dir probes           # pick the latest Collation Matrix run
     php .github/scripts/collation-probe.php --merge probes/*/collation-probe-*.json > docs/internal/collation-matrix.md
 
-Last generated: 2026-11-17 from 19 servers, 6 run(s) of each. Generated file - don't hand-edit. The "Verdicts" and "Findings" sections below are maintained in the heredoc in .github/scripts/collation-probe.php; edit them there.
+Last generated: 2026-11-17 from 19 servers, 6 to 9 run(s) of each. Generated file - don't hand-edit. The "Summary", "Verdicts" and "Findings" sections below are maintained in heredocs in .github/scripts/collation-probe.php; edit them there.
 
 Servers: mysql:5.7 (5.7.44), mysql:8.0 (8.0.46), mysql:8.4 (8.4.13), mysql:9.6 (9.6.0), mysql:9.7 (9.7.4), mariadb:10.2 (10.2.44-MariaDB-1:10.2.44+maria~bionic), mariadb:10.2.6 (10.2.6-MariaDB-10.2.6+maria~jessie), mariadb:10.2.7 (10.2.7-MariaDB-10.2.7+maria~jessie), mariadb:10.3 (10.3.39-MariaDB-1:10.3.39+maria~ubu2004), mariadb:10.4 (10.4.34-MariaDB-1:10.4.34+maria~ubu2004), mariadb:10.5 (10.5.29-MariaDB-ubu2004), mariadb:10.6 (10.6.28-MariaDB-ubu2204), mariadb:10.11 (10.11.19-MariaDB-ubu2204), mariadb:11.4 (11.4.13-MariaDB-ubu2404), mariadb:11.8 (11.8.9-MariaDB-ubu2404), mariadb:12.3 (12.3.3-MariaDB-ubu2404), percona/percona-server:5.7 (5.7.44-48), percona/percona-server:8.0 (8.0.46-37), percona/percona-server:8.4 (8.4.11-12)
+
+## Summary
+
+- Fastest for sorting a large table by a text column: `utf8mb4_0900_ai_ci` on MySQL and Percona 8.0+, and `utf8mb4_general_ci` on MySQL 5.7 and every MariaDB. That is the server default except on MariaDB 11.4+, where the default `utf8mb4_uca1400_ai_ci` sorts a 1,000,000-row `MEDIUMTEXT` column about 8x slower than `utf8mb4_general_ci`
+- `utf8mb4_unicode_ci`, while it is supported everywhere, is never the fastest. At 1,000,000 rows it sorts a `MEDIUMTEXT` column 6 to 8x slower than the fastest collation on every server tested; on a 10,000-row table a list page differs by about 2 ms between any two collations
+- A prefix index on a `MEDIUMTEXT` column, such as `(768)`, is never used for ORDER BY, so a list sorted by a `MEDIUMTEXT` column sorts the whole table
+- The large differences come from sorts that don't fit in `sort_buffer_size` and go to temp files; with more sort memory they mostly go away
+- Two collations in one UNION or JOIN fail with error 1271 or 1267; "Verdicts" compares the ways back to one collation
 
 ## Fastest collation at 1,000,000 rows
 
@@ -18,21 +26,21 @@ Milliseconds per statement on a 1,000,000-row table, one table per collation wit
 
 | Server | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | Fastest |
 |---|---|---|---|---|---|---|
-| mysql:5.7 | 472 (default) | 704 | 701 |  |  | general_ci |
-| mysql:8.0 | 664 | 913 | 943 | 638 (default) |  | general_ci, 0900_ai_ci |
-| mysql:8.4 | 492 | 572 | 584 | 459 (default) |  | 0900_ai_ci |
+| mysql:5.7 | 536 (default) | 802 | 801 |  |  | general_ci |
+| mysql:8.0 | 656 | 911 | 927 | 642 (default) |  | general_ci, 0900_ai_ci |
+| mysql:8.4 | 632 | 736 | 749 | 591 (default) |  | 0900_ai_ci |
 | mysql:9.6 | 733 | 972 | 977 | 700 (default) |  | general_ci, 0900_ai_ci |
 | mysql:9.7 | 631 | 729 | 732 | 556 (default) |  | 0900_ai_ci |
 | mariadb:10.2 | 515 (default) | 538 | 537 |  |  | general_ci, unicode_ci, unicode_520_ci |
 | mariadb:10.2.6 | 657 (default) | 768 | 774 |  |  | general_ci |
 | mariadb:10.2.7 | 658 (default) | 743 | 756 |  |  | general_ci |
 | mariadb:10.3 | 483 (default) | 470 | 456 |  |  | unicode_ci, unicode_520_ci |
-| mariadb:10.4 | 639 (default) | 485 | 488 |  |  | unicode_ci, unicode_520_ci |
+| mariadb:10.4 | 585 (default) | 449 | 450 |  |  | unicode_ci, unicode_520_ci |
 | mariadb:10.5 | 446 (default) | 356 | 357 |  |  | unicode_ci, unicode_520_ci |
 | mariadb:10.6 | 505 (default) | 465 | 479 |  |  | unicode_ci, unicode_520_ci |
 | mariadb:10.11 | 500 (default) | 560 | 558 |  | 632 | general_ci |
 | mariadb:11.4 | 444 | 493 | 491 | 658 | 550 (default) | general_ci |
-| mariadb:11.8 | 410 | 456 | 452 | 485 | 497 (default) | general_ci |
+| mariadb:11.8 | 440 | 482 | 480 | 523 | 526 (default) | general_ci |
 | mariadb:12.3 | 420 | 456 | 460 | 495 | 499 (default) | general_ci |
 | percona/percona-server:5.7 | 471 (default) | 678 | 676 |  |  | general_ci |
 | percona/percona-server:8.0 | 914 | 1183 | 1185 | 910 (default) |  | general_ci, 0900_ai_ci |
@@ -42,25 +50,115 @@ Milliseconds per statement on a 1,000,000-row table, one table per collation wit
 
 | Server | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | Fastest |
 |---|---|---|---|---|---|---|
-| mysql:5.7 | 2810 (default) | 13825 | 13802 |  |  | general_ci |
-| mysql:8.0 | 1749 | 15061 | 14860 | 874 (default) |  | 0900_ai_ci |
-| mysql:8.4 | 1650 | 14257 | 14515 | 747 (default) |  | 0900_ai_ci |
+| mysql:5.7 | 3394 (default) | 12278 | 12379 |  |  | general_ci |
+| mysql:8.0 | 2343 | 15363 | 15686 | 874 (default) |  | 0900_ai_ci |
+| mysql:8.4 | 3095 | 12122 | 12176 | 846 (default) |  | 0900_ai_ci |
 | mysql:9.6 | 1653 | 14773 | 14810 | 846 (default) |  | 0900_ai_ci |
 | mysql:9.7 | 1880 | 14628 | 14540 | 781 (default) |  | 0900_ai_ci |
 | mariadb:10.2 | 2636 (default) | 9286 | 9143 |  |  | general_ci |
 | mariadb:10.2.6 | 3482 (default) | 8573 | 8788 |  |  | general_ci |
 | mariadb:10.2.7 | 3655 (default) | 8679 | 7808 |  |  | general_ci |
 | mariadb:10.3 | 2226 (default) | 9524 | 9323 |  |  | general_ci |
-| mariadb:10.4 | 3302 (default) | 7907 | 7860 |  |  | general_ci |
+| mariadb:10.4 | 2804 (default) | 9252 | 9345 |  |  | general_ci |
 | mariadb:10.5 | 2539 (default) | 3182 | 3195 |  |  | general_ci |
 | mariadb:10.6 | 3299 (default) | 4322 | 4249 |  |  | general_ci |
 | mariadb:10.11 | 3113 (default) | 3453 | 3338 |  | 3596 | general_ci |
 | mariadb:11.4 | 2679 | 2923 | 2868 | 3073 | 3079 (default) | general_ci |
-| mariadb:11.8 | 2515 | 2738 | 2720 | 2862 | 2775 (default) | general_ci |
+| mariadb:11.8 | 2638 | 2814 | 2812 | 2973 | 2930 (default) | general_ci |
 | mariadb:12.3 | 2632 | 2726 | 2595 | 2918 | 2784 (default) | general_ci, unicode_520_ci |
 | percona/percona-server:5.7 | 2796 (default) | 13744 | 13914 |  |  | general_ci |
 | percona/percona-server:8.0 | 3911 | 9495 | 9054 | 1000 (default) |  | 0900_ai_ci |
 | percona/percona-server:8.4 | 7350 | 16567 | 16708 | 807 (default) |  | 0900_ai_ci |
+
+**Sorting every row again, after `SET SESSION sort_buffer_size` to 64 MB**
+
+| Server | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | Fastest |
+|---|---|---|---|---|---|---|
+| mysql:5.7 | 2993 (default) | 6424 | 6120 |  |  | general_ci |
+| mysql:8.0 | 1251 | 6253 | 6209 | 963 (default) |  | 0900_ai_ci |
+| mysql:8.4 | 1443 | 5217 | 4740 | 1125 (default) |  | 0900_ai_ci |
+| mariadb:10.4 | 2129 (default) | 6414 | 6309 |  |  | general_ci |
+| mariadb:11.8 | 2884 | 3051 | 3050 | 3250 | 3194 (default) | general_ci |
+
+**Sorting every row again, with `sort_buffer_size` at 2 GB so the sort stays in memory**
+
+| Server | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | Fastest |
+|---|---|---|---|---|---|---|
+| mysql:5.7 | 3538 (default) | 4392 | 4383 |  |  | general_ci |
+| mysql:8.0 | 1517 | 2126 | 2149 | 987 (default) |  | 0900_ai_ci |
+| mysql:8.4 | 1847 | 2273 | 2298 | 1092 (default) |  | 0900_ai_ci |
+| mariadb:10.4 | 2405 (default) | 2524 | 2526 |  |  | general_ci, unicode_ci |
+| mariadb:11.8 | 3170 | 3515 | 3529 | 3549 | 3581 (default) | general_ci |
+
+**The last page of the list: the same query with an OFFSET of 19/20 of the rows, no index on `title`**
+
+| Server | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | Fastest |
+|---|---|---|---|---|---|---|
+| mysql:5.7 | 4251 (default) | 10862 | 9861 |  |  | general_ci |
+| mysql:8.0 | 3203 | 15256 | 16073 | 2308 (default) |  | 0900_ai_ci |
+| mysql:8.4 | 4893 | 11445 | 11567 | 3399 (default) |  | 0900_ai_ci |
+| mariadb:10.4 | 2459 (default) | 9613 | 9836 |  |  | general_ci |
+| mariadb:11.8 | 3042 | 3162 | 3200 | 3417 | 3379 (default) | general_ci, unicode_ci |
+
+**The last page again, with an index on the ORDER BY column**
+
+| Server | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | Fastest |
+|---|---|---|---|---|---|---|
+| mysql:5.7 | 4275 (default) | 10439 | 10448 |  |  | general_ci |
+| mysql:8.0 | 3144 | 15919 | 15536 | 2328 (default) |  | 0900_ai_ci |
+| mysql:8.4 | 5477 | 11118 | 10882 | 3400 (default) |  | 0900_ai_ci |
+| mariadb:10.4 | 2525 (default) | 9763 | 10334 |  |  | general_ci |
+| mariadb:11.8 | 2135 | 2170 | 2195 | 2161 | 2149 (default) | general_ci, unicode_ci, unicode_520_ci, 0900_ai_ci, uca1400_ai_ci |
+
+**A `MEDIUMTEXT` title, as CMS Builder makes a text field: first page, no index**
+
+| Server | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | Fastest |
+|---|---|---|---|---|---|---|
+| mysql:5.7 | 796 (default) | 959 | 957 |  |  | general_ci |
+| mysql:8.0 | 457 | 580 | 581 | 459 (default) |  | general_ci, 0900_ai_ci |
+| mysql:8.4 | 592 | 682 | 688 | 529 (default) |  | 0900_ai_ci |
+| mariadb:10.4 | 516 (default) | 384 | 386 |  |  | unicode_ci, unicode_520_ci |
+| mariadb:11.8 | 382 | 449 | 444 | 479 | 486 (default) | general_ci |
+
+**A `MEDIUMTEXT` title with a prefix index `(768)`: first page**
+
+| Server | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | Fastest |
+|---|---|---|---|---|---|---|
+| mysql:5.7 | 795 (default) | 960 | 965 |  |  | general_ci |
+| mysql:8.0 | 458 | 579 | 578 | 458 (default) |  | general_ci, 0900_ai_ci |
+| mysql:8.4 | 591 | 683 | 688 | 532 (default) |  | 0900_ai_ci |
+| mariadb:10.4 | 519 (default) | 385 | 389 |  |  | unicode_ci, unicode_520_ci |
+| mariadb:11.8 | 382 | 446 | 444 | 481 | 488 (default) | general_ci |
+
+**A `MEDIUMTEXT` title with a prefix index `(768)`: last page**
+
+| Server | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | Fastest |
+|---|---|---|---|---|---|---|
+| mysql:5.7 | 4323 (default) | 10095 | 10136 |  |  | general_ci |
+| mysql:8.0 | 12261 | 12174 | 12566 | 1633 (default) |  | 0900_ai_ci |
+| mysql:8.4 | 10394 | 10336 | 10559 | 2691 (default) |  | 0900_ai_ci |
+| mariadb:10.4 | 2091 (default) | 8040 | 8100 |  |  | general_ci |
+| mariadb:11.8 | 1974 | 11814 | 11871 | 11735 | 11777 (default) | general_ci |
+
+**A `MEDIUMTEXT` title: sorting every row, default `sort_buffer_size`**
+
+| Server | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | Fastest |
+|---|---|---|---|---|---|---|
+| mysql:5.7 | 4521 (default) | 10570 | 10493 |  |  | general_ci |
+| mysql:8.0 | 13189 | 13264 | 13154 | 1603 (default) |  | 0900_ai_ci |
+| mysql:8.4 | 11315 | 11130 | 11213 | 2686 (default) |  | 0900_ai_ci |
+| mariadb:10.4 | 2001 (default) | 9712 | 10348 |  |  | general_ci |
+| mariadb:11.8 | 2025 | 12308 | 12178 | 12285 | 12287 (default) | general_ci |
+
+**A `MEDIUMTEXT` title: sorting every row, `sort_buffer_size` at 2 GB**
+
+| Server | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | Fastest |
+|---|---|---|---|---|---|---|
+| mysql:5.7 | 3476 (default) | 4204 | 4193 |  |  | general_ci |
+| mysql:8.0 | 2698 | 2843 | 2703 | 1682 (default) |  | 0900_ai_ci |
+| mysql:8.4 | 3947 | 3776 | 3875 | 2846 (default) |  | 0900_ai_ci |
+| mariadb:10.4 | 2118 (default) | 2273 | 2281 |  |  | general_ci |
+| mariadb:11.8 | 2420 | 2852 | 2816 | 2927 | 2892 (default) | general_ci |
 
 **`GROUP BY title`**
 
@@ -114,25 +212,149 @@ Milliseconds per statement on a 1,000,000-row table, one table per collation wit
 
 | Server | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | Fastest |
 |---|---|---|---|---|---|---|
-| mysql:5.7 | 0.197 (default) | 0.190 | 0.199 |  |  | general_ci, unicode_ci, unicode_520_ci |
-| mysql:8.0 | 0.199 | 0.207 | 0.195 | 0.200 (default) |  | general_ci, unicode_520_ci, 0900_ai_ci |
-| mysql:8.4 | 0.120 | 0.118 | 0.122 | 0.121 (default) |  | general_ci, unicode_ci, unicode_520_ci, 0900_ai_ci |
+| mysql:5.7 | 0.244 (default) | 0.238 | 0.260 |  |  | general_ci, unicode_ci |
+| mysql:8.0 | 0.191 | 0.198 | 0.190 | 0.193 (default) |  | general_ci, unicode_ci, unicode_520_ci, 0900_ai_ci |
+| mysql:8.4 | 0.186 | 0.192 | 0.191 | 0.195 (default) |  | general_ci, unicode_ci, unicode_520_ci, 0900_ai_ci |
 | mysql:9.6 | 0.206 | 0.229 | 0.211 | 0.202 (default) |  | general_ci, unicode_520_ci, 0900_ai_ci |
 | mysql:9.7 | 0.179 | 0.179 | 0.179 | 0.179 (default) |  | general_ci, unicode_ci, unicode_520_ci, 0900_ai_ci |
 | mariadb:10.2 | 0.150 (default) | 0.145 | 0.146 |  |  | general_ci, unicode_ci, unicode_520_ci |
 | mariadb:10.2.6 | 0.256 (default) | 0.265 | 0.263 |  |  | general_ci, unicode_ci, unicode_520_ci |
 | mariadb:10.2.7 | 0.241 (default) | 0.239 | 0.240 |  |  | general_ci, unicode_ci, unicode_520_ci |
 | mariadb:10.3 | 0.112 (default) | 0.115 | 0.115 |  |  | general_ci, unicode_ci, unicode_520_ci |
-| mariadb:10.4 | 0.244 (default) | 0.226 | 0.227 |  |  | unicode_ci, unicode_520_ci |
+| mariadb:10.4 | 0.209 (default) | 0.201 | 0.201 |  |  | general_ci, unicode_ci, unicode_520_ci |
 | mariadb:10.5 | 0.125 (default) | 0.122 | 0.117 |  |  | unicode_ci, unicode_520_ci |
 | mariadb:10.6 | 0.267 (default) | 0.267 | 0.259 |  |  | general_ci, unicode_ci, unicode_520_ci |
 | mariadb:10.11 | 0.258 (default) | 0.264 | 0.245 |  | 0.244 | unicode_520_ci, uca1400_ai_ci |
 | mariadb:11.4 | 0.186 | 0.180 | 0.179 | 0.178 | 0.178 (default) | general_ci, unicode_ci, unicode_520_ci, 0900_ai_ci, uca1400_ai_ci |
-| mariadb:11.8 | 0.110 | 0.107 | 0.108 | 0.109 | 0.111 (default) | general_ci, unicode_ci, unicode_520_ci, 0900_ai_ci, uca1400_ai_ci |
+| mariadb:11.8 | 0.144 | 0.142 | 0.143 | 0.144 | 0.145 (default) | general_ci, unicode_ci, unicode_520_ci, 0900_ai_ci, uca1400_ai_ci |
 | mariadb:12.3 | 0.109 | 0.109 | 0.105 | 0.105 | 0.105 (default) | general_ci, unicode_ci, unicode_520_ci, 0900_ai_ci, uca1400_ai_ci |
 | percona/percona-server:5.7 | 0.183 (default) | 0.185 | 0.175 |  |  | general_ci, unicode_520_ci |
 | percona/percona-server:8.0 | 0.246 | 0.245 | 0.245 | 0.249 (default) |  | general_ci, unicode_ci, unicode_520_ci, 0900_ai_ci |
 | percona/percona-server:8.4 | 0.162 | 0.162 | 0.168 | 0.165 (default) |  | general_ci, unicode_ci, unicode_520_ci, 0900_ai_ci |
+
+## Fastest collation at 1,000,000 rows, titles from english-wikipedia-titles.txt
+
+Milliseconds per statement on a 1,000,000-row table, one table per collation with the same rows. An empty cell means the server doesn't have that collation. "Fastest" names the quickest one and any other within 5% of it, which is about how far two identical tables differ on these runners. The server's own default is marked with (default). How the test is set up, every other statement and the smaller table sizes are under "Speed" further down.
+
+**A list page: `SELECT * FROM t WHERE hidden = 0 ORDER BY title LIMIT 25`, no index on `title`**
+
+| Server | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | Fastest |
+|---|---|---|---|---|---|---|
+| mysql:8.0 | 470 | 646 | 640 | 477 (default) |  | general_ci, 0900_ai_ci |
+| mysql:8.4 | 687 | 833 | 839 | 659 (default) |  | general_ci, 0900_ai_ci |
+| mariadb:10.6 | 380 (default) | 292 | 294 |  |  | unicode_ci, unicode_520_ci |
+| mariadb:10.11 | 401 (default) | 431 | 425 |  | 463 | general_ci |
+| mariadb:11.8 | 441 | 451 | 451 | 493 | 497 (default) | general_ci, unicode_ci, unicode_520_ci |
+
+**Sorting every row: `ORDER BY title` with no index and no LIMIT to cut it short**
+
+| Server | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | Fastest |
+|---|---|---|---|---|---|---|
+| mysql:8.0 | 1627 | 14193 | 14426 | 624 (default) |  | 0900_ai_ci |
+| mysql:8.4 | 3349 | 9107 | 9372 | 804 (default) |  | 0900_ai_ci |
+| mariadb:10.6 | 1980 (default) | 2240 | 2355 |  |  | general_ci |
+| mariadb:10.11 | 2060 (default) | 2272 | 2292 |  | 2347 | general_ci |
+| mariadb:11.8 | 1940 | 2041 | 2045 | 2099 | 2090 (default) | general_ci |
+
+**Sorting every row again, after `SET SESSION sort_buffer_size` to 64 MB**
+
+| Server | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | Fastest |
+|---|---|---|---|---|---|---|
+| mysql:8.0 | 917 | 5602 | 5591 | 698 (default) |  | 0900_ai_ci |
+| mysql:8.4 | 1102 | 5003 | 5154 | 856 (default) |  | 0900_ai_ci |
+| mariadb:10.6 | 2001 (default) | 2361 | 2390 |  |  | general_ci |
+| mariadb:10.11 | 2068 (default) | 2399 | 2288 |  | 2412 | general_ci |
+| mariadb:11.8 | 1946 | 2030 | 2062 | 2100 | 2072 (default) | general_ci, unicode_ci |
+
+**Sorting every row again, with `sort_buffer_size` at 2 GB so the sort stays in memory**
+
+| Server | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | Fastest |
+|---|---|---|---|---|---|---|
+| mysql:8.0 | 1118 | 1430 | 1553 | 717 (default) |  | 0900_ai_ci |
+| mysql:8.4 | 1286 | 1687 | 1695 | 845 (default) |  | 0900_ai_ci |
+| mariadb:10.6 | 2377 (default) | 2461 | 2444 |  |  | general_ci, unicode_ci, unicode_520_ci |
+| mariadb:10.11 | 2468 (default) | 2700 | 2697 |  | 2743 | general_ci |
+| mariadb:11.8 | 2402 | 2701 | 2697 | 2713 | 2734 (default) | general_ci |
+
+**The last page of the list: the same query with an OFFSET of 19/20 of the rows, no index on `title`**
+
+| Server | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | Fastest |
+|---|---|---|---|---|---|---|
+| mysql:8.0 | 2737 | 13782 | 13623 | 1686 (default) |  | 0900_ai_ci |
+| mysql:8.4 | 4318 | 10265 | 10293 | 2634 (default) |  | 0900_ai_ci |
+| mariadb:10.6 | 2122 (default) | 2479 | 2458 |  |  | general_ci |
+| mariadb:10.11 | 2100 (default) | 2209 | 2275 |  | 2306 | general_ci |
+| mariadb:11.8 | 2123 | 2180 | 2168 | 2269 | 2241 (default) | general_ci, unicode_ci, unicode_520_ci |
+
+**The last page again, with an index on the ORDER BY column**
+
+| Server | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | Fastest |
+|---|---|---|---|---|---|---|
+| mysql:8.0 | 2633 | 13787 | 13591 | 1703 (default) |  | 0900_ai_ci |
+| mysql:8.4 | 4220 | 10249 | 10264 | 2637 (default) |  | 0900_ai_ci |
+| mariadb:10.6 | 2045 (default) | 2357 | 2366 |  |  | general_ci |
+| mariadb:10.11 | 2176 (default) | 2373 | 2398 |  | 2380 | general_ci |
+| mariadb:11.8 | 1573 | 1625 | 1623 | 1590 | 1583 (default) | general_ci, unicode_ci, unicode_520_ci, 0900_ai_ci, uca1400_ai_ci |
+
+**A `MEDIUMTEXT` title, as CMS Builder makes a text field: first page, no index**
+
+| Server | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | Fastest |
+|---|---|---|---|---|---|---|
+| mysql:8.0 | 350 | 450 | 448 | 342 (default) |  | general_ci, 0900_ai_ci |
+| mysql:8.4 | 512 | 622 | 632 | 470 (default) |  | 0900_ai_ci |
+| mariadb:10.6 | 325 (default) | 263 | 265 |  |  | unicode_ci, unicode_520_ci |
+| mariadb:10.11 | 315 (default) | 326 | 328 |  | 364 | general_ci, unicode_ci, unicode_520_ci |
+| mariadb:11.8 | 365 | 383 | 383 | 411 | 419 (default) | general_ci, unicode_ci, unicode_520_ci |
+
+**A `MEDIUMTEXT` title with a prefix index `(768)`: first page**
+
+| Server | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | Fastest |
+|---|---|---|---|---|---|---|
+| mysql:8.0 | 349 | 451 | 450 | 342 (default) |  | general_ci, 0900_ai_ci |
+| mysql:8.4 | 514 | 623 | 631 | 469 (default) |  | 0900_ai_ci |
+| mariadb:10.6 | 327 (default) | 263 | 266 |  |  | unicode_ci, unicode_520_ci |
+| mariadb:10.11 | 313 (default) | 329 | 330 |  | 374 | general_ci |
+| mariadb:11.8 | 365 | 383 | 383 | 410 | 419 (default) | general_ci, unicode_ci, unicode_520_ci |
+
+**A `MEDIUMTEXT` title with a prefix index `(768)`: last page**
+
+| Server | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | Fastest |
+|---|---|---|---|---|---|---|
+| mysql:8.0 | 11032 | 11033 | 10914 | 1118 (default) |  | 0900_ai_ci |
+| mysql:8.4 | 9622 | 9672 | 9726 | 1796 (default) |  | 0900_ai_ci |
+| mariadb:10.6 | 1378 (default) | 7305 | 7367 |  |  | general_ci |
+| mariadb:10.11 | 1527 (default) | 8515 | 8541 |  | 8628 | general_ci |
+| mariadb:11.8 | 1386 | 11189 | 10404 | 10944 | 10807 (default) | general_ci |
+
+**A `MEDIUMTEXT` title: sorting every row, default `sort_buffer_size`**
+
+| Server | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | Fastest |
+|---|---|---|---|---|---|---|
+| mysql:8.0 | 12169 | 12279 | 12282 | 1157 (default) |  | 0900_ai_ci |
+| mysql:8.4 | 10035 | 10105 | 10164 | 1788 (default) |  | 0900_ai_ci |
+| mariadb:10.6 | 1502 (default) | 8407 | 8299 |  |  | general_ci |
+| mariadb:10.11 | 1506 (default) | 10464 | 10506 |  | 9777 | general_ci |
+| mariadb:11.8 | 1409 | 11941 | 11039 | 11288 | 11503 (default) | general_ci |
+
+**A `MEDIUMTEXT` title: sorting every row, `sort_buffer_size` at 2 GB**
+
+| Server | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | Fastest |
+|---|---|---|---|---|---|---|
+| mysql:8.0 | 1869 | 2148 | 1972 | 1409 (default) |  | 0900_ai_ci |
+| mysql:8.4 | 2502 | 2571 | 2660 | 1801 (default) |  | 0900_ai_ci |
+| mariadb:10.6 | 1737 (default) | 1946 | 1898 |  |  | general_ci |
+| mariadb:10.11 | 1922 (default) | 2168 | 2263 |  | 2252 | general_ci |
+| mariadb:11.8 | 1848 | 2180 | 2181 | 2235 | 2236 (default) | general_ci |
+
+**The list page again, with an index on the ORDER BY column**
+
+| Server | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | Fastest |
+|---|---|---|---|---|---|---|
+| mysql:8.0 | 0.120 | 0.118 | 0.117 | 0.121 (default) |  | general_ci, unicode_ci, unicode_520_ci, 0900_ai_ci |
+| mysql:8.4 | 0.237 | 0.236 | 0.233 | 0.235 (default) |  | general_ci, unicode_ci, unicode_520_ci, 0900_ai_ci |
+| mariadb:10.6 | 0.118 (default) | 0.115 | 0.116 |  |  | general_ci, unicode_ci, unicode_520_ci |
+| mariadb:10.11 | 0.117 (default) | 0.114 | 0.113 |  | 0.112 | general_ci, unicode_ci, unicode_520_ci, uca1400_ai_ci |
+| mariadb:11.8 | 0.168 | 0.171 | 0.173 | 0.173 | 0.170 (default) | general_ci, unicode_ci, unicode_520_ci, 0900_ai_ci, uca1400_ai_ci |
 
 ## Verdicts
 
@@ -140,11 +362,13 @@ CMS Builder 3.84 created every table with `COLLATE=utf8mb4_unicode_ci`. Later ve
 
 | Option | What it costs | What it risks |
 |---|---|---|
-| A. Every table in the server default; the CMS upgrade converts existing tables | One ALTER per table. Every MySQL and Percona version and MariaDB thru 10.5 copy the table (1.4 to 2.7 s per 100,000 rows here, 21 to 44 s per 1,000,000) and writes wait until it's done. MariaDB 10.6+ rebuilds only the indexes (about 0.3 s per 100,000 rows, 2.6 to 4.4 s per 1,000,000) and writes continue. It is the fastest of the ci collations on MySQL 8.0+ | "The server default" is three different collations, and it changes when the server is upgraded: old tables keep theirs, new tables get the new one, and the two-collation error is back until the convert runs again. Query results change with it (trailing spaces on MySQL 8.0+; ß, æ, ø and emoji everywhere). The convert stops with error 1062 on a UNIQUE column that holds two values the new collation treats as equal. A dump with `utf8mb4_0900_ai_ci` or `utf8mb4_uca1400_ai_ci` doesn't load on an older server or on the other vendor |
-| B. Every table in `utf8mb4_unicode_ci` | No convert and no change in results for a site that came from 3.84. At 100,000 rows, sorts, GROUP BY, DISTINCT and text joins take 1.3x to 2.1x the default's time on MySQL 5.7 and MariaDB thru 10.6, and 1.2x to 2.6x on MySQL 8.0+. A sort of the whole table with no index grows faster than the table does: at 1,000,000 rows and the default `sort_buffer_size` it takes 14.7 s against 0.8 s on MySQL 8.0+, 13.8 s against 2.8 s on MySQL 5.7 and about 8.6 s against 3.3 s on MariaDB thru 10.4 (see the table above). On MariaDB 11.4+ it is up to 14% faster than the default. Point lookups, ORDER BY on an indexed column and INSERT cost the same on every server | Tables created in the server default since the CMS stopped writing COLLATE need the same convert as option A, in the other direction, with the same error 1062 on a UNIQUE column. Any two emoji compare as equal |
+| A. Every table in the server default; the CMS upgrade converts existing tables | One ALTER per table. Every MySQL and Percona version and MariaDB thru 10.5 copy the table (1.4 to 2.7 s per 100,000 rows here, 21 to 44 s per 1,000,000) and writes wait until it's done. MariaDB 10.6+ rebuilds only the indexes (about 0.3 s per 100,000 rows, 2.6 to 4.4 s per 1,000,000) and writes continue. It is the fastest of the ci collations on MySQL 8.0+, MySQL 5.7 and MariaDB thru 10.11. On MariaDB 11.4+ the default `utf8mb4_uca1400_ai_ci` sorts a 1,000,000-row `MEDIUMTEXT` title in about 8x the time `utf8mb4_general_ci` takes | "The server default" is three different collations, and it changes when the server is upgraded: old tables keep theirs, new tables get the new one, and the two-collation error is back until the convert runs again. Query results change with it (trailing spaces on MySQL 8.0+; ß, æ, ø and emoji everywhere). The convert stops with error 1062 on a UNIQUE column that holds two values the new collation treats as equal. A dump with `utf8mb4_0900_ai_ci` or `utf8mb4_uca1400_ai_ci` doesn't load on an older server or on the other vendor |
+| B. Every table in `utf8mb4_unicode_ci` | No convert and no change in results for a site that came from 3.84. At 100,000 rows, sorts, GROUP BY, DISTINCT and text joins take 1.3x to 2.1x the default's time on MySQL 5.7 and MariaDB thru 10.6, and 1.2x to 2.6x on MySQL 8.0+. A sort of the whole table with no index grows faster than the table does: at 1,000,000 rows and the default `sort_buffer_size` it takes 14.7 s against 0.8 s on MySQL 8.0+, 13.8 s against 2.8 s on MySQL 5.7 and about 8.6 s against 3.3 s on MariaDB thru 10.4 (see the table above). With a `MEDIUMTEXT` title, as CMS Builder makes a text field, that sort takes 7 to 12 s against 1.2 to 2.0 s on every server tested, MariaDB 11.8 included. On MariaDB 11.4+ it is up to 14% faster than the default on the `VARCHAR` statements. Point lookups, ORDER BY on an indexed column and INSERT cost the same on every server | Tables created in the server default since the CMS stopped writing COLLATE need the same convert as option A, in the other direction, with the same error 1062 on a UNIQUE column. Any two emoji compare as equal |
 | C. New tables copy the collation the site's existing tables have | No convert, no speed change and no change in results | Sites differ from each other: a new install gets the server default, with option A's dump limits. A site that already has two collations still needs one convert and a rule for which collation stays. A table whose default was changed without its columns (`ALTER TABLE t CHARACTER SET utf8mb4`) reports one collation and holds another |
 
 `utf8mb4_unicode_ci` is the only one of the three that exists on all 19 servers under one name and stays the same through a server upgrade. Its price is the sort and grouping times in the speed tables below.
+
+For sorting a large table by a text column, the fastest collation on each server is `utf8mb4_0900_ai_ci` on MySQL and Percona 8.0+ and `utf8mb4_general_ci` on everything else, MariaDB 11.4+ included. That is the server default except on MariaDB 11.4+. `utf8mb4_unicode_ci` is never the fastest for a whole-table sort. The difference shows on large tables only: a list page on 10,000 rows differs by about 2 ms between any two collations.
 
 ## Findings
 
@@ -159,11 +383,21 @@ What a new table gets:
 - `utf8mb4_bin`, `utf8mb4_general_ci`, `utf8mb4_unicode_ci` and `utf8mb4_unicode_520_ci` exist on all 19 servers, and none prints a warning. `utf8mb4_0900_ai_ci` exists on MySQL and Percona 8.0+ and on MariaDB 11.4+. `utf8mb4_uca1400_ai_ci` exists on MariaDB 10.11+ and on no MySQL. A server that doesn't have one answers `error 1273: Unknown collation: 'utf8mb4_0900_ai_ci'`
 - A server upgrade keeps every existing column's collation and changes what a new table gets. The upgrade job started MySQL 8.0 on a MySQL 5.7 data directory and MariaDB 11.8 on a MariaDB 10.11 one: the old tables stayed `utf8mb4_general_ci`, a new `CHARSET=utf8mb4` table got `utf8mb4_0900_ai_ci` and `utf8mb4_uca1400_ai_ci`, and a UNION of an old and a new table failed with error 1271. The database default stayed `utf8mb4_general_ci`, so a CREATE TABLE with no CHARSET, and a column added to an old table, still got `utf8mb4_general_ci`. `CHECK TABLE ... FOR UPGRADE` reported nothing to rebuild
 
-Speed at 1,000,000 rows, one run (the tables at the top):
+Sorting a large table, at 1,000,000 rows: a second run on MySQL 5.7, 8.0, 8.4 and MariaDB 10.4, 11.8 with the generated titles, and a run on MySQL 8.0, 8.4 and MariaDB 10.6, 10.11, 11.8 with English Wikipedia article titles in plain ASCII (the tables at the top):
+
+- The fastest collation for sorting by title is the same with English titles as with the generated ones: `utf8mb4_0900_ai_ci` on MySQL 8.0+ and `utf8mb4_general_ci` on MariaDB and on MySQL 5.7. Sorting every row of an English `VARCHAR(255)` title with no index takes 0.6 to 0.8 s in `utf8mb4_0900_ai_ci`, 1.6 to 3.3 s in `utf8mb4_general_ci` and 9.1 to 14.2 s in `utf8mb4_unicode_ci` on MySQL 8.0 and 8.4. On MariaDB 10.6 to 11.8 it takes 1.9 to 2.1 s in `utf8mb4_general_ci` and 2.0 to 2.4 s in the others
+- A `MEDIUMTEXT` title, the type CMS Builder gives a text field, makes the difference larger. Sorting every row of English titles takes 1.2 to 1.8 s in `utf8mb4_0900_ai_ci` and 10.0 to 12.3 s in both `utf8mb4_general_ci` and `utf8mb4_unicode_ci` on MySQL 8.0 and 8.4. On MariaDB 10.6 to 11.8 it takes 1.4 to 1.5 s in `utf8mb4_general_ci` and 7.3 to 11.9 s in `utf8mb4_unicode_ci`, `utf8mb4_unicode_520_ci`, `utf8mb4_0900_ai_ci` and `utf8mb4_uca1400_ai_ci`, so the MariaDB 11.4+ default takes about 8x as long as `utf8mb4_general_ci`. The generated titles agree: MySQL 5.7 4.5 s against 10.6 s, MariaDB 10.4 2.0 s against 9.7 s
+- A prefix index on a `MEDIUMTEXT` column, `titleIndexed(768)`, is never used for ORDER BY: EXPLAIN shows `type=ALL, Using filesort` on every server, for the first page and the last, and the first page takes the same time with it as without it (342 ms against 342 ms on MySQL 8.0). Every list page sorted by a CMS Builder text field sorts the table
+- The first list page (`LIMIT 25`) with a `MEDIUMTEXT` title takes 342 to 470 ms in `utf8mb4_0900_ai_ci` on MySQL 8.0 and 8.4, and `utf8mb4_unicode_ci` takes 1.3x that. On MariaDB the collations are within 20% of each other there, and on MariaDB 10.4 and 10.6 `utf8mb4_unicode_ci` was the fastest (263 ms against 325 ms on 10.6), as it was for the `VARCHAR` title on MariaDB 10.3 to 10.6
+- The last page of a list, at an OFFSET of 19/20 of the rows, costs about what sorting every row costs, with or without an index on a `VARCHAR` title. Only MariaDB 11.8 read the index for it (`type=index`), and took 1.6 s in every collation; every other server sorted the table
+- The large differences come from sorts that don't fit in `sort_buffer_size` and go to temp files. With `SET SESSION sort_buffer_size` at 2 GB the sort stays in memory and the differences mostly go away: English `VARCHAR` titles on MySQL 8.0 and 8.4 take 1.4 to 1.7 s in `utf8mb4_unicode_ci` against 0.7 to 0.8 s in `utf8mb4_0900_ai_ci`, and `MEDIUMTEXT` titles on MariaDB 11.8 take 2.2 s in `utf8mb4_uca1400_ai_ci` against 1.8 s in `utf8mb4_general_ci`. At 64 MB, `utf8mb4_unicode_ci` on MySQL takes 5.0 to 5.6 s. The slow collations write more to the temp files: the server merged them 628 times for `utf8mb4_unicode_ci` and 41 times for `utf8mb4_0900_ai_ci` in one MySQL 8.4 sort. Why their sort values are larger was not looked into in the server code
+- A larger `sort_buffer_size` isn't free: on MariaDB the whole-table sort took 10% to 20% longer at 2 GB than at the default, in every collation
+
+Speed at 1,000,000 rows, the first run on all 19 servers:
 
 - The fastest ci collation is `utf8mb4_0900_ai_ci` on MySQL and Percona 8.0+ and `utf8mb4_general_ci` on MySQL and Percona 5.7 and on every MariaDB version. That is the server default everywhere except MariaDB 11.4+, where the default `utf8mb4_uca1400_ai_ci` takes longer than `utf8mb4_general_ci`: 6% on the whole-table sort, 19% on the first list page, 15% on GROUP BY, and 2.5x on `content LIKE '%word%'` (2,158 ms against 864 ms)
 - Sorting every row by a column with no index, which is the sort the last page of a list ordered by `title` needs: `utf8mb4_unicode_ci` takes 14.7 s against 0.8 s for `utf8mb4_0900_ai_ci` on MySQL and Percona 8.0+ (18x; it was 2.6x at 100,000 rows), 13.8 s against 2.8 s for `utf8mb4_general_ci` on MySQL and Percona 5.7 (4.9x; it was 1.36x), and 7.9 to 9.5 s against 2.2 to 3.7 s on MariaDB 10.2 to 10.4. MariaDB 10.5 and 10.6 are 1.25x and 1.31x, MariaDB 10.11 is 1.11x, and on MariaDB 11.4+ `utf8mb4_unicode_ci` is within 5% of the default
-- Those whole-table sorts ran with each server's default `sort_buffer_size`, which 1,000,000 titles don't fit in, so the server sorts in temp files. The ratios are for default settings, not a fixed cost of `utf8mb4_unicode_ci`. The likely reason the difference grows with the table on MySQL and on MariaDB thru 10.4: the older collations sort on a value padded to the column's full width, and write more to those files. Not tested: no run was done with a larger `sort_buffer_size`
+- Those whole-table sorts ran with each server's default `sort_buffer_size`, which 1,000,000 titles don't fit in, so the server sorts in temp files. The ratios are for default settings; the section above has the same sorts with more memory
 - The first list page (`LIMIT 25`, no index on `title`) keeps the ratios it had at 100,000 rows: `utf8mb4_unicode_ci` takes 1.46x the default's time on MySQL 5.7 (691 ms against 472 ms), 1.35x on MySQL 8.0+ (837 ms against 597 ms), 0.97x on MariaDB thru 10.6, 1.12x on MariaDB 10.11 and 0.91x on MariaDB 11.4+. The same page sorted by an integer column takes 225 to 285 ms (470 ms on MySQL 8.0+). With an index on the ORDER BY column it takes 0.1 to 0.3 ms in every collation
 - On MariaDB 10.3 to 10.6 the first list page was 3% to 24% faster in `utf8mb4_unicode_ci` than in `utf8mb4_general_ci` in this run. At 100,000 rows the two were the same there (0.99x over three runs)
 - GROUP BY, SELECT DISTINCT, COUNT(DISTINCT), a join on an indexed text column and ADD INDEX: on MySQL and Percona 8.0+ `utf8mb4_unicode_ci` is within 3% of the default. On MySQL and Percona 5.7 it takes 1.43x to 1.74x the default's time, and on MariaDB thru 10.6 1.10x to 1.93x
@@ -1248,7 +1482,7 @@ Details:
 
 ## 2. Speed, 1,000,000 rows
 
-One InnoDB table per collation with the same 1,000,000 rows, shaped like a CMS Builder section. It has 15 columns: the record number, three DATETIME, two INT, three TINYINT flags, five VARCHAR(255) and one MEDIUMTEXT. `name` and `titleIndexed` have an index; `title` holds the same text as `titleIndexed` and has none. Average length in characters: name 23, title 36, content 438. The text is mostly ASCII words, with about 9% accented Latin words, 2% words in other scripts and 1% emoji. Numbers are milliseconds per statement, the median of 3 passes (3 for the slow statements), after one uncounted pass. The number in brackets is the time divided by the utf8mb4_general_ci time on the same server in the same run. "Control" is a second set of utf8mb4_general_ci tables timed the same way: how far it is from 1.00x is the noise of that runner, and a difference no larger than that isn't a real difference. The servers ran with innodb_buffer_pool_size = 9,216 MB so every table stays in memory, and with the query cache off.
+One InnoDB table per collation with the same 1,000,000 rows, shaped like a CMS Builder section. It has 15 columns: the record number, three DATETIME, two INT, three TINYINT flags, five VARCHAR(255) and one MEDIUMTEXT. `name` and `titleIndexed` have an index; `title` holds the same text as `titleIndexed` and has none. The statements named "MEDIUMTEXT title" use a narrower table with the same rows: num, hidden, dragSortOrder, and `title` and `titleIndexed` as MEDIUMTEXT, the type CMS Builder gives a text field, with a prefix index `titleIndexed(768)`. Average length in characters: name 23, title 36, content 438. The text is mostly ASCII words, with about 9% accented Latin words, 2% words in other scripts and 1% emoji. Numbers are milliseconds per statement, the median of 3 passes (3 for the slow statements), after one uncounted pass, then the median of that server's runs of the workflow (up to 2), each on its own runner. The number in brackets is the time divided by the utf8mb4_general_ci time on the same server in the same run. "Control" is a second set of utf8mb4_general_ci tables timed the same way: how far it is from 1.00x is the noise of that runner, and a difference no larger than that isn't a real difference. The servers ran with innodb_buffer_pool_size = 9,216 MB so every table stays in memory, and with the query cache off.
 
 ### utf8mb4_unicode_ci against each server's default
 
@@ -1256,11 +1490,11 @@ The utf8mb4_unicode_ci time, the time of the collation a new table gets on that 
 
 | Statement | MySQL and Percona 5.7 (general_ci) | MySQL and Percona 8.0 and later (0900_ai_ci) | MariaDB 10.2 to 10.9 (general_ci) | MariaDB 10.10 to 11.3 (general_ci) | MariaDB 11.4 and later (uca1400_ai_ci) |
 |---|---|---|---|---|---|
-| List page: SELECT * ... WHERE hidden = 0 ORDER BY title LIMIT 25, no index on title | 691 / 472 (1.46x) | 837 / 597 (1.35x) | 485 / 515 (0.97x) | 560 / 500 (1.12x) | 456 / 499 (0.91x) |
-| List page: the same, ORDER BY dragSortOrder (an integer, no index) | 285 / 285 (1.00x) | 474 / 471 (1.00x) | 274 / 271 (1.01x) | 272 / 273 (1.00x) | 232 / 225 (1.00x) |
-| List page: the same, ORDER BY createdDate (a datetime, no index) | 286 / 285 (1.00x) | 493 / 492 (1.00x) | 278 / 274 (1.00x) | 272 / 272 (1.00x) | 226 / 228 (0.99x) |
-| List page: the same, ORDER BY titleIndexed (the title again, with an index) | 0.187 / 0.190 (0.99x) | 0.193 / 0.190 (0.99x) | 0.226 / 0.241 (0.99x) | 0.264 / 0.258 (1.02x) | 0.109 / 0.111 (1.01x) |
-| ORDER BY title, whole table, no index | 13785 / 2803 (4.92x) | 14701 / 826 (18.09x) | 8573 / 3299 (2.39x) | 3453 / 3113 (1.11x) | 2738 / 2784 (0.98x) |
+| List page: SELECT * ... WHERE hidden = 0 ORDER BY title LIMIT 25, no index on title | 740 / 504 (1.47x) | 836 / 616 (1.35x) | 470 / 515 (0.97x) | 560 / 500 (1.12x) | 482 / 526 (0.91x) |
+| List page: the same, ORDER BY dragSortOrder (an integer, no index) | 299 / 299 (1.00x) | 473 / 478 (1.00x) | 274 / 271 (1.01x) | 272 / 273 (1.00x) | 245 / 245 (1.00x) |
+| List page: the same, ORDER BY createdDate (a datetime, no index) | 299 / 297 (1.00x) | 491 / 493 (1.00x) | 278 / 274 (1.00x) | 272 / 272 (1.00x) | 241 / 242 (1.00x) |
+| List page: the same, ORDER BY titleIndexed (the title again, with an index) | 0.211 / 0.214 (0.99x) | 0.195 / 0.194 (0.99x) | 0.201 / 0.209 (0.99x) | 0.264 / 0.258 (1.02x) | 0.142 / 0.145 (1.01x) |
+| ORDER BY title, whole table, no index | 13011 / 3095 (4.36x) | 14701 / 846 (17.52x) | 8679 / 2804 (2.46x) | 3453 / 3113 (1.11x) | 2814 / 2930 (0.96x) |
 | ORDER BY title LIMIT 20, no index | 686 / 458 (1.50x) | 632 / 378 (1.63x) | 491 / 539 (0.98x) | 556 / 487 (1.14x) | 454 / 494 (0.92x) |
 | ORDER BY name LIMIT 20, indexed | 0.115 / 0.119 (0.97x) | 0.115 / 0.121 (1.01x) | 0.157 / 0.133 (1.01x) | 0.160 / 0.160 (1.00x) | 0.067 / 0.066 (1.02x) |
 | WHERE name = ?, indexed (point lookup) | 0.132 / 0.135 (0.98x) | 0.133 / 0.136 (0.96x) | 0.165 / 0.165 (1.00x) | 0.189 / 0.194 (0.98x) | 0.076 / 0.073 (0.97x) |
@@ -1279,6 +1513,16 @@ The utf8mb4_unicode_ci time, the time of the collation a new table gets on that 
 | INSERT 10,000 rows, 100 per statement, index on name | 106 / 100 (1.05x) | 104 / 106 (1.01x) | 81.5 / 77.1 (1.11x) | 71.7 / 72.5 (0.99x) | 52.4 / 46.0 (1.03x) |
 | INSERT 10,000 rows, 100 per statement, UNIQUE index on name | 108 / 136 (0.84x) | 118 / 106 (1.04x) | 80.5 / 78.4 (1.05x) | 74.2 / 73.4 (1.01x) | 43.4 / 45.3 (0.96x) |
 | ALTER TABLE ... ADD INDEX (title) | 3498 / 2403 (1.46x) | 2989 / 3148 (1.01x) | 2423 / 1620 (1.54x) | 1491 / 1289 (1.16x) | 1542 / 1637 (0.98x) |
+| List page, last page: SELECT * ... WHERE hidden = 0 ORDER BY title LIMIT 25 OFFSET n, no index on title | 10862 / 4251 (2.56x) | 13350 / 2853 (4.99x) | 9613 / 2459 (3.91x) |  | 3162 / 3379 (0.94x) |
+| List page, last page: the same, ORDER BY dragSortOrder (an integer, no index) | 2080 / 2084 (1.00x) | 2482 / 2493 (1.00x) | 1458 / 1538 (0.95x) |  | 1987 / 1986 (1.00x) |
+| List page, last page: the same, ORDER BY titleIndexed (the title again, with an index) | 10439 / 4275 (2.44x) | 13518 / 2864 (5.05x) | 9763 / 2525 (3.87x) |  | 2170 / 2149 (1.01x) |
+| ORDER BY title, whole table, no index, sort_buffer_size = 64 MB | 6424 / 2993 (2.15x) | 5735 / 1044 (5.57x) | 6414 / 2129 (3.01x) |  | 3051 / 3194 (0.96x) |
+| ORDER BY title, whole table, no index, sort_buffer_size = 2 GB | 4392 / 3538 (1.24x) | 2199 / 1039 (2.12x) | 2524 / 2405 (1.05x) |  | 3515 / 3581 (0.98x) |
+| MEDIUMTEXT title: ORDER BY title, whole table, no index | 10570 / 4521 (2.34x) | 12197 / 2145 (6.21x) | 9712 / 2001 (4.85x) |  | 12308 / 12287 (1.00x) |
+| MEDIUMTEXT title: the same, sort_buffer_size = 2 GB | 4204 / 3476 (1.21x) | 3309 / 2264 (1.51x) | 2273 / 2118 (1.07x) |  | 2852 / 2892 (0.99x) |
+| MEDIUMTEXT title: first page, ORDER BY title LIMIT 25, no index | 959 / 796 (1.20x) | 631 / 494 (1.28x) | 384 / 516 (0.74x) |  | 449 / 486 (0.92x) |
+| MEDIUMTEXT title: first page, ORDER BY titleIndexed LIMIT 25, prefix index (768) | 960 / 795 (1.21x) | 631 / 495 (1.27x) | 385 / 519 (0.74x) |  | 446 / 488 (0.91x) |
+| MEDIUMTEXT title: last page, ORDER BY titleIndexed LIMIT 25 OFFSET n, prefix index (768) | 10095 / 4323 (2.34x) | 11255 / 2162 (5.65x) | 8040 / 2091 (3.84x) |  | 11814 / 11777 (1.00x) |
 
 ### Summary by server group
 
@@ -1288,11 +1532,11 @@ Each cell is the median over the group's servers.
 
 | Statement | bin | general_ci | unicode_ci | unicode_520_ci | control |
 |---|---|---|---|---|---|
-| List page: SELECT * ... WHERE hidden = 0 ORDER BY title LIMIT 25, no index on title | 515 (1.09x) | 472 | 691 (1.46x) | 688 (1.46x) | 0.99x to 1.01x |
-| List page: the same, ORDER BY dragSortOrder (an integer, no index) | 287 (1.01x) | 285 | 285 (1.00x) | 286 (1.00x) | 1.00x to 1.00x |
-| List page: the same, ORDER BY createdDate (a datetime, no index) | 285 (1.00x) | 285 | 286 (1.00x) | 284 (1.00x) | 1.00x to 1.00x |
-| List page: the same, ORDER BY titleIndexed (the title again, with an index) | 0.184 (0.97x) | 0.190 | 0.187 (0.99x) | 0.187 (0.98x) | 0.95x to 0.98x |
-| ORDER BY title, whole table, no index | 6404 (2.28x) | 2803 | 13785 (4.92x) | 13858 (4.94x) | 1.01x to 1.02x |
+| List page: SELECT * ... WHERE hidden = 0 ORDER BY title LIMIT 25, no index on title | 550 (1.09x) | 504 | 740 (1.47x) | 738 (1.46x) | 0.99x to 1.00x |
+| List page: the same, ORDER BY dragSortOrder (an integer, no index) | 300 (1.00x) | 299 | 299 (1.00x) | 302 (1.01x) | 1.00x to 1.01x |
+| List page: the same, ORDER BY createdDate (a datetime, no index) | 298 (1.00x) | 297 | 299 (1.00x) | 297 (1.00x) | 1.00x to 1.00x |
+| List page: the same, ORDER BY titleIndexed (the title again, with an index) | 0.221 (1.02x) | 0.214 | 0.211 (0.99x) | 0.218 (1.01x) | 0.95x to 0.99x |
+| ORDER BY title, whole table, no index | 7047 (2.29x) | 3095 | 13011 (4.36x) | 13147 (4.40x) | 1.01x to 1.02x |
 | ORDER BY title LIMIT 20, no index | 505 (1.10x) | 458 | 686 (1.50x) | 689 (1.50x) | 1.00x to 1.01x |
 | ORDER BY name LIMIT 20, indexed | 0.118 (0.99x) | 0.119 | 0.115 (0.97x) | 0.123 (1.03x) | 1.00x to 1.07x |
 | WHERE name = ?, indexed (point lookup) | 0.124 (0.92x) | 0.135 | 0.132 (0.98x) | 0.137 (1.02x) | 0.90x to 0.99x |
@@ -1311,16 +1555,26 @@ Each cell is the median over the group's servers.
 | INSERT 10,000 rows, 100 per statement, index on name | 105 (1.05x) | 100 | 106 (1.05x) | 105 (1.04x) | 0.97x to 1.04x |
 | INSERT 10,000 rows, 100 per statement, UNIQUE index on name | 105 (0.81x) | 136 | 108 (0.84x) | 165 (1.18x) | 0.96x to 1.40x |
 | ALTER TABLE ... ADD INDEX (title) | 2059 (0.86x) | 2403 | 3498 (1.46x) | 3497 (1.46x) | 0.98x to 1.00x |
+| List page, last page: SELECT * ... WHERE hidden = 0 ORDER BY title LIMIT 25 OFFSET n, no index on title | 8427 (1.98x) | 4251 | 10862 (2.56x) | 9861 (2.32x) | 4286 (1.01x) |
+| List page, last page: the same, ORDER BY dragSortOrder (an integer, no index) | 2091 (1.00x) | 2084 | 2080 (1.00x) | 2140 (1.03x) | 2259 (1.08x) |
+| List page, last page: the same, ORDER BY titleIndexed (the title again, with an index) | 7840 (1.83x) | 4275 | 10439 (2.44x) | 10448 (2.44x) | 4353 (1.02x) |
+| ORDER BY title, whole table, no index, sort_buffer_size = 64 MB | 3259 (1.09x) | 2993 | 6424 (2.15x) | 6120 (2.04x) | 3046 (1.02x) |
+| ORDER BY title, whole table, no index, sort_buffer_size = 2 GB | 4061 (1.15x) | 3538 | 4392 (1.24x) | 4383 (1.24x) | 3633 (1.03x) |
+| MEDIUMTEXT title: ORDER BY title, whole table, no index | 8461 (1.87x) | 4521 | 10570 (2.34x) | 10493 (2.32x) | 4175 (0.92x) |
+| MEDIUMTEXT title: the same, sort_buffer_size = 2 GB | 4003 (1.15x) | 3476 | 4204 (1.21x) | 4193 (1.21x) | 3508 (1.01x) |
+| MEDIUMTEXT title: first page, ORDER BY title LIMIT 25, no index | 861 (1.08x) | 796 | 959 (1.20x) | 957 (1.20x) | 806 (1.01x) |
+| MEDIUMTEXT title: first page, ORDER BY titleIndexed LIMIT 25, prefix index (768) | 859 (1.08x) | 795 | 960 (1.21x) | 965 (1.21x) | 809 (1.02x) |
+| MEDIUMTEXT title: last page, ORDER BY titleIndexed LIMIT 25 OFFSET n, prefix index (768) | 7586 (1.75x) | 4323 | 10095 (2.34x) | 10136 (2.34x) | 3988 (0.92x) |
 
 **MySQL and Percona 8.0 and later** (MySQL 8.0, MySQL 8.4, MySQL 9.6, MySQL 9.7, Percona 8.0, Percona 8.4)
 
 | Statement | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | control |
 |---|---|---|---|---|---|---|
-| List page: SELECT * ... WHERE hidden = 0 ORDER BY title LIMIT 25, no index on title | 771 (1.23x) | 647 | 837 (1.29x) | 851 (1.29x) | 597 (0.94x) | 0.99x to 1.05x |
-| List page: the same, ORDER BY dragSortOrder (an integer, no index) | 473 (0.99x) | 467 | 474 (1.01x) | 482 (1.01x) | 471 (1.01x) | 0.99x to 1.06x |
-| List page: the same, ORDER BY createdDate (a datetime, no index) | 492 (1.00x) | 486 | 493 (1.01x) | 499 (1.01x) | 492 (1.01x) | 0.99x to 1.07x |
-| List page: the same, ORDER BY titleIndexed (the title again, with an index) | 0.186 (1.02x) | 0.189 | 0.193 (1.00x) | 0.187 (1.01x) | 0.190 (1.01x) | 0.98x to 1.03x |
-| ORDER BY title, whole table, no index | 9411 (5.19x) | 1814 | 14701 (8.20x) | 14675 (8.12x) | 826 (0.43x) | 0.85x to 1.14x |
+| List page: SELECT * ... WHERE hidden = 0 ORDER BY title LIMIT 25, no index on title | 779 (1.19x) | 644 | 836 (1.29x) | 843 (1.29x) | 616 (0.94x) | 0.99x to 1.05x |
+| List page: the same, ORDER BY dragSortOrder (an integer, no index) | 473 (0.99x) | 472 | 473 (1.01x) | 481 (1.01x) | 478 (1.03x) | 0.99x to 1.06x |
+| List page: the same, ORDER BY createdDate (a datetime, no index) | 491 (0.99x) | 486 | 491 (1.02x) | 496 (1.02x) | 493 (1.02x) | 0.99x to 1.07x |
+| List page: the same, ORDER BY titleIndexed (the title again, with an index) | 0.196 (1.02x) | 0.189 | 0.195 (1.01x) | 0.191 (1.01x) | 0.194 (1.01x) | 0.99x to 1.04x |
+| ORDER BY title, whole table, no index | 9468 (4.13x) | 2719 | 14701 (6.20x) | 14675 (6.27x) | 846 (0.36x) | 0.85x to 1.14x |
 | ORDER BY title LIMIT 20, no index | 592 (1.42x) | 431 | 632 (1.46x) | 629 (1.45x) | 378 (0.87x) | 1.00x to 1.02x |
 | ORDER BY name LIMIT 20, indexed | 0.117 (1.00x) | 0.116 | 0.115 (0.99x) | 0.116 (1.00x) | 0.121 (0.97x) | 0.93x to 1.01x |
 | WHERE name = ?, indexed (point lookup) | 0.127 (1.00x) | 0.128 | 0.133 (1.06x) | 0.137 (1.06x) | 0.136 (1.08x) | 0.98x to 1.16x |
@@ -1339,16 +1593,26 @@ Each cell is the median over the group's servers.
 | INSERT 10,000 rows, 100 per statement, index on name | 103 (0.99x) | 104 | 104 (1.01x) | 106 (1.00x) | 106 (1.01x) | 0.98x to 1.00x |
 | INSERT 10,000 rows, 100 per statement, UNIQUE index on name | 100 (0.98x) | 104 | 118 (1.08x) | 106 (1.02x) | 106 (1.01x) | 0.99x to 5.12x |
 | ALTER TABLE ... ADD INDEX (title) | 2252 (0.82x) | 2796 | 2989 (1.03x) | 3000 (1.01x) | 3148 (1.05x) | 0.96x to 1.01x |
+| List page, last page: SELECT * ... WHERE hidden = 0 ORDER BY title LIMIT 25 OFFSET n, no index on title | 9430 (2.48x) | 4048 | 13350 (3.55x) | 13820 (3.69x) | 2853 (0.71x) | 0.97x to 1.01x |
+| List page, last page: the same, ORDER BY dragSortOrder (an integer, no index) | 2435 (0.97x) | 2497 | 2482 (0.99x) | 2535 (1.01x) | 2493 (0.99x) | 0.96x to 1.02x |
+| List page, last page: the same, ORDER BY titleIndexed (the title again, with an index) | 9477 (2.40x) | 4310 | 13518 (3.55x) | 13209 (3.46x) | 2864 (0.68x) | 0.93x to 1.07x |
+| ORDER BY title, whole table, no index, sort_buffer_size = 64 MB | 2015 (1.51x) | 1347 | 5735 (4.31x) | 5474 (4.12x) | 1044 (0.77x) | 0.96x to 1.01x |
+| ORDER BY title, whole table, no index, sort_buffer_size = 2 GB | 2057 (1.23x) | 1682 | 2199 (1.32x) | 2224 (1.33x) | 1039 (0.62x) | 0.93x to 1.05x |
+| MEDIUMTEXT title: ORDER BY title, whole table, no index | 12480 (1.02x) | 12252 | 12197 (0.99x) | 12184 (0.99x) | 2145 (0.18x) | 0.98x to 0.99x |
+| MEDIUMTEXT title: the same, sort_buffer_size = 2 GB | 3422 (1.04x) | 3322 | 3309 (1.01x) | 3289 (0.99x) | 2264 (0.67x) | 0.98x to 1.04x |
+| MEDIUMTEXT title: first page, ORDER BY title LIMIT 25, no index | 720 (1.40x) | 524 | 631 (1.21x) | 634 (1.22x) | 494 (0.95x) | 1.01x to 1.05x |
+| MEDIUMTEXT title: first page, ORDER BY titleIndexed LIMIT 25, prefix index (768) | 719 (1.40x) | 524 | 631 (1.21x) | 633 (1.21x) | 495 (0.95x) | 1.01x to 1.05x |
+| MEDIUMTEXT title: last page, ORDER BY titleIndexed LIMIT 25 OFFSET n, prefix index (768) | 11751 (1.04x) | 11328 | 11255 (0.99x) | 11562 (1.02x) | 2162 (0.20x) | 1.01x to 1.05x |
 
 **MariaDB 10.2 to 10.9** (MariaDB 10.2, MariaDB 10.2.6, MariaDB 10.2.7, MariaDB 10.3, MariaDB 10.4, MariaDB 10.5, MariaDB 10.6)
 
 | Statement | bin | general_ci | unicode_ci | unicode_520_ci | control |
 |---|---|---|---|---|---|
-| List page: SELECT * ... WHERE hidden = 0 ORDER BY title LIMIT 25, no index on title | 628 (1.06x) | 515 | 485 (0.97x) | 488 (0.95x) | 0.99x to 1.00x |
-| List page: the same, ORDER BY dragSortOrder (an integer, no index) | 272 (1.00x) | 271 | 274 (1.01x) | 272 (1.00x) | 0.99x to 1.02x |
+| List page: SELECT * ... WHERE hidden = 0 ORDER BY title LIMIT 25, no index on title | 628 (1.06x) | 515 | 470 (0.97x) | 479 (0.95x) | 0.99x to 1.00x |
+| List page: the same, ORDER BY dragSortOrder (an integer, no index) | 272 (1.00x) | 271 | 274 (1.01x) | 272 (1.00x) | 0.99x to 1.01x |
 | List page: the same, ORDER BY createdDate (a datetime, no index) | 272 (1.00x) | 274 | 278 (1.00x) | 277 (1.01x) | 0.98x to 1.01x |
-| List page: the same, ORDER BY titleIndexed (the title again, with an index) | 0.248 (1.03x) | 0.241 | 0.226 (0.99x) | 0.227 (0.97x) | 0.93x to 1.03x |
-| ORDER BY title, whole table, no index | 4279 (1.60x) | 3299 | 8573 (2.39x) | 7860 (2.38x) | 0.91x to 1.19x |
+| List page: the same, ORDER BY titleIndexed (the title again, with an index) | 0.219 (1.03x) | 0.209 | 0.201 (0.99x) | 0.201 (0.97x) | 0.93x to 1.03x |
+| ORDER BY title, whole table, no index | 4279 (1.60x) | 2804 | 8679 (2.46x) | 8788 (2.52x) | 0.96x to 1.19x |
 | ORDER BY title LIMIT 20, no index | 635 (1.06x) | 539 | 491 (0.98x) | 479 (0.99x) | 0.99x to 1.01x |
 | ORDER BY name LIMIT 20, indexed | 0.141 (1.01x) | 0.133 | 0.157 (1.01x) | 0.143 (1.00x) | 0.92x to 1.06x |
 | WHERE name = ?, indexed (point lookup) | 0.160 (0.99x) | 0.165 | 0.165 (1.00x) | 0.171 (1.01x) | 0.94x to 1.04x |
@@ -1367,6 +1631,16 @@ Each cell is the median over the group's servers.
 | INSERT 10,000 rows, 100 per statement, index on name | 76.6 (0.99x) | 77.1 | 81.5 (1.11x) | 78.2 (1.09x) | 0.95x to 1.08x |
 | INSERT 10,000 rows, 100 per statement, UNIQUE index on name | 74.2 (0.97x) | 78.4 | 80.5 (1.05x) | 77.6 (1.05x) | 0.95x to 1.03x |
 | ALTER TABLE ... ADD INDEX (title) | 1590 (0.98x) | 1620 | 2423 (1.54x) | 2425 (1.59x) | 0.95x to 1.04x |
+| List page, last page: SELECT * ... WHERE hidden = 0 ORDER BY title LIMIT 25 OFFSET n, no index on title | 5621 (2.29x) | 2459 | 9613 (3.91x) | 9836 (4.00x) | 2679 (1.09x) |
+| List page, last page: the same, ORDER BY dragSortOrder (an integer, no index) | 1595 (1.04x) | 1538 | 1458 (0.95x) | 1514 (0.98x) | 1757 (1.14x) |
+| List page, last page: the same, ORDER BY titleIndexed (the title again, with an index) | 5653 (2.24x) | 2525 | 9763 (3.87x) | 10334 (4.09x) | 2707 (1.07x) |
+| ORDER BY title, whole table, no index, sort_buffer_size = 64 MB | 2690 (1.26x) | 2129 | 6414 (3.01x) | 6309 (2.96x) | 2417 (1.14x) |
+| ORDER BY title, whole table, no index, sort_buffer_size = 2 GB | 2703 (1.12x) | 2405 | 2524 (1.05x) | 2526 (1.05x) | 2597 (1.08x) |
+| MEDIUMTEXT title: ORDER BY title, whole table, no index | 5542 (2.77x) | 2001 | 9712 (4.85x) | 10348 (5.17x) | 2135 (1.07x) |
+| MEDIUMTEXT title: the same, sort_buffer_size = 2 GB | 2386 (1.13x) | 2118 | 2273 (1.07x) | 2281 (1.08x) | 2204 (1.04x) |
+| MEDIUMTEXT title: first page, ORDER BY title LIMIT 25, no index | 600 (1.16x) | 516 | 384 (0.74x) | 386 (0.75x) | 521 (1.01x) |
+| MEDIUMTEXT title: first page, ORDER BY titleIndexed LIMIT 25, prefix index (768) | 602 (1.16x) | 519 | 385 (0.74x) | 389 (0.75x) | 522 (1.01x) |
+| MEDIUMTEXT title: last page, ORDER BY titleIndexed LIMIT 25 OFFSET n, prefix index (768) | 4077 (1.95x) | 2091 | 8040 (3.84x) | 8100 (3.87x) | 2138 (1.02x) |
 
 **MariaDB 10.10 to 11.3** (MariaDB 10.11)
 
@@ -1395,16 +1669,26 @@ Each cell is the median over the group's servers.
 | INSERT 10,000 rows, 100 per statement, index on name | 70.4 (0.97x) | 72.5 | 71.7 (0.99x) | 73.7 (1.02x) | 74.3 (1.03x) | 70.6 (0.97x) |
 | INSERT 10,000 rows, 100 per statement, UNIQUE index on name | 71.8 (0.98x) | 73.4 | 74.2 (1.01x) | 74.4 (1.01x) | 74.1 (1.01x) | 72.2 (0.98x) |
 | ALTER TABLE ... ADD INDEX (title) | 1101 (0.85x) | 1289 | 1491 (1.16x) | 1493 (1.16x) | 1773 (1.38x) | 1284 (1.00x) |
+| List page, last page: SELECT * ... WHERE hidden = 0 ORDER BY title LIMIT 25 OFFSET n, no index on title |  |  |  |  |  |  |
+| List page, last page: the same, ORDER BY dragSortOrder (an integer, no index) |  |  |  |  |  |  |
+| List page, last page: the same, ORDER BY titleIndexed (the title again, with an index) |  |  |  |  |  |  |
+| ORDER BY title, whole table, no index, sort_buffer_size = 64 MB |  |  |  |  |  |  |
+| ORDER BY title, whole table, no index, sort_buffer_size = 2 GB |  |  |  |  |  |  |
+| MEDIUMTEXT title: ORDER BY title, whole table, no index |  |  |  |  |  |  |
+| MEDIUMTEXT title: the same, sort_buffer_size = 2 GB |  |  |  |  |  |  |
+| MEDIUMTEXT title: first page, ORDER BY title LIMIT 25, no index |  |  |  |  |  |  |
+| MEDIUMTEXT title: first page, ORDER BY titleIndexed LIMIT 25, prefix index (768) |  |  |  |  |  |  |
+| MEDIUMTEXT title: last page, ORDER BY titleIndexed LIMIT 25 OFFSET n, prefix index (768) |  |  |  |  |  |  |
 
 **MariaDB 11.4 and later** (MariaDB 11.4, MariaDB 11.8, MariaDB 12.3)
 
 | Statement | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control |
 |---|---|---|---|---|---|---|---|
-| List page: SELECT * ... WHERE hidden = 0 ORDER BY title LIMIT 25, no index on title | 484 (1.16x) | 420 | 456 (1.11x) | 460 (1.10x) | 495 (1.18x) | 499 (1.21x) | 0.97x to 1.01x |
-| List page: the same, ORDER BY dragSortOrder (an integer, no index) | 223 (1.00x) | 223 | 232 (1.00x) | 226 (0.99x) | 231 (0.99x) | 225 (1.00x) | 0.99x to 1.03x |
-| List page: the same, ORDER BY createdDate (a datetime, no index) | 227 (1.00x) | 228 | 226 (0.99x) | 225 (0.99x) | 224 (0.98x) | 228 (1.00x) | 0.96x to 1.00x |
-| List page: the same, ORDER BY titleIndexed (the title again, with an index) | 0.111 (1.00x) | 0.110 | 0.109 (0.98x) | 0.108 (0.96x) | 0.109 (0.96x) | 0.111 (0.96x) | 0.97x to 1.02x |
-| ORDER BY title, whole table, no index | 2462 (0.94x) | 2632 | 2738 (1.09x) | 2720 (1.07x) | 2918 (1.14x) | 2784 (1.10x) | 0.96x to 1.00x |
+| List page: SELECT * ... WHERE hidden = 0 ORDER BY title LIMIT 25, no index on title | 524 (1.19x) | 440 | 482 (1.10x) | 480 (1.09x) | 523 (1.19x) | 526 (1.20x) | 0.97x to 1.00x |
+| List page: the same, ORDER BY dragSortOrder (an integer, no index) | 241 (1.00x) | 241 | 245 (1.02x) | 241 (1.00x) | 239 (0.99x) | 245 (1.01x) | 0.99x to 1.03x |
+| List page: the same, ORDER BY createdDate (a datetime, no index) | 239 (1.00x) | 240 | 241 (0.99x) | 242 (0.99x) | 241 (0.98x) | 242 (1.00x) | 0.96x to 1.00x |
+| List page: the same, ORDER BY titleIndexed (the title again, with an index) | 0.146 (1.01x) | 0.144 | 0.142 (0.98x) | 0.143 (0.96x) | 0.144 (0.96x) | 0.145 (0.96x) | 0.97x to 1.02x |
+| ORDER BY title, whole table, no index | 2531 (0.94x) | 2638 | 2814 (1.07x) | 2812 (1.07x) | 2973 (1.13x) | 2930 (1.11x) | 0.96x to 1.01x |
 | ORDER BY title LIMIT 20, no index | 481 (1.19x) | 404 | 454 (1.12x) | 457 (1.12x) | 493 (1.22x) | 494 (1.22x) | 1.00x to 1.01x |
 | ORDER BY name LIMIT 20, indexed | 0.065 (1.00x) | 0.065 | 0.067 (1.00x) | 0.066 (1.01x) | 0.066 (1.01x) | 0.066 (1.02x) | 0.92x to 1.03x |
 | WHERE name = ?, indexed (point lookup) | 0.073 (1.02x) | 0.070 | 0.076 (1.07x) | 0.080 (1.03x) | 0.075 (1.08x) | 0.073 (1.04x) | 0.98x to 1.10x |
@@ -1423,6 +1707,16 @@ Each cell is the median over the group's servers.
 | INSERT 10,000 rows, 100 per statement, index on name | 43.1 (0.98x) | 43.0 | 52.4 (1.06x) | 43.4 (1.03x) | 45.1 (1.03x) | 46.0 (1.07x) | 0.99x to 1.03x |
 | INSERT 10,000 rows, 100 per statement, UNIQUE index on name | 41.7 (0.96x) | 43.3 | 43.4 (1.00x) | 43.3 (1.00x) | 43.9 (1.01x) | 45.3 (1.03x) | 0.49x to 0.99x |
 | ALTER TABLE ... ADD INDEX (title) | 1408 (0.95x) | 1478 | 1542 (1.06x) | 1536 (1.05x) | 1608 (1.09x) | 1637 (1.09x) | 0.96x to 1.01x |
+| List page, last page: SELECT * ... WHERE hidden = 0 ORDER BY title LIMIT 25 OFFSET n, no index on title | 2973 (0.98x) | 3042 | 3162 (1.04x) | 3200 (1.05x) | 3417 (1.12x) | 3379 (1.11x) | 3086 (1.01x) |
+| List page, last page: the same, ORDER BY dragSortOrder (an integer, no index) | 1964 (1.01x) | 1945 | 1987 (1.02x) | 1982 (1.02x) | 1972 (1.01x) | 1986 (1.02x) | 2115 (1.09x) |
+| List page, last page: the same, ORDER BY titleIndexed (the title again, with an index) | 2166 (1.01x) | 2135 | 2170 (1.02x) | 2195 (1.03x) | 2161 (1.01x) | 2149 (1.01x) | 2192 (1.03x) |
+| ORDER BY title, whole table, no index, sort_buffer_size = 64 MB | 2725 (0.94x) | 2884 | 3051 (1.06x) | 3050 (1.06x) | 3250 (1.13x) | 3194 (1.11x) | 2898 (1.00x) |
+| ORDER BY title, whole table, no index, sort_buffer_size = 2 GB | 3469 (1.09x) | 3170 | 3515 (1.11x) | 3529 (1.11x) | 3549 (1.12x) | 3581 (1.13x) | 3203 (1.01x) |
+| MEDIUMTEXT title: ORDER BY title, whole table, no index | 1892 (0.93x) | 2025 | 12308 (6.08x) | 12178 (6.01x) | 12285 (6.07x) | 12287 (6.07x) | 2090 (1.03x) |
+| MEDIUMTEXT title: the same, sort_buffer_size = 2 GB | 2697 (1.11x) | 2420 | 2852 (1.18x) | 2816 (1.16x) | 2927 (1.21x) | 2892 (1.20x) | 2476 (1.02x) |
+| MEDIUMTEXT title: first page, ORDER BY title LIMIT 25, no index | 482 (1.26x) | 382 | 449 (1.18x) | 444 (1.16x) | 479 (1.25x) | 486 (1.27x) | 382 (1.00x) |
+| MEDIUMTEXT title: first page, ORDER BY titleIndexed LIMIT 25, prefix index (768) | 483 (1.26x) | 382 | 446 (1.17x) | 444 (1.16x) | 481 (1.26x) | 488 (1.28x) | 383 (1.00x) |
+| MEDIUMTEXT title: last page, ORDER BY titleIndexed LIMIT 25 OFFSET n, prefix index (768) | 1846 (0.93x) | 1974 | 11814 (5.98x) | 11871 (6.01x) | 11735 (5.94x) | 11777 (5.97x) | 2054 (1.04x) |
 
 ### Converting a 1,000,000-row table
 
@@ -1486,21 +1780,21 @@ DATA_LENGTH and INDEX_LENGTH of the 1,000,000-row table from information_schema.
 
 | Server | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control | Control, each run | Widest column |
 |---|---|---|---|---|---|---|---|---|---|
-| mysql:5.7 | 506 (1.07x) | 472 | 704 (1.49x) | 701 (1.48x) |  |  | 475 (1.01x) | 1.01x to 1.01x |  |
-| mysql:8.0 | 842 (1.27x) | 664 | 913 (1.38x) | 943 (1.42x) | 638 (0.96x) |  | 664 (1.00x) | 1.00x to 1.00x |  |
-| mysql:8.4 | 598 (1.21x) | 492 | 572 (1.16x) | 584 (1.19x) | 459 (0.93x) |  | 500 (1.02x) | 1.02x to 1.02x |  |
+| mysql:5.7 | 578 (1.08x) | 536 | 802 (1.50x) | 801 (1.49x) |  |  | 534 (1.00x) | 0.99x to 1.01x | unicode_520_ci 1.48x to 1.51x |
+| mysql:8.0 | 845 (1.29x) | 656 | 911 (1.39x) | 927 (1.41x) | 642 (0.98x) |  | 657 (1.00x) | 1.00x to 1.00x | bin 1.27x to 1.31x |
+| mysql:8.4 | 712 (1.14x) | 632 | 736 (1.16x) | 749 (1.18x) | 591 (0.93x) |  | 656 (1.03x) | 1.02x to 1.05x | bin 1.07x to 1.21x |
 | mysql:9.6 | 930 (1.27x) | 733 | 972 (1.33x) | 977 (1.33x) | 700 (0.95x) |  | 757 (1.03x) | 1.03x to 1.03x |  |
 | mysql:9.7 | 699 (1.11x) | 631 | 729 (1.15x) | 732 (1.16x) | 556 (0.88x) |  | 659 (1.04x) | 1.04x to 1.04x |  |
 | mariadb:10.2 | 498 (0.97x) | 515 | 538 (1.05x) | 537 (1.04x) |  |  | 516 (1.00x) | 1.00x to 1.00x |  |
 | mariadb:10.2.6 | 694 (1.06x) | 657 | 768 (1.17x) | 774 (1.18x) |  |  | 655 (1.00x) | 1.00x to 1.00x |  |
 | mariadb:10.2.7 | 698 (1.06x) | 658 | 743 (1.13x) | 756 (1.15x) |  |  | 657 (1.00x) | 1.00x to 1.00x |  |
 | mariadb:10.3 | 501 (1.04x) | 483 | 470 (0.97x) | 456 (0.94x) |  |  | 479 (0.99x) | 0.99x to 0.99x |  |
-| mariadb:10.4 | 760 (1.19x) | 639 | 485 (0.76x) | 488 (0.76x) |  |  | 637 (1.00x) | 1.00x to 1.00x |  |
+| mariadb:10.4 | 691 (1.18x) | 585 | 449 (0.77x) | 450 (0.77x) |  |  | 585 (1.00x) | 1.00x to 1.00x | unicode_ci 0.76x to 0.78x |
 | mariadb:10.5 | 488 (1.09x) | 446 | 356 (0.80x) | 357 (0.80x) |  |  | 446 (1.00x) | 1.00x to 1.00x |  |
 | mariadb:10.6 | 628 (1.24x) | 505 | 465 (0.92x) | 479 (0.95x) |  |  | 507 (1.00x) | 1.00x to 1.00x |  |
 | mariadb:10.11 | 628 (1.25x) | 500 | 560 (1.12x) | 558 (1.12x) |  | 632 (1.26x) | 501 (1.00x) | 1.00x to 1.00x |  |
 | mariadb:11.4 | 548 (1.23x) | 444 | 493 (1.11x) | 491 (1.10x) | 658 (1.48x) | 550 (1.24x) | 445 (1.00x) | 1.00x to 1.00x |  |
-| mariadb:11.8 | 476 (1.16x) | 410 | 456 (1.11x) | 452 (1.10x) | 485 (1.18x) | 497 (1.21x) | 414 (1.01x) | 1.01x to 1.01x |  |
+| mariadb:11.8 | 524 (1.19x) | 440 | 482 (1.10x) | 480 (1.09x) | 523 (1.19x) | 526 (1.20x) | 441 (1.00x) | 1.00x to 1.01x | bin 1.16x to 1.22x |
 | mariadb:12.3 | 484 (1.15x) | 420 | 456 (1.09x) | 460 (1.09x) | 495 (1.18x) | 499 (1.19x) | 409 (0.97x) | 0.97x to 0.97x |  |
 | percona/percona-server:5.7 | 523 (1.11x) | 471 | 678 (1.44x) | 676 (1.43x) |  |  | 468 (0.99x) | 0.99x to 0.99x |  |
 | percona/percona-server:8.0 | 1131 (1.24x) | 914 | 1183 (1.29x) | 1185 (1.30x) | 910 (1.00x) |  | 905 (0.99x) | 0.99x to 0.99x |  |
@@ -1510,21 +1804,21 @@ DATA_LENGTH and INDEX_LENGTH of the 1,000,000-row table from information_schema.
 
 | Server | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control | Control, each run | Widest column |
 |---|---|---|---|---|---|---|---|---|---|
-| mysql:5.7 | 282 (1.01x) | 279 | 278 (0.99x) | 278 (0.99x) |  |  | 279 (1.00x) | 1.00x to 1.00x |  |
-| mysql:8.0 | 481 (0.99x) | 484 | 486 (1.01x) | 494 (1.02x) | 477 (0.99x) |  | 493 (1.02x) | 1.02x to 1.02x |  |
-| mysql:8.4 | 354 (0.97x) | 364 | 361 (0.99x) | 362 (0.99x) | 366 (1.00x) |  | 370 (1.02x) | 1.02x to 1.02x |  |
+| mysql:5.7 | 308 (1.01x) | 306 | 306 (1.00x) | 311 (1.01x) |  |  | 309 (1.01x) | 1.00x to 1.02x | unicode_520_ci 0.99x to 1.03x |
+| mysql:8.0 | 480 (0.99x) | 485 | 483 (1.00x) | 490 (1.01x) | 483 (1.00x) |  | 488 (1.01x) | 0.99x to 1.02x | unicode_520_ci 1.00x to 1.02x |
+| mysql:8.4 | 451 (0.98x) | 459 | 462 (1.00x) | 471 (1.02x) | 473 (1.03x) |  | 485 (1.05x) | 1.02x to 1.08x | unicode_520_ci 0.99x to 1.05x |
 | mysql:9.6 | 572 (0.98x) | 587 | 594 (1.01x) | 589 (1.00x) | 601 (1.02x) |  | 607 (1.03x) | 1.03x to 1.03x |  |
 | mysql:9.7 | 466 (1.03x) | 450 | 463 (1.03x) | 469 (1.04x) | 465 (1.03x) |  | 470 (1.05x) | 1.05x to 1.05x |  |
 | mariadb:10.2 | 199 (1.00x) | 199 | 196 (0.98x) | 199 (1.00x) |  |  | 196 (0.99x) | 0.99x to 0.99x |  |
 | mariadb:10.2.6 | 302 (1.00x) | 301 | 303 (1.01x) | 302 (1.00x) |  |  | 301 (1.00x) | 1.00x to 1.00x |  |
 | mariadb:10.2.7 | 298 (1.00x) | 300 | 302 (1.01x) | 304 (1.01x) |  |  | 302 (1.01x) | 1.01x to 1.01x |  |
 | mariadb:10.3 | 242 (1.00x) | 241 | 244 (1.01x) | 247 (1.03x) |  |  | 244 (1.01x) | 1.01x to 1.01x |  |
-| mariadb:10.4 | 296 (1.00x) | 294 | 295 (1.00x) | 299 (1.01x) |  |  | 299 (1.02x) | 1.02x to 1.02x |  |
+| mariadb:10.4 | 278 (1.00x) | 278 | 279 (1.00x) | 280 (1.01x) |  |  | 280 (1.01x) | 1.00x to 1.02x | unicode_520_ci 1.00x to 1.01x |
 | mariadb:10.5 | 223 (0.99x) | 225 | 226 (1.01x) | 224 (1.00x) |  |  | 225 (1.00x) | 1.00x to 1.00x |  |
 | mariadb:10.6 | 272 (1.00x) | 271 | 274 (1.01x) | 272 (1.00x) |  |  | 273 (1.01x) | 1.01x to 1.01x |  |
 | mariadb:10.11 | 272 (1.00x) | 273 | 272 (1.00x) | 269 (0.99x) |  | 271 (0.99x) | 273 (1.00x) | 1.00x to 1.00x |  |
 | mariadb:11.4 | 246 (0.99x) | 249 | 246 (0.99x) | 247 (0.99x) | 246 (0.99x) | 245 (0.98x) | 246 (0.99x) | 0.99x to 0.99x |  |
-| mariadb:11.8 | 223 (1.00x) | 222 | 222 (1.00x) | 221 (0.99x) | 220 (0.99x) | 221 (1.00x) | 221 (0.99x) | 0.99x to 0.99x |  |
+| mariadb:11.8 | 241 (1.00x) | 241 | 245 (1.02x) | 241 (1.00x) | 239 (0.99x) | 246 (1.02x) | 241 (1.00x) | 0.99x to 1.00x | uca1400_ai_ci 1.00x to 1.04x |
 | mariadb:12.3 | 223 (1.00x) | 223 | 232 (1.04x) | 226 (1.01x) | 231 (1.04x) | 225 (1.01x) | 229 (1.03x) | 1.03x to 1.03x |  |
 | percona/percona-server:5.7 | 292 (1.00x) | 291 | 292 (1.00x) | 293 (1.01x) |  |  | 292 (1.00x) | 1.00x to 1.00x |  |
 | percona/percona-server:8.0 | 739 (0.99x) | 749 | 739 (0.99x) | 738 (0.99x) | 736 (0.98x) |  | 742 (0.99x) | 0.99x to 0.99x |  |
@@ -1534,21 +1828,21 @@ DATA_LENGTH and INDEX_LENGTH of the 1,000,000-row table from information_schema.
 
 | Server | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control | Control, each run | Widest column |
 |---|---|---|---|---|---|---|---|---|---|
-| mysql:5.7 | 278 (1.00x) | 278 | 280 (1.01x) | 276 (0.99x) |  |  | 279 (1.00x) | 1.00x to 1.00x |  |
-| mysql:8.0 | 505 (0.99x) | 512 | 510 (1.00x) | 520 (1.01x) | 507 (0.99x) |  | 512 (1.00x) | 1.00x to 1.00x |  |
-| mysql:8.4 | 360 (1.00x) | 360 | 356 (0.99x) | 360 (1.00x) | 360 (1.00x) |  | 367 (1.02x) | 1.02x to 1.02x |  |
+| mysql:5.7 | 303 (1.00x) | 302 | 305 (1.01x) | 303 (1.00x) |  |  | 302 (1.00x) | 0.99x to 1.00x | unicode_520_ci 0.99x to 1.01x |
+| mysql:8.0 | 503 (0.98x) | 512 | 506 (0.99x) | 515 (1.01x) | 510 (1.00x) |  | 511 (1.00x) | 1.00x to 1.00x | unicode_520_ci 1.00x to 1.01x |
+| mysql:8.4 | 455 (1.00x) | 457 | 463 (1.01x) | 469 (1.02x) | 473 (1.03x) |  | 483 (1.05x) | 1.02x to 1.08x | 0900_ai_ci 1.00x to 1.06x |
 | mysql:9.6 | 593 (0.98x) | 602 | 615 (1.02x) | 610 (1.01x) | 610 (1.01x) |  | 632 (1.05x) | 1.05x to 1.05x |  |
 | mysql:9.7 | 478 (1.04x) | 460 | 476 (1.03x) | 478 (1.04x) | 477 (1.04x) |  | 483 (1.05x) | 1.05x to 1.05x |  |
 | mariadb:10.2 | 204 (0.99x) | 207 | 202 (0.98x) | 204 (0.99x) |  |  | 203 (0.98x) | 0.98x to 0.98x |  |
 | mariadb:10.2.6 | 302 (1.00x) | 301 | 302 (1.00x) | 304 (1.01x) |  |  | 303 (1.01x) | 1.01x to 1.01x |  |
 | mariadb:10.2.7 | 299 (1.00x) | 299 | 302 (1.01x) | 306 (1.02x) |  |  | 299 (1.00x) | 1.00x to 1.00x |  |
 | mariadb:10.3 | 244 (1.01x) | 241 | 243 (1.01x) | 241 (1.00x) |  |  | 244 (1.01x) | 1.01x to 1.01x |  |
-| mariadb:10.4 | 292 (1.00x) | 294 | 294 (1.00x) | 296 (1.01x) |  |  | 293 (1.00x) | 1.00x to 1.00x |  |
+| mariadb:10.4 | 278 (1.00x) | 277 | 278 (1.00x) | 279 (1.01x) |  |  | 279 (1.01x) | 1.00x to 1.02x | bin 1.00x to 1.01x |
 | mariadb:10.5 | 223 (0.98x) | 228 | 225 (0.99x) | 226 (0.99x) |  |  | 226 (0.99x) | 0.99x to 0.99x |  |
 | mariadb:10.6 | 272 (0.99x) | 274 | 278 (1.01x) | 277 (1.01x) |  |  | 276 (1.01x) | 1.01x to 1.01x |  |
 | mariadb:10.11 | 269 (0.99x) | 272 | 272 (1.00x) | 269 (0.99x) |  | 269 (0.99x) | 269 (0.99x) | 0.99x to 0.99x |  |
 | mariadb:11.4 | 248 (0.99x) | 251 | 249 (0.99x) | 249 (0.99x) | 247 (0.98x) | 247 (0.98x) | 248 (0.99x) | 0.99x to 0.99x |  |
-| mariadb:11.8 | 218 (1.00x) | 219 | 218 (1.00x) | 221 (1.01x) | 221 (1.01x) | 220 (1.01x) | 218 (1.00x) | 1.00x to 1.00x |  |
+| mariadb:11.8 | 239 (1.00x) | 240 | 241 (1.00x) | 242 (1.01x) | 241 (1.00x) | 242 (1.01x) | 240 (1.00x) | 1.00x to 1.00x | unicode_ci 1.00x to 1.01x |
 | mariadb:12.3 | 227 (1.00x) | 228 | 226 (0.99x) | 225 (0.99x) | 224 (0.98x) | 228 (1.00x) | 220 (0.96x) | 0.96x to 0.96x |  |
 | percona/percona-server:5.7 | 293 (1.00x) | 292 | 292 (1.00x) | 292 (1.00x) |  |  | 292 (1.00x) | 1.00x to 1.00x |  |
 | percona/percona-server:8.0 | 756 (0.99x) | 763 | 753 (0.99x) | 758 (0.99x) | 755 (0.99x) |  | 757 (0.99x) | 0.99x to 0.99x |  |
@@ -1558,21 +1852,21 @@ DATA_LENGTH and INDEX_LENGTH of the 1,000,000-row table from information_schema.
 
 | Server | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control | Control, each run | Widest column |
 |---|---|---|---|---|---|---|---|---|---|
-| mysql:5.7 | 0.190 (0.96x) | 0.197 | 0.190 (0.97x) | 0.199 (1.01x) |  |  | 0.192 (0.98x) | 0.98x to 0.98x |  |
-| mysql:8.0 | 0.199 (1.00x) | 0.199 | 0.207 (1.04x) | 0.195 (0.98x) | 0.200 (1.00x) |  | 0.194 (0.98x) | 0.98x to 0.98x |  |
-| mysql:8.4 | 0.123 (1.02x) | 0.120 | 0.118 (0.99x) | 0.122 (1.02x) | 0.121 (1.01x) |  | 0.123 (1.03x) | 1.03x to 1.03x |  |
+| mysql:5.7 | 0.263 (1.06x) | 0.244 | 0.238 (0.97x) | 0.260 (1.06x) |  |  | 0.242 (0.99x) | 0.98x to 1.00x | bin 0.96x to 1.15x |
+| mysql:8.0 | 0.195 (1.02x) | 0.191 | 0.198 (1.03x) | 0.190 (1.00x) | 0.193 (1.01x) |  | 0.190 (0.99x) | 0.98x to 1.01x | bin 1.00x to 1.04x |
+| mysql:8.4 | 0.197 (1.05x) | 0.186 | 0.192 (1.02x) | 0.191 (1.03x) | 0.195 (1.04x) |  | 0.195 (1.04x) | 1.03x to 1.05x | unicode_ci 0.99x to 1.05x |
 | mysql:9.6 | 0.213 (1.04x) | 0.206 | 0.229 (1.11x) | 0.211 (1.03x) | 0.202 (0.98x) |  | 0.211 (1.02x) | 1.02x to 1.02x |  |
 | mysql:9.7 | 0.173 (0.96x) | 0.179 | 0.179 (1.00x) | 0.179 (1.00x) | 0.179 (1.00x) |  | 0.180 (1.00x) | 1.00x to 1.00x |  |
 | mariadb:10.2 | 0.151 (1.01x) | 0.150 | 0.145 (0.97x) | 0.146 (0.97x) |  |  | 0.143 (0.96x) | 0.96x to 0.96x |  |
 | mariadb:10.2.6 | 0.268 (1.05x) | 0.256 | 0.265 (1.03x) | 0.263 (1.03x) |  |  | 0.262 (1.03x) | 1.03x to 1.03x |  |
 | mariadb:10.2.7 | 0.248 (1.03x) | 0.241 | 0.239 (0.99x) | 0.240 (1.00x) |  |  | 0.242 (1.00x) | 1.00x to 1.00x |  |
 | mariadb:10.3 | 0.115 (1.03x) | 0.112 | 0.115 (1.03x) | 0.115 (1.03x) |  |  | 0.113 (1.01x) | 1.01x to 1.01x |  |
-| mariadb:10.4 | 0.250 (1.03x) | 0.244 | 0.226 (0.93x) | 0.227 (0.93x) |  |  | 0.229 (0.94x) | 0.94x to 0.94x |  |
+| mariadb:10.4 | 0.219 (1.05x) | 0.209 | 0.201 (0.97x) | 0.201 (0.97x) |  |  | 0.201 (0.96x) | 0.94x to 0.99x | unicode_ci 0.93x to 1.01x |
 | mariadb:10.5 | 0.120 (0.96x) | 0.125 | 0.122 (0.97x) | 0.117 (0.93x) |  |  | 0.117 (0.93x) | 0.93x to 0.93x |  |
 | mariadb:10.6 | 0.251 (0.94x) | 0.267 | 0.267 (1.00x) | 0.259 (0.97x) |  |  | 0.259 (0.97x) | 0.97x to 0.97x |  |
 | mariadb:10.11 | 0.256 (0.99x) | 0.258 | 0.264 (1.02x) | 0.245 (0.95x) |  | 0.244 (0.94x) | 0.247 (0.95x) | 0.95x to 0.95x |  |
 | mariadb:11.4 | 0.181 (0.98x) | 0.186 | 0.180 (0.97x) | 0.179 (0.96x) | 0.178 (0.96x) | 0.178 (0.96x) | 0.180 (0.97x) | 0.97x to 0.97x |  |
-| mariadb:11.8 | 0.110 (1.00x) | 0.110 | 0.107 (0.98x) | 0.108 (0.98x) | 0.109 (0.99x) | 0.111 (1.01x) | 0.112 (1.02x) | 1.02x to 1.02x |  |
+| mariadb:11.8 | 0.146 (1.01x) | 0.144 | 0.142 (0.98x) | 0.143 (1.00x) | 0.144 (1.00x) | 0.145 (1.01x) | 0.146 (1.02x) | 1.01x to 1.02x | unicode_520_ci 0.98x to 1.01x |
 | mariadb:12.3 | 0.111 (1.02x) | 0.109 | 0.109 (0.99x) | 0.105 (0.96x) | 0.105 (0.96x) | 0.105 (0.96x) | 0.109 (0.99x) | 0.99x to 0.99x |  |
 | percona/percona-server:5.7 | 0.178 (0.97x) | 0.183 | 0.185 (1.01x) | 0.175 (0.96x) |  |  | 0.175 (0.95x) | 0.95x to 0.95x |  |
 | percona/percona-server:8.0 | 0.250 (1.01x) | 0.246 | 0.245 (0.99x) | 0.245 (0.99x) | 0.249 (1.01x) |  | 0.244 (0.99x) | 0.99x to 0.99x |  |
@@ -1582,21 +1876,21 @@ DATA_LENGTH and INDEX_LENGTH of the 1,000,000-row table from information_schema.
 
 | Server | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control | Control, each run | Widest column |
 |---|---|---|---|---|---|---|---|---|---|
-| mysql:5.7 | 6086 (2.17x) | 2810 | 13825 (4.92x) | 13802 (4.91x) |  |  | 2832 (1.01x) | 1.01x to 1.01x |  |
-| mysql:8.0 | 9467 (5.41x) | 1749 | 15061 (8.61x) | 14860 (8.50x) | 874 (0.50x) |  | 1890 (1.08x) | 1.08x to 1.08x |  |
-| mysql:8.4 | 9316 (5.64x) | 1650 | 14257 (8.64x) | 14515 (8.79x) | 747 (0.45x) |  | 1547 (0.94x) | 0.94x to 0.94x |  |
+| mysql:5.7 | 7371 (2.17x) | 3394 | 12278 (3.81x) | 12379 (3.83x) |  |  | 3441 (1.01x) | 1.01x to 1.02x | unicode_ci 2.70x to 4.92x |
+| mysql:8.0 | 10212 (4.57x) | 2343 | 15363 (6.97x) | 15686 (7.06x) | 874 (0.40x) |  | 2253 (0.99x) | 0.89x to 1.08x | unicode_ci 5.33x to 8.61x |
+| mysql:8.4 | 8552 (3.68x) | 3095 | 12122 (5.42x) | 12176 (5.48x) | 846 (0.33x) |  | 2853 (0.93x) | 0.92x to 0.94x | unicode_520_ci 2.17x to 8.79x |
 | mysql:9.6 | 9580 (5.80x) | 1653 | 14773 (8.94x) | 14810 (8.96x) | 846 (0.51x) |  | 1883 (1.14x) | 1.14x to 1.14x |  |
 | mysql:9.7 | 9355 (4.98x) | 1880 | 14628 (7.78x) | 14540 (7.74x) | 781 (0.42x) |  | 1871 (1.00x) | 1.00x to 1.00x |  |
 | mariadb:10.2 | 4207 (1.60x) | 2636 | 9286 (3.52x) | 9143 (3.47x) |  |  | 3132 (1.19x) | 1.19x to 1.19x |  |
 | mariadb:10.2.6 | 6220 (1.79x) | 3482 | 8573 (2.46x) | 8788 (2.52x) |  |  | 3378 (0.97x) | 0.97x to 0.97x |  |
 | mariadb:10.2.7 | 5699 (1.56x) | 3655 | 8679 (2.37x) | 7808 (2.14x) |  |  | 3522 (0.96x) | 0.96x to 0.96x |  |
 | mariadb:10.3 | 4279 (1.92x) | 2226 | 9524 (4.28x) | 9323 (4.19x) |  |  | 2211 (0.99x) | 0.99x to 0.99x |  |
-| mariadb:10.4 | 6194 (1.88x) | 3302 | 7907 (2.39x) | 7860 (2.38x) |  |  | 2999 (0.91x) | 0.91x to 0.91x |  |
+| mariadb:10.4 | 5918 (2.16x) | 2804 | 9252 (3.50x) | 9345 (3.54x) |  |  | 2830 (1.03x) | 0.91x to 1.15x | unicode_520_ci 2.38x to 4.70x |
 | mariadb:10.5 | 2441 (0.96x) | 2539 | 3182 (1.25x) | 3195 (1.26x) |  |  | 2543 (1.00x) | 1.00x to 1.00x |  |
 | mariadb:10.6 | 3229 (0.98x) | 3299 | 4322 (1.31x) | 4249 (1.29x) |  |  | 3323 (1.01x) | 1.01x to 1.01x |  |
 | mariadb:10.11 | 2953 (0.95x) | 3113 | 3453 (1.11x) | 3338 (1.07x) |  | 3596 (1.16x) | 3106 (1.00x) | 1.00x to 1.00x |  |
 | mariadb:11.4 | 2531 (0.94x) | 2679 | 2923 (1.09x) | 2868 (1.07x) | 3073 (1.15x) | 3079 (1.15x) | 2653 (0.99x) | 0.99x to 0.99x |  |
-| mariadb:11.8 | 2459 (0.98x) | 2515 | 2738 (1.09x) | 2720 (1.08x) | 2862 (1.14x) | 2775 (1.10x) | 2515 (1.00x) | 1.00x to 1.00x |  |
+| mariadb:11.8 | 2534 (0.96x) | 2638 | 2814 (1.07x) | 2812 (1.07x) | 2973 (1.13x) | 2930 (1.11x) | 2653 (1.01x) | 1.00x to 1.01x | unicode_ci 1.05x to 1.09x |
 | mariadb:12.3 | 2462 (0.94x) | 2632 | 2726 (1.04x) | 2595 (0.99x) | 2918 (1.11x) | 2784 (1.06x) | 2526 (0.96x) | 0.96x to 0.96x |  |
 | percona/percona-server:5.7 | 6722 (2.40x) | 2796 | 13744 (4.91x) | 13914 (4.98x) |  |  | 2851 (1.02x) | 1.02x to 1.02x |  |
 | percona/percona-server:8.0 | 7307 (1.87x) | 3911 | 9495 (2.43x) | 9054 (2.31x) | 1000 (0.26x) |  | 3339 (0.85x) | 0.85x to 0.85x |  |
@@ -2034,6 +2328,340 @@ DATA_LENGTH and INDEX_LENGTH of the 1,000,000-row table from information_schema.
 | percona/percona-server:8.0 | 2163 (0.83x) | 2598 | 2987 (1.15x) | 2995 (1.15x) | 3209 (1.24x) |  | 2571 (0.99x) | 0.99x to 0.99x |  |
 | percona/percona-server:8.4 | 2234 (0.81x) | 2765 | 2835 (1.03x) | 2812 (1.02x) | 2710 (0.98x) |  | 2767 (1.00x) | 1.00x to 1.00x |  |
 
+**List page, last page: SELECT * ... WHERE hidden = 0 ORDER BY title LIMIT 25 OFFSET n, no index on title**
+
+| Server | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control | Control, each run | Widest column |
+|---|---|---|---|---|---|---|---|---|---|
+| mysql:5.7 | 8427 (1.98x) | 4251 | 10862 (2.56x) | 9861 (2.32x) |  |  | 4286 (1.01x) | 1.01x to 1.01x |  |
+| mysql:8.0 | 10202 (3.18x) | 3203 | 15256 (4.76x) | 16073 (5.02x) | 2308 (0.72x) |  | 3098 (0.97x) | 0.97x to 0.97x |  |
+| mysql:8.4 | 8658 (1.77x) | 4893 | 11445 (2.34x) | 11567 (2.36x) | 3399 (0.69x) |  | 4953 (1.01x) | 1.01x to 1.01x |  |
+| mysql:9.6 |  |  |  |  |  |  |  |  |  |
+| mysql:9.7 |  |  |  |  |  |  |  |  |  |
+| mariadb:10.2 |  |  |  |  |  |  |  |  |  |
+| mariadb:10.2.6 |  |  |  |  |  |  |  |  |  |
+| mariadb:10.2.7 |  |  |  |  |  |  |  |  |  |
+| mariadb:10.3 |  |  |  |  |  |  |  |  |  |
+| mariadb:10.4 | 5621 (2.29x) | 2459 | 9613 (3.91x) | 9836 (4.00x) |  |  | 2679 (1.09x) | 1.09x to 1.09x |  |
+| mariadb:10.5 |  |  |  |  |  |  |  |  |  |
+| mariadb:10.6 |  |  |  |  |  |  |  |  |  |
+| mariadb:10.11 |  |  |  |  |  |  |  |  |  |
+| mariadb:11.4 |  |  |  |  |  |  |  |  |  |
+| mariadb:11.8 | 2973 (0.98x) | 3042 | 3162 (1.04x) | 3200 (1.05x) | 3417 (1.12x) | 3379 (1.11x) | 3086 (1.01x) | 1.01x to 1.01x |  |
+| mariadb:12.3 |  |  |  |  |  |  |  |  |  |
+| percona/percona-server:5.7 |  |  |  |  |  |  |  |  |  |
+| percona/percona-server:8.0 |  |  |  |  |  |  |  |  |  |
+| percona/percona-server:8.4 |  |  |  |  |  |  |  |  |  |
+
+**List page, last page: the same, ORDER BY dragSortOrder (an integer, no index)**
+
+| Server | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control | Control, each run | Widest column |
+|---|---|---|---|---|---|---|---|---|---|
+| mysql:5.7 | 2091 (1.00x) | 2084 | 2080 (1.00x) | 2140 (1.03x) |  |  | 2259 (1.08x) | 1.08x to 1.08x |  |
+| mysql:8.0 | 1896 (0.95x) | 1993 | 1933 (0.97x) | 1949 (0.98x) | 1937 (0.97x) |  | 1912 (0.96x) | 0.96x to 0.96x |  |
+| mysql:8.4 | 2974 (0.99x) | 3002 | 3032 (1.01x) | 3122 (1.04x) | 3049 (1.02x) |  | 3070 (1.02x) | 1.02x to 1.02x |  |
+| mysql:9.6 |  |  |  |  |  |  |  |  |  |
+| mysql:9.7 |  |  |  |  |  |  |  |  |  |
+| mariadb:10.2 |  |  |  |  |  |  |  |  |  |
+| mariadb:10.2.6 |  |  |  |  |  |  |  |  |  |
+| mariadb:10.2.7 |  |  |  |  |  |  |  |  |  |
+| mariadb:10.3 |  |  |  |  |  |  |  |  |  |
+| mariadb:10.4 | 1595 (1.04x) | 1538 | 1458 (0.95x) | 1514 (0.98x) |  |  | 1757 (1.14x) | 1.14x to 1.14x |  |
+| mariadb:10.5 |  |  |  |  |  |  |  |  |  |
+| mariadb:10.6 |  |  |  |  |  |  |  |  |  |
+| mariadb:10.11 |  |  |  |  |  |  |  |  |  |
+| mariadb:11.4 |  |  |  |  |  |  |  |  |  |
+| mariadb:11.8 | 1964 (1.01x) | 1945 | 1987 (1.02x) | 1982 (1.02x) | 1972 (1.01x) | 1986 (1.02x) | 2115 (1.09x) | 1.09x to 1.09x |  |
+| mariadb:12.3 |  |  |  |  |  |  |  |  |  |
+| percona/percona-server:5.7 |  |  |  |  |  |  |  |  |  |
+| percona/percona-server:8.0 |  |  |  |  |  |  |  |  |  |
+| percona/percona-server:8.4 |  |  |  |  |  |  |  |  |  |
+
+**List page, last page: the same, ORDER BY titleIndexed (the title again, with an index)**
+
+| Server | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control | Control, each run | Widest column |
+|---|---|---|---|---|---|---|---|---|---|
+| mysql:5.7 | 7840 (1.83x) | 4275 | 10439 (2.44x) | 10448 (2.44x) |  |  | 4353 (1.02x) | 1.02x to 1.02x |  |
+| mysql:8.0 | 9828 (3.13x) | 3144 | 15919 (5.06x) | 15536 (4.94x) | 2328 (0.74x) |  | 3374 (1.07x) | 1.07x to 1.07x |  |
+| mysql:8.4 | 9126 (1.67x) | 5477 | 11118 (2.03x) | 10882 (1.99x) | 3400 (0.62x) |  | 5084 (0.93x) | 0.93x to 0.93x |  |
+| mysql:9.6 |  |  |  |  |  |  |  |  |  |
+| mysql:9.7 |  |  |  |  |  |  |  |  |  |
+| mariadb:10.2 |  |  |  |  |  |  |  |  |  |
+| mariadb:10.2.6 |  |  |  |  |  |  |  |  |  |
+| mariadb:10.2.7 |  |  |  |  |  |  |  |  |  |
+| mariadb:10.3 |  |  |  |  |  |  |  |  |  |
+| mariadb:10.4 | 5653 (2.24x) | 2525 | 9763 (3.87x) | 10334 (4.09x) |  |  | 2707 (1.07x) | 1.07x to 1.07x |  |
+| mariadb:10.5 |  |  |  |  |  |  |  |  |  |
+| mariadb:10.6 |  |  |  |  |  |  |  |  |  |
+| mariadb:10.11 |  |  |  |  |  |  |  |  |  |
+| mariadb:11.4 |  |  |  |  |  |  |  |  |  |
+| mariadb:11.8 | 2166 (1.01x) | 2135 | 2170 (1.02x) | 2195 (1.03x) | 2161 (1.01x) | 2149 (1.01x) | 2192 (1.03x) | 1.03x to 1.03x |  |
+| mariadb:12.3 |  |  |  |  |  |  |  |  |  |
+| percona/percona-server:5.7 |  |  |  |  |  |  |  |  |  |
+| percona/percona-server:8.0 |  |  |  |  |  |  |  |  |  |
+| percona/percona-server:8.4 |  |  |  |  |  |  |  |  |  |
+
+**ORDER BY title, whole table, no index, sort_buffer_size = 64 MB**
+
+| Server | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control | Control, each run | Widest column |
+|---|---|---|---|---|---|---|---|---|---|
+| mysql:5.7 | 3259 (1.09x) | 2993 | 6424 (2.15x) | 6120 (2.04x) |  |  | 3046 (1.02x) | 1.02x to 1.02x |  |
+| mysql:8.0 | 2189 (1.75x) | 1251 | 6253 (5.00x) | 6209 (4.96x) | 963 (0.77x) |  | 1269 (1.01x) | 1.01x to 1.01x |  |
+| mysql:8.4 | 1841 (1.28x) | 1443 | 5217 (3.61x) | 4740 (3.28x) | 1125 (0.78x) |  | 1392 (0.96x) | 0.96x to 0.96x |  |
+| mysql:9.6 |  |  |  |  |  |  |  |  |  |
+| mysql:9.7 |  |  |  |  |  |  |  |  |  |
+| mariadb:10.2 |  |  |  |  |  |  |  |  |  |
+| mariadb:10.2.6 |  |  |  |  |  |  |  |  |  |
+| mariadb:10.2.7 |  |  |  |  |  |  |  |  |  |
+| mariadb:10.3 |  |  |  |  |  |  |  |  |  |
+| mariadb:10.4 | 2690 (1.26x) | 2129 | 6414 (3.01x) | 6309 (2.96x) |  |  | 2417 (1.14x) | 1.14x to 1.14x |  |
+| mariadb:10.5 |  |  |  |  |  |  |  |  |  |
+| mariadb:10.6 |  |  |  |  |  |  |  |  |  |
+| mariadb:10.11 |  |  |  |  |  |  |  |  |  |
+| mariadb:11.4 |  |  |  |  |  |  |  |  |  |
+| mariadb:11.8 | 2725 (0.94x) | 2884 | 3051 (1.06x) | 3050 (1.06x) | 3250 (1.13x) | 3194 (1.11x) | 2898 (1.00x) | 1.00x to 1.00x |  |
+| mariadb:12.3 |  |  |  |  |  |  |  |  |  |
+| percona/percona-server:5.7 |  |  |  |  |  |  |  |  |  |
+| percona/percona-server:8.0 |  |  |  |  |  |  |  |  |  |
+| percona/percona-server:8.4 |  |  |  |  |  |  |  |  |  |
+
+**ORDER BY title, whole table, no index, sort_buffer_size = 2 GB**
+
+| Server | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control | Control, each run | Widest column |
+|---|---|---|---|---|---|---|---|---|---|
+| mysql:5.7 | 4061 (1.15x) | 3538 | 4392 (1.24x) | 4383 (1.24x) |  |  | 3633 (1.03x) | 1.03x to 1.03x |  |
+| mysql:8.0 | 2044 (1.35x) | 1517 | 2126 (1.40x) | 2149 (1.42x) | 987 (0.65x) |  | 1591 (1.05x) | 1.05x to 1.05x |  |
+| mysql:8.4 | 2070 (1.12x) | 1847 | 2273 (1.23x) | 2298 (1.24x) | 1092 (0.59x) |  | 1715 (0.93x) | 0.93x to 0.93x |  |
+| mysql:9.6 |  |  |  |  |  |  |  |  |  |
+| mysql:9.7 |  |  |  |  |  |  |  |  |  |
+| mariadb:10.2 |  |  |  |  |  |  |  |  |  |
+| mariadb:10.2.6 |  |  |  |  |  |  |  |  |  |
+| mariadb:10.2.7 |  |  |  |  |  |  |  |  |  |
+| mariadb:10.3 |  |  |  |  |  |  |  |  |  |
+| mariadb:10.4 | 2703 (1.12x) | 2405 | 2524 (1.05x) | 2526 (1.05x) |  |  | 2597 (1.08x) | 1.08x to 1.08x |  |
+| mariadb:10.5 |  |  |  |  |  |  |  |  |  |
+| mariadb:10.6 |  |  |  |  |  |  |  |  |  |
+| mariadb:10.11 |  |  |  |  |  |  |  |  |  |
+| mariadb:11.4 |  |  |  |  |  |  |  |  |  |
+| mariadb:11.8 | 3469 (1.09x) | 3170 | 3515 (1.11x) | 3529 (1.11x) | 3549 (1.12x) | 3581 (1.13x) | 3203 (1.01x) | 1.01x to 1.01x |  |
+| mariadb:12.3 |  |  |  |  |  |  |  |  |  |
+| percona/percona-server:5.7 |  |  |  |  |  |  |  |  |  |
+| percona/percona-server:8.0 |  |  |  |  |  |  |  |  |  |
+| percona/percona-server:8.4 |  |  |  |  |  |  |  |  |  |
+
+**MEDIUMTEXT title: ORDER BY title, whole table, no index**
+
+| Server | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control | Control, each run | Widest column |
+|---|---|---|---|---|---|---|---|---|---|
+| mysql:5.7 | 8461 (1.87x) | 4521 | 10570 (2.34x) | 10493 (2.32x) |  |  | 4175 (0.92x) | 0.92x to 0.92x |  |
+| mysql:8.0 | 13901 (1.05x) | 13189 | 13264 (1.01x) | 13154 (1.00x) | 1603 (0.12x) |  | 13009 (0.99x) | 0.99x to 0.99x |  |
+| mysql:8.4 | 11058 (0.98x) | 11315 | 11130 (0.98x) | 11213 (0.99x) | 2686 (0.24x) |  | 11120 (0.98x) | 0.98x to 0.98x |  |
+| mysql:9.6 |  |  |  |  |  |  |  |  |  |
+| mysql:9.7 |  |  |  |  |  |  |  |  |  |
+| mariadb:10.2 |  |  |  |  |  |  |  |  |  |
+| mariadb:10.2.6 |  |  |  |  |  |  |  |  |  |
+| mariadb:10.2.7 |  |  |  |  |  |  |  |  |  |
+| mariadb:10.3 |  |  |  |  |  |  |  |  |  |
+| mariadb:10.4 | 5542 (2.77x) | 2001 | 9712 (4.85x) | 10348 (5.17x) |  |  | 2135 (1.07x) | 1.07x to 1.07x |  |
+| mariadb:10.5 |  |  |  |  |  |  |  |  |  |
+| mariadb:10.6 |  |  |  |  |  |  |  |  |  |
+| mariadb:10.11 |  |  |  |  |  |  |  |  |  |
+| mariadb:11.4 |  |  |  |  |  |  |  |  |  |
+| mariadb:11.8 | 1892 (0.93x) | 2025 | 12308 (6.08x) | 12178 (6.01x) | 12285 (6.07x) | 12287 (6.07x) | 2090 (1.03x) | 1.03x to 1.03x |  |
+| mariadb:12.3 |  |  |  |  |  |  |  |  |  |
+| percona/percona-server:5.7 |  |  |  |  |  |  |  |  |  |
+| percona/percona-server:8.0 |  |  |  |  |  |  |  |  |  |
+| percona/percona-server:8.4 |  |  |  |  |  |  |  |  |  |
+
+**MEDIUMTEXT title: the same, sort_buffer_size = 2 GB**
+
+| Server | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control | Control, each run | Widest column |
+|---|---|---|---|---|---|---|---|---|---|
+| mysql:5.7 | 4003 (1.15x) | 3476 | 4204 (1.21x) | 4193 (1.21x) |  |  | 3508 (1.01x) | 1.01x to 1.01x |  |
+| mysql:8.0 | 3008 (1.12x) | 2698 | 2843 (1.05x) | 2703 (1.00x) | 1682 (0.62x) |  | 2809 (1.04x) | 1.04x to 1.04x |  |
+| mysql:8.4 | 3835 (0.97x) | 3947 | 3776 (0.96x) | 3875 (0.98x) | 2846 (0.72x) |  | 3871 (0.98x) | 0.98x to 0.98x |  |
+| mysql:9.6 |  |  |  |  |  |  |  |  |  |
+| mysql:9.7 |  |  |  |  |  |  |  |  |  |
+| mariadb:10.2 |  |  |  |  |  |  |  |  |  |
+| mariadb:10.2.6 |  |  |  |  |  |  |  |  |  |
+| mariadb:10.2.7 |  |  |  |  |  |  |  |  |  |
+| mariadb:10.3 |  |  |  |  |  |  |  |  |  |
+| mariadb:10.4 | 2386 (1.13x) | 2118 | 2273 (1.07x) | 2281 (1.08x) |  |  | 2204 (1.04x) | 1.04x to 1.04x |  |
+| mariadb:10.5 |  |  |  |  |  |  |  |  |  |
+| mariadb:10.6 |  |  |  |  |  |  |  |  |  |
+| mariadb:10.11 |  |  |  |  |  |  |  |  |  |
+| mariadb:11.4 |  |  |  |  |  |  |  |  |  |
+| mariadb:11.8 | 2697 (1.11x) | 2420 | 2852 (1.18x) | 2816 (1.16x) | 2927 (1.21x) | 2892 (1.20x) | 2476 (1.02x) | 1.02x to 1.02x |  |
+| mariadb:12.3 |  |  |  |  |  |  |  |  |  |
+| percona/percona-server:5.7 |  |  |  |  |  |  |  |  |  |
+| percona/percona-server:8.0 |  |  |  |  |  |  |  |  |  |
+| percona/percona-server:8.4 |  |  |  |  |  |  |  |  |  |
+
+**MEDIUMTEXT title: first page, ORDER BY title LIMIT 25, no index**
+
+| Server | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control | Control, each run | Widest column |
+|---|---|---|---|---|---|---|---|---|---|
+| mysql:5.7 | 861 (1.08x) | 796 | 959 (1.20x) | 957 (1.20x) |  |  | 806 (1.01x) | 1.01x to 1.01x |  |
+| mysql:8.0 | 746 (1.63x) | 457 | 580 (1.27x) | 581 (1.27x) | 459 (1.00x) |  | 462 (1.01x) | 1.01x to 1.01x |  |
+| mysql:8.4 | 695 (1.17x) | 592 | 682 (1.15x) | 688 (1.16x) | 529 (0.89x) |  | 621 (1.05x) | 1.05x to 1.05x |  |
+| mysql:9.6 |  |  |  |  |  |  |  |  |  |
+| mysql:9.7 |  |  |  |  |  |  |  |  |  |
+| mariadb:10.2 |  |  |  |  |  |  |  |  |  |
+| mariadb:10.2.6 |  |  |  |  |  |  |  |  |  |
+| mariadb:10.2.7 |  |  |  |  |  |  |  |  |  |
+| mariadb:10.3 |  |  |  |  |  |  |  |  |  |
+| mariadb:10.4 | 600 (1.16x) | 516 | 384 (0.74x) | 386 (0.75x) |  |  | 521 (1.01x) | 1.01x to 1.01x |  |
+| mariadb:10.5 |  |  |  |  |  |  |  |  |  |
+| mariadb:10.6 |  |  |  |  |  |  |  |  |  |
+| mariadb:10.11 |  |  |  |  |  |  |  |  |  |
+| mariadb:11.4 |  |  |  |  |  |  |  |  |  |
+| mariadb:11.8 | 482 (1.26x) | 382 | 449 (1.18x) | 444 (1.16x) | 479 (1.25x) | 486 (1.27x) | 382 (1.00x) | 1.00x to 1.00x |  |
+| mariadb:12.3 |  |  |  |  |  |  |  |  |  |
+| percona/percona-server:5.7 |  |  |  |  |  |  |  |  |  |
+| percona/percona-server:8.0 |  |  |  |  |  |  |  |  |  |
+| percona/percona-server:8.4 |  |  |  |  |  |  |  |  |  |
+
+**MEDIUMTEXT title: first page, ORDER BY titleIndexed LIMIT 25, prefix index (768)**
+
+| Server | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control | Control, each run | Widest column |
+|---|---|---|---|---|---|---|---|---|---|
+| mysql:5.7 | 859 (1.08x) | 795 | 960 (1.21x) | 965 (1.21x) |  |  | 809 (1.02x) | 1.02x to 1.02x |  |
+| mysql:8.0 | 746 (1.63x) | 458 | 579 (1.26x) | 578 (1.26x) | 458 (1.00x) |  | 461 (1.01x) | 1.01x to 1.01x |  |
+| mysql:8.4 | 693 (1.17x) | 591 | 683 (1.16x) | 688 (1.17x) | 532 (0.90x) |  | 621 (1.05x) | 1.05x to 1.05x |  |
+| mysql:9.6 |  |  |  |  |  |  |  |  |  |
+| mysql:9.7 |  |  |  |  |  |  |  |  |  |
+| mariadb:10.2 |  |  |  |  |  |  |  |  |  |
+| mariadb:10.2.6 |  |  |  |  |  |  |  |  |  |
+| mariadb:10.2.7 |  |  |  |  |  |  |  |  |  |
+| mariadb:10.3 |  |  |  |  |  |  |  |  |  |
+| mariadb:10.4 | 602 (1.16x) | 519 | 385 (0.74x) | 389 (0.75x) |  |  | 522 (1.01x) | 1.01x to 1.01x |  |
+| mariadb:10.5 |  |  |  |  |  |  |  |  |  |
+| mariadb:10.6 |  |  |  |  |  |  |  |  |  |
+| mariadb:10.11 |  |  |  |  |  |  |  |  |  |
+| mariadb:11.4 |  |  |  |  |  |  |  |  |  |
+| mariadb:11.8 | 483 (1.26x) | 382 | 446 (1.17x) | 444 (1.16x) | 481 (1.26x) | 488 (1.28x) | 383 (1.00x) | 1.00x to 1.00x |  |
+| mariadb:12.3 |  |  |  |  |  |  |  |  |  |
+| percona/percona-server:5.7 |  |  |  |  |  |  |  |  |  |
+| percona/percona-server:8.0 |  |  |  |  |  |  |  |  |  |
+| percona/percona-server:8.4 |  |  |  |  |  |  |  |  |  |
+
+**MEDIUMTEXT title: last page, ORDER BY titleIndexed LIMIT 25 OFFSET n, prefix index (768)**
+
+| Server | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control | Control, each run | Widest column |
+|---|---|---|---|---|---|---|---|---|---|
+| mysql:5.7 | 7586 (1.75x) | 4323 | 10095 (2.34x) | 10136 (2.34x) |  |  | 3988 (0.92x) | 0.92x to 0.92x |  |
+| mysql:8.0 | 12894 (1.05x) | 12261 | 12174 (0.99x) | 12566 (1.02x) | 1633 (0.13x) |  | 12859 (1.05x) | 1.05x to 1.05x |  |
+| mysql:8.4 | 10609 (1.02x) | 10394 | 10336 (0.99x) | 10559 (1.02x) | 2691 (0.26x) |  | 10451 (1.01x) | 1.01x to 1.01x |  |
+| mysql:9.6 |  |  |  |  |  |  |  |  |  |
+| mysql:9.7 |  |  |  |  |  |  |  |  |  |
+| mariadb:10.2 |  |  |  |  |  |  |  |  |  |
+| mariadb:10.2.6 |  |  |  |  |  |  |  |  |  |
+| mariadb:10.2.7 |  |  |  |  |  |  |  |  |  |
+| mariadb:10.3 |  |  |  |  |  |  |  |  |  |
+| mariadb:10.4 | 4077 (1.95x) | 2091 | 8040 (3.84x) | 8100 (3.87x) |  |  | 2138 (1.02x) | 1.02x to 1.02x |  |
+| mariadb:10.5 |  |  |  |  |  |  |  |  |  |
+| mariadb:10.6 |  |  |  |  |  |  |  |  |  |
+| mariadb:10.11 |  |  |  |  |  |  |  |  |  |
+| mariadb:11.4 |  |  |  |  |  |  |  |  |  |
+| mariadb:11.8 | 1846 (0.93x) | 1974 | 11814 (5.98x) | 11871 (6.01x) | 11735 (5.94x) | 11777 (5.97x) | 2054 (1.04x) | 1.04x to 1.04x |  |
+| mariadb:12.3 |  |  |  |  |  |  |  |  |  |
+| percona/percona-server:5.7 |  |  |  |  |  |  |  |  |  |
+| percona/percona-server:8.0 |  |  |  |  |  |  |  |  |  |
+| percona/percona-server:8.4 |  |  |  |  |  |  |  |  |  |
+
+### Sorts that went to temp files
+
+`Sort_merge_passes` for one statement: how many times the server merged temp files because the rows to sort didn't fit in `sort_buffer_size`. 0 means the sort stayed in memory. A statement that isn't listed was 0 on every server.
+
+**ORDER BY title, whole table, no index**
+
+| Server | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control |
+|---|---|---|---|---|---|---|---|
+| mysql:5.7 | 495 | 333 | 659 | 659 |  |  | 333 |
+| mysql:8.0 | 525 | 360 | 687 | 687 | 86 |  | 360 |
+| mysql:8.4 | 525 | 360 | 687 | 687 | 86 |  | 360 |
+| mariadb:10.4 | 32 | 22 | 41 | 41 |  |  | 22 |
+| mariadb:11.8 | 5 | 5 | 5 | 5 | 5 | 5 | 5 |
+
+**List page, last page: SELECT * ... WHERE hidden = 0 ORDER BY title LIMIT 25 OFFSET n, no index on title**
+
+| Server | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control |
+|---|---|---|---|---|---|---|---|
+| mysql:5.7 | 470 | 316 | 625 | 625 |  |  | 316 |
+| mysql:8.0 | 472 | 317 | 628 | 628 | 58 |  | 317 |
+| mysql:8.4 | 472 | 317 | 628 | 628 | 58 |  | 317 |
+| mariadb:10.4 | 30 | 20 | 40 | 40 |  |  | 20 |
+| mariadb:11.8 | 5 | 5 | 5 | 5 | 5 | 5 | 5 |
+
+**List page, last page: the same, ORDER BY dragSortOrder (an integer, no index)**
+
+| Server | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control |
+|---|---|---|---|---|---|---|---|
+| mysql:5.7 | 9 | 9 | 9 | 9 |  |  | 9 |
+| mysql:8.0 | 11 | 11 | 11 | 11 | 11 |  | 11 |
+| mysql:8.4 | 11 | 11 | 11 | 11 | 11 |  | 11 |
+| mariadb:10.4 | 1 | 1 | 1 | 1 |  |  | 1 |
+| mariadb:11.8 | 1 | 1 | 1 | 1 | 1 | 1 | 1 |
+
+**List page, last page: the same, ORDER BY titleIndexed (the title again, with an index)**
+
+| Server | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control |
+|---|---|---|---|---|---|---|---|
+| mysql:5.7 | 470 | 316 | 625 | 625 |  |  | 316 |
+| mysql:8.0 | 472 | 317 | 628 | 628 | 58 |  | 317 |
+| mysql:8.4 | 472 | 317 | 628 | 628 | 58 |  | 317 |
+| mariadb:10.4 | 30 | 20 | 40 | 40 |  |  | 20 |
+| mariadb:11.8 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+**ORDER BY title, whole table, no index, sort_buffer_size = 64 MB**
+
+| Server | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control |
+|---|---|---|---|---|---|---|---|
+| mysql:5.7 | 1 | 1 | 3 | 3 |  |  | 1 |
+| mysql:8.0 | 1 | 1 | 3 | 3 | 1 |  | 1 |
+| mysql:8.4 | 1 | 1 | 3 | 3 | 1 |  | 1 |
+| mariadb:10.4 | 1 | 1 | 3 | 3 |  |  | 1 |
+| mariadb:11.8 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+**MEDIUMTEXT title: ORDER BY title, whole table, no index**
+
+| Server | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control |
+|---|---|---|---|---|---|---|---|
+| mysql:5.7 | 499 | 335 | 659 | 659 |  |  | 335 |
+| mysql:8.0 | 661 | 661 | 661 | 661 | 57 |  | 661 |
+| mysql:8.4 | 661 | 661 | 661 | 661 | 57 |  | 661 |
+| mariadb:10.4 | 32 | 22 | 41 | 41 |  |  | 22 |
+| mariadb:11.8 | 5 | 5 | 82 | 82 | 82 | 82 | 5 |
+
+**MEDIUMTEXT title: first page, ORDER BY title LIMIT 25, no index**
+
+| Server | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control |
+|---|---|---|---|---|---|---|---|
+| mysql:5.7 | 0 | 0 | 0 | 0 |  |  | 0 |
+| mysql:8.0 | 0 | 0 | 0 | 0 | 54 |  | 0 |
+| mysql:8.4 | 0 | 0 | 0 | 0 | 54 |  | 0 |
+| mariadb:10.4 | 0 | 0 | 0 | 0 |  |  | 0 |
+| mariadb:11.8 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+**MEDIUMTEXT title: first page, ORDER BY titleIndexed LIMIT 25, prefix index (768)**
+
+| Server | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control |
+|---|---|---|---|---|---|---|---|
+| mysql:5.7 | 0 | 0 | 0 | 0 |  |  | 0 |
+| mysql:8.0 | 0 | 0 | 0 | 0 | 54 |  | 0 |
+| mysql:8.4 | 0 | 0 | 0 | 0 | 54 |  | 0 |
+| mariadb:10.4 | 0 | 0 | 0 | 0 |  |  | 0 |
+| mariadb:11.8 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+**MEDIUMTEXT title: last page, ORDER BY titleIndexed LIMIT 25 OFFSET n, prefix index (768)**
+
+| Server | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control |
+|---|---|---|---|---|---|---|---|
+| mysql:5.7 | 473 | 319 | 625 | 625 |  |  | 319 |
+| mysql:8.0 | 628 | 628 | 628 | 628 | 54 |  | 628 |
+| mysql:8.4 | 628 | 628 | 628 | 628 | 54 |  | 628 |
+| mariadb:10.4 | 30 | 20 | 40 | 40 |  |  | 20 |
+| mariadb:11.8 | 5 | 5 | 78 | 78 | 78 | 78 | 5 |
+
 ### Query plans
 
 EXPLAIN for the utf8mb4_general_ci table, where the statement is a SELECT.
@@ -2129,9 +2757,487 @@ EXPLAIN for the utf8mb4_general_ci table, where the statement is a SELECT.
 - MySQL/Percona 8.0+: <derived2>: type=ALL, key=none,  | a_general_ci: type=ALL, key=none, Using where | b_general_ci: type=ALL, key=none, Using where | <union2,3>: type=ALL, key=none, Using temporary
 - all MariaDB: <derived2>: type=ALL, key=none, Using where | a_general_ci: type=ALL, key=none, Using where | b_general_ci: type=ALL, key=none, Using where | <union2,3>: type=ALL, key=none, 
 
+**List page, last page: SELECT * ... WHERE hidden = 0 ORDER BY title LIMIT 25 OFFSET n, no index on title**
+
+- MySQL 5.7, MySQL 8.0, MySQL 8.4, MariaDB 10.4, MariaDB 11.8: a_general_ci: type=ALL, key=none, Using where; Using filesort
+
+**List page, last page: the same, ORDER BY dragSortOrder (an integer, no index)**
+
+- MySQL 5.7, MySQL 8.0, MySQL 8.4, MariaDB 10.4, MariaDB 11.8: a_general_ci: type=ALL, key=none, Using where; Using filesort
+
+**List page, last page: the same, ORDER BY titleIndexed (the title again, with an index)**
+
+- MySQL 5.7, MySQL 8.0, MySQL 8.4, MariaDB 10.4: a_general_ci: type=ALL, key=none, Using where; Using filesort
+- MariaDB 11.8: a_general_ci: type=index, key=titleIndexed, Using where
+
+**ORDER BY title, whole table, no index, sort_buffer_size = 64 MB**
+
+- MySQL 5.7, MySQL 8.0, MySQL 8.4, MariaDB 10.4, MariaDB 11.8: a_general_ci: type=ALL, key=none, Using filesort
+
+**ORDER BY title, whole table, no index, sort_buffer_size = 2 GB**
+
+- MySQL 5.7, MySQL 8.0, MySQL 8.4, MariaDB 10.4, MariaDB 11.8: a_general_ci: type=ALL, key=none, Using filesort
+
+**MEDIUMTEXT title: ORDER BY title, whole table, no index**
+
+- MySQL 5.7, MySQL 8.0, MySQL 8.4, MariaDB 10.4, MariaDB 11.8: m_general_ci: type=ALL, key=none, Using filesort
+
+**MEDIUMTEXT title: the same, sort_buffer_size = 2 GB**
+
+- MySQL 5.7, MySQL 8.0, MySQL 8.4, MariaDB 10.4, MariaDB 11.8: m_general_ci: type=ALL, key=none, Using filesort
+
+**MEDIUMTEXT title: first page, ORDER BY title LIMIT 25, no index**
+
+- MySQL 5.7, MySQL 8.0, MySQL 8.4, MariaDB 10.4, MariaDB 11.8: m_general_ci: type=ALL, key=none, Using where; Using filesort
+
+**MEDIUMTEXT title: first page, ORDER BY titleIndexed LIMIT 25, prefix index (768)**
+
+- MySQL 5.7, MySQL 8.0, MySQL 8.4, MariaDB 10.4, MariaDB 11.8: m_general_ci: type=ALL, key=none, Using where; Using filesort
+
+**MEDIUMTEXT title: last page, ORDER BY titleIndexed LIMIT 25 OFFSET n, prefix index (768)**
+
+- MySQL 5.7, MySQL 8.0, MySQL 8.4, MariaDB 10.4, MariaDB 11.8: m_general_ci: type=ALL, key=none, Using where; Using filesort
+
+## 2. Speed, 1,000,000 rows, titles from english-wikipedia-titles.txt
+
+In these runs `title` and `titleIndexed` hold one line each of english-wikipedia-titles.txt, in place of the generated titles described below; `name` and `content` are the same as in the other runs.
+
+One InnoDB table per collation with the same 1,000,000 rows, shaped like a CMS Builder section. It has 15 columns: the record number, three DATETIME, two INT, three TINYINT flags, five VARCHAR(255) and one MEDIUMTEXT. `name` and `titleIndexed` have an index; `title` holds the same text as `titleIndexed` and has none. The statements named "MEDIUMTEXT title" use a narrower table with the same rows: num, hidden, dragSortOrder, and `title` and `titleIndexed` as MEDIUMTEXT, the type CMS Builder gives a text field, with a prefix index `titleIndexed(768)`. Average length in characters: name 23, title 21, content 438. The text is mostly ASCII words, with about 9% accented Latin words, 2% words in other scripts and 1% emoji. Numbers are milliseconds per statement, the median of 3 passes (3 for the slow statements), after one uncounted pass. The number in brackets is the time divided by the utf8mb4_general_ci time on the same server in the same run. "Control" is a second set of utf8mb4_general_ci tables timed the same way: how far it is from 1.00x is the noise of that runner, and a difference no larger than that isn't a real difference. The servers ran with innodb_buffer_pool_size = 9,216 MB so every table stays in memory, and with the query cache off.
+
+### utf8mb4_unicode_ci against each server's default
+
+The utf8mb4_unicode_ci time, the time of the collation a new table gets on that server, and the first divided by the second. Each number is the median over the group's servers. Above 1.00x, utf8mb4_unicode_ci is slower than the default.
+
+| Statement | MySQL and Percona 8.0 and later (0900_ai_ci) | MariaDB 10.2 to 10.9 (general_ci) | MariaDB 10.10 to 11.3 (general_ci) | MariaDB 11.4 and later (uca1400_ai_ci) |
+|---|---|---|---|---|
+| List page: SELECT * ... WHERE hidden = 0 ORDER BY title LIMIT 25, no index on title | 739 / 568 (1.31x) | 292 / 380 (0.77x) | 431 / 401 (1.08x) | 451 / 497 (0.91x) |
+| List page: the same, ORDER BY dragSortOrder (an integer, no index) | 469 / 487 (0.97x) | 220 / 222 (0.99x) | 235 / 235 (1.00x) | 250 / 251 (1.00x) |
+| List page: the same, ORDER BY createdDate (a datetime, no index) | 479 / 495 (0.97x) | 218 / 218 (1.00x) | 238 / 231 (1.03x) | 260 / 251 (1.04x) |
+| List page: the same, ORDER BY titleIndexed (the title again, with an index) | 0.177 / 0.178 (0.99x) | 0.115 / 0.118 (0.98x) | 0.114 / 0.117 (0.98x) | 0.171 / 0.170 (1.00x) |
+| List page, last page: SELECT * ... WHERE hidden = 0 ORDER BY title LIMIT 25 OFFSET n, no index on title | 12023 / 2160 (6.04x) | 2479 / 2122 (1.17x) | 2209 / 2100 (1.05x) | 2180 / 2241 (0.97x) |
+| List page, last page: the same, ORDER BY dragSortOrder (an integer, no index) | 2089 / 2107 (0.99x) | 1754 / 1946 (0.90x) | 2511 / 2528 (0.99x) | 1914 / 1867 (1.02x) |
+| List page, last page: the same, ORDER BY titleIndexed (the title again, with an index) | 12018 / 2170 (5.99x) | 2357 / 2045 (1.15x) | 2373 / 2176 (1.09x) | 1625 / 1583 (1.03x) |
+| ORDER BY title, whole table, no index | 11650 / 714 (17.04x) | 2240 / 1980 (1.13x) | 2272 / 2060 (1.10x) | 2041 / 2090 (0.98x) |
+| ORDER BY title, whole table, no index, sort_buffer_size = 64 MB | 5303 / 777 (6.94x) | 2361 / 2001 (1.18x) | 2399 / 2068 (1.16x) | 2030 / 2072 (0.98x) |
+| ORDER BY title, whole table, no index, sort_buffer_size = 2 GB | 1559 / 781 (2.00x) | 2461 / 2377 (1.04x) | 2700 / 2468 (1.09x) | 2701 / 2734 (0.99x) |
+| MEDIUMTEXT title: ORDER BY title, whole table, no index | 11192 / 1472 (8.13x) | 8407 / 1502 (5.60x) | 10464 / 1506 (6.95x) | 11941 / 11503 (1.04x) |
+| MEDIUMTEXT title: the same, sort_buffer_size = 2 GB | 2360 / 1605 (1.48x) | 1946 / 1737 (1.12x) | 2168 / 1922 (1.13x) | 2180 / 2236 (0.98x) |
+| MEDIUMTEXT title: first page, ORDER BY title LIMIT 25, no index | 536 / 406 (1.32x) | 263 / 325 (0.81x) | 326 / 315 (1.03x) | 383 / 419 (0.92x) |
+| MEDIUMTEXT title: first page, ORDER BY titleIndexed LIMIT 25, prefix index (768) | 537 / 406 (1.32x) | 263 / 327 (0.81x) | 329 / 313 (1.05x) | 383 / 419 (0.91x) |
+| MEDIUMTEXT title: last page, ORDER BY titleIndexed LIMIT 25 OFFSET n, prefix index (768) | 10352 / 1457 (7.63x) | 7305 / 1378 (5.30x) | 8515 / 1527 (5.58x) | 11189 / 10807 (1.04x) |
+
+### Summary by server group
+
+Each cell is the median over the group's servers.
+
+**MySQL and Percona 8.0 and later** (MySQL 8.0, MySQL 8.4)
+
+| Statement | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | control |
+|---|---|---|---|---|---|---|
+| List page: SELECT * ... WHERE hidden = 0 ORDER BY title LIMIT 25, no index on title | 685 (1.20x) | 578 | 739 (1.29x) | 740 (1.29x) | 568 (0.99x) | 1.01x to 1.06x |
+| List page: the same, ORDER BY dragSortOrder (an integer, no index) | 459 (0.98x) | 469 | 469 (1.00x) | 472 (1.00x) | 487 (1.03x) | 0.99x to 1.05x |
+| List page: the same, ORDER BY createdDate (a datetime, no index) | 477 (1.00x) | 479 | 479 (1.00x) | 494 (1.03x) | 495 (1.03x) | 1.00x to 1.05x |
+| List page: the same, ORDER BY titleIndexed (the title again, with an index) | 0.180 (1.00x) | 0.179 | 0.177 (0.99x) | 0.175 (0.97x) | 0.178 (1.00x) | 1.00x to 1.01x |
+| List page, last page: SELECT * ... WHERE hidden = 0 ORDER BY title LIMIT 25 OFFSET n, no index on title | 7604 (2.24x) | 3527 | 12023 (3.71x) | 11958 (3.68x) | 2160 (0.61x) | 0.77x to 0.93x |
+| List page, last page: the same, ORDER BY dragSortOrder (an integer, no index) | 2067 (0.97x) | 2128 | 2089 (0.98x) | 2100 (0.98x) | 2107 (0.99x) | 0.96x to 1.01x |
+| List page, last page: the same, ORDER BY titleIndexed (the title again, with an index) | 7559 (2.30x) | 3427 | 12018 (3.83x) | 11928 (3.80x) | 2170 (0.64x) | 0.81x to 0.99x |
+| ORDER BY title, whole table, no index | 7992 (3.79x) | 2488 | 11650 (5.72x) | 11899 (5.83x) | 714 (0.31x) | 0.88x to 0.99x |
+| ORDER BY title, whole table, no index, sort_buffer_size = 64 MB | 1445 (1.43x) | 1010 | 5303 (5.32x) | 5372 (5.39x) | 777 (0.77x) | 1.02x to 1.05x |
+| ORDER BY title, whole table, no index, sort_buffer_size = 2 GB | 1455 (1.21x) | 1202 | 1559 (1.30x) | 1624 (1.35x) | 781 (0.65x) | 0.96x to 1.00x |
+| MEDIUMTEXT title: ORDER BY title, whole table, no index | 11077 (1.00x) | 11102 | 11192 (1.01x) | 11223 (1.01x) | 1472 (0.14x) | 1.00x to 1.03x |
+| MEDIUMTEXT title: the same, sort_buffer_size = 2 GB | 2314 (1.06x) | 2186 | 2360 (1.09x) | 2316 (1.06x) | 1605 (0.74x) | 1.00x to 1.08x |
+| MEDIUMTEXT title: first page, ORDER BY title LIMIT 25, no index | 581 (1.37x) | 431 | 536 (1.25x) | 540 (1.26x) | 406 (0.95x) | 1.01x to 1.06x |
+| MEDIUMTEXT title: first page, ORDER BY titleIndexed LIMIT 25, prefix index (768) | 580 (1.36x) | 432 | 537 (1.25x) | 541 (1.26x) | 406 (0.95x) | 1.01x to 1.06x |
+| MEDIUMTEXT title: last page, ORDER BY titleIndexed LIMIT 25 OFFSET n, prefix index (768) | 10470 (1.01x) | 10327 | 10352 (1.00x) | 10320 (1.00x) | 1457 (0.14x) | 1.00x to 1.03x |
+
+**MariaDB 10.2 to 10.9** (MariaDB 10.6)
+
+| Statement | bin | general_ci | unicode_ci | unicode_520_ci | control |
+|---|---|---|---|---|---|
+| List page: SELECT * ... WHERE hidden = 0 ORDER BY title LIMIT 25, no index on title | 411 (1.08x) | 380 | 292 (0.77x) | 294 (0.77x) | 382 (1.01x) |
+| List page: the same, ORDER BY dragSortOrder (an integer, no index) | 219 (0.99x) | 222 | 220 (0.99x) | 220 (0.99x) | 218 (0.98x) |
+| List page: the same, ORDER BY createdDate (a datetime, no index) | 215 (0.99x) | 218 | 218 (1.00x) | 217 (0.99x) | 231 (1.06x) |
+| List page: the same, ORDER BY titleIndexed (the title again, with an index) | 0.116 (0.99x) | 0.118 | 0.115 (0.98x) | 0.116 (0.99x) | 0.118 (1.00x) |
+| List page, last page: SELECT * ... WHERE hidden = 0 ORDER BY title LIMIT 25 OFFSET n, no index on title | 1998 (0.94x) | 2122 | 2479 (1.17x) | 2458 (1.16x) | 2133 (1.01x) |
+| List page, last page: the same, ORDER BY dragSortOrder (an integer, no index) | 2128 (1.09x) | 1946 | 1754 (0.90x) | 1889 (0.97x) | 2270 (1.17x) |
+| List page, last page: the same, ORDER BY titleIndexed (the title again, with an index) | 1973 (0.96x) | 2045 | 2357 (1.15x) | 2366 (1.16x) | 2037 (1.00x) |
+| ORDER BY title, whole table, no index | 1973 (1.00x) | 1980 | 2240 (1.13x) | 2355 (1.19x) | 2067 (1.04x) |
+| ORDER BY title, whole table, no index, sort_buffer_size = 64 MB | 1957 (0.98x) | 2001 | 2361 (1.18x) | 2390 (1.19x) | 2022 (1.01x) |
+| ORDER BY title, whole table, no index, sort_buffer_size = 2 GB | 2447 (1.03x) | 2377 | 2461 (1.04x) | 2444 (1.03x) | 2335 (0.98x) |
+| MEDIUMTEXT title: ORDER BY title, whole table, no index | 1435 (0.96x) | 1502 | 8407 (5.60x) | 8299 (5.52x) | 1457 (0.97x) |
+| MEDIUMTEXT title: the same, sort_buffer_size = 2 GB | 1890 (1.09x) | 1737 | 1946 (1.12x) | 1898 (1.09x) | 1816 (1.05x) |
+| MEDIUMTEXT title: first page, ORDER BY title LIMIT 25, no index | 356 (1.10x) | 325 | 263 (0.81x) | 265 (0.82x) | 333 (1.03x) |
+| MEDIUMTEXT title: first page, ORDER BY titleIndexed LIMIT 25, prefix index (768) | 356 (1.09x) | 327 | 263 (0.81x) | 266 (0.81x) | 334 (1.02x) |
+| MEDIUMTEXT title: last page, ORDER BY titleIndexed LIMIT 25 OFFSET n, prefix index (768) | 1280 (0.93x) | 1378 | 7305 (5.30x) | 7367 (5.35x) | 1361 (0.99x) |
+
+**MariaDB 10.10 to 11.3** (MariaDB 10.11)
+
+| Statement | bin | general_ci | unicode_ci | unicode_520_ci | uca1400_ai_ci | control |
+|---|---|---|---|---|---|---|
+| List page: SELECT * ... WHERE hidden = 0 ORDER BY title LIMIT 25, no index on title | 468 (1.17x) | 401 | 431 (1.08x) | 425 (1.06x) | 463 (1.16x) | 410 (1.02x) |
+| List page: the same, ORDER BY dragSortOrder (an integer, no index) | 234 (0.99x) | 235 | 235 (1.00x) | 236 (1.00x) | 235 (1.00x) | 234 (0.99x) |
+| List page: the same, ORDER BY createdDate (a datetime, no index) | 229 (0.99x) | 231 | 238 (1.03x) | 229 (0.99x) | 237 (1.02x) | 237 (1.03x) |
+| List page: the same, ORDER BY titleIndexed (the title again, with an index) | 0.116 (1.00x) | 0.117 | 0.114 (0.98x) | 0.113 (0.97x) | 0.112 (0.96x) | 0.115 (0.98x) |
+| List page, last page: SELECT * ... WHERE hidden = 0 ORDER BY title LIMIT 25 OFFSET n, no index on title | 2047 (0.97x) | 2100 | 2209 (1.05x) | 2275 (1.08x) | 2306 (1.10x) | 2120 (1.01x) |
+| List page, last page: the same, ORDER BY dragSortOrder (an integer, no index) | 2493 (0.99x) | 2528 | 2511 (0.99x) | 2598 (1.03x) | 2522 (1.00x) | 2560 (1.01x) |
+| List page, last page: the same, ORDER BY titleIndexed (the title again, with an index) | 2111 (0.97x) | 2176 | 2373 (1.09x) | 2398 (1.10x) | 2380 (1.09x) | 2226 (1.02x) |
+| ORDER BY title, whole table, no index | 2041 (0.99x) | 2060 | 2272 (1.10x) | 2292 (1.11x) | 2347 (1.14x) | 2091 (1.01x) |
+| ORDER BY title, whole table, no index, sort_buffer_size = 64 MB | 2022 (0.98x) | 2068 | 2399 (1.16x) | 2288 (1.11x) | 2412 (1.17x) | 2191 (1.06x) |
+| ORDER BY title, whole table, no index, sort_buffer_size = 2 GB | 2675 (1.08x) | 2468 | 2700 (1.09x) | 2697 (1.09x) | 2743 (1.11x) | 2540 (1.03x) |
+| MEDIUMTEXT title: ORDER BY title, whole table, no index | 1503 (1.00x) | 1506 | 10464 (6.95x) | 10506 (6.97x) | 9777 (6.49x) | 1619 (1.08x) |
+| MEDIUMTEXT title: the same, sort_buffer_size = 2 GB | 2209 (1.15x) | 1922 | 2168 (1.13x) | 2263 (1.18x) | 2252 (1.17x) | 1897 (0.99x) |
+| MEDIUMTEXT title: first page, ORDER BY title LIMIT 25, no index | 388 (1.23x) | 315 | 326 (1.03x) | 328 (1.04x) | 364 (1.16x) | 311 (0.99x) |
+| MEDIUMTEXT title: first page, ORDER BY titleIndexed LIMIT 25, prefix index (768) | 382 (1.22x) | 313 | 329 (1.05x) | 330 (1.05x) | 374 (1.19x) | 311 (0.99x) |
+| MEDIUMTEXT title: last page, ORDER BY titleIndexed LIMIT 25 OFFSET n, prefix index (768) | 1501 (0.98x) | 1527 | 8515 (5.58x) | 8541 (5.59x) | 8628 (5.65x) | 1563 (1.02x) |
+
+**MariaDB 11.4 and later** (MariaDB 11.8)
+
+| Statement | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control |
+|---|---|---|---|---|---|---|---|
+| List page: SELECT * ... WHERE hidden = 0 ORDER BY title LIMIT 25, no index on title | 523 (1.19x) | 441 | 451 (1.02x) | 451 (1.02x) | 493 (1.12x) | 497 (1.13x) | 443 (1.01x) |
+| List page: the same, ORDER BY dragSortOrder (an integer, no index) | 249 (0.99x) | 251 | 250 (0.99x) | 251 (1.00x) | 253 (1.00x) | 251 (1.00x) | 251 (1.00x) |
+| List page: the same, ORDER BY createdDate (a datetime, no index) | 251 (1.00x) | 251 | 260 (1.04x) | 251 (1.00x) | 252 (1.01x) | 251 (1.00x) | 251 (1.00x) |
+| List page: the same, ORDER BY titleIndexed (the title again, with an index) | 0.172 (1.02x) | 0.168 | 0.171 (1.02x) | 0.173 (1.03x) | 0.173 (1.03x) | 0.170 (1.01x) | 0.169 (1.01x) |
+| List page, last page: SELECT * ... WHERE hidden = 0 ORDER BY title LIMIT 25 OFFSET n, no index on title | 1995 (0.94x) | 2123 | 2180 (1.03x) | 2168 (1.02x) | 2269 (1.07x) | 2241 (1.06x) | 2096 (0.99x) |
+| List page, last page: the same, ORDER BY dragSortOrder (an integer, no index) | 1893 (1.04x) | 1826 | 1914 (1.05x) | 1942 (1.06x) | 1874 (1.03x) | 1867 (1.02x) | 1905 (1.04x) |
+| List page, last page: the same, ORDER BY titleIndexed (the title again, with an index) | 1596 (1.01x) | 1573 | 1625 (1.03x) | 1623 (1.03x) | 1590 (1.01x) | 1583 (1.01x) | 1602 (1.02x) |
+| ORDER BY title, whole table, no index | 1854 (0.96x) | 1940 | 2041 (1.05x) | 2045 (1.05x) | 2099 (1.08x) | 2090 (1.08x) | 1970 (1.02x) |
+| ORDER BY title, whole table, no index, sort_buffer_size = 64 MB | 1839 (0.94x) | 1946 | 2030 (1.04x) | 2062 (1.06x) | 2100 (1.08x) | 2072 (1.06x) | 2032 (1.04x) |
+| ORDER BY title, whole table, no index, sort_buffer_size = 2 GB | 2602 (1.08x) | 2402 | 2701 (1.12x) | 2697 (1.12x) | 2713 (1.13x) | 2734 (1.14x) | 2427 (1.01x) |
+| MEDIUMTEXT title: ORDER BY title, whole table, no index | 1343 (0.95x) | 1409 | 11941 (8.48x) | 11039 (7.84x) | 11288 (8.01x) | 11503 (8.17x) | 1431 (1.02x) |
+| MEDIUMTEXT title: the same, sort_buffer_size = 2 GB | 2125 (1.15x) | 1848 | 2180 (1.18x) | 2181 (1.18x) | 2235 (1.21x) | 2236 (1.21x) | 1899 (1.03x) |
+| MEDIUMTEXT title: first page, ORDER BY title LIMIT 25, no index | 453 (1.24x) | 365 | 383 (1.05x) | 383 (1.05x) | 411 (1.13x) | 419 (1.15x) | 365 (1.00x) |
+| MEDIUMTEXT title: first page, ORDER BY titleIndexed LIMIT 25, prefix index (768) | 453 (1.24x) | 365 | 383 (1.05x) | 383 (1.05x) | 410 (1.12x) | 419 (1.15x) | 365 (1.00x) |
+| MEDIUMTEXT title: last page, ORDER BY titleIndexed LIMIT 25 OFFSET n, prefix index (768) | 1321 (0.95x) | 1386 | 11189 (8.07x) | 10404 (7.50x) | 10944 (7.89x) | 10807 (7.80x) | 1405 (1.01x) |
+
+### Table size
+
+DATA_LENGTH and INDEX_LENGTH of the 1,000,000-row table from information_schema.TABLES after ANALYZE TABLE, in MB. The indexes are the ones on `name` and `titleIndexed`, built by ALTER TABLE ... ADD INDEX after the rows were loaded.
+
+| Server | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control |
+|---|---|---|---|---|---|---|---|
+| mysql:8.0 | 800.0 + 73.2 | 800.0 + 73.2 | 800.0 + 73.2 | 800.0 + 73.2 | 800.0 + 73.2 |  | 800.0 + 73.2 |
+| mysql:8.4 | 800.0 + 73.2 | 800.0 + 73.2 | 800.0 + 73.2 | 800.0 + 73.2 | 800.0 + 73.2 |  | 800.0 + 73.2 |
+| mariadb:10.6 | 800.0 + 72.2 | 800.0 + 72.2 | 800.0 + 72.2 | 800.0 + 72.2 |  |  | 800.0 + 72.2 |
+| mariadb:10.11 | 800.0 + 72.2 | 800.0 + 72.2 | 800.0 + 72.2 | 800.0 + 72.2 |  | 800.0 + 72.2 | 800.0 + 72.2 |
+| mariadb:11.8 | 800.0 + 72.2 | 800.0 + 72.2 | 800.0 + 72.2 | 800.0 + 72.2 | 800.0 + 72.2 | 800.0 + 72.2 | 800.0 + 72.2 |
+
+### Every server
+
+"Control, each run" is the lowest and highest control ratio of that server's runs. "Widest column" is the collation whose ratio moved most between runs, and how far.
+
+**List page: SELECT * ... WHERE hidden = 0 ORDER BY title LIMIT 25, no index on title**
+
+| Server | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control | Control, each run | Widest column |
+|---|---|---|---|---|---|---|---|---|---|
+| mysql:8.0 | 606 (1.29x) | 470 | 646 (1.37x) | 640 (1.36x) | 477 (1.01x) |  | 473 (1.01x) | 1.01x to 1.01x |  |
+| mysql:8.4 | 763 (1.11x) | 687 | 833 (1.21x) | 839 (1.22x) | 659 (0.96x) |  | 725 (1.06x) | 1.06x to 1.06x |  |
+| mariadb:10.6 | 411 (1.08x) | 380 | 292 (0.77x) | 294 (0.77x) |  |  | 382 (1.01x) | 1.01x to 1.01x |  |
+| mariadb:10.11 | 468 (1.17x) | 401 | 431 (1.08x) | 425 (1.06x) |  | 463 (1.16x) | 410 (1.02x) | 1.02x to 1.02x |  |
+| mariadb:11.8 | 523 (1.19x) | 441 | 451 (1.02x) | 451 (1.02x) | 493 (1.12x) | 497 (1.13x) | 443 (1.01x) | 1.01x to 1.01x |  |
+
+**List page: the same, ORDER BY dragSortOrder (an integer, no index)**
+
+| Server | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control | Control, each run | Widest column |
+|---|---|---|---|---|---|---|---|---|---|
+| mysql:8.0 | 388 (0.98x) | 395 | 389 (0.98x) | 380 (0.96x) | 398 (1.01x) |  | 393 (0.99x) | 0.99x to 0.99x |  |
+| mysql:8.4 | 531 (0.98x) | 543 | 550 (1.01x) | 564 (1.04x) | 576 (1.06x) |  | 568 (1.05x) | 1.05x to 1.05x |  |
+| mariadb:10.6 | 219 (0.99x) | 222 | 220 (0.99x) | 220 (0.99x) |  |  | 218 (0.98x) | 0.98x to 0.98x |  |
+| mariadb:10.11 | 234 (0.99x) | 235 | 235 (1.00x) | 236 (1.00x) |  | 235 (1.00x) | 234 (0.99x) | 0.99x to 0.99x |  |
+| mariadb:11.8 | 249 (0.99x) | 251 | 250 (0.99x) | 251 (1.00x) | 253 (1.00x) | 251 (1.00x) | 251 (1.00x) | 1.00x to 1.00x |  |
+
+**List page: the same, ORDER BY createdDate (a datetime, no index)**
+
+| Server | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control | Control, each run | Widest column |
+|---|---|---|---|---|---|---|---|---|---|
+| mysql:8.0 | 405 (1.02x) | 398 | 398 (1.00x) | 410 (1.03x) | 401 (1.01x) |  | 399 (1.00x) | 1.00x to 1.00x |  |
+| mysql:8.4 | 548 (0.98x) | 559 | 560 (1.00x) | 579 (1.04x) | 589 (1.05x) |  | 588 (1.05x) | 1.05x to 1.05x |  |
+| mariadb:10.6 | 215 (0.99x) | 218 | 218 (1.00x) | 217 (0.99x) |  |  | 231 (1.06x) | 1.06x to 1.06x |  |
+| mariadb:10.11 | 229 (0.99x) | 231 | 238 (1.03x) | 229 (0.99x) |  | 237 (1.02x) | 237 (1.03x) | 1.03x to 1.03x |  |
+| mariadb:11.8 | 251 (1.00x) | 251 | 260 (1.04x) | 251 (1.00x) | 252 (1.01x) | 251 (1.00x) | 251 (1.00x) | 1.00x to 1.00x |  |
+
+**List page: the same, ORDER BY titleIndexed (the title again, with an index)**
+
+| Server | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control | Control, each run | Widest column |
+|---|---|---|---|---|---|---|---|---|---|
+| mysql:8.0 | 0.119 (0.99x) | 0.120 | 0.118 (0.98x) | 0.117 (0.97x) | 0.121 (1.00x) |  | 0.121 (1.00x) | 1.00x to 1.00x |  |
+| mysql:8.4 | 0.241 (1.01x) | 0.237 | 0.236 (0.99x) | 0.233 (0.98x) | 0.235 (0.99x) |  | 0.241 (1.01x) | 1.01x to 1.01x |  |
+| mariadb:10.6 | 0.116 (0.99x) | 0.118 | 0.115 (0.98x) | 0.116 (0.99x) |  |  | 0.118 (1.00x) | 1.00x to 1.00x |  |
+| mariadb:10.11 | 0.116 (1.00x) | 0.117 | 0.114 (0.98x) | 0.113 (0.97x) |  | 0.112 (0.96x) | 0.115 (0.98x) | 0.98x to 0.98x |  |
+| mariadb:11.8 | 0.172 (1.02x) | 0.168 | 0.171 (1.02x) | 0.173 (1.03x) | 0.173 (1.03x) | 0.170 (1.01x) | 0.169 (1.01x) | 1.01x to 1.01x |  |
+
+**List page, last page: SELECT * ... WHERE hidden = 0 ORDER BY title LIMIT 25 OFFSET n, no index on title**
+
+| Server | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control | Control, each run | Widest column |
+|---|---|---|---|---|---|---|---|---|---|
+| mysql:8.0 | 7206 (2.63x) | 2737 | 13782 (5.04x) | 13623 (4.98x) | 1686 (0.62x) |  | 2551 (0.93x) | 0.93x to 0.93x |  |
+| mysql:8.4 | 8002 (1.85x) | 4318 | 10265 (2.38x) | 10293 (2.38x) | 2634 (0.61x) |  | 3320 (0.77x) | 0.77x to 0.77x |  |
+| mariadb:10.6 | 1998 (0.94x) | 2122 | 2479 (1.17x) | 2458 (1.16x) |  |  | 2133 (1.01x) | 1.01x to 1.01x |  |
+| mariadb:10.11 | 2047 (0.97x) | 2100 | 2209 (1.05x) | 2275 (1.08x) |  | 2306 (1.10x) | 2120 (1.01x) | 1.01x to 1.01x |  |
+| mariadb:11.8 | 1995 (0.94x) | 2123 | 2180 (1.03x) | 2168 (1.02x) | 2269 (1.07x) | 2241 (1.06x) | 2096 (0.99x) | 0.99x to 0.99x |  |
+
+**List page, last page: the same, ORDER BY dragSortOrder (an integer, no index)**
+
+| Server | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control | Control, each run | Widest column |
+|---|---|---|---|---|---|---|---|---|---|
+| mysql:8.0 | 1690 (0.96x) | 1762 | 1714 (0.97x) | 1690 (0.96x) | 1699 (0.96x) |  | 1698 (0.96x) | 0.96x to 0.96x |  |
+| mysql:8.4 | 2443 (0.98x) | 2495 | 2464 (0.99x) | 2510 (1.01x) | 2515 (1.01x) |  | 2521 (1.01x) | 1.01x to 1.01x |  |
+| mariadb:10.6 | 2128 (1.09x) | 1946 | 1754 (0.90x) | 1889 (0.97x) |  |  | 2270 (1.17x) | 1.17x to 1.17x |  |
+| mariadb:10.11 | 2493 (0.99x) | 2528 | 2511 (0.99x) | 2598 (1.03x) |  | 2522 (1.00x) | 2560 (1.01x) | 1.01x to 1.01x |  |
+| mariadb:11.8 | 1893 (1.04x) | 1826 | 1914 (1.05x) | 1942 (1.06x) | 1874 (1.03x) | 1867 (1.02x) | 1905 (1.04x) | 1.04x to 1.04x |  |
+
+**List page, last page: the same, ORDER BY titleIndexed (the title again, with an index)**
+
+| Server | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control | Control, each run | Widest column |
+|---|---|---|---|---|---|---|---|---|---|
+| mysql:8.0 | 7124 (2.71x) | 2633 | 13787 (5.24x) | 13591 (5.16x) | 1703 (0.65x) |  | 2619 (0.99x) | 0.99x to 0.99x |  |
+| mysql:8.4 | 7994 (1.89x) | 4220 | 10249 (2.43x) | 10264 (2.43x) | 2637 (0.62x) |  | 3406 (0.81x) | 0.81x to 0.81x |  |
+| mariadb:10.6 | 1973 (0.96x) | 2045 | 2357 (1.15x) | 2366 (1.16x) |  |  | 2037 (1.00x) | 1.00x to 1.00x |  |
+| mariadb:10.11 | 2111 (0.97x) | 2176 | 2373 (1.09x) | 2398 (1.10x) |  | 2380 (1.09x) | 2226 (1.02x) | 1.02x to 1.02x |  |
+| mariadb:11.8 | 1596 (1.01x) | 1573 | 1625 (1.03x) | 1623 (1.03x) | 1590 (1.01x) | 1583 (1.01x) | 1602 (1.02x) | 1.02x to 1.02x |  |
+
+**ORDER BY title, whole table, no index**
+
+| Server | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control | Control, each run | Widest column |
+|---|---|---|---|---|---|---|---|---|---|
+| mysql:8.0 | 8881 (5.46x) | 1627 | 14193 (8.72x) | 14426 (8.86x) | 624 (0.38x) |  | 1425 (0.88x) | 0.88x to 0.88x |  |
+| mysql:8.4 | 7102 (2.12x) | 3349 | 9107 (2.72x) | 9372 (2.80x) | 804 (0.24x) |  | 3315 (0.99x) | 0.99x to 0.99x |  |
+| mariadb:10.6 | 1973 (1.00x) | 1980 | 2240 (1.13x) | 2355 (1.19x) |  |  | 2067 (1.04x) | 1.04x to 1.04x |  |
+| mariadb:10.11 | 2041 (0.99x) | 2060 | 2272 (1.10x) | 2292 (1.11x) |  | 2347 (1.14x) | 2091 (1.01x) | 1.01x to 1.01x |  |
+| mariadb:11.8 | 1854 (0.96x) | 1940 | 2041 (1.05x) | 2045 (1.05x) | 2099 (1.08x) | 2090 (1.08x) | 1970 (1.02x) | 1.02x to 1.02x |  |
+
+**ORDER BY title, whole table, no index, sort_buffer_size = 64 MB**
+
+| Server | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control | Control, each run | Widest column |
+|---|---|---|---|---|---|---|---|---|---|
+| mysql:8.0 | 1339 (1.46x) | 917 | 5602 (6.11x) | 5591 (6.10x) | 698 (0.76x) |  | 959 (1.05x) | 1.05x to 1.05x |  |
+| mysql:8.4 | 1551 (1.41x) | 1102 | 5003 (4.54x) | 5154 (4.67x) | 856 (0.78x) |  | 1128 (1.02x) | 1.02x to 1.02x |  |
+| mariadb:10.6 | 1957 (0.98x) | 2001 | 2361 (1.18x) | 2390 (1.19x) |  |  | 2022 (1.01x) | 1.01x to 1.01x |  |
+| mariadb:10.11 | 2022 (0.98x) | 2068 | 2399 (1.16x) | 2288 (1.11x) |  | 2412 (1.17x) | 2191 (1.06x) | 1.06x to 1.06x |  |
+| mariadb:11.8 | 1839 (0.94x) | 1946 | 2030 (1.04x) | 2062 (1.06x) | 2100 (1.08x) | 2072 (1.06x) | 2032 (1.04x) | 1.04x to 1.04x |  |
+
+**ORDER BY title, whole table, no index, sort_buffer_size = 2 GB**
+
+| Server | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control | Control, each run | Widest column |
+|---|---|---|---|---|---|---|---|---|---|
+| mysql:8.0 | 1334 (1.19x) | 1118 | 1430 (1.28x) | 1553 (1.39x) | 717 (0.64x) |  | 1074 (0.96x) | 0.96x to 0.96x |  |
+| mysql:8.4 | 1577 (1.23x) | 1286 | 1687 (1.31x) | 1695 (1.32x) | 845 (0.66x) |  | 1286 (1.00x) | 1.00x to 1.00x |  |
+| mariadb:10.6 | 2447 (1.03x) | 2377 | 2461 (1.04x) | 2444 (1.03x) |  |  | 2335 (0.98x) | 0.98x to 0.98x |  |
+| mariadb:10.11 | 2675 (1.08x) | 2468 | 2700 (1.09x) | 2697 (1.09x) |  | 2743 (1.11x) | 2540 (1.03x) | 1.03x to 1.03x |  |
+| mariadb:11.8 | 2602 (1.08x) | 2402 | 2701 (1.12x) | 2697 (1.12x) | 2713 (1.13x) | 2734 (1.14x) | 2427 (1.01x) | 1.01x to 1.01x |  |
+
+**MEDIUMTEXT title: ORDER BY title, whole table, no index**
+
+| Server | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control | Control, each run | Widest column |
+|---|---|---|---|---|---|---|---|---|---|
+| mysql:8.0 | 12052 (0.99x) | 12169 | 12279 (1.01x) | 12282 (1.01x) | 1157 (0.10x) |  | 12491 (1.03x) | 1.03x to 1.03x |  |
+| mysql:8.4 | 10102 (1.01x) | 10035 | 10105 (1.01x) | 10164 (1.01x) | 1788 (0.18x) |  | 10049 (1.00x) | 1.00x to 1.00x |  |
+| mariadb:10.6 | 1435 (0.96x) | 1502 | 8407 (5.60x) | 8299 (5.52x) |  |  | 1457 (0.97x) | 0.97x to 0.97x |  |
+| mariadb:10.11 | 1503 (1.00x) | 1506 | 10464 (6.95x) | 10506 (6.97x) |  | 9777 (6.49x) | 1619 (1.08x) | 1.08x to 1.08x |  |
+| mariadb:11.8 | 1343 (0.95x) | 1409 | 11941 (8.48x) | 11039 (7.84x) | 11288 (8.01x) | 11503 (8.17x) | 1431 (1.02x) | 1.02x to 1.02x |  |
+
+**MEDIUMTEXT title: the same, sort_buffer_size = 2 GB**
+
+| Server | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control | Control, each run | Widest column |
+|---|---|---|---|---|---|---|---|---|---|
+| mysql:8.0 | 1936 (1.04x) | 1869 | 2148 (1.15x) | 1972 (1.05x) | 1409 (0.75x) |  | 2013 (1.08x) | 1.08x to 1.08x |  |
+| mysql:8.4 | 2692 (1.08x) | 2502 | 2571 (1.03x) | 2660 (1.06x) | 1801 (0.72x) |  | 2499 (1.00x) | 1.00x to 1.00x |  |
+| mariadb:10.6 | 1890 (1.09x) | 1737 | 1946 (1.12x) | 1898 (1.09x) |  |  | 1816 (1.05x) | 1.05x to 1.05x |  |
+| mariadb:10.11 | 2209 (1.15x) | 1922 | 2168 (1.13x) | 2263 (1.18x) |  | 2252 (1.17x) | 1897 (0.99x) | 0.99x to 0.99x |  |
+| mariadb:11.8 | 2125 (1.15x) | 1848 | 2180 (1.18x) | 2181 (1.18x) | 2235 (1.21x) | 2236 (1.21x) | 1899 (1.03x) | 1.03x to 1.03x |  |
+
+**MEDIUMTEXT title: first page, ORDER BY title LIMIT 25, no index**
+
+| Server | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control | Control, each run | Widest column |
+|---|---|---|---|---|---|---|---|---|---|
+| mysql:8.0 | 514 (1.47x) | 350 | 450 (1.29x) | 448 (1.28x) | 342 (0.98x) |  | 352 (1.01x) | 1.01x to 1.01x |  |
+| mysql:8.4 | 649 (1.27x) | 512 | 622 (1.22x) | 632 (1.24x) | 470 (0.92x) |  | 545 (1.06x) | 1.06x to 1.06x |  |
+| mariadb:10.6 | 356 (1.10x) | 325 | 263 (0.81x) | 265 (0.82x) |  |  | 333 (1.03x) | 1.03x to 1.03x |  |
+| mariadb:10.11 | 388 (1.23x) | 315 | 326 (1.03x) | 328 (1.04x) |  | 364 (1.16x) | 311 (0.99x) | 0.99x to 0.99x |  |
+| mariadb:11.8 | 453 (1.24x) | 365 | 383 (1.05x) | 383 (1.05x) | 411 (1.13x) | 419 (1.15x) | 365 (1.00x) | 1.00x to 1.00x |  |
+
+**MEDIUMTEXT title: first page, ORDER BY titleIndexed LIMIT 25, prefix index (768)**
+
+| Server | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control | Control, each run | Widest column |
+|---|---|---|---|---|---|---|---|---|---|
+| mysql:8.0 | 512 (1.47x) | 349 | 451 (1.29x) | 450 (1.29x) | 342 (0.98x) |  | 355 (1.01x) | 1.01x to 1.01x |  |
+| mysql:8.4 | 648 (1.26x) | 514 | 623 (1.21x) | 631 (1.23x) | 469 (0.91x) |  | 544 (1.06x) | 1.06x to 1.06x |  |
+| mariadb:10.6 | 356 (1.09x) | 327 | 263 (0.81x) | 266 (0.81x) |  |  | 334 (1.02x) | 1.02x to 1.02x |  |
+| mariadb:10.11 | 382 (1.22x) | 313 | 329 (1.05x) | 330 (1.05x) |  | 374 (1.19x) | 311 (0.99x) | 0.99x to 0.99x |  |
+| mariadb:11.8 | 453 (1.24x) | 365 | 383 (1.05x) | 383 (1.05x) | 410 (1.12x) | 419 (1.15x) | 365 (1.00x) | 1.00x to 1.00x |  |
+
+**MEDIUMTEXT title: last page, ORDER BY titleIndexed LIMIT 25 OFFSET n, prefix index (768)**
+
+| Server | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control | Control, each run | Widest column |
+|---|---|---|---|---|---|---|---|---|---|
+| mysql:8.0 | 11203 (1.02x) | 11032 | 11033 (1.00x) | 10914 (0.99x) | 1118 (0.10x) |  | 11323 (1.03x) | 1.03x to 1.03x |  |
+| mysql:8.4 | 9738 (1.01x) | 9622 | 9672 (1.01x) | 9726 (1.01x) | 1796 (0.19x) |  | 9640 (1.00x) | 1.00x to 1.00x |  |
+| mariadb:10.6 | 1280 (0.93x) | 1378 | 7305 (5.30x) | 7367 (5.35x) |  |  | 1361 (0.99x) | 0.99x to 0.99x |  |
+| mariadb:10.11 | 1501 (0.98x) | 1527 | 8515 (5.58x) | 8541 (5.59x) |  | 8628 (5.65x) | 1563 (1.02x) | 1.02x to 1.02x |  |
+| mariadb:11.8 | 1321 (0.95x) | 1386 | 11189 (8.07x) | 10404 (7.50x) | 10944 (7.89x) | 10807 (7.80x) | 1405 (1.01x) | 1.01x to 1.01x |  |
+
+### Sorts that went to temp files
+
+`Sort_merge_passes` for one statement: how many times the server merged temp files because the rows to sort didn't fit in `sort_buffer_size`. 0 means the sort stayed in memory. A statement that isn't listed was 0 on every server.
+
+**List page, last page: SELECT * ... WHERE hidden = 0 ORDER BY title LIMIT 25 OFFSET n, no index on title**
+
+| Server | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control |
+|---|---|---|---|---|---|---|---|
+| mysql:8.0 | 472 | 317 | 628 | 628 | 41 |  | 317 |
+| mysql:8.4 | 472 | 317 | 628 | 628 | 41 |  | 317 |
+| mariadb:10.6 | 4 | 4 | 4 | 4 |  |  | 4 |
+| mariadb:10.11 | 4 | 4 | 4 | 4 |  | 4 | 4 |
+| mariadb:11.8 | 4 | 4 | 4 | 4 | 4 | 4 | 4 |
+
+**List page, last page: the same, ORDER BY dragSortOrder (an integer, no index)**
+
+| Server | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control |
+|---|---|---|---|---|---|---|---|
+| mysql:8.0 | 11 | 11 | 11 | 11 | 11 |  | 11 |
+| mysql:8.4 | 11 | 11 | 11 | 11 | 11 |  | 11 |
+| mariadb:10.6 | 1 | 1 | 1 | 1 |  |  | 1 |
+| mariadb:10.11 | 1 | 1 | 1 | 1 |  | 1 | 1 |
+| mariadb:11.8 | 1 | 1 | 1 | 1 | 1 | 1 | 1 |
+
+**List page, last page: the same, ORDER BY titleIndexed (the title again, with an index)**
+
+| Server | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control |
+|---|---|---|---|---|---|---|---|
+| mysql:8.0 | 472 | 317 | 628 | 628 | 41 |  | 317 |
+| mysql:8.4 | 472 | 317 | 628 | 628 | 41 |  | 317 |
+| mariadb:10.6 | 4 | 4 | 4 | 4 |  |  | 4 |
+| mariadb:10.11 | 4 | 4 | 4 | 4 |  | 4 | 4 |
+| mariadb:11.8 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+**ORDER BY title, whole table, no index**
+
+| Server | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control |
+|---|---|---|---|---|---|---|---|
+| mysql:8.0 | 515 | 350 | 678 | 678 | 59 |  | 350 |
+| mysql:8.4 | 515 | 350 | 678 | 678 | 59 |  | 350 |
+| mariadb:10.6 | 4 | 4 | 4 | 4 |  |  | 4 |
+| mariadb:10.11 | 4 | 4 | 4 | 4 |  | 4 | 4 |
+| mariadb:11.8 | 4 | 4 | 4 | 4 | 4 | 4 | 4 |
+
+**ORDER BY title, whole table, no index, sort_buffer_size = 64 MB**
+
+| Server | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control |
+|---|---|---|---|---|---|---|---|
+| mysql:8.0 | 1 | 1 | 3 | 3 | 1 |  | 1 |
+| mysql:8.4 | 1 | 1 | 3 | 3 | 1 |  | 1 |
+| mariadb:10.6 | 0 | 0 | 0 | 0 |  |  | 0 |
+| mariadb:10.11 | 0 | 0 | 0 | 0 |  | 0 | 0 |
+| mariadb:11.8 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+**MEDIUMTEXT title: ORDER BY title, whole table, no index**
+
+| Server | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control |
+|---|---|---|---|---|---|---|---|
+| mysql:8.0 | 661 | 661 | 661 | 661 | 40 |  | 661 |
+| mysql:8.4 | 661 | 661 | 661 | 661 | 40 |  | 661 |
+| mariadb:10.6 | 4 | 4 | 82 | 82 |  |  | 4 |
+| mariadb:10.11 | 4 | 4 | 82 | 82 |  | 82 | 4 |
+| mariadb:11.8 | 4 | 4 | 82 | 82 | 82 | 82 | 4 |
+
+**MEDIUMTEXT title: first page, ORDER BY title LIMIT 25, no index**
+
+| Server | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control |
+|---|---|---|---|---|---|---|---|
+| mysql:8.0 | 0 | 0 | 0 | 0 | 39 |  | 0 |
+| mysql:8.4 | 0 | 0 | 0 | 0 | 39 |  | 0 |
+| mariadb:10.6 | 0 | 0 | 0 | 0 |  |  | 0 |
+| mariadb:10.11 | 0 | 0 | 0 | 0 |  | 0 | 0 |
+| mariadb:11.8 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+**MEDIUMTEXT title: first page, ORDER BY titleIndexed LIMIT 25, prefix index (768)**
+
+| Server | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control |
+|---|---|---|---|---|---|---|---|
+| mysql:8.0 | 0 | 0 | 0 | 0 | 39 |  | 0 |
+| mysql:8.4 | 0 | 0 | 0 | 0 | 39 |  | 0 |
+| mariadb:10.6 | 0 | 0 | 0 | 0 |  |  | 0 |
+| mariadb:10.11 | 0 | 0 | 0 | 0 |  | 0 | 0 |
+| mariadb:11.8 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+**MEDIUMTEXT title: last page, ORDER BY titleIndexed LIMIT 25 OFFSET n, prefix index (768)**
+
+| Server | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control |
+|---|---|---|---|---|---|---|---|
+| mysql:8.0 | 628 | 628 | 628 | 628 | 39 |  | 628 |
+| mysql:8.4 | 628 | 628 | 628 | 628 | 39 |  | 628 |
+| mariadb:10.6 | 4 | 4 | 78 | 78 |  |  | 4 |
+| mariadb:10.11 | 4 | 4 | 78 | 78 |  | 78 | 4 |
+| mariadb:11.8 | 4 | 4 | 78 | 78 | 78 | 78 | 4 |
+
+### Query plans
+
+EXPLAIN for the utf8mb4_general_ci table, where the statement is a SELECT.
+
+**List page: SELECT * ... WHERE hidden = 0 ORDER BY title LIMIT 25, no index on title**
+
+- all servers: a_general_ci: type=ALL, key=none, Using where; Using filesort
+
+**List page: the same, ORDER BY dragSortOrder (an integer, no index)**
+
+- all servers: a_general_ci: type=ALL, key=none, Using where; Using filesort
+
+**List page: the same, ORDER BY createdDate (a datetime, no index)**
+
+- all servers: a_general_ci: type=ALL, key=none, Using where; Using filesort
+
+**List page: the same, ORDER BY titleIndexed (the title again, with an index)**
+
+- all servers: a_general_ci: type=index, key=titleIndexed, Using where
+
+**List page, last page: SELECT * ... WHERE hidden = 0 ORDER BY title LIMIT 25 OFFSET n, no index on title**
+
+- all servers: a_general_ci: type=ALL, key=none, Using where; Using filesort
+
+**List page, last page: the same, ORDER BY dragSortOrder (an integer, no index)**
+
+- all servers: a_general_ci: type=ALL, key=none, Using where; Using filesort
+
+**List page, last page: the same, ORDER BY titleIndexed (the title again, with an index)**
+
+- MySQL 8.0, MySQL 8.4, MariaDB 10.6, MariaDB 10.11: a_general_ci: type=ALL, key=none, Using where; Using filesort
+- MariaDB 11.8: a_general_ci: type=index, key=titleIndexed, Using where
+
+**ORDER BY title, whole table, no index**
+
+- all servers: a_general_ci: type=ALL, key=none, Using filesort
+
+**ORDER BY title, whole table, no index, sort_buffer_size = 64 MB**
+
+- all servers: a_general_ci: type=ALL, key=none, Using filesort
+
+**ORDER BY title, whole table, no index, sort_buffer_size = 2 GB**
+
+- all servers: a_general_ci: type=ALL, key=none, Using filesort
+
+**MEDIUMTEXT title: ORDER BY title, whole table, no index**
+
+- all servers: m_general_ci: type=ALL, key=none, Using filesort
+
+**MEDIUMTEXT title: the same, sort_buffer_size = 2 GB**
+
+- all servers: m_general_ci: type=ALL, key=none, Using filesort
+
+**MEDIUMTEXT title: first page, ORDER BY title LIMIT 25, no index**
+
+- all servers: m_general_ci: type=ALL, key=none, Using where; Using filesort
+
+**MEDIUMTEXT title: first page, ORDER BY titleIndexed LIMIT 25, prefix index (768)**
+
+- all servers: m_general_ci: type=ALL, key=none, Using where; Using filesort
+
+**MEDIUMTEXT title: last page, ORDER BY titleIndexed LIMIT 25 OFFSET n, prefix index (768)**
+
+- all servers: m_general_ci: type=ALL, key=none, Using where; Using filesort
+
 ## 2. Speed, 100,000 rows
 
-One InnoDB table per collation with the same 100,000 rows, shaped like a CMS Builder section. It has 15 columns: the record number, three DATETIME, two INT, three TINYINT flags, five VARCHAR(255) and one MEDIUMTEXT. `name` and `titleIndexed` have an index; `title` holds the same text as `titleIndexed` and has none. Average length in characters: name 22, title 36, content 439. The text is mostly ASCII words, with about 9% accented Latin words, 2% words in other scripts and 1% emoji. Numbers are milliseconds per statement, the median of 5 passes (3 for the slow statements), after one uncounted pass, then the median of 3 runs of the workflow, each on its own runner. The number in brackets is the time divided by the utf8mb4_general_ci time on the same server in the same run. "Control" is a second set of utf8mb4_general_ci tables timed the same way: how far it is from 1.00x is the noise of that runner, and a difference no larger than that isn't a real difference. The servers ran with innodb_buffer_pool_size = 3,072 MB so every table stays in memory, and with the query cache off.
+One InnoDB table per collation with the same 100,000 rows, shaped like a CMS Builder section. It has 15 columns: the record number, three DATETIME, two INT, three TINYINT flags, five VARCHAR(255) and one MEDIUMTEXT. `name` and `titleIndexed` have an index; `title` holds the same text as `titleIndexed` and has none. The statements named "MEDIUMTEXT title" use a narrower table with the same rows: num, hidden, dragSortOrder, and `title` and `titleIndexed` as MEDIUMTEXT, the type CMS Builder gives a text field, with a prefix index `titleIndexed(768)`. Average length in characters: name 22, title 36, content 439. The text is mostly ASCII words, with about 9% accented Latin words, 2% words in other scripts and 1% emoji. Numbers are milliseconds per statement, the median of 5 passes (3 for the slow statements), after one uncounted pass, then the median of that server's runs of the workflow (up to 3), each on its own runner. The number in brackets is the time divided by the utf8mb4_general_ci time on the same server in the same run. "Control" is a second set of utf8mb4_general_ci tables timed the same way: how far it is from 1.00x is the noise of that runner, and a difference no larger than that isn't a real difference. The servers ran with innodb_buffer_pool_size = 3,072 MB so every table stays in memory, and with the query cache off.
 
 ### utf8mb4_unicode_ci against each server's default
 
@@ -3012,9 +4118,446 @@ EXPLAIN for the utf8mb4_general_ci table, where the statement is a SELECT.
 - MySQL/Percona 8.0+: <derived2>: type=ALL, key=none,  | a_general_ci: type=ALL, key=none, Using where | b_general_ci: type=ALL, key=none, Using where | <union2,3>: type=ALL, key=none, Using temporary
 - all MariaDB: <derived2>: type=ALL, key=none, Using where | a_general_ci: type=ALL, key=none, Using where | b_general_ci: type=ALL, key=none, Using where | <union2,3>: type=ALL, key=none, 
 
+## 2. Speed, 100,000 rows, titles from english-wikipedia-titles.txt
+
+In these runs `title` and `titleIndexed` hold one line each of english-wikipedia-titles.txt, in place of the generated titles described below; `name` and `content` are the same as in the other runs.
+
+One InnoDB table per collation with the same 100,000 rows, shaped like a CMS Builder section. It has 15 columns: the record number, three DATETIME, two INT, three TINYINT flags, five VARCHAR(255) and one MEDIUMTEXT. `name` and `titleIndexed` have an index; `title` holds the same text as `titleIndexed` and has none. The statements named "MEDIUMTEXT title" use a narrower table with the same rows: num, hidden, dragSortOrder, and `title` and `titleIndexed` as MEDIUMTEXT, the type CMS Builder gives a text field, with a prefix index `titleIndexed(768)`. Average length in characters: name 22, title 23, content 438. The text is mostly ASCII words, with about 9% accented Latin words, 2% words in other scripts and 1% emoji. Numbers are milliseconds per statement, the median of 3 passes (3 for the slow statements), after one uncounted pass. The number in brackets is the time divided by the utf8mb4_general_ci time on the same server in the same run. "Control" is a second set of utf8mb4_general_ci tables timed the same way: how far it is from 1.00x is the noise of that runner, and a difference no larger than that isn't a real difference. The servers ran with innodb_buffer_pool_size = 9,216 MB so every table stays in memory, and with the query cache off.
+
+### utf8mb4_unicode_ci against each server's default
+
+The utf8mb4_unicode_ci time, the time of the collation a new table gets on that server, and the first divided by the second. Each number is the median over the group's servers. Above 1.00x, utf8mb4_unicode_ci is slower than the default.
+
+| Statement | MySQL and Percona 8.0 and later (0900_ai_ci) | MariaDB 10.2 to 10.9 (general_ci) | MariaDB 10.10 to 11.3 (general_ci) | MariaDB 11.4 and later (uca1400_ai_ci) |
+|---|---|---|---|---|
+| List page: SELECT * ... WHERE hidden = 0 ORDER BY title LIMIT 25, no index on title | 81.6 / 56.8 (1.44x) | 41.0 / 49.7 (0.82x) | 46.0 / 47.3 (0.97x) | 42.7 / 47.9 (0.89x) |
+| List page: the same, ORDER BY dragSortOrder (an integer, no index) | 49.0 / 48.2 (1.02x) | 26.8 / 27.6 (0.97x) | 21.3 / 21.3 (1.00x) | 19.7 / 18.9 (1.05x) |
+| List page: the same, ORDER BY createdDate (a datetime, no index) | 51.8 / 50.4 (1.03x) | 26.8 / 27.1 (0.99x) | 21.7 / 21.6 (1.01x) | 18.8 / 19.3 (0.97x) |
+| List page: the same, ORDER BY titleIndexed (the title again, with an index) | 0.175 / 0.179 (0.98x) | 0.255 / 0.259 (0.99x) | 0.173 / 0.164 (1.06x) | 0.177 / 0.190 (0.93x) |
+| List page, last page: SELECT * ... WHERE hidden = 0 ORDER BY title LIMIT 25 OFFSET n, no index on title | 299 / 186 (1.61x) | 270 / 235 (1.15x) | 231 / 215 (1.08x) | 186 / 188 (0.99x) |
+| List page, last page: the same, ORDER BY dragSortOrder (an integer, no index) | 159 / 158 (1.01x) | 164 / 163 (1.01x) | 164 / 165 (1.00x) | 117 / 117 (1.00x) |
+| List page, last page: the same, ORDER BY titleIndexed (the title again, with an index) | 302 / 189 (1.61x) | 262 / 228 (1.15x) | 231 / 214 (1.08x) | 138 / 137 (1.01x) |
+| ORDER BY title, whole table, no index | 186 / 65.7 (2.83x) | 236 / 204 (1.16x) | 218 / 199 (1.10x) | 164 / 167 (0.98x) |
+| ORDER BY title, whole table, no index, sort_buffer_size = 64 MB | 190 / 58.9 (3.23x) | 234 / 240 (0.97x) | 221 / 241 (0.92x) | 168 / 166 (1.01x) |
+| ORDER BY title, whole table, no index, sort_buffer_size = 2 GB | 80.7 / 55.1 (1.46x) | 265 / 244 (1.09x) | 260 / 239 (1.09x) | 221 / 226 (0.98x) |
+| MEDIUMTEXT title: ORDER BY title, whole table, no index | 227 / 120 (1.89x) | 257 / 171 (1.50x) | 242 / 151 (1.60x) | 182 / 189 (0.96x) |
+| MEDIUMTEXT title: the same, sort_buffer_size = 2 GB | 136 / 112 (1.21x) | 237 / 207 (1.15x) | 213 / 198 (1.07x) | 186 / 193 (0.96x) |
+| MEDIUMTEXT title: first page, ORDER BY title LIMIT 25, no index | 55.6 / 40.4 (1.38x) | 44.7 / 54.9 (0.81x) | 52.5 / 55.7 (0.94x) | 39.5 / 44.1 (0.90x) |
+| MEDIUMTEXT title: first page, ORDER BY titleIndexed LIMIT 25, prefix index (768) | 55.1 / 40.4 (1.36x) | 44.7 / 55.0 (0.81x) | 52.2 / 55.2 (0.95x) | 39.4 / 44.2 (0.89x) |
+| MEDIUMTEXT title: last page, ORDER BY titleIndexed LIMIT 25 OFFSET n, prefix index (768) | 232 / 125 (1.87x) | 254 / 174 (1.46x) | 242 / 172 (1.40x) | 180 / 186 (0.97x) |
+
+### Summary by server group
+
+Each cell is the median over the group's servers.
+
+**MySQL and Percona 8.0 and later** (MySQL 8.0, MySQL 8.4)
+
+| Statement | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | control |
+|---|---|---|---|---|---|---|
+| List page: SELECT * ... WHERE hidden = 0 ORDER BY title LIMIT 25, no index on title | 77.8 (1.27x) | 61.3 | 81.6 (1.33x) | 80.2 (1.31x) | 56.8 (0.93x) | 0.99x to 0.99x |
+| List page: the same, ORDER BY dragSortOrder (an integer, no index) | 47.5 (1.00x) | 47.3 | 49.0 (1.04x) | 49.6 (1.05x) | 48.2 (1.02x) | 1.00x to 1.04x |
+| List page: the same, ORDER BY createdDate (a datetime, no index) | 50.3 (1.01x) | 49.9 | 51.8 (1.04x) | 49.7 (1.00x) | 50.4 (1.01x) | 1.01x to 1.02x |
+| List page: the same, ORDER BY titleIndexed (the title again, with an index) | 0.185 (1.07x) | 0.174 | 0.175 (1.01x) | 0.174 (1.00x) | 0.179 (1.03x) | 1.00x to 1.07x |
+| List page, last page: SELECT * ... WHERE hidden = 0 ORDER BY title LIMIT 25 OFFSET n, no index on title | 267 (1.16x) | 230 | 299 (1.30x) | 297 (1.30x) | 186 (0.81x) | 0.98x to 0.98x |
+| List page, last page: the same, ORDER BY dragSortOrder (an integer, no index) | 157 (0.99x) | 158 | 159 (1.01x) | 156 (0.99x) | 158 (1.00x) | 0.99x to 0.99x |
+| List page, last page: the same, ORDER BY titleIndexed (the title again, with an index) | 273 (1.19x) | 231 | 302 (1.31x) | 300 (1.31x) | 189 (0.82x) | 1.01x to 1.01x |
+| ORDER BY title, whole table, no index | 152 (1.42x) | 107 | 186 (1.73x) | 183 (1.71x) | 65.7 (0.61x) | 0.99x to 1.00x |
+| ORDER BY title, whole table, no index, sort_buffer_size = 64 MB | 168 (2.14x) | 78.2 | 190 (2.43x) | 189 (2.42x) | 58.9 (0.75x) | 0.91x to 0.95x |
+| ORDER BY title, whole table, no index, sort_buffer_size = 2 GB | 80.3 (1.36x) | 58.6 | 80.7 (1.37x) | 80.9 (1.38x) | 55.1 (0.94x) | 0.99x to 1.02x |
+| MEDIUMTEXT title: ORDER BY title, whole table, no index | 235 (1.11x) | 213 | 227 (1.06x) | 227 (1.06x) | 120 (0.56x) | 1.00x to 1.01x |
+| MEDIUMTEXT title: the same, sort_buffer_size = 2 GB | 136 (1.18x) | 117 | 136 (1.16x) | 126 (1.08x) | 112 (0.96x) | 0.99x to 1.01x |
+| MEDIUMTEXT title: first page, ORDER BY title LIMIT 25, no index | 65.8 (1.53x) | 43.0 | 55.6 (1.29x) | 55.2 (1.28x) | 40.4 (0.94x) | 1.00x to 1.01x |
+| MEDIUMTEXT title: first page, ORDER BY titleIndexed LIMIT 25, prefix index (768) | 65.0 (1.52x) | 42.8 | 55.1 (1.29x) | 55.3 (1.29x) | 40.4 (0.94x) | 1.00x to 1.02x |
+| MEDIUMTEXT title: last page, ORDER BY titleIndexed LIMIT 25 OFFSET n, prefix index (768) | 238 (1.11x) | 215 | 232 (1.08x) | 230 (1.07x) | 125 (0.58x) | 1.00x to 1.01x |
+
+**MariaDB 10.2 to 10.9** (MariaDB 10.6)
+
+| Statement | bin | general_ci | unicode_ci | unicode_520_ci | control |
+|---|---|---|---|---|---|
+| List page: SELECT * ... WHERE hidden = 0 ORDER BY title LIMIT 25, no index on title | 59.7 (1.20x) | 49.7 | 41.0 (0.82x) | 40.7 (0.82x) | 49.4 (0.99x) |
+| List page: the same, ORDER BY dragSortOrder (an integer, no index) | 27.0 (0.98x) | 27.6 | 26.8 (0.97x) | 27.6 (1.00x) | 27.3 (0.99x) |
+| List page: the same, ORDER BY createdDate (a datetime, no index) | 27.1 (1.00x) | 27.1 | 26.8 (0.99x) | 26.8 (0.99x) | 27.0 (1.00x) |
+| List page: the same, ORDER BY titleIndexed (the title again, with an index) | 0.254 (0.98x) | 0.259 | 0.255 (0.99x) | 0.253 (0.98x) | 0.261 (1.01x) |
+| List page, last page: SELECT * ... WHERE hidden = 0 ORDER BY title LIMIT 25 OFFSET n, no index on title | 234 (1.00x) | 235 | 270 (1.15x) | 277 (1.18x) | 245 (1.04x) |
+| List page, last page: the same, ORDER BY dragSortOrder (an integer, no index) | 161 (0.99x) | 163 | 164 (1.01x) | 162 (1.00x) | 164 (1.01x) |
+| List page, last page: the same, ORDER BY titleIndexed (the title again, with an index) | 215 (0.94x) | 228 | 262 (1.15x) | 261 (1.15x) | 234 (1.03x) |
+| ORDER BY title, whole table, no index | 195 (0.96x) | 204 | 236 (1.16x) | 236 (1.16x) | 202 (0.99x) |
+| ORDER BY title, whole table, no index, sort_buffer_size = 64 MB | 193 (0.80x) | 240 | 234 (0.97x) | 229 (0.95x) | 240 (1.00x) |
+| ORDER BY title, whole table, no index, sort_buffer_size = 2 GB | 257 (1.05x) | 244 | 265 (1.09x) | 265 (1.09x) | 240 (0.98x) |
+| MEDIUMTEXT title: ORDER BY title, whole table, no index | 169 (0.99x) | 171 | 257 (1.50x) | 252 (1.47x) | 178 (1.04x) |
+| MEDIUMTEXT title: the same, sort_buffer_size = 2 GB | 236 (1.14x) | 207 | 237 (1.15x) | 231 (1.12x) | 210 (1.01x) |
+| MEDIUMTEXT title: first page, ORDER BY title LIMIT 25, no index | 67.9 (1.24x) | 54.9 | 44.7 (0.81x) | 44.8 (0.82x) | 55.2 (1.01x) |
+| MEDIUMTEXT title: first page, ORDER BY titleIndexed LIMIT 25, prefix index (768) | 67.9 (1.23x) | 55.0 | 44.7 (0.81x) | 46.7 (0.85x) | 55.1 (1.00x) |
+| MEDIUMTEXT title: last page, ORDER BY titleIndexed LIMIT 25 OFFSET n, prefix index (768) | 171 (0.99x) | 174 | 254 (1.46x) | 248 (1.42x) | 173 (0.99x) |
+
+**MariaDB 10.10 to 11.3** (MariaDB 10.11)
+
+| Statement | bin | general_ci | unicode_ci | unicode_520_ci | uca1400_ai_ci | control |
+|---|---|---|---|---|---|---|
+| List page: SELECT * ... WHERE hidden = 0 ORDER BY title LIMIT 25, no index on title | 53.4 (1.13x) | 47.3 | 46.0 (0.97x) | 45.5 (0.96x) | 50.0 (1.06x) | 47.3 (1.00x) |
+| List page: the same, ORDER BY dragSortOrder (an integer, no index) | 21.4 (1.00x) | 21.3 | 21.3 (1.00x) | 21.7 (1.02x) | 21.2 (1.00x) | 21.3 (1.00x) |
+| List page: the same, ORDER BY createdDate (a datetime, no index) | 21.6 (1.00x) | 21.6 | 21.7 (1.01x) | 22.0 (1.02x) | 21.8 (1.01x) | 21.8 (1.01x) |
+| List page: the same, ORDER BY titleIndexed (the title again, with an index) | 0.170 (1.03x) | 0.164 | 0.173 (1.06x) | 0.188 (1.15x) | 0.176 (1.08x) | 0.171 (1.04x) |
+| List page, last page: SELECT * ... WHERE hidden = 0 ORDER BY title LIMIT 25 OFFSET n, no index on title | 207 (0.96x) | 215 | 231 (1.08x) | 231 (1.08x) | 239 (1.11x) | 216 (1.01x) |
+| List page, last page: the same, ORDER BY dragSortOrder (an integer, no index) | 165 (1.00x) | 165 | 164 (1.00x) | 164 (0.99x) | 164 (0.99x) | 164 (0.99x) |
+| List page, last page: the same, ORDER BY titleIndexed (the title again, with an index) | 206 (0.96x) | 214 | 231 (1.08x) | 231 (1.08x) | 239 (1.12x) | 213 (1.00x) |
+| ORDER BY title, whole table, no index | 193 (0.97x) | 199 | 218 (1.10x) | 218 (1.09x) | 224 (1.13x) | 201 (1.01x) |
+| ORDER BY title, whole table, no index, sort_buffer_size = 64 MB | 191 (0.79x) | 241 | 221 (0.92x) | 215 (0.90x) | 219 (0.91x) | 243 (1.01x) |
+| ORDER BY title, whole table, no index, sort_buffer_size = 2 GB | 255 (1.07x) | 239 | 260 (1.09x) | 256 (1.07x) | 264 (1.10x) | 234 (0.98x) |
+| MEDIUMTEXT title: ORDER BY title, whole table, no index | 144 (0.95x) | 151 | 242 (1.60x) | 243 (1.60x) | 248 (1.64x) | 153 (1.01x) |
+| MEDIUMTEXT title: the same, sort_buffer_size = 2 GB | 214 (1.08x) | 198 | 213 (1.07x) | 216 (1.09x) | 222 (1.12x) | 195 (0.98x) |
+| MEDIUMTEXT title: first page, ORDER BY title LIMIT 25, no index | 61.1 (1.10x) | 55.7 | 52.5 (0.94x) | 52.4 (0.94x) | 57.3 (1.03x) | 55.7 (1.00x) |
+| MEDIUMTEXT title: first page, ORDER BY titleIndexed LIMIT 25, prefix index (768) | 60.7 (1.10x) | 55.2 | 52.2 (0.95x) | 52.1 (0.94x) | 57.3 (1.04x) | 55.0 (1.00x) |
+| MEDIUMTEXT title: last page, ORDER BY titleIndexed LIMIT 25 OFFSET n, prefix index (768) | 147 (0.85x) | 172 | 242 (1.40x) | 239 (1.39x) | 245 (1.42x) | 154 (0.89x) |
+
+**MariaDB 11.4 and later** (MariaDB 11.8)
+
+| Statement | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control |
+|---|---|---|---|---|---|---|---|
+| List page: SELECT * ... WHERE hidden = 0 ORDER BY title LIMIT 25, no index on title | 51.0 (1.19x) | 42.8 | 42.7 (1.00x) | 43.0 (1.01x) | 48.2 (1.13x) | 47.9 (1.12x) | 41.8 (0.98x) |
+| List page: the same, ORDER BY dragSortOrder (an integer, no index) | 18.8 (1.00x) | 18.8 | 19.7 (1.05x) | 19.2 (1.02x) | 20.7 (1.10x) | 18.9 (1.00x) | 18.8 (1.00x) |
+| List page: the same, ORDER BY createdDate (a datetime, no index) | 19.1 (1.02x) | 18.8 | 18.8 (1.00x) | 19.2 (1.02x) | 20.2 (1.08x) | 19.3 (1.03x) | 19.8 (1.05x) |
+| List page: the same, ORDER BY titleIndexed (the title again, with an index) | 0.187 (1.06x) | 0.176 | 0.177 (1.00x) | 0.178 (1.01x) | 0.184 (1.04x) | 0.190 (1.08x) | 0.189 (1.07x) |
+| List page, last page: SELECT * ... WHERE hidden = 0 ORDER BY title LIMIT 25 OFFSET n, no index on title | 162 (0.91x) | 178 | 186 (1.04x) | 182 (1.02x) | 191 (1.07x) | 188 (1.06x) | 177 (0.99x) |
+| List page, last page: the same, ORDER BY dragSortOrder (an integer, no index) | 117 (0.99x) | 118 | 117 (0.99x) | 120 (1.02x) | 117 (0.99x) | 117 (0.99x) | 117 (1.00x) |
+| List page, last page: the same, ORDER BY titleIndexed (the title again, with an index) | 137 (0.99x) | 139 | 138 (1.00x) | 137 (0.99x) | 134 (0.97x) | 137 (0.99x) | 137 (0.99x) |
+| ORDER BY title, whole table, no index | 148 (0.92x) | 161 | 164 (1.02x) | 168 (1.04x) | 169 (1.05x) | 167 (1.04x) | 153 (0.95x) |
+| ORDER BY title, whole table, no index, sort_buffer_size = 64 MB | 147 (0.71x) | 206 | 168 (0.82x) | 168 (0.82x) | 172 (0.83x) | 166 (0.81x) | 202 (0.98x) |
+| ORDER BY title, whole table, no index, sort_buffer_size = 2 GB | 216 (1.12x) | 193 | 221 (1.14x) | 220 (1.14x) | 233 (1.21x) | 226 (1.17x) | 189 (0.98x) |
+| MEDIUMTEXT title: ORDER BY title, whole table, no index | 103 (0.94x) | 110 | 182 (1.65x) | 182 (1.65x) | 194 (1.75x) | 189 (1.71x) | 110 (1.00x) |
+| MEDIUMTEXT title: the same, sort_buffer_size = 2 GB | 176 (1.17x) | 151 | 186 (1.23x) | 186 (1.24x) | 189 (1.26x) | 193 (1.28x) | 152 (1.01x) |
+| MEDIUMTEXT title: first page, ORDER BY title LIMIT 25, no index | 46.0 (1.26x) | 36.4 | 39.5 (1.09x) | 39.7 (1.09x) | 43.3 (1.19x) | 44.1 (1.21x) | 36.5 (1.00x) |
+| MEDIUMTEXT title: first page, ORDER BY titleIndexed LIMIT 25, prefix index (768) | 46.0 (1.27x) | 36.3 | 39.4 (1.08x) | 39.5 (1.09x) | 43.2 (1.19x) | 44.2 (1.22x) | 36.5 (1.01x) |
+| MEDIUMTEXT title: last page, ORDER BY titleIndexed LIMIT 25 OFFSET n, prefix index (768) | 106 (0.93x) | 114 | 180 (1.58x) | 181 (1.58x) | 184 (1.61x) | 186 (1.62x) | 110 (0.96x) |
+
+### Table size
+
+DATA_LENGTH and INDEX_LENGTH of the 100,000-row table from information_schema.TABLES after ANALYZE TABLE, in MB. The indexes are the ones on `name` and `titleIndexed`, built by ALTER TABLE ... ADD INDEX after the rows were loaded.
+
+| Server | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control |
+|---|---|---|---|---|---|---|---|
+| mysql:8.0 | 80.6 + 9.0 | 80.6 + 9.0 | 80.6 + 9.0 | 80.6 + 9.0 | 80.6 + 9.0 |  | 80.6 + 9.0 |
+| mysql:8.4 | 80.6 + 9.0 | 80.6 + 9.0 | 80.6 + 9.0 | 80.6 + 9.0 | 80.6 + 9.0 |  | 80.6 + 9.0 |
+| mariadb:10.6 | 80.6 + 9.0 | 80.6 + 9.0 | 80.6 + 9.0 | 80.6 + 9.0 |  |  | 80.6 + 9.0 |
+| mariadb:10.11 | 80.6 + 9.0 | 80.6 + 9.0 | 80.6 + 9.0 | 80.6 + 9.0 |  | 80.6 + 9.0 | 80.6 + 9.0 |
+| mariadb:11.8 | 80.6 + 9.0 | 80.6 + 9.0 | 80.6 + 9.0 | 80.6 + 9.0 | 80.6 + 9.0 | 80.6 + 9.0 | 80.6 + 9.0 |
+
+### Every server
+
+"Control, each run" is the lowest and highest control ratio of that server's runs. "Widest column" is the collation whose ratio moved most between runs, and how far.
+
+**List page: SELECT * ... WHERE hidden = 0 ORDER BY title LIMIT 25, no index on title**
+
+| Server | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control | Control, each run | Widest column |
+|---|---|---|---|---|---|---|---|---|---|
+| mysql:8.0 | 82.5 (1.37x) | 60.3 | 87.4 (1.45x) | 85.4 (1.42x) | 58.2 (0.97x) |  | 59.8 (0.99x) | 0.99x to 0.99x |  |
+| mysql:8.4 | 73.1 (1.17x) | 62.4 | 75.8 (1.21x) | 74.9 (1.20x) | 55.3 (0.89x) |  | 62.1 (0.99x) | 0.99x to 0.99x |  |
+| mariadb:10.6 | 59.7 (1.20x) | 49.7 | 41.0 (0.82x) | 40.7 (0.82x) |  |  | 49.4 (0.99x) | 0.99x to 0.99x |  |
+| mariadb:10.11 | 53.4 (1.13x) | 47.3 | 46.0 (0.97x) | 45.5 (0.96x) |  | 50.0 (1.06x) | 47.3 (1.00x) | 1.00x to 1.00x |  |
+| mariadb:11.8 | 51.0 (1.19x) | 42.8 | 42.7 (1.00x) | 43.0 (1.01x) | 48.2 (1.13x) | 47.9 (1.12x) | 41.8 (0.98x) | 0.98x to 0.98x |  |
+
+**List page: the same, ORDER BY dragSortOrder (an integer, no index)**
+
+| Server | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control | Control, each run | Widest column |
+|---|---|---|---|---|---|---|---|---|---|
+| mysql:8.0 | 47.4 (1.00x) | 47.6 | 50.0 (1.05x) | 47.3 (0.99x) | 48.0 (1.01x) |  | 47.6 (1.00x) | 1.00x to 1.00x |  |
+| mysql:8.4 | 47.5 (1.01x) | 47.0 | 48.0 (1.02x) | 52.0 (1.11x) | 48.4 (1.03x) |  | 48.8 (1.04x) | 1.04x to 1.04x |  |
+| mariadb:10.6 | 27.0 (0.98x) | 27.6 | 26.8 (0.97x) | 27.6 (1.00x) |  |  | 27.3 (0.99x) | 0.99x to 0.99x |  |
+| mariadb:10.11 | 21.4 (1.00x) | 21.3 | 21.3 (1.00x) | 21.7 (1.02x) |  | 21.2 (1.00x) | 21.3 (1.00x) | 1.00x to 1.00x |  |
+| mariadb:11.8 | 18.8 (1.00x) | 18.8 | 19.7 (1.05x) | 19.2 (1.02x) | 20.7 (1.10x) | 18.9 (1.00x) | 18.8 (1.00x) | 1.00x to 1.00x |  |
+
+**List page: the same, ORDER BY createdDate (a datetime, no index)**
+
+| Server | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control | Control, each run | Widest column |
+|---|---|---|---|---|---|---|---|---|---|
+| mysql:8.0 | 50.1 (1.00x) | 49.9 | 51.8 (1.04x) | 49.6 (0.99x) | 50.9 (1.02x) |  | 50.3 (1.01x) | 1.01x to 1.01x |  |
+| mysql:8.4 | 50.5 (1.01x) | 49.8 | 51.7 (1.04x) | 49.7 (1.00x) | 49.9 (1.00x) |  | 50.6 (1.02x) | 1.02x to 1.02x |  |
+| mariadb:10.6 | 27.1 (1.00x) | 27.1 | 26.8 (0.99x) | 26.8 (0.99x) |  |  | 27.0 (1.00x) | 1.00x to 1.00x |  |
+| mariadb:10.11 | 21.6 (1.00x) | 21.6 | 21.7 (1.01x) | 22.0 (1.02x) |  | 21.8 (1.01x) | 21.8 (1.01x) | 1.01x to 1.01x |  |
+| mariadb:11.8 | 19.1 (1.02x) | 18.8 | 18.8 (1.00x) | 19.2 (1.02x) | 20.2 (1.08x) | 19.3 (1.03x) | 19.8 (1.05x) | 1.05x to 1.05x |  |
+
+**List page: the same, ORDER BY titleIndexed (the title again, with an index)**
+
+| Server | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control | Control, each run | Widest column |
+|---|---|---|---|---|---|---|---|---|---|
+| mysql:8.0 | 0.186 (0.99x) | 0.188 | 0.184 (0.98x) | 0.184 (0.98x) | 0.191 (1.01x) |  | 0.188 (1.00x) | 1.00x to 1.00x |  |
+| mysql:8.4 | 0.185 (1.15x) | 0.160 | 0.165 (1.03x) | 0.164 (1.03x) | 0.166 (1.04x) |  | 0.172 (1.07x) | 1.07x to 1.07x |  |
+| mariadb:10.6 | 0.254 (0.98x) | 0.259 | 0.255 (0.99x) | 0.253 (0.98x) |  |  | 0.261 (1.01x) | 1.01x to 1.01x |  |
+| mariadb:10.11 | 0.170 (1.03x) | 0.164 | 0.173 (1.06x) | 0.188 (1.15x) |  | 0.176 (1.08x) | 0.171 (1.04x) | 1.04x to 1.04x |  |
+| mariadb:11.8 | 0.187 (1.06x) | 0.176 | 0.177 (1.00x) | 0.178 (1.01x) | 0.184 (1.04x) | 0.190 (1.08x) | 0.189 (1.07x) | 1.07x to 1.07x |  |
+
+**List page, last page: SELECT * ... WHERE hidden = 0 ORDER BY title LIMIT 25 OFFSET n, no index on title**
+
+| Server | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control | Control, each run | Widest column |
+|---|---|---|---|---|---|---|---|---|---|
+| mysql:8.0 | 249 (1.20x) | 207 | 280 (1.35x) | 277 (1.33x) | 167 (0.81x) |  | 204 (0.98x) | 0.98x to 0.98x |  |
+| mysql:8.4 | 284 (1.13x) | 252 | 317 (1.26x) | 318 (1.26x) | 205 (0.81x) |  | 248 (0.98x) | 0.98x to 0.98x |  |
+| mariadb:10.6 | 234 (1.00x) | 235 | 270 (1.15x) | 277 (1.18x) |  |  | 245 (1.04x) | 1.04x to 1.04x |  |
+| mariadb:10.11 | 207 (0.96x) | 215 | 231 (1.08x) | 231 (1.08x) |  | 239 (1.11x) | 216 (1.01x) | 1.01x to 1.01x |  |
+| mariadb:11.8 | 162 (0.91x) | 178 | 186 (1.04x) | 182 (1.02x) | 191 (1.07x) | 188 (1.06x) | 177 (0.99x) | 0.99x to 0.99x |  |
+
+**List page, last page: the same, ORDER BY dragSortOrder (an integer, no index)**
+
+| Server | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control | Control, each run | Widest column |
+|---|---|---|---|---|---|---|---|---|---|
+| mysql:8.0 | 134 (0.99x) | 135 | 137 (1.01x) | 133 (0.98x) | 134 (0.99x) |  | 133 (0.99x) | 0.99x to 0.99x |  |
+| mysql:8.4 | 181 (1.00x) | 182 | 181 (1.00x) | 180 (0.99x) | 182 (1.00x) |  | 180 (0.99x) | 0.99x to 0.99x |  |
+| mariadb:10.6 | 161 (0.99x) | 163 | 164 (1.01x) | 162 (1.00x) |  |  | 164 (1.01x) | 1.01x to 1.01x |  |
+| mariadb:10.11 | 165 (1.00x) | 165 | 164 (1.00x) | 164 (0.99x) |  | 164 (0.99x) | 164 (0.99x) | 0.99x to 0.99x |  |
+| mariadb:11.8 | 117 (0.99x) | 118 | 117 (0.99x) | 120 (1.02x) | 117 (0.99x) | 117 (0.99x) | 117 (1.00x) | 1.00x to 1.00x |  |
+
+**List page, last page: the same, ORDER BY titleIndexed (the title again, with an index)**
+
+| Server | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control | Control, each run | Widest column |
+|---|---|---|---|---|---|---|---|---|---|
+| mysql:8.0 | 249 (1.21x) | 205 | 280 (1.37x) | 276 (1.35x) | 169 (0.83x) |  | 207 (1.01x) | 1.01x to 1.01x |  |
+| mysql:8.4 | 297 (1.16x) | 257 | 324 (1.26x) | 325 (1.27x) | 208 (0.81x) |  | 260 (1.01x) | 1.01x to 1.01x |  |
+| mariadb:10.6 | 215 (0.94x) | 228 | 262 (1.15x) | 261 (1.15x) |  |  | 234 (1.03x) | 1.03x to 1.03x |  |
+| mariadb:10.11 | 206 (0.96x) | 214 | 231 (1.08x) | 231 (1.08x) |  | 239 (1.12x) | 213 (1.00x) | 1.00x to 1.00x |  |
+| mariadb:11.8 | 137 (0.99x) | 139 | 138 (1.00x) | 137 (0.99x) | 134 (0.97x) | 137 (0.99x) | 137 (0.99x) | 0.99x to 0.99x |  |
+
+**ORDER BY title, whole table, no index**
+
+| Server | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control | Control, each run | Widest column |
+|---|---|---|---|---|---|---|---|---|---|
+| mysql:8.0 | 154 (1.47x) | 105 | 184 (1.75x) | 184 (1.74x) | 67.5 (0.64x) |  | 105 (1.00x) | 1.00x to 1.00x |  |
+| mysql:8.4 | 150 (1.37x) | 109 | 187 (1.72x) | 182 (1.67x) | 63.9 (0.59x) |  | 108 (0.99x) | 0.99x to 0.99x |  |
+| mariadb:10.6 | 195 (0.96x) | 204 | 236 (1.16x) | 236 (1.16x) |  |  | 202 (0.99x) | 0.99x to 0.99x |  |
+| mariadb:10.11 | 193 (0.97x) | 199 | 218 (1.10x) | 218 (1.09x) |  | 224 (1.13x) | 201 (1.01x) | 1.01x to 1.01x |  |
+| mariadb:11.8 | 148 (0.92x) | 161 | 164 (1.02x) | 168 (1.04x) | 169 (1.05x) | 167 (1.04x) | 153 (0.95x) | 0.95x to 0.95x |  |
+
+**ORDER BY title, whole table, no index, sort_buffer_size = 64 MB**
+
+| Server | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control | Control, each run | Widest column |
+|---|---|---|---|---|---|---|---|---|---|
+| mysql:8.0 | 184 (2.19x) | 83.9 | 203 (2.41x) | 203 (2.41x) | 63.4 (0.76x) |  | 79.6 (0.95x) | 0.95x to 0.95x |  |
+| mysql:8.4 | 152 (2.09x) | 72.5 | 178 (2.45x) | 176 (2.42x) | 54.3 (0.75x) |  | 66.3 (0.91x) | 0.91x to 0.91x |  |
+| mariadb:10.6 | 193 (0.80x) | 240 | 234 (0.97x) | 229 (0.95x) |  |  | 240 (1.00x) | 1.00x to 1.00x |  |
+| mariadb:10.11 | 191 (0.79x) | 241 | 221 (0.92x) | 215 (0.90x) |  | 219 (0.91x) | 243 (1.01x) | 1.01x to 1.01x |  |
+| mariadb:11.8 | 147 (0.71x) | 206 | 168 (0.82x) | 168 (0.82x) | 172 (0.83x) | 166 (0.81x) | 202 (0.98x) | 0.98x to 0.98x |  |
+
+**ORDER BY title, whole table, no index, sort_buffer_size = 2 GB**
+
+| Server | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control | Control, each run | Widest column |
+|---|---|---|---|---|---|---|---|---|---|
+| mysql:8.0 | 92.2 (1.46x) | 63.3 | 90.5 (1.43x) | 89.9 (1.42x) | 59.1 (0.93x) |  | 62.8 (0.99x) | 0.99x to 0.99x |  |
+| mysql:8.4 | 68.4 (1.27x) | 53.9 | 70.8 (1.31x) | 72.0 (1.34x) | 51.0 (0.95x) |  | 55.2 (1.02x) | 1.02x to 1.02x |  |
+| mariadb:10.6 | 257 (1.05x) | 244 | 265 (1.09x) | 265 (1.09x) |  |  | 240 (0.98x) | 0.98x to 0.98x |  |
+| mariadb:10.11 | 255 (1.07x) | 239 | 260 (1.09x) | 256 (1.07x) |  | 264 (1.10x) | 234 (0.98x) | 0.98x to 0.98x |  |
+| mariadb:11.8 | 216 (1.12x) | 193 | 221 (1.14x) | 220 (1.14x) | 233 (1.21x) | 226 (1.17x) | 189 (0.98x) | 0.98x to 0.98x |  |
+
+**MEDIUMTEXT title: ORDER BY title, whole table, no index**
+
+| Server | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control | Control, each run | Widest column |
+|---|---|---|---|---|---|---|---|---|---|
+| mysql:8.0 | 226 (1.16x) | 195 | 208 (1.07x) | 206 (1.06x) | 111 (0.57x) |  | 195 (1.00x) | 1.00x to 1.00x |  |
+| mysql:8.4 | 245 (1.05x) | 232 | 245 (1.06x) | 248 (1.07x) | 129 (0.56x) |  | 234 (1.01x) | 1.01x to 1.01x |  |
+| mariadb:10.6 | 169 (0.99x) | 171 | 257 (1.50x) | 252 (1.47x) |  |  | 178 (1.04x) | 1.04x to 1.04x |  |
+| mariadb:10.11 | 144 (0.95x) | 151 | 242 (1.60x) | 243 (1.60x) |  | 248 (1.64x) | 153 (1.01x) | 1.01x to 1.01x |  |
+| mariadb:11.8 | 103 (0.94x) | 110 | 182 (1.65x) | 182 (1.65x) | 194 (1.75x) | 189 (1.71x) | 110 (1.00x) | 1.00x to 1.00x |  |
+
+**MEDIUMTEXT title: the same, sort_buffer_size = 2 GB**
+
+| Server | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control | Control, each run | Widest column |
+|---|---|---|---|---|---|---|---|---|---|
+| mysql:8.0 | 135 (1.30x) | 104 | 116 (1.12x) | 115 (1.10x) | 104 (1.00x) |  | 105 (1.01x) | 1.01x to 1.01x |  |
+| mysql:8.4 | 138 (1.06x) | 130 | 155 (1.19x) | 137 (1.05x) | 119 (0.92x) |  | 128 (0.99x) | 0.99x to 0.99x |  |
+| mariadb:10.6 | 236 (1.14x) | 207 | 237 (1.15x) | 231 (1.12x) |  |  | 210 (1.01x) | 1.01x to 1.01x |  |
+| mariadb:10.11 | 214 (1.08x) | 198 | 213 (1.07x) | 216 (1.09x) |  | 222 (1.12x) | 195 (0.98x) | 0.98x to 0.98x |  |
+| mariadb:11.8 | 176 (1.17x) | 151 | 186 (1.23x) | 186 (1.24x) | 189 (1.26x) | 193 (1.28x) | 152 (1.01x) | 1.01x to 1.01x |  |
+
+**MEDIUMTEXT title: first page, ORDER BY title LIMIT 25, no index**
+
+| Server | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control | Control, each run | Widest column |
+|---|---|---|---|---|---|---|---|---|---|
+| mysql:8.0 | 73.4 (1.74x) | 42.2 | 54.0 (1.28x) | 54.0 (1.28x) | 41.4 (0.98x) |  | 42.2 (1.00x) | 1.00x to 1.00x |  |
+| mysql:8.4 | 58.2 (1.33x) | 43.9 | 57.3 (1.31x) | 56.4 (1.28x) | 39.4 (0.90x) |  | 44.5 (1.01x) | 1.01x to 1.01x |  |
+| mariadb:10.6 | 67.9 (1.24x) | 54.9 | 44.7 (0.81x) | 44.8 (0.82x) |  |  | 55.2 (1.01x) | 1.01x to 1.01x |  |
+| mariadb:10.11 | 61.1 (1.10x) | 55.7 | 52.5 (0.94x) | 52.4 (0.94x) |  | 57.3 (1.03x) | 55.7 (1.00x) | 1.00x to 1.00x |  |
+| mariadb:11.8 | 46.0 (1.26x) | 36.4 | 39.5 (1.09x) | 39.7 (1.09x) | 43.3 (1.19x) | 44.1 (1.21x) | 36.5 (1.00x) | 1.00x to 1.00x |  |
+
+**MEDIUMTEXT title: first page, ORDER BY titleIndexed LIMIT 25, prefix index (768)**
+
+| Server | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control | Control, each run | Widest column |
+|---|---|---|---|---|---|---|---|---|---|
+| mysql:8.0 | 73.4 (1.74x) | 42.1 | 53.8 (1.28x) | 53.9 (1.28x) | 41.4 (0.98x) |  | 42.1 (1.00x) | 1.00x to 1.00x |  |
+| mysql:8.4 | 56.5 (1.30x) | 43.6 | 56.3 (1.29x) | 56.7 (1.30x) | 39.4 (0.91x) |  | 44.5 (1.02x) | 1.02x to 1.02x |  |
+| mariadb:10.6 | 67.9 (1.23x) | 55.0 | 44.7 (0.81x) | 46.7 (0.85x) |  |  | 55.1 (1.00x) | 1.00x to 1.00x |  |
+| mariadb:10.11 | 60.7 (1.10x) | 55.2 | 52.2 (0.95x) | 52.1 (0.94x) |  | 57.3 (1.04x) | 55.0 (1.00x) | 1.00x to 1.00x |  |
+| mariadb:11.8 | 46.0 (1.27x) | 36.3 | 39.4 (1.08x) | 39.5 (1.09x) | 43.2 (1.19x) | 44.2 (1.22x) | 36.5 (1.01x) | 1.01x to 1.01x |  |
+
+**MEDIUMTEXT title: last page, ORDER BY titleIndexed LIMIT 25 OFFSET n, prefix index (768)**
+
+| Server | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control | Control, each run | Widest column |
+|---|---|---|---|---|---|---|---|---|---|
+| mysql:8.0 | 227 (1.15x) | 198 | 217 (1.10x) | 209 (1.05x) | 115 (0.58x) |  | 198 (1.00x) | 1.00x to 1.00x |  |
+| mysql:8.4 | 248 (1.07x) | 232 | 248 (1.07x) | 252 (1.08x) | 134 (0.58x) |  | 234 (1.01x) | 1.01x to 1.01x |  |
+| mariadb:10.6 | 171 (0.99x) | 174 | 254 (1.46x) | 248 (1.42x) |  |  | 173 (0.99x) | 0.99x to 0.99x |  |
+| mariadb:10.11 | 147 (0.85x) | 172 | 242 (1.40x) | 239 (1.39x) |  | 245 (1.42x) | 154 (0.89x) | 0.89x to 0.89x |  |
+| mariadb:11.8 | 106 (0.93x) | 114 | 180 (1.58x) | 181 (1.58x) | 184 (1.61x) | 186 (1.62x) | 110 (0.96x) | 0.96x to 0.96x |  |
+
+### Sorts that went to temp files
+
+`Sort_merge_passes` for one statement: how many times the server merged temp files because the rows to sort didn't fit in `sort_buffer_size`. 0 means the sort stayed in memory. A statement that isn't listed was 0 on every server.
+
+**List page, last page: SELECT * ... WHERE hidden = 0 ORDER BY title LIMIT 25 OFFSET n, no index on title**
+
+| Server | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control |
+|---|---|---|---|---|---|---|---|
+| mysql:8.0 | 48 | 32 | 63 | 63 | 5 |  | 32 |
+| mysql:8.4 | 48 | 32 | 63 | 63 | 5 |  | 32 |
+| mariadb:10.6 | 1 | 1 | 1 | 1 |  |  | 1 |
+| mariadb:10.11 | 1 | 1 | 1 | 1 |  | 1 | 1 |
+| mariadb:11.8 | 1 | 1 | 1 | 1 | 1 | 1 | 1 |
+
+**List page, last page: the same, ORDER BY dragSortOrder (an integer, no index)**
+
+| Server | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control |
+|---|---|---|---|---|---|---|---|
+| mysql:8.0 | 1 | 1 | 1 | 1 | 1 |  | 1 |
+| mysql:8.4 | 1 | 1 | 1 | 1 | 1 |  | 1 |
+| mariadb:10.6 | 0 | 0 | 0 | 0 |  |  | 0 |
+| mariadb:10.11 | 0 | 0 | 0 | 0 |  | 0 | 0 |
+| mariadb:11.8 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+**List page, last page: the same, ORDER BY titleIndexed (the title again, with an index)**
+
+| Server | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control |
+|---|---|---|---|---|---|---|---|
+| mysql:8.0 | 48 | 32 | 63 | 63 | 5 |  | 32 |
+| mysql:8.4 | 48 | 32 | 63 | 63 | 5 |  | 32 |
+| mariadb:10.6 | 1 | 1 | 1 | 1 |  |  | 1 |
+| mariadb:10.11 | 1 | 1 | 1 | 1 |  | 1 | 1 |
+| mariadb:11.8 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+**ORDER BY title, whole table, no index**
+
+| Server | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control |
+|---|---|---|---|---|---|---|---|
+| mysql:8.0 | 51 | 35 | 67 | 67 | 6 |  | 35 |
+| mysql:8.4 | 51 | 35 | 67 | 67 | 6 |  | 35 |
+| mariadb:10.6 | 1 | 1 | 1 | 1 |  |  | 1 |
+| mariadb:10.11 | 1 | 1 | 1 | 1 |  | 1 | 1 |
+| mariadb:11.8 | 1 | 1 | 1 | 1 | 1 | 1 | 1 |
+
+**ORDER BY title, whole table, no index, sort_buffer_size = 64 MB**
+
+| Server | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control |
+|---|---|---|---|---|---|---|---|
+| mysql:8.0 | 1 | 0 | 1 | 1 | 0 |  | 0 |
+| mysql:8.4 | 1 | 0 | 1 | 1 | 0 |  | 0 |
+| mariadb:10.6 | 0 | 0 | 0 | 0 |  |  | 0 |
+| mariadb:10.11 | 0 | 0 | 0 | 0 |  | 0 | 0 |
+| mariadb:11.8 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+**MEDIUMTEXT title: ORDER BY title, whole table, no index**
+
+| Server | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control |
+|---|---|---|---|---|---|---|---|
+| mysql:8.0 | 66 | 66 | 66 | 66 | 5 |  | 66 |
+| mysql:8.4 | 66 | 66 | 66 | 66 | 5 |  | 66 |
+| mariadb:10.6 | 1 | 1 | 8 | 8 |  |  | 1 |
+| mariadb:10.11 | 1 | 1 | 8 | 8 |  | 8 | 1 |
+| mariadb:11.8 | 1 | 1 | 8 | 8 | 8 | 8 | 1 |
+
+**MEDIUMTEXT title: first page, ORDER BY title LIMIT 25, no index**
+
+| Server | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control |
+|---|---|---|---|---|---|---|---|
+| mysql:8.0 | 0 | 0 | 0 | 0 | 4 |  | 0 |
+| mysql:8.4 | 0 | 0 | 0 | 0 | 4 |  | 0 |
+| mariadb:10.6 | 0 | 0 | 0 | 0 |  |  | 0 |
+| mariadb:10.11 | 0 | 0 | 0 | 0 |  | 0 | 0 |
+| mariadb:11.8 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+**MEDIUMTEXT title: first page, ORDER BY titleIndexed LIMIT 25, prefix index (768)**
+
+| Server | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control |
+|---|---|---|---|---|---|---|---|
+| mysql:8.0 | 0 | 0 | 0 | 0 | 4 |  | 0 |
+| mysql:8.4 | 0 | 0 | 0 | 0 | 4 |  | 0 |
+| mariadb:10.6 | 0 | 0 | 0 | 0 |  |  | 0 |
+| mariadb:10.11 | 0 | 0 | 0 | 0 |  | 0 | 0 |
+| mariadb:11.8 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+**MEDIUMTEXT title: last page, ORDER BY titleIndexed LIMIT 25 OFFSET n, prefix index (768)**
+
+| Server | bin | general_ci | unicode_ci | unicode_520_ci | 0900_ai_ci | uca1400_ai_ci | control |
+|---|---|---|---|---|---|---|---|
+| mysql:8.0 | 63 | 63 | 63 | 63 | 4 |  | 63 |
+| mysql:8.4 | 63 | 63 | 63 | 63 | 4 |  | 63 |
+| mariadb:10.6 | 1 | 1 | 8 | 8 |  |  | 1 |
+| mariadb:10.11 | 1 | 1 | 8 | 8 |  | 8 | 1 |
+| mariadb:11.8 | 1 | 1 | 8 | 8 | 8 | 8 | 1 |
+
+### Query plans
+
+EXPLAIN for the utf8mb4_general_ci table, where the statement is a SELECT.
+
+**List page: SELECT * ... WHERE hidden = 0 ORDER BY title LIMIT 25, no index on title**
+
+- all servers: a_general_ci: type=ALL, key=none, Using where; Using filesort
+
+**List page: the same, ORDER BY dragSortOrder (an integer, no index)**
+
+- all servers: a_general_ci: type=ALL, key=none, Using where; Using filesort
+
+**List page: the same, ORDER BY createdDate (a datetime, no index)**
+
+- all servers: a_general_ci: type=ALL, key=none, Using where; Using filesort
+
+**List page: the same, ORDER BY titleIndexed (the title again, with an index)**
+
+- all servers: a_general_ci: type=index, key=titleIndexed, Using where
+
+**List page, last page: SELECT * ... WHERE hidden = 0 ORDER BY title LIMIT 25 OFFSET n, no index on title**
+
+- all servers: a_general_ci: type=ALL, key=none, Using where; Using filesort
+
+**List page, last page: the same, ORDER BY dragSortOrder (an integer, no index)**
+
+- all servers: a_general_ci: type=ALL, key=none, Using where; Using filesort
+
+**List page, last page: the same, ORDER BY titleIndexed (the title again, with an index)**
+
+- MySQL 8.0, MySQL 8.4, MariaDB 10.6, MariaDB 10.11: a_general_ci: type=ALL, key=none, Using where; Using filesort
+- MariaDB 11.8: a_general_ci: type=index, key=titleIndexed, Using where
+
+**ORDER BY title, whole table, no index**
+
+- all servers: a_general_ci: type=ALL, key=none, Using filesort
+
+**ORDER BY title, whole table, no index, sort_buffer_size = 64 MB**
+
+- all servers: a_general_ci: type=ALL, key=none, Using filesort
+
+**ORDER BY title, whole table, no index, sort_buffer_size = 2 GB**
+
+- all servers: a_general_ci: type=ALL, key=none, Using filesort
+
+**MEDIUMTEXT title: ORDER BY title, whole table, no index**
+
+- all servers: m_general_ci: type=ALL, key=none, Using filesort
+
+**MEDIUMTEXT title: the same, sort_buffer_size = 2 GB**
+
+- all servers: m_general_ci: type=ALL, key=none, Using filesort
+
+**MEDIUMTEXT title: first page, ORDER BY title LIMIT 25, no index**
+
+- all servers: m_general_ci: type=ALL, key=none, Using where; Using filesort
+
+**MEDIUMTEXT title: first page, ORDER BY titleIndexed LIMIT 25, prefix index (768)**
+
+- all servers: m_general_ci: type=ALL, key=none, Using where; Using filesort
+
+**MEDIUMTEXT title: last page, ORDER BY titleIndexed LIMIT 25 OFFSET n, prefix index (768)**
+
+- all servers: m_general_ci: type=ALL, key=none, Using where; Using filesort
+
 ## 2. Speed, 10,000 rows
 
-One InnoDB table per collation with the same 10,000 rows, shaped like a CMS Builder section. It has 15 columns: the record number, three DATETIME, two INT, three TINYINT flags, five VARCHAR(255) and one MEDIUMTEXT. `name` and `titleIndexed` have an index; `title` holds the same text as `titleIndexed` and has none. Average length in characters: name 21, title 36, content 440. The text is mostly ASCII words, with about 9% accented Latin words, 2% words in other scripts and 1% emoji. Numbers are milliseconds per statement, the median of 5 passes (3 for the slow statements), after one uncounted pass. At this table size a SELECT runs up to 10 times in a pass (200 statements at most) and the time is divided by the count. The number in brackets is the time divided by the utf8mb4_general_ci time on the same server in the same run. "Control" is a second set of utf8mb4_general_ci tables timed the same way: how far it is from 1.00x is the noise of that runner, and a difference no larger than that isn't a real difference. The servers ran with innodb_buffer_pool_size = 3,072 MB so every table stays in memory, and with the query cache off.
+One InnoDB table per collation with the same 10,000 rows, shaped like a CMS Builder section. It has 15 columns: the record number, three DATETIME, two INT, three TINYINT flags, five VARCHAR(255) and one MEDIUMTEXT. `name` and `titleIndexed` have an index; `title` holds the same text as `titleIndexed` and has none. The statements named "MEDIUMTEXT title" use a narrower table with the same rows: num, hidden, dragSortOrder, and `title` and `titleIndexed` as MEDIUMTEXT, the type CMS Builder gives a text field, with a prefix index `titleIndexed(768)`. Average length in characters: name 21, title 36, content 440. The text is mostly ASCII words, with about 9% accented Latin words, 2% words in other scripts and 1% emoji. Numbers are milliseconds per statement, the median of 5 passes (3 for the slow statements), after one uncounted pass. At this table size a SELECT runs up to 10 times in a pass (200 statements at most) and the time is divided by the count. The number in brackets is the time divided by the utf8mb4_general_ci time on the same server in the same run. "Control" is a second set of utf8mb4_general_ci tables timed the same way: how far it is from 1.00x is the noise of that runner, and a difference no larger than that isn't a real difference. The servers ran with innodb_buffer_pool_size = 3,072 MB so every table stays in memory, and with the query cache off.
 
 ### utf8mb4_unicode_ci against each server's default
 
@@ -3897,7 +5440,7 @@ EXPLAIN for the utf8mb4_general_ci table, where the statement is a SELECT.
 
 ## 2. Speed, 1,000 rows
 
-One InnoDB table per collation with the same 1,000 rows, shaped like a CMS Builder section. It has 15 columns: the record number, three DATETIME, two INT, three TINYINT flags, five VARCHAR(255) and one MEDIUMTEXT. `name` and `titleIndexed` have an index; `title` holds the same text as `titleIndexed` and has none. Average length in characters: name 20, title 36, content 439. The text is mostly ASCII words, with about 9% accented Latin words, 2% words in other scripts and 1% emoji. Numbers are milliseconds per statement, the median of 5 passes (3 for the slow statements), after one uncounted pass. At this table size a SELECT runs up to 100 times in a pass (200 statements at most) and the time is divided by the count. The number in brackets is the time divided by the utf8mb4_general_ci time on the same server in the same run. "Control" is a second set of utf8mb4_general_ci tables timed the same way: how far it is from 1.00x is the noise of that runner, and a difference no larger than that isn't a real difference. The servers ran with innodb_buffer_pool_size = 3,072 MB so every table stays in memory, and with the query cache off.
+One InnoDB table per collation with the same 1,000 rows, shaped like a CMS Builder section. It has 15 columns: the record number, three DATETIME, two INT, three TINYINT flags, five VARCHAR(255) and one MEDIUMTEXT. `name` and `titleIndexed` have an index; `title` holds the same text as `titleIndexed` and has none. The statements named "MEDIUMTEXT title" use a narrower table with the same rows: num, hidden, dragSortOrder, and `title` and `titleIndexed` as MEDIUMTEXT, the type CMS Builder gives a text field, with a prefix index `titleIndexed(768)`. Average length in characters: name 20, title 36, content 439. The text is mostly ASCII words, with about 9% accented Latin words, 2% words in other scripts and 1% emoji. Numbers are milliseconds per statement, the median of 5 passes (3 for the slow statements), after one uncounted pass. At this table size a SELECT runs up to 100 times in a pass (200 statements at most) and the time is divided by the count. The number in brackets is the time divided by the utf8mb4_general_ci time on the same server in the same run. "Control" is a second set of utf8mb4_general_ci tables timed the same way: how far it is from 1.00x is the noise of that runner, and a difference no larger than that isn't a real difference. The servers ran with innodb_buffer_pool_size = 3,072 MB so every table stays in memory, and with the query cache off.
 
 ### utf8mb4_unicode_ci against each server's default
 

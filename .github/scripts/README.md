@@ -62,9 +62,13 @@ and `bin` as the floor) on every database image: which ones each server has,
 which one a `CHARSET=utf8mb4` table gets and which query reports that, what
 `ALTER TABLE ... CONVERT` does and which algorithm it uses, which statements fail
 between two collations and which rewrite fixes them, and which values compare
-equal. Then times 23 statements on one table per collation (a CMS list page
-sorted by title among them; 100,000 rows unless the `rows` input says
-otherwise), and converting a table. A second job upgrades MySQL 5.7 to 8.0 and
+equal. Then times 33 statements on one table per collation (100,000 rows unless
+the `rows` input says otherwise), and converting a table: a CMS list page sorted
+by title, its first and last page, the title as `VARCHAR(255)` and as
+`MEDIUMTEXT` with a prefix index, and whole-table sorts at three
+`sort_buffer_size` values. The `only` input times a subset, and `titles:
+wikipedia` sorts English Wikipedia article titles in place of the generated
+ones. A second job upgrades MySQL 5.7 to 8.0 and
 MariaDB 10.11 to 11.8 on one data directory. Results go in
 [docs/internal/collation-matrix.md](../../docs/internal/collation-matrix.md).
 

@@ -10,6 +10,8 @@ declare(strict_types=1);
  *     php .github/scripts/collation-probe.php --json=probe.json           # run the checks on one server
  *     php .github/scripts/collation-probe.php --bench --json=probe.json   # the checks, then the speed test
  *     php .github/scripts/collation-probe.php --bench-only --rows=5000    # a short speed test, no checks
+ *     php .github/scripts/collation-probe.php --bench-only --only='whole table|List page'   # only the statements whose name matches
+ *     php .github/scripts/collation-probe.php --bench-only --titles=titles.txt               # one title per line in place of the generated ones
  *     php .github/scripts/collation-probe.php --merge probes/*.json       # one report for every server
  *
  * CMS Builder 3.84 created every table with COLLATE=utf8mb4_unicode_ci. Later versions
@@ -31,7 +33,7 @@ declare(strict_types=1);
 
 require __DIR__ . '/ci-lib.php';
 
-$opts = getopt('', ['json:', 'merge', 'bench', 'bench-only', 'rows:', 'passes:'], $restIndex);
+$opts = getopt('', ['json:', 'merge', 'bench', 'bench-only', 'rows:', 'passes:', 'only:', 'titles:'], $restIndex);
 if (isset($opts['merge'])) {
     mergeReports(array_slice($argv, $restIndex));
     exit;
@@ -105,7 +107,7 @@ if (!isset($opts['bench-only'])) {
     $probe->results();
 }
 if (isset($opts['bench']) || isset($opts['bench-only'])) {
-    $probe->benchmark((int)($opts['rows'] ?? 100_000), (int)($opts['passes'] ?? 5));
+    $probe->benchmark((int)($opts['rows'] ?? 100_000), (int)($opts['passes'] ?? 5), (string)($opts['only'] ?? ''), (string)($opts['titles'] ?? ''));
 }
 
 echo "## $label ({$report['version']})\n\n";
@@ -835,10 +837,12 @@ final class CollationProbe
      * utf8mb4_general_ci tables: its difference from the first pair is the noise of the
      * machine.
      *
-     * @param int $rowCount Rows in each table
-     * @param int $passes   Timed passes for each statement; the slow ones run 3
+     * @param int    $rowCount Rows in each table
+     * @param int    $passes Timed passes for each statement; the slow ones run 3
+     * @param string $only   A regex: time only the statements whose name matches, and skip the convert
+     * @param string $titlesFile A text file with one title per line to use in place of the generated titles
      */
-    public function benchmark(int $rowCount, int $passes): void
+    public function benchmark(int $rowCount, int $passes, string $only = '', string $titlesFile = ''): void
     {
         $started = hrtime(true);
         $note    = static fn(string $text) => fwrite(STDERR, sprintf("[%4ds] %s\n", (hrtime(true) - $started) / 1e9, $text));
@@ -867,6 +871,7 @@ final class CollationProbe
 
         $this->bench = [
             'rows'       => $rowCount,
+            'titles'     => $titlesFile === '' ? '' : basename($titlesFile), // the runs with another file's titles are reported apart
             'passes'     => $passes,
             'queryCache' => $queryCache,
             'bufferPool' => (int)$this->value("SELECT @@innodb_buffer_pool_size"),
@@ -885,7 +890,7 @@ final class CollationProbe
         $sample = ['names' => [], 'titles' => [], 'inserts' => []];
         $batch  = [];
         $escape = fn(string $text) => "'" . $this->db->real_escape_string($text) . "'";
-        foreach (self::corpus($rowCount) as $i => [$name, $title, $content]) {
+        foreach (self::corpus($rowCount, $titlesFile) as $i => [$name, $title, $content]) {
             $batch[] = "({$escape($name)}, {$escape($title)}, {$escape($content)})";
             if (count($batch) === 500) {
                 $this->exec("INSERT INTO ::base (name, title, content) VALUES " . implode(', ', $batch));
@@ -910,7 +915,7 @@ final class CollationProbe
 
         foreach ($arms as $arm => $short) {
             $collation = $collationOf($arm);
-            $this->exec("DROP TABLE IF EXISTS ::a_$short, ::b_$short, ::ins_$short, ::insu_$short");
+            $this->exec("DROP TABLE IF EXISTS ::a_$short, ::b_$short, ::m_$short, ::ins_$short, ::insu_$short");
             $this->exec("CREATE TABLE ::a_$short (num INT UNSIGNED NOT NULL AUTO_INCREMENT, createdDate DATETIME NOT NULL, updatedDate DATETIME NOT NULL, publishDate DATETIME NOT NULL, "
                 . "createdByUserNum INT UNSIGNED NOT NULL, dragSortOrder INT UNSIGNED NOT NULL, hidden TINYINT UNSIGNED NOT NULL, featured TINYINT UNSIGNED NOT NULL, approved TINYINT UNSIGNED NOT NULL, "
                 . "name VARCHAR(255) NOT NULL, title VARCHAR(255) NOT NULL, titleIndexed VARCHAR(255) NOT NULL, summary VARCHAR(255) NOT NULL, permalink VARCHAR(255) NOT NULL, content MEDIUMTEXT NOT NULL, "
@@ -923,6 +928,11 @@ final class CollationProbe
             $this->exec("INSERT INTO ::b_$short (num, name, title) SELECT num, name, title FROM ::base");
             $this->exec("ALTER TABLE ::a_$short ADD INDEX name (name), ADD INDEX titleIndexed (titleIndexed)");
             $this->exec("ALTER TABLE ::b_$short ADD INDEX name (name)");
+            // The title as CMS Builder stores a text field: MEDIUMTEXT, and an index on it can only be a prefix index
+            $this->exec("CREATE TABLE ::m_$short (num INT UNSIGNED NOT NULL, hidden TINYINT UNSIGNED NOT NULL, dragSortOrder INT UNSIGNED NOT NULL, title MEDIUMTEXT NOT NULL, titleIndexed MEDIUMTEXT NOT NULL, PRIMARY KEY (num)) ENGINE=InnoDB CHARSET=utf8mb4 COLLATE=$collation");
+            $this->exec("INSERT INTO ::m_$short (num, hidden, dragSortOrder, title, titleIndexed) SELECT num, hidden, dragSortOrder, title, titleIndexed FROM ::a_$short");
+            $this->exec("ALTER TABLE ::m_$short ADD INDEX titleIndexed (titleIndexed(768))");
+            $this->exec("ANALYZE TABLE ::m_$short");
             $this->exec("CREATE TABLE ::ins_$short (num INT UNSIGNED NOT NULL AUTO_INCREMENT, name VARCHAR(255) NOT NULL, title VARCHAR(255) NOT NULL, PRIMARY KEY (num), KEY name (name)) ENGINE=InnoDB CHARSET=utf8mb4 COLLATE=$collation");
             $this->exec("CREATE TABLE ::insu_$short (num INT UNSIGNED NOT NULL AUTO_INCREMENT, name VARCHAR(255) NOT NULL, title VARCHAR(255) NOT NULL, PRIMARY KEY (num), UNIQUE KEY name (name)) ENGINE=InnoDB CHARSET=utf8mb4 COLLATE=$collation");
             $this->exec("ANALYZE TABLE ::a_$short");
@@ -942,6 +952,11 @@ final class CollationProbe
         $none = static fn() => [];
         // The list query CMS Builder's getRecords() sends for a page of a section, with one ORDER BY column swapped in
         $list = static fn(string $short, string $orderBy) => "SELECT * FROM ::a_$short WHERE hidden = 0 ORDER BY $orderBy LIMIT 25";
+        // The last page of that list: 19 rows in 20 aren't hidden
+        $lastPage    = static fn(string $short, string $orderBy) => $list($short, $orderBy) . " OFFSET " . (intdiv($rowCount * 19, 20) - 25);
+        $sortAll     = static fn(string $short) => "SELECT num FROM ::a_$short ORDER BY title LIMIT " . ($rowCount - 1) . ", 1";
+        $sortBuffer  = static fn(int $bytes) => static fn() => ["SET SESSION sort_buffer_size = $bytes"];
+        $sortDefault = static fn() => ["SET SESSION sort_buffer_size = DEFAULT"];
 
         // name => [statements per pass that the time is divided by, slow?, setup, timed statements, teardown]
         $ops = [
@@ -949,7 +964,17 @@ final class CollationProbe
             'List page: the same, ORDER BY dragSortOrder (an integer, no index)'                    => [5, false, $none, static fn($s) => array_fill(0, 5, $list($s, 'dragSortOrder')), $none],
             'List page: the same, ORDER BY createdDate (a datetime, no index)'                      => [5, false, $none, static fn($s) => array_fill(0, 5, $list($s, 'createdDate')), $none],
             'List page: the same, ORDER BY titleIndexed (the title again, with an index)'           => [100, false, $none, static fn($s) => array_fill(0, 100, $list($s, 'titleIndexed')), $none],
-            'ORDER BY title, whole table, no index'                         => [1, false, $none, static fn($s) => ["SELECT num FROM ::a_$s ORDER BY title LIMIT " . ($rowCount - 1) . ", 1"], $none],
+            'List page, last page: SELECT * ... WHERE hidden = 0 ORDER BY title LIMIT 25 OFFSET n, no index on title' => [1, true, $none, static fn($s) => [$lastPage($s, 'title')], $none],
+            'List page, last page: the same, ORDER BY dragSortOrder (an integer, no index)'         => [1, true, $none, static fn($s) => [$lastPage($s, 'dragSortOrder')], $none],
+            'List page, last page: the same, ORDER BY titleIndexed (the title again, with an index)' => [1, true, $none, static fn($s) => [$lastPage($s, 'titleIndexed')], $none],
+            'ORDER BY title, whole table, no index'                         => [1, false, $none, static fn($s) => [$sortAll($s)], $none],
+            'ORDER BY title, whole table, no index, sort_buffer_size = 64 MB' => [1, false, $sortBuffer(64 * 1024 * 1024), static fn($s) => [$sortAll($s)], $sortDefault],
+            'ORDER BY title, whole table, no index, sort_buffer_size = 2 GB' => [1, false, $sortBuffer(2 * 1024 * 1024 * 1024), static fn($s) => [$sortAll($s)], $sortDefault],
+            'MEDIUMTEXT title: ORDER BY title, whole table, no index'       => [1, false, $none, static fn($s) => ["SELECT num FROM ::m_$s ORDER BY title LIMIT " . ($rowCount - 1) . ", 1"], $none],
+            'MEDIUMTEXT title: the same, sort_buffer_size = 2 GB'           => [1, false, $sortBuffer(2 * 1024 * 1024 * 1024), static fn($s) => ["SELECT num FROM ::m_$s ORDER BY title LIMIT " . ($rowCount - 1) . ", 1"], $sortDefault],
+            'MEDIUMTEXT title: first page, ORDER BY title LIMIT 25, no index' => [5, false, $none, static fn($s) => array_fill(0, 5, "SELECT * FROM ::m_$s WHERE hidden = 0 ORDER BY title LIMIT 25"), $none],
+            'MEDIUMTEXT title: first page, ORDER BY titleIndexed LIMIT 25, prefix index (768)' => [5, false, $none, static fn($s) => array_fill(0, 5, "SELECT * FROM ::m_$s WHERE hidden = 0 ORDER BY titleIndexed LIMIT 25"), $none],
+            'MEDIUMTEXT title: last page, ORDER BY titleIndexed LIMIT 25 OFFSET n, prefix index (768)' => [1, true, $none, static fn($s) => ["SELECT * FROM ::m_$s WHERE hidden = 0 ORDER BY titleIndexed LIMIT 25 OFFSET " . (intdiv($rowCount * 19, 20) - 25)], $none],
             'ORDER BY title LIMIT 20, no index'                             => [5, false, $none, static fn($s) => array_fill(0, 5, "SELECT num, title FROM ::a_$s ORDER BY title LIMIT 20"), $none],
             'ORDER BY name LIMIT 20, indexed'                               => [100, false, $none, static fn($s) => array_fill(0, 100, "SELECT num, name FROM ::a_$s ORDER BY name LIMIT 20"), $none],
             'WHERE name = ?, indexed (point lookup)'                        => [count($quoted), false, $none, static fn($s) => array_map(static fn($name) => "SELECT num FROM ::a_$s WHERE name = $name", $quoted), $none],
@@ -969,6 +994,11 @@ final class CollationProbe
             'INSERT 10,000 rows, 100 per statement, UNIQUE index on name'   => [1, true, static fn($s) => ["TRUNCATE TABLE ::insu_$s"], static fn($s) => ["START TRANSACTION", ...array_map(static fn($values) => "INSERT INTO ::insu_$s $values", $inserts), "COMMIT"], $none],
             'ALTER TABLE ... ADD INDEX (title)'                             => [1, true, $none, static fn($s) => ["ALTER TABLE ::b_$s ADD INDEX title (title)"], static fn($s) => ["ALTER TABLE ::b_$s DROP INDEX title"]],
         ];
+
+        if ($only !== '') {
+            $ops = array_filter($ops, static fn(string $opName) => preg_match("~$only~i", $opName) === 1, ARRAY_FILTER_USE_KEY);
+        }
+        $mergePasses = fn(): int => (int)$this->rows("SHOW SESSION STATUS LIKE 'Sort_merge_passes'")[0][1]; // how many times this session's sorts merged temp files
 
         // A SELECT on a small table takes well under a millisecond, so it runs several times per pass: 100 times at 1,000 rows, once from 100,000
         $repeat   = max(1, min(100, intdiv(100_000, $rowCount)));
@@ -999,8 +1029,9 @@ final class CollationProbe
                         foreach ($setup($short) as $sql) {
                             $this->run($sql);
                         }
-                        $timed = array_map($this->sql(...), $statements($short));
-                        $start = hrtime(true);
+                        $timed  = array_map($this->sql(...), $statements($short));
+                        $merges = $isSelect ? $mergePasses() : 0;
+                        $start  = hrtime(true);
                         for ($time = 0; $time < $times; $time++) {
                             foreach ($timed as $sql) {
                                 $result = $this->db->query($sql);
@@ -1011,6 +1042,9 @@ final class CollationProbe
                             }
                         }
                         $ns = hrtime(true) - $start;
+                        if ($isSelect) {
+                            $this->bench['mergePasses'][$opName][$arm] = intdiv($mergePasses() - $merges, $times * count($timed)); // per statement, from the last pass
+                        }
                         foreach ($teardown($short) as $sql) {
                             $this->run($sql);
                         }
@@ -1026,7 +1060,9 @@ final class CollationProbe
             $note($opName);
         }
 
-        $this->convertCost($note);
+        if ($only === '') {
+            $this->convertCost($note);
+        }
     }
 
     /**
@@ -1135,9 +1171,12 @@ final class CollationProbe
      * table, so titles repeat, and one title in twenty is upper case. `content` is 45 to 85
      * words in sentences.
      *
+     * With $titlesFile, row n's title is line n of that file instead (from the top again when
+     * the file runs out), and `name` and `content` are generated as before.
+     *
      * @return Generator<int, array{0: string, 1: string, 2: string}> row number from 1 => [name, title, content]
      */
-    public static function corpus(int $rowCount): Generator
+    public static function corpus(int $rowCount, string $titlesFile = ''): Generator
     {
         $ascii = ['the', 'and', 'for', 'with', 'from', 'this', 'that', 'garden', 'house', 'market', 'river', 'mountain', 'street', 'coffee', 'summer', 'winter', 'spring', 'autumn', 'family', 'friend',
             'school', 'music', 'story', 'travel', 'window', 'kitchen', 'bridge', 'forest', 'island', 'village', 'morning', 'evening', 'dinner', 'lunch', 'breakfast', 'report', 'project', 'meeting',
@@ -1171,13 +1210,24 @@ final class CollationProbe
             $title       = ucfirst($words(mt_rand(3, 8)));
             $titlePool[] = mt_rand(1, 20) === 1 ? mb_strtoupper($title) : $title;
         }
+        $titleLines = $titlesFile === '' ? null : new SplFileObject($titlesFile);
+        $nextTitle  = static function () use ($titleLines): string {
+            do {
+                if ($titleLines->eof()) {
+                    $titleLines->rewind();
+                }
+                $line = trim((string)$titleLines->fgets());
+            } while ($line === '');
+            return mb_substr($line, 0, 255);
+        };
         for ($i = 1; $i <= $rowCount; $i++) {
             $sentences = [];
             for ($left = mt_rand(45, 85); $left > 0; $left -= $length) {
                 $length      = min($left, mt_rand(8, 14));
                 $sentences[] = ucfirst($words($length)) . '.';
             }
-            yield $i => [$words(mt_rand(2, 3)) . " $i", $titlePool[mt_rand(0, count($titlePool) - 1)], implode(' ', $sentences)];
+            $title = $titleLines ? $nextTitle() : $titlePool[mt_rand(0, count($titlePool) - 1)];
+            yield $i => [$words(mt_rand(2, 3)) . " $i", $title, implode(' ', $sentences)];
         }
     }
 
@@ -1529,7 +1579,7 @@ function mergeReports(array $paths): void
         $reports[$server] ??= $report + ['runs' => 0, 'benchRuns' => []];
         $reports[$server]['runs']++;
         if (!empty($report['bench']['ops'])) {
-            $reports[$server]['benchRuns'][(int)$report['bench']['rows']][] = $report['bench']; // one list of runs per table size
+            $reports[$server]['benchRuns'][benchSet($report['bench'])][] = $report['bench']; // one list of runs per table size and title source
         }
         foreach ($report['facts'] as $name => $answer) {
             $first = $reports[$server]['facts'][$name] ?? $answer;
@@ -1564,7 +1614,7 @@ function mergeReports(array $paths): void
     echo "    php .github/scripts/collation-probe.php --merge probes/*/collation-probe-*.json > docs/internal/collation-matrix.md\n\n";
     $runCounts = array_unique(array_column($reports, 'runs'));
     echo "Last generated: " . date('Y-m-d') . " from " . count($reports) . " servers, " . (count($runCounts) === 1 ? reset($runCounts) : min($runCounts) . ' to ' . max($runCounts)) . " run(s) of each. Generated file - don't hand-edit. ";
-    echo "The \"Verdicts\" and \"Findings\" sections below are maintained in the heredoc in .github/scripts/collation-probe.php; edit them there.\n\n";
+    echo "The \"Summary\", \"Verdicts\" and \"Findings\" sections below are maintained in heredocs in .github/scripts/collation-probe.php; edit them there.\n\n";
     echo "Servers: " . implode(', ', array_map(static fn($s) => "$s ({$reports[$s]['version']})", $servers)) . "\n\n";
 
     // The speed test's reports for one table size: server => report, with that size's runs in 'benchRuns'
@@ -1572,8 +1622,8 @@ function mergeReports(array $paths): void
     foreach ($reports as $report) {
         $sizes += array_fill_keys(array_keys($report['benchRuns']), true);
     }
-    krsort($sizes);
-    $benchedAt = static function (int $size) use ($reports): array {
+    uksort($sizes, static fn($a, $b) => [(int)$b, (string)$a] <=> [(int)$a, (string)$b]); // largest first, the generated titles before a file's
+    $benchedAt = static function (string|int $size) use ($reports): array {
         $benched = [];
         foreach ($reports as $server => $report) {
             if (isset($report['benchRuns'][$size])) {
@@ -1582,8 +1632,26 @@ function mergeReports(array $paths): void
         }
         return $benched;
     };
-    if ($sizes) {
-        printFastest($benchedAt(array_key_first($sizes)), array_key_first($sizes));
+    echo <<<'__SUMMARY__'
+        ## Summary
+
+        - Fastest for sorting a large table by a text column: `utf8mb4_0900_ai_ci` on MySQL and Percona 8.0+, and `utf8mb4_general_ci` on MySQL 5.7 and every MariaDB. That is the server default except on MariaDB 11.4+, where the default `utf8mb4_uca1400_ai_ci` sorts a 1,000,000-row `MEDIUMTEXT` column about 8x slower than `utf8mb4_general_ci`
+        - `utf8mb4_unicode_ci`, while it is supported everywhere, is never the fastest. At 1,000,000 rows it sorts a `MEDIUMTEXT` column 6 to 8x slower than the fastest collation on every server tested; on a 10,000-row table a list page differs by about 2 ms between any two collations
+        - A prefix index on a `MEDIUMTEXT` column, such as `(768)`, is never used for ORDER BY, so a list sorted by a `MEDIUMTEXT` column sorts the whole table
+        - The large differences come from sorts that don't fit in `sort_buffer_size` and go to temp files; with more sort memory they mostly go away
+        - Two collations in one UNION or JOIN fail with error 1271 or 1267; "Verdicts" compares the ways back to one collation
+
+
+        __SUMMARY__;
+
+    // The largest table with the generated titles, then each title file at its largest size
+    $fastestSets = [];
+    foreach (array_keys($sizes) as $size) {
+        $titles = explode(' ', (string)$size, 2)[1] ?? '';
+        $fastestSets[$titles] ??= $size;
+    }
+    foreach ($fastestSets as $size) {
+        printFastest($benchedAt($size));
     }
 
     echo <<<'__FINDINGS__'
@@ -1593,11 +1661,13 @@ function mergeReports(array $paths): void
 
         | Option | What it costs | What it risks |
         |---|---|---|
-        | A. Every table in the server default; the CMS upgrade converts existing tables | One ALTER per table. Every MySQL and Percona version and MariaDB thru 10.5 copy the table (1.4 to 2.7 s per 100,000 rows here, 21 to 44 s per 1,000,000) and writes wait until it's done. MariaDB 10.6+ rebuilds only the indexes (about 0.3 s per 100,000 rows, 2.6 to 4.4 s per 1,000,000) and writes continue. It is the fastest of the ci collations on MySQL 8.0+ | "The server default" is three different collations, and it changes when the server is upgraded: old tables keep theirs, new tables get the new one, and the two-collation error is back until the convert runs again. Query results change with it (trailing spaces on MySQL 8.0+; ß, æ, ø and emoji everywhere). The convert stops with error 1062 on a UNIQUE column that holds two values the new collation treats as equal. A dump with `utf8mb4_0900_ai_ci` or `utf8mb4_uca1400_ai_ci` doesn't load on an older server or on the other vendor |
-        | B. Every table in `utf8mb4_unicode_ci` | No convert and no change in results for a site that came from 3.84. At 100,000 rows, sorts, GROUP BY, DISTINCT and text joins take 1.3x to 2.1x the default's time on MySQL 5.7 and MariaDB thru 10.6, and 1.2x to 2.6x on MySQL 8.0+. A sort of the whole table with no index grows faster than the table does: at 1,000,000 rows and the default `sort_buffer_size` it takes 14.7 s against 0.8 s on MySQL 8.0+, 13.8 s against 2.8 s on MySQL 5.7 and about 8.6 s against 3.3 s on MariaDB thru 10.4 (see the table above). On MariaDB 11.4+ it is up to 14% faster than the default. Point lookups, ORDER BY on an indexed column and INSERT cost the same on every server | Tables created in the server default since the CMS stopped writing COLLATE need the same convert as option A, in the other direction, with the same error 1062 on a UNIQUE column. Any two emoji compare as equal |
+        | A. Every table in the server default; the CMS upgrade converts existing tables | One ALTER per table. Every MySQL and Percona version and MariaDB thru 10.5 copy the table (1.4 to 2.7 s per 100,000 rows here, 21 to 44 s per 1,000,000) and writes wait until it's done. MariaDB 10.6+ rebuilds only the indexes (about 0.3 s per 100,000 rows, 2.6 to 4.4 s per 1,000,000) and writes continue. It is the fastest of the ci collations on MySQL 8.0+, MySQL 5.7 and MariaDB thru 10.11. On MariaDB 11.4+ the default `utf8mb4_uca1400_ai_ci` sorts a 1,000,000-row `MEDIUMTEXT` title in about 8x the time `utf8mb4_general_ci` takes | "The server default" is three different collations, and it changes when the server is upgraded: old tables keep theirs, new tables get the new one, and the two-collation error is back until the convert runs again. Query results change with it (trailing spaces on MySQL 8.0+; ß, æ, ø and emoji everywhere). The convert stops with error 1062 on a UNIQUE column that holds two values the new collation treats as equal. A dump with `utf8mb4_0900_ai_ci` or `utf8mb4_uca1400_ai_ci` doesn't load on an older server or on the other vendor |
+        | B. Every table in `utf8mb4_unicode_ci` | No convert and no change in results for a site that came from 3.84. At 100,000 rows, sorts, GROUP BY, DISTINCT and text joins take 1.3x to 2.1x the default's time on MySQL 5.7 and MariaDB thru 10.6, and 1.2x to 2.6x on MySQL 8.0+. A sort of the whole table with no index grows faster than the table does: at 1,000,000 rows and the default `sort_buffer_size` it takes 14.7 s against 0.8 s on MySQL 8.0+, 13.8 s against 2.8 s on MySQL 5.7 and about 8.6 s against 3.3 s on MariaDB thru 10.4 (see the table above). With a `MEDIUMTEXT` title, as CMS Builder makes a text field, that sort takes 7 to 12 s against 1.2 to 2.0 s on every server tested, MariaDB 11.8 included. On MariaDB 11.4+ it is up to 14% faster than the default on the `VARCHAR` statements. Point lookups, ORDER BY on an indexed column and INSERT cost the same on every server | Tables created in the server default since the CMS stopped writing COLLATE need the same convert as option A, in the other direction, with the same error 1062 on a UNIQUE column. Any two emoji compare as equal |
         | C. New tables copy the collation the site's existing tables have | No convert, no speed change and no change in results | Sites differ from each other: a new install gets the server default, with option A's dump limits. A site that already has two collations still needs one convert and a rule for which collation stays. A table whose default was changed without its columns (`ALTER TABLE t CHARACTER SET utf8mb4`) reports one collation and holds another |
 
         `utf8mb4_unicode_ci` is the only one of the three that exists on all 19 servers under one name and stays the same through a server upgrade. Its price is the sort and grouping times in the speed tables below.
+
+        For sorting a large table by a text column, the fastest collation on each server is `utf8mb4_0900_ai_ci` on MySQL and Percona 8.0+ and `utf8mb4_general_ci` on everything else, MariaDB 11.4+ included. That is the server default except on MariaDB 11.4+. `utf8mb4_unicode_ci` is never the fastest for a whole-table sort. The difference shows on large tables only: a list page on 10,000 rows differs by about 2 ms between any two collations.
 
         ## Findings
 
@@ -1612,11 +1682,21 @@ function mergeReports(array $paths): void
         - `utf8mb4_bin`, `utf8mb4_general_ci`, `utf8mb4_unicode_ci` and `utf8mb4_unicode_520_ci` exist on all 19 servers, and none prints a warning. `utf8mb4_0900_ai_ci` exists on MySQL and Percona 8.0+ and on MariaDB 11.4+. `utf8mb4_uca1400_ai_ci` exists on MariaDB 10.11+ and on no MySQL. A server that doesn't have one answers `error 1273: Unknown collation: 'utf8mb4_0900_ai_ci'`
         - A server upgrade keeps every existing column's collation and changes what a new table gets. The upgrade job started MySQL 8.0 on a MySQL 5.7 data directory and MariaDB 11.8 on a MariaDB 10.11 one: the old tables stayed `utf8mb4_general_ci`, a new `CHARSET=utf8mb4` table got `utf8mb4_0900_ai_ci` and `utf8mb4_uca1400_ai_ci`, and a UNION of an old and a new table failed with error 1271. The database default stayed `utf8mb4_general_ci`, so a CREATE TABLE with no CHARSET, and a column added to an old table, still got `utf8mb4_general_ci`. `CHECK TABLE ... FOR UPGRADE` reported nothing to rebuild
 
-        Speed at 1,000,000 rows, one run (the tables at the top):
+        Sorting a large table, at 1,000,000 rows: a second run on MySQL 5.7, 8.0, 8.4 and MariaDB 10.4, 11.8 with the generated titles, and a run on MySQL 8.0, 8.4 and MariaDB 10.6, 10.11, 11.8 with English Wikipedia article titles in plain ASCII (the tables at the top):
+
+        - The fastest collation for sorting by title is the same with English titles as with the generated ones: `utf8mb4_0900_ai_ci` on MySQL 8.0+ and `utf8mb4_general_ci` on MariaDB and on MySQL 5.7. Sorting every row of an English `VARCHAR(255)` title with no index takes 0.6 to 0.8 s in `utf8mb4_0900_ai_ci`, 1.6 to 3.3 s in `utf8mb4_general_ci` and 9.1 to 14.2 s in `utf8mb4_unicode_ci` on MySQL 8.0 and 8.4. On MariaDB 10.6 to 11.8 it takes 1.9 to 2.1 s in `utf8mb4_general_ci` and 2.0 to 2.4 s in the others
+        - A `MEDIUMTEXT` title, the type CMS Builder gives a text field, makes the difference larger. Sorting every row of English titles takes 1.2 to 1.8 s in `utf8mb4_0900_ai_ci` and 10.0 to 12.3 s in both `utf8mb4_general_ci` and `utf8mb4_unicode_ci` on MySQL 8.0 and 8.4. On MariaDB 10.6 to 11.8 it takes 1.4 to 1.5 s in `utf8mb4_general_ci` and 7.3 to 11.9 s in `utf8mb4_unicode_ci`, `utf8mb4_unicode_520_ci`, `utf8mb4_0900_ai_ci` and `utf8mb4_uca1400_ai_ci`, so the MariaDB 11.4+ default takes about 8x as long as `utf8mb4_general_ci`. The generated titles agree: MySQL 5.7 4.5 s against 10.6 s, MariaDB 10.4 2.0 s against 9.7 s
+        - A prefix index on a `MEDIUMTEXT` column, `titleIndexed(768)`, is never used for ORDER BY: EXPLAIN shows `type=ALL, Using filesort` on every server, for the first page and the last, and the first page takes the same time with it as without it (342 ms against 342 ms on MySQL 8.0). Every list page sorted by a CMS Builder text field sorts the table
+        - The first list page (`LIMIT 25`) with a `MEDIUMTEXT` title takes 342 to 470 ms in `utf8mb4_0900_ai_ci` on MySQL 8.0 and 8.4, and `utf8mb4_unicode_ci` takes 1.3x that. On MariaDB the collations are within 20% of each other there, and on MariaDB 10.4 and 10.6 `utf8mb4_unicode_ci` was the fastest (263 ms against 325 ms on 10.6), as it was for the `VARCHAR` title on MariaDB 10.3 to 10.6
+        - The last page of a list, at an OFFSET of 19/20 of the rows, costs about what sorting every row costs, with or without an index on a `VARCHAR` title. Only MariaDB 11.8 read the index for it (`type=index`), and took 1.6 s in every collation; every other server sorted the table
+        - The large differences come from sorts that don't fit in `sort_buffer_size` and go to temp files. With `SET SESSION sort_buffer_size` at 2 GB the sort stays in memory and the differences mostly go away: English `VARCHAR` titles on MySQL 8.0 and 8.4 take 1.4 to 1.7 s in `utf8mb4_unicode_ci` against 0.7 to 0.8 s in `utf8mb4_0900_ai_ci`, and `MEDIUMTEXT` titles on MariaDB 11.8 take 2.2 s in `utf8mb4_uca1400_ai_ci` against 1.8 s in `utf8mb4_general_ci`. At 64 MB, `utf8mb4_unicode_ci` on MySQL takes 5.0 to 5.6 s. The slow collations write more to the temp files: the server merged them 628 times for `utf8mb4_unicode_ci` and 41 times for `utf8mb4_0900_ai_ci` in one MySQL 8.4 sort. Why their sort values are larger was not looked into in the server code
+        - A larger `sort_buffer_size` isn't free: on MariaDB the whole-table sort took 10% to 20% longer at 2 GB than at the default, in every collation
+
+        Speed at 1,000,000 rows, the first run on all 19 servers:
 
         - The fastest ci collation is `utf8mb4_0900_ai_ci` on MySQL and Percona 8.0+ and `utf8mb4_general_ci` on MySQL and Percona 5.7 and on every MariaDB version. That is the server default everywhere except MariaDB 11.4+, where the default `utf8mb4_uca1400_ai_ci` takes longer than `utf8mb4_general_ci`: 6% on the whole-table sort, 19% on the first list page, 15% on GROUP BY, and 2.5x on `content LIKE '%word%'` (2,158 ms against 864 ms)
         - Sorting every row by a column with no index, which is the sort the last page of a list ordered by `title` needs: `utf8mb4_unicode_ci` takes 14.7 s against 0.8 s for `utf8mb4_0900_ai_ci` on MySQL and Percona 8.0+ (18x; it was 2.6x at 100,000 rows), 13.8 s against 2.8 s for `utf8mb4_general_ci` on MySQL and Percona 5.7 (4.9x; it was 1.36x), and 7.9 to 9.5 s against 2.2 to 3.7 s on MariaDB 10.2 to 10.4. MariaDB 10.5 and 10.6 are 1.25x and 1.31x, MariaDB 10.11 is 1.11x, and on MariaDB 11.4+ `utf8mb4_unicode_ci` is within 5% of the default
-        - Those whole-table sorts ran with each server's default `sort_buffer_size`, which 1,000,000 titles don't fit in, so the server sorts in temp files. The ratios are for default settings, not a fixed cost of `utf8mb4_unicode_ci`. The likely reason the difference grows with the table on MySQL and on MariaDB thru 10.4: the older collations sort on a value padded to the column's full width, and write more to those files. Not tested: no run was done with a larger `sort_buffer_size`
+        - Those whole-table sorts ran with each server's default `sort_buffer_size`, which 1,000,000 titles don't fit in, so the server sorts in temp files. The ratios are for default settings; the section above has the same sorts with more memory
         - The first list page (`LIMIT 25`, no index on `title`) keeps the ratios it had at 100,000 rows: `utf8mb4_unicode_ci` takes 1.46x the default's time on MySQL 5.7 (691 ms against 472 ms), 1.35x on MySQL 8.0+ (837 ms against 597 ms), 0.97x on MariaDB thru 10.6, 1.12x on MariaDB 10.11 and 0.91x on MariaDB 11.4+. The same page sorted by an integer column takes 225 to 285 ms (470 ms on MySQL 8.0+). With an index on the ORDER BY column it takes 0.1 to 0.3 ms in every collation
         - On MariaDB 10.3 to 10.6 the first list page was 3% to 24% faster in `utf8mb4_unicode_ci` than in `utf8mb4_general_ci` in this run. At 100,000 rows the two were the same there (0.99x over three runs)
         - GROUP BY, SELECT DISTINCT, COUNT(DISTINCT), a join on an indexed text column and ADD INDEX: on MySQL and Percona 8.0+ `utf8mb4_unicode_ci` is within 3% of the default. On MySQL and Percona 5.7 it takes 1.43x to 1.74x the default's time, and on MariaDB thru 10.6 1.10x to 1.93x
@@ -1747,11 +1827,22 @@ function mergeReports(array $paths): void
  *
  * @param array<string, array> $benched server => report, with that size's runs in 'benchRuns'
  */
-function printFastest(array $benched, int $rows): void
+function printFastest(array $benched): void
 {
+    $rows   = (int)reset($benched)['benchRuns'][0]['rows'];
+    $titles = titlesNote(reset($benched)['benchRuns'][0]);
     $statements = [
         'List page: SELECT * ... WHERE hidden = 0 ORDER BY title LIMIT 25, no index on title' => 'A list page: `SELECT * FROM t WHERE hidden = 0 ORDER BY title LIMIT 25`, no index on `title`',
         'ORDER BY title, whole table, no index'                                              => 'Sorting every row: `ORDER BY title` with no index and no LIMIT to cut it short',
+        'ORDER BY title, whole table, no index, sort_buffer_size = 64 MB'                    => 'Sorting every row again, after `SET SESSION sort_buffer_size` to 64 MB',
+        'ORDER BY title, whole table, no index, sort_buffer_size = 2 GB'                     => 'Sorting every row again, with `sort_buffer_size` at 2 GB so the sort stays in memory',
+        'List page, last page: SELECT * ... WHERE hidden = 0 ORDER BY title LIMIT 25 OFFSET n, no index on title' => 'The last page of the list: the same query with an OFFSET of 19/20 of the rows, no index on `title`',
+        'List page, last page: the same, ORDER BY titleIndexed (the title again, with an index)' => 'The last page again, with an index on the ORDER BY column',
+        'MEDIUMTEXT title: first page, ORDER BY title LIMIT 25, no index'                  => 'A `MEDIUMTEXT` title, as CMS Builder makes a text field: first page, no index',
+        'MEDIUMTEXT title: first page, ORDER BY titleIndexed LIMIT 25, prefix index (768)' => 'A `MEDIUMTEXT` title with a prefix index `(768)`: first page',
+        'MEDIUMTEXT title: last page, ORDER BY titleIndexed LIMIT 25 OFFSET n, prefix index (768)' => 'A `MEDIUMTEXT` title with a prefix index `(768)`: last page',
+        'MEDIUMTEXT title: ORDER BY title, whole table, no index'                          => 'A `MEDIUMTEXT` title: sorting every row, default `sort_buffer_size`',
+        'MEDIUMTEXT title: the same, sort_buffer_size = 2 GB'                              => 'A `MEDIUMTEXT` title: sorting every row, `sort_buffer_size` at 2 GB',
         'GROUP BY title'                                                                     => '`GROUP BY title`',
         "WHERE content LIKE '%word%' (MEDIUMTEXT, scan)"                                     => "A keyword search: `WHERE content LIKE '%word%'`",
         'List page: the same, ORDER BY titleIndexed (the title again, with an index)'        => 'The list page again, with an index on the ORDER BY column',
@@ -1767,7 +1858,7 @@ function printFastest(array $benched, int $rows): void
         return $perRun ? median($perRun) : null;
     };
 
-    echo "## Fastest collation at " . number_format($rows) . " rows\n\n";
+    echo "## Fastest collation at " . number_format($rows) . " rows$titles\n\n";
     echo "Milliseconds per statement on a " . number_format($rows) . "-row table, one table per collation with the same rows. An empty cell means the server doesn't have that collation. ";
     echo "\"Fastest\" names the quickest one and any other within 5% of it, which is about how far two identical tables differ on these runners. The server's own default is marked with (default). ";
     echo "How the test is set up, every other statement and the smaller table sizes are under \"Speed\" further down.\n\n";
@@ -1799,6 +1890,25 @@ function printFastest(array $benched, int $rows): void
 }
 
 /**
+ * Which set of speed-test runs a run belongs to: its table size, plus the title file when it used one.
+ *
+ *     benchSet(['rows' => 1000000, 'titles' => ''])                           // 1000000
+ *     benchSet(['rows' => 1000000, 'titles' => 'english-wikipedia-titles.txt']) // '1000000 english-wikipedia-titles.txt'
+ */
+function benchSet(array $bench): string|int
+{
+    return empty($bench['titles']) ? (int)$bench['rows'] : "{$bench['rows']} {$bench['titles']}";
+}
+
+/**
+ * ", titles from x.txt" for a heading, or '' for the generated titles.
+ */
+function titlesNote(array $bench): string
+{
+    return empty($bench['titles']) ? '' : ", titles from {$bench['titles']}";
+}
+
+/**
  * The speed section: a summary per server group, then every server's numbers.
  *
  * @param array<string, array> $benched server => report, only the servers that ran the speed test
@@ -1814,9 +1924,20 @@ function printSpeed(array $benched, array $families): void
     $arms    = [...CollationProbe::COLLATIONS, $control];
     $ops     = [];
     foreach ($benched as $report) {
-        $ops += array_fill_keys(array_keys($report['benchRuns'][0]['ops']), true);
+        foreach ($report['benchRuns'] as $run) { // a run started with --only has some of the statements, and a later probe has more
+            $ops += array_fill_keys(array_keys($run['ops']), true);
+        }
     }
     $ops = array_keys($ops);
+    // what one of a server's runs recorded under $key for a statement, from the first run that has it
+    $recorded = static function (array $report, string $key, string $op): mixed {
+        foreach ($report['benchRuns'] as $run) {
+            if (isset($run[$key][$op])) {
+                return $run[$key][$op];
+            }
+        }
+        return null;
+    };
     // Each run is on a different runner, so a ratio is taken inside one run and the runs are combined after
     $runMs = static function (array $report, string $op, string $arm): array { // each run's median ms
         $perRun = [];
@@ -1840,11 +1961,15 @@ function printSpeed(array $benched, array $families): void
     $ms    = static fn(array $report, string $op, string $arm): ?float => ($perRun = $runMs($report, $op, $arm)) ? median($perRun) : null;
     $ratio = static fn(array $report, string $op, string $arm): ?float => ($perRun = $runRatios($report, $op, $arm)) ? median($perRun) : null;
 
-    echo "## 2. Speed, " . number_format($first['rows']) . " rows\n\n";
+    echo "## 2. Speed, " . number_format($first['rows']) . " rows" . titlesNote($first) . "\n\n";
+    if (titlesNote($first) !== '') {
+        echo "In these runs `title` and `titleIndexed` hold one line each of {$first['titles']}, in place of the generated titles described below; `name` and `content` are the same as in the other runs.\n\n";
+    }
     echo "One InnoDB table per collation with the same " . number_format($first['rows']) . " rows, shaped like a CMS Builder section. It has 15 columns: the record number, three DATETIME, two INT, three TINYINT flags, five VARCHAR(255) and one MEDIUMTEXT. `name` and `titleIndexed` have an index; `title` holds the same text as `titleIndexed` and has none. ";
+    echo "The statements named \"MEDIUMTEXT title\" use a narrower table with the same rows: num, hidden, dragSortOrder, and `title` and `titleIndexed` as MEDIUMTEXT, the type CMS Builder gives a text field, with a prefix index `titleIndexed(768)`. ";
     echo "Average length in characters: name {$first['averageChars']['name']}, title {$first['averageChars']['title']}, content {$first['averageChars']['content']}. ";
     echo "The text is mostly ASCII words, with about 9% accented Latin words, 2% words in other scripts and 1% emoji. ";
-    echo "Numbers are milliseconds per statement, the median of {$first['passes']} passes (3 for the slow statements), after one uncounted pass" . ($runs > 1 ? ", then the median of $runs runs of the workflow, each on its own runner. " : ". ");
+    echo "Numbers are milliseconds per statement, the median of {$first['passes']} passes (3 for the slow statements), after one uncounted pass" . ($runs > 1 ? ", then the median of that server's runs of the workflow (up to $runs), each on its own runner. " : ". ");
     if (($first['selectRepeat'] ?? 1) > 1) {
         echo "At this table size a SELECT runs up to {$first['selectRepeat']} times in a pass (200 statements at most) and the time is divided by the count. ";
     }
@@ -1907,29 +2032,33 @@ function printSpeed(array $benched, array $families): void
         echo "\n";
     }
 
-    echo "### Converting a " . number_format($first['rows']) . "-row table\n\n";
-    echo "ALTER TABLE ... CONVERT TO CHARACTER SET utf8mb4 COLLATE x on a copy of the utf8mb4_unicode_ci table, which has two text indexes (`name` and `titleIndexed`). Milliseconds: the median of every timing (3 in each run), then the fastest and slowest. ";
-    echo "\"Rows affected\" is what the server reports: the row count when it copied the table. ";
-    echo "The last two columns are a SELECT and an INSERT sent from a second connection 200 ms after the convert started.\n\n";
-    echo "The MODIFY columns are the same change written as ALTER TABLE t DEFAULT CHARACTER SET utf8mb4 COLLATE x with a MODIFY ... COLLATE x for each of the six text columns.\n\n";
-    $directions = ['utf8mb4_unicode_ci to the server default', 'the server default to utf8mb4_unicode_ci', 'MODIFY: utf8mb4_unicode_ci to the server default', 'MODIFY: the server default to utf8mb4_unicode_ci'];
-    echo "| Server | Default | CONVERT, unicode_ci to default | CONVERT, default to unicode_ci | MODIFY, unicode_ci to default | MODIFY, default to unicode_ci | Rows affected | SELECT during the convert | INSERT during the convert |\n";
-    echo "|---|---|---|---|---|---|---|---|---|\n";
-    foreach ($benched as $server => $report) {
-        $convert = $report['benchRuns'][0]['convert'] ?? [];
-        if (!isset($convert['ms'])) {
-            echo "| $server | {$report['default']} | " . ($convert['skipped'] ?? 'no data') . " | | | | | | |\n";
-            continue;
+    // A run started with --only skips the convert, so a set of such runs has no convert table
+    $hasConvert = array_filter($benched, static fn($report) => array_filter($report['benchRuns'], static fn($run) => !empty($run['convert'])));
+    if ($hasConvert) {
+        echo "### Converting a " . number_format($first['rows']) . "-row table\n\n";
+        echo "ALTER TABLE ... CONVERT TO CHARACTER SET utf8mb4 COLLATE x on a copy of the utf8mb4_unicode_ci table, which has two text indexes (`name` and `titleIndexed`). Milliseconds: the median of every timing (3 in each run), then the fastest and slowest. ";
+        echo "\"Rows affected\" is what the server reports: the row count when it copied the table. ";
+        echo "The last two columns are a SELECT and an INSERT sent from a second connection 200 ms after the convert started.\n\n";
+        echo "The MODIFY columns are the same change written as ALTER TABLE t DEFAULT CHARACTER SET utf8mb4 COLLATE x with a MODIFY ... COLLATE x for each of the six text columns.\n\n";
+        $directions = ['utf8mb4_unicode_ci to the server default', 'the server default to utf8mb4_unicode_ci', 'MODIFY: utf8mb4_unicode_ci to the server default', 'MODIFY: the server default to utf8mb4_unicode_ci'];
+        echo "| Server | Default | CONVERT, unicode_ci to default | CONVERT, default to unicode_ci | MODIFY, unicode_ci to default | MODIFY, default to unicode_ci | Rows affected | SELECT during the convert | INSERT during the convert |\n";
+        echo "|---|---|---|---|---|---|---|---|---|\n";
+        foreach ($benched as $server => $report) {
+            $convert = $report['benchRuns'][0]['convert'] ?? [];
+            if (!isset($convert['ms'])) {
+                echo "| $server | {$report['default']} | " . ($convert['skipped'] ?? 'no data') . " | | | | | | |\n";
+                continue;
+            }
+            $cells = [];
+            foreach ($directions as $direction) {
+                $times   = array_merge(...array_map(static fn($run) => $run['convert']['ms'][$direction] ?? [], $report['benchRuns']));
+                $cells[] = !$times ? '' : formatMs(median($times)) . " (" . formatMs(min($times)) . " to " . formatMs(max($times)) . ")";
+            }
+            echo "| $server | " . CollationProbe::short($report['default']) . " | " . implode(' | ', $cells) . " | "
+                . implode(' / ', $convert['affectedRows']) . " | {$convert['whileRunning']['select']} | {$convert['whileRunning']['insert']} |\n";
         }
-        $cells = [];
-        foreach ($directions as $direction) {
-            $times   = array_merge(...array_map(static fn($run) => $run['convert']['ms'][$direction] ?? [], $report['benchRuns']));
-            $cells[] = !$times ? '' : formatMs(median($times)) . " (" . formatMs(min($times)) . " to " . formatMs(max($times)) . ")";
-        }
-        echo "| $server | " . CollationProbe::short($report['default']) . " | " . implode(' | ', $cells) . " | "
-            . implode(' / ', $convert['affectedRows']) . " | {$convert['whileRunning']['select']} | {$convert['whileRunning']['insert']} |\n";
+        echo "\n";
     }
-    echo "\n";
 
     echo "### Table size\n\n";
     echo "DATA_LENGTH and INDEX_LENGTH of the " . number_format($first['rows']) . "-row table from information_schema.TABLES after ANALYZE TABLE, in MB. The indexes are the ones on `name` and `titleIndexed`, built by ALTER TABLE ... ADD INDEX after the rows were loaded.\n\n";
@@ -1968,13 +2097,33 @@ function printSpeed(array $benched, array $families): void
         echo "\n";
     }
 
+    // Only the statements where some server merged temp files, and only the servers whose probe counted them
+    $merged = array_filter($ops, static fn($op) => array_filter($benched, static fn($report) => array_filter($recorded($report, 'mergePasses', $op) ?? [])));
+    if ($merged) {
+        echo "### Sorts that went to temp files\n\n";
+        echo "`Sort_merge_passes` for one statement: how many times the server merged temp files because the rows to sort didn't fit in `sort_buffer_size`. 0 means the sort stayed in memory. A statement that isn't listed was 0 on every server.\n\n";
+        foreach ($merged as $op) {
+            echo "**$op**\n\n";
+            echo "| Server | " . implode(' | ', array_map(static fn($arm) => $arm === $control ? 'control' : CollationProbe::short($arm), $arms)) . " |\n";
+            echo "|---|" . str_repeat('---|', count($arms)) . "\n";
+            foreach ($benched as $server => $report) {
+                $passes = $recorded($report, 'mergePasses', $op);
+                if ($passes !== null) {
+                    echo "| $server | " . implode(' | ', array_map(static fn($arm) => $passes[$arm] ?? '', $arms)) . " |\n";
+                }
+            }
+            echo "\n";
+        }
+    }
+
     echo "### Query plans\n\n";
     echo "EXPLAIN for the utf8mb4_general_ci table, where the statement is a SELECT.\n\n";
     foreach ($ops as $op) {
         $serversByPlan = [];
         foreach ($benched as $server => $report) {
-            if (isset($report['benchRuns'][0]['plans'][$op])) {
-                $serversByPlan[$report['benchRuns'][0]['plans'][$op]][] = $server;
+            $plan = $recorded($report, 'plans', $op);
+            if ($plan !== null) {
+                $serversByPlan[$plan][] = $server;
             }
         }
         if (!$serversByPlan) {
