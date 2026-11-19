@@ -8,7 +8,9 @@ this file lists what each one does.
 [docs/internal/](../../docs/internal/) writes two files: the page, which holds
 the hand-written sections from the heredocs in the script, and with `--data`
 its data page in [docs/internal/data/](../../docs/internal/data/), which holds
-every result. The commands are at the bottom of each page.
+every result. The commands are at the bottom of each page. The "Generated" date
+at the top of both is the day the merge ran, not the day of the CI run, so a page
+rebuilt from an older run's results shows today's date.
 
 **Query cache** - a script that times queries turns the query cache off on every
 connection it opens (`SET SESSION query_cache_type = OFF`, skipped on MySQL 8.0+,
