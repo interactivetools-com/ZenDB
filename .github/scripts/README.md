@@ -86,8 +86,7 @@ read and lookup speed on a plain, unique and prefix index, for one value and an
 IN list. `col = ?` is the baseline the others are compared with. The column
 types include the ones that make `col = ?` exact on their own (`VARBINARY`,
 `ascii_bin`, `utf8mb4_bin`, the NO PAD collations), with their index sizes, and
-a two-column index shaped like the uploads table's `(tableName,
-preSaveTempId)` lookup. Also strings against an INT column and numbers against
+a two-column index: a short ASCII code, then a token. Also strings against an INT column and numbers against
 a VARCHAR column under strict and non-strict `sql_mode`, and which pairs
 collide in a unique index.
 

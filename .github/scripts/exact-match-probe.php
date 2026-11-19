@@ -13,9 +13,8 @@ declare(strict_types=1);
  *     php .github/scripts/exact-match-probe.php --merge probes/*.json             # one report for every server
  *
  * `col = ?` ignores trailing spaces under a PAD SPACE collation and ignores case under a _ci
- * collation, so a lookup on a machine-made value (temp id, token, code) can match rows it
- * shouldn't: `preSaveTempId = ' '` matches every row where it's ''. This probe compares the
- * other ways of writing it with `col = ?` on every server in the matrix.
+ * collation, so `col = ' '` also finds rows where `col` is ''. This probe compares the ways
+ * of writing an exact match with `col = ?` on every server in the matrix.
  *
  * Values are sent the way ZenDB sends a placeholder value: a string escaped with
  * real_escape_string() and put in quotes, an int as bare digits, over the text protocol.
@@ -144,8 +143,8 @@ final class ExactMatchProbe
     ];
 
     /**
-     * The column types in the speed test: the ones CMS Builder tables have now, then the
-     * ones a schema change could switch a machine-made value to.
+     * The column types in the speed test: the common defaults, then the binary types that
+     * make `col = ?` exact on their own.
      */
     private const INDEX_TYPES = [
         'utf8mb4_unicode_ci', 'utf8mb4_general_ci', 'utf8mb4_0900_ai_ci', 'utf8mb4_uca1400_ai_ci', 'ascii_general_ci', 'latin1_swedish_ci',
@@ -181,6 +180,12 @@ final class ExactMatchProbe
         $this->facts['connection collation'] = $this->mysqli->query("SELECT @@collation_connection")->fetch_row()[0];
         $this->facts['server sql_mode']      = $this->mysqli->query("SELECT @@GLOBAL.sql_mode")->fetch_row()[0];
         $this->facts['column types tested']  = implode(', ', array_keys($this->types));
+
+        try {
+            $this->mysqli->query("SET SESSION explain_format = 'TRADITIONAL'"); // MySQL 9 prints a tree by default; plan() reads the type/key/rows columns
+        } catch (mysqli_sql_exception) {
+            // older servers and MariaDB have no explain_format and print the table form
+        }
 
         // What SHOW STATUS adds to the Handler_read counters by itself, so it can be subtracted
         $this->mysqli->query("FLUSH STATUS");
@@ -424,7 +429,7 @@ final class ExactMatchProbe
     /**
      * Section 3: EXPLAIN, rows read and lookup speed for each form, on a plain, a unique and
      * a prefix index, for a single value and an IN list of five, and the size of each index.
-     * The columns are VARCHAR(255), like CMS Builder's `tableName` and `preSaveTempId`.
+     * The columns are VARCHAR(255), a common size for a key column.
      */
     public function indexUse(int $rowCount): void
     {
@@ -454,32 +459,32 @@ final class ExactMatchProbe
     }
 
     /**
-     * Section 4: a two-column index shaped like the uploads table's lookup, `tableName`
-     * (ascii_general_ci) then `preSaveTempId` (utf8mb4_unicode_ci). key_len in the plan
-     * shows whether the lookup uses both columns of the index or only the first.
+     * Section 4: a two-column index, a short code (ascii_general_ci) then a token
+     * (utf8mb4_unicode_ci). key_len in the plan shows whether the lookup uses both columns
+     * of the index or only the first.
      */
     public function compositeIndex(int $rowCount): void
     {
-        $tableNames = ['news', 'products', 'blog_posts', 'events', 'pages', 'faqs', 'staff', 'locations', 'jobs', 'testimonials'];
-        $values     = $this->tokens($rowCount);
-        $lookups    = array_slice($values, 0, 2000, true);
-        $table      = $this->create('composite', "id INT PRIMARY KEY, tableName VARCHAR(255) CHARACTER SET ascii COLLATE ascii_general_ci NOT NULL, preSaveTempId VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL, KEY lookup (tableName, preSaveTempId)");
-        $this->load($table, $values, fn($i, $q) => "($i, '{$tableNames[$i % 10]}', $q)");
+        $codes   = ['red', 'green', 'blue', 'cyan', 'magenta', 'yellow', 'black', 'white', 'gray', 'orange'];
+        $values  = $this->tokens($rowCount);
+        $lookups = array_slice($values, 0, 2000, true);
+        $table   = $this->create('composite', "id INT PRIMARY KEY, code VARCHAR(255) CHARACTER SET ascii COLLATE ascii_general_ci NOT NULL, token VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL, KEY lookup (code, token)");
+        $this->load($table, $values, fn($i, $q) => "($i, '{$codes[$i % 10]}', $q)");
 
         $forms = [
-            'a both'            => static fn($t, $v) => "tableName = $t AND preSaveTempId = $v",
-            'b1 both'           => static fn($t, $v) => "tableName = CAST($t AS BINARY) AND preSaveTempId = CAST($v AS BINARY)",
-            'b1 preSaveTempId'  => static fn($t, $v) => "tableName = $t AND preSaveTempId = CAST($v AS BINARY)",
-            'f both'            => static fn($t, $v) => "tableName = $t AND tableName = CAST($t AS BINARY) AND preSaveTempId = $v AND preSaveTempId = CAST($v AS BINARY)",
-            'd both'            => static fn($t, $v) => "tableName = $t COLLATE utf8mb4_bin AND preSaveTempId = $v COLLATE utf8mb4_bin",
+            'a both'   => static fn($c, $v) => "code = $c AND token = $v",
+            'b1 both'  => static fn($c, $v) => "code = CAST($c AS BINARY) AND token = CAST($v AS BINARY)",
+            'b1 token' => static fn($c, $v) => "code = $c AND token = CAST($v AS BINARY)",
+            'f both'   => static fn($c, $v) => "code = $c AND code = CAST($c AS BINARY) AND token = $v AND token = CAST($v AS BINARY)",
+            'd both'   => static fn($c, $v) => "code = $c COLLATE utf8mb4_bin AND token = $v COLLATE utf8mb4_bin",
         ];
-        $index = array_flip($lookups);  // value => row number, which picks the row's tableName
+        $index = array_flip($lookups);  // value => row number, which picks the row's code
         $rows  = [];
         foreach ($forms as $form => $sql) {
-            $sqlFor = fn($v) => "SELECT id FROM $table WHERE " . $sql("'{$tableNames[$index[$v] % 10]}'", $this->quote($v));
-            $rows[$form]['plan'] = $this->measure('composite (tableName, preSaveTempId)', $form, $sqlFor, array_values($lookups), keyLen: true);
+            $sqlFor = fn($v) => "SELECT id FROM $table WHERE " . $sql("'{$codes[$index[$v] % 10]}'", $this->quote($v));
+            $rows[$form]['plan'] = $this->measure('composite (code, token)', $form, $sqlFor, array_values($lookups), keyLen: true);
         }
-        $this->grids['plan: composite (tableName, preSaveTempId)'] = ['cols' => ['plan'], 'rows' => $rows];
+        $this->grids['plan: composite (code, token)'] = ['cols' => ['plan'], 'rows' => $rows];
         $this->dropTable($table);
     }
 
@@ -582,7 +587,7 @@ final class ExactMatchProbe
     }
 
     /**
-     * Unique random tokens shaped like a CMS temp id, the same list on every server.
+     * Unique random tokens shaped like a generated token, the same list on every server.
      *
      * @return list<string>
      */
@@ -714,10 +719,101 @@ function mergeReports(array $paths): void
     $who      = static fn(array $list) => count($list) === count($servers) ? 'all servers' : (serverGroupLabel($list, $families) ?? implode(', ', $list));
 
     echo "# Exact Match Matrix\n\n";
+    if (!$reports) {
+        echo "No probe data found.\n";
+        return;
+    }
+    echo "How each way of writing an exact string comparison behaves on every supported database server: which values match, which forms warn or error, which keep an index lookup, and how fast each one is next to `col = ?`. ";
+    echo "Generated by the \"Exact Match Matrix\" workflow (.github/workflows/exact-match-matrix.yml); regenerate with:\n\n";
+    echo "    gh workflow run exact-match-matrix.yml   # wait for the run to finish, then:\n";
+    echo "    gh run download --dir probes             # pick the latest Exact Match Matrix run\n";
+    echo "    php .github/scripts/exact-match-probe.php --merge probes/*/exact-match-probe-*.json > docs/internal/exact-match-matrix.md\n\n";
+    echo "Last generated: " . date('Y-m-d') . " from " . count($reports) . " servers. Generated file - don't hand-edit. ";
+    echo "The \"Verdict\" and \"Findings\" sections below are maintained in the heredoc in .github/scripts/exact-match-probe.php; edit them there.\n\n";
     echo "Servers: " . implode(', ', array_map(static fn($s) => "$s ({$reports[$s]['version']})", $servers)) . "\n\n";
+    echo <<<'__FINDINGS__'
+        ## Verdict
+
+        For a machine-made value (a generated token, code or id), write the lookup as
+        `col = CAST(? AS BINARY)`. On all 19 servers it matched only the identical value, used the
+        same index as `col = ?`, read the same number of rows, took 0.96x to 1.16x the time
+        (median over servers per column type), and gave no warning or error. It works the same in an IN list: `col IN (CAST(? AS BINARY), ...)`.
+
+        One exception: a non-ASCII value stored in a latin1 column doesn't match itself, because
+        the column holds `é` as byte E9 and the connection sends C3 A9. ASCII values in ascii and
+        latin1 columns match. Machine-made values are ASCII, so this only matters if the form is
+        used for text people type.
+
+        | Form | Exact | Index | Warnings and errors | Use it |
+        |---|---|---|---|---|
+        | `a` `col = ?` (now) | No: case on `_ci`, trailing spaces on every PAD SPACE collation, accents, and `''` = U+200B = NUL on `unicode_ci` and `0900_ai_ci` | Yes | Error 1267 (3854 on MySQL 9.6+) when an ascii or latin1 column is compared with a value it can't hold | Today's form |
+        | `b1` `col = CAST(? AS BINARY)` | Yes, on every server and column type, except non-ASCII in latin1 | Yes. ref/const on MariaDB, range with note 1739 on MySQL and Percona; same rows read | None | Yes |
+        | `b2` `col = BINARY ?` | Same as `b1` | Same as `b1` | Warning 1287 "'BINARY expr' is deprecated" on MySQL/Percona 8.0+ | No |
+        | `c` `CAST(col AS BINARY) = ?` | Same as `b1` | No. Reads every row, 62x to 127x slower at 100,000 rows | None | No |
+        | `d` `col = ? COLLATE utf8mb4_bin` | No: still matches trailing spaces (`utf8mb4_bin` is PAD SPACE) | Lost on ascii and latin1 columns on MySQL/Percona 5.7 and MariaDB, and on VARBINARY columns on MariaDB: reads every row, up to 184x slower | None | No |
+        | `e` `col LIKE ?` | No: case and accents on `_ci`; `%` and `_` in the value are wildcards | Yes (range) | Same errors as `a` | No |
+        | `f` `col = ? AND col = CAST(? AS BINARY)` | Same as `b1` | Yes | Same errors as `a`: the `col = ?` half fails on ascii and latin1 columns | No gain over `b1` |
+        | `g1` `COLLATE utf8mb4_0900_bin` | Yes where it exists | Lost on ascii and VARBINARY columns on MariaDB 11.4+ | Not on MySQL 5.7 or MariaDB thru 10.11 | No |
+        | `g2` `COLLATE utf8mb4_0900_as_cs` | No: `''` = U+200B = NUL | Reads every row on MySQL | Not on MySQL 5.7 or MariaDB thru 10.11 | No |
+        | `g3` `COLLATE utf8mb4_nopad_bin` | No on MariaDB thru 10.4: `''` = NUL | Lost on non-utf8mb4 columns | MariaDB only | No |
+
+        ## Findings
+
+        Compared with `col = ?`, at 100,000 rows, median over 19 servers:
+
+        | Column | `col = ?` | `col = CAST(? AS BINARY)` | Rows read, both |
+        |---|---|---|---|
+        | `utf8mb4_unicode_ci`, unique index | 109.4 µs | 109.8 µs | 1 |
+        | `utf8mb4_general_ci`, plain index | 124.2 µs | 133.0 µs | 2 |
+        | `ascii_general_ci`, plain index | 128.9 µs | 130.6 µs | 2 |
+        | Two-column index, both columns | 146.5 µs | 140.6 µs | 2 |
+        | IN list of 5, `utf8mb4_unicode_ci` unique index | 143.9 µs | 149.0 µs | 5 |
+
+        - Index size doesn't depend on the column type for ASCII values: the plain index on
+          100,000 tokens is 5,648 KB on every type tested, `VARBINARY` included. The lookup forms
+          use no temporary tables, so memory use is the same as `col = ?`
+        - MySQL and Percona show `CAST(? AS BINARY)` on a collated column as `range` with note
+          1739 ("Cannot use ref access on index ... due to type or collation conversion"), where
+          MariaDB shows `ref`. Both read the same 1 or 2 rows as `col = ?`, and the two-column index
+          uses both columns (key_len 1279) on every server
+        - A `VARBINARY` column makes plain `col = ?` exact on every server, with the same plan,
+          speed and index size. `utf8mb4_bin` and `ascii_bin` columns aren't enough: they still
+          ignore trailing spaces. `utf8mb4_0900_bin` is exact but only exists on MySQL 8.0+ and
+          MariaDB 11.4+
+        - Unique indexes follow the same rules: `'a'` and `'a '` are the same key under every PAD
+          SPACE collation (`unicode_ci`, `general_ci`, `bin`, ascii, latin1), and different under
+          `VARBINARY`, `0900_bin`, `0900_ai_ci` and `nopad_bin`. `'a'` and `'A'` are the same key
+          under every `_ci` collation
+        - `utf8mb4_nopad_bin` on MariaDB 10.2 to 10.4 treats `''` and a NUL byte as equal, in
+          comparisons and in unique indexes. 10.5 and later don't
+        - A `CHAR` column drops trailing spaces when the value is stored, so `'abc '` is read back
+          as `'abc'`. `VARCHAR` and `TEXT` keep them
+        - `CAST(NULL AS BINARY)` is NULL, so a NULL value matches nothing, as with `col = ?`
+
+        Strings and numbers:
+
+        - `intCol = ''` matches 0 on MySQL and Percona with no warning, under strict mode too.
+          MariaDB matches 0 with warning 1292, and its strict UPDATE errors
+        - `intCol = 'abc'` and `intCol = '5abc'` match 0 and 5 with warning 1292 on every server.
+          Under ZenDB's default sql_mode (`STRICT_ALL_TABLES`) the same WHERE errors 1292 in an
+          UPDATE everywhere, and in a DELETE on MySQL and Percona; a MariaDB DELETE goes ahead
+          with the warning
+        - `intCol = CAST('5abc' AS BINARY)` matches 5 with no warning and no strict error on
+          MySQL/Percona 5.7. Other servers treat it as `intCol = '5abc'`. Don't cast values for
+          integer columns
+        - `varcharCol = 0` matches `'abc'`, `'0'`, `''` and `'x1'`; `= 1` and `= TRUE` match `'1'`,
+          `'1abc'` and `' 1'`, with warning 1292. `varcharCol = CAST('1' AS BINARY)` matches only
+          `'1'`
+
+        MySQL 9.6 and 9.7 have no EXPLAIN cells in the 2026-11-18 run: those servers print EXPLAIN
+        as a tree by default, and the probe now sets `explain_format` first. Their rows-read and
+        speed numbers are complete, and match MySQL 8.4.
+
+
+        __FINDINGS__;
     echo <<<'__LEGEND__'
         Forms, with `?` sent the way ZenDB sends it (escaped, in quotes, text protocol). `a` is
-        what ZenDB's where arrays and CMS Builder write now:
+        the plain form, the baseline the others are compared with:
 
             a   col = ?
             b1  col = CAST(? AS BINARY)
@@ -803,8 +899,9 @@ function mergeReports(array $paths): void
     }
     foreach ($cases as $case => $forms) {
         echo "### $case\n\n| form | µs per lookup | vs a | rows read | fastest server | slowest server |\n|---|---|---|---|---|---|\n";
+        $first    = $forms['a'] ?? reset($forms);  // the two-column index names its forms "a both" and so on; its first form is the baseline
         $baseline = [
-            ''    => isset($forms['a']) ? median(array_values($forms['a']['us'])) : null,
+            ''    => median(array_values($first['us'])),
             ' IN' => isset($forms['a IN']) ? median(array_values($forms['a IN']['us'])) : null,
         ];
         foreach ($forms as $form => $data) {
