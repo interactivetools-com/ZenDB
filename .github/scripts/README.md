@@ -77,6 +77,23 @@ MariaDB 10.11 to 11.8 on one data directory. Results go in
   files for one server are read as several runs: the checks are compared and the
   speed numbers are the median of the runs
 
+**Exact match matrix** (`exact-match-matrix.yml`) - compares the ways of writing
+an exact string comparison (`col = ?`, `CAST(? AS BINARY)`, `BINARY ?`,
+`COLLATE utf8mb4_bin`, `LIKE`, the NO PAD collations) on every database image:
+which stored/sent pairs each one matches (case, trailing and leading spaces,
+U+200B, NUL, accents) per column type, which warn or error, and EXPLAIN, rows
+read and lookup speed on a plain, unique and prefix index, for one value and an
+IN list. `col = ?` is the baseline the others are compared with. The column
+types include the ones that make `col = ?` exact on their own (`VARBINARY`,
+`ascii_bin`, `utf8mb4_bin`, the NO PAD collations), with their index sizes, and
+a two-column index shaped like the uploads table's `(tableName,
+preSaveTempId)` lookup. Also strings against an INT column and numbers against
+a VARCHAR column under strict and non-strict `sql_mode`, and which pairs
+collide in a unique index.
+
+- `exact-match-probe.php` - probe one server and write JSON, or with `--merge`
+  turn the JSON files into one "who differs" report
+
 **Connect charset matrix** (`connect-charset-matrix.yml`) - checks what
 `Connection::openConnection()` sends to set the connection charset and the
 session it leaves, on every database image and PHP version, with each image
