@@ -246,10 +246,15 @@ jobs:
           path: probes
 
       - name: Build comparison
-        run: php .github/scripts/connect-charset-probe.php --merge probes/*.json | tee connect-charset-matrix.md >> "$GITHUB_STEP_SUMMARY"
+        run: |
+          php .github/scripts/connect-charset-probe.php --merge probes/*.json > connect-charset-matrix.md
+          php .github/scripts/connect-charset-probe.php --merge --data probes/*.json > connect-charset-matrix-data.md
+          cat connect-charset-matrix.md connect-charset-matrix-data.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload comparison
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: connect-charset-matrix
-          path: connect-charset-matrix.md
+          path: |
+            connect-charset-matrix.md
+            connect-charset-matrix-data.md

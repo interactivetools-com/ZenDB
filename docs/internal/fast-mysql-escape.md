@@ -1,32 +1,47 @@
 # Fast MySQL Escape: str_replace Instead of real_escape_string
 
-Research from 2026-08-02, done in the CMSB repo while optimizing database
-backups. Conclusion: under ZenDB's connection conditions, a 7-pair
-`str_replace()` (or `strtr()`) produces byte-identical output to
-`mysqli::real_escape_string()` and runs ~40% faster when inlined (measured on
-PHP 8.1/8.3; PHP 8.4 sped up the native escaper, see the 2026-08 research pass
-below). The win only matters in tight bulk loops that escape millions of
-values per run (backup dumps, exports); in the normal query path it is
-nanoseconds per query. This
-page holds the research: what the php-src implementation actually does, the
-conditions that make the shortcut safe, and where it could apply in ZenDB.
+A 7-pair `str_replace()` gives the same bytes as `mysqli::real_escape_string()`
+under ZenDB's connection settings, and runs faster. That matters in a loop that
+escapes millions of values, such as a backup dump or an export. This page
+explains why the two are equivalent, the two conditions that make the
+replacement safe, where it pays and where it doesn't, and how the CI escape
+benchmark suite checks it.
 
-The CI escape benchmark suite was built from this research and is the citable
-source for current numbers: the committed verdict grid is
-[escape-results.md](../../.github/scripts/escape-results.md), and the suite
-map is in [.github/scripts/README.md](../../.github/scripts/README.md).
+## The Short Version
+
+- **The replacement:** a `str_replace()` of 7 pairs gives the same bytes as
+  `real_escape_string()` when the connection charset is utf8mb4 and `sql_mode`
+  doesn't have `NO_BACKSLASH_ESCAPES`. ZenDB sets both when it connects
+- **Where it pays:** a loop that escapes millions of values per run. On mixed
+  data the CI suite measured it 1.8x to 3.5x as fast on PHP 8.1 to 8.3, and
+  1.1x to 1.7x on PHP 8.4+, where `real_escape_string()` itself got faster
+- **Where it doesn't:** ZenDB's own queries. A query escapes a handful of
+  values, and whole-query time was a tie (0.96x to 1.03x on every server), so
+  ZenDB keeps `real_escape_string()` there
+- **Inline it.** Calling the replacement through a function or method cuts
+  the gain from about 43% to about 15%, and a closure gives nearly all of it
+  back
+- **Check before trusting it.** One probe string compared against
+  `real_escape_string()`, plus `character_set_name() === 'utf8mb4'`, catches a
+  connection where the two would differ
 
 CMS Builder's backup ships this pattern in production: its dump loop
 (`backupDatabase_dumpData()` in `lib/database_functions.php`) inlines the
 7-pair `str_replace` with a once-per-table probe self-check and a
 `real_escape_string` fallback.
 
+The research dates from 2026-08-02, when the backup was being optimized. The CI
+escape benchmark suite was built from it and is the citable source for current
+numbers: the committed verdict grid is
+[escape-results.md](../../.github/scripts/escape-results.md), and the suite
+map is in [.github/scripts/README.md](../../.github/scripts/README.md).
+
 Contents:
 
 - [The Core Finding](#the-core-finding)
+- [Correctness Conditions (Both Already Guaranteed by ZenDB)](#correctness-conditions-both-already-guaranteed-by-zendb)
 - [Benchmarks](#benchmarks)
 - [What php-src Actually Does (mysqlnd Source)](#what-php-src-actually-does-mysqlnd-source)
-- [Correctness Conditions (Both Already Guaranteed by ZenDB)](#correctness-conditions-both-already-guaranteed-by-zendb)
 - [Where This Could Apply in ZenDB](#where-this-could-apply-in-zendb)
 - [Test Strategy for Adoption](#test-strategy-for-adoption)
 - [Reproducing the Benchmarks](#reproducing-the-benchmarks)
@@ -57,10 +72,50 @@ it is single-pass and has no pair-ordering requirement. `str_replace` runs the
 7 pairs sequentially, so the backslash pair must come first (escaping existing
 backslashes before other pairs introduce new ones).
 
+## Correctness Conditions (Both Already Guaranteed by ZenDB)
+
+1. **Connection charset must be utf8mb4** (or any charset whose multibyte
+   sequences never contain bytes < 0x80). ZenDB hard-sets utf8mb4 at connect, in
+   `openConnection()` (`src/Connection.php`): the connect handshake carries
+   utf8mb4, `set_charset('utf8mb4')` runs after it on pooled connections that
+   come back with another charset, and every connect then sends
+   `SET NAMES utf8mb4` as part of its one `SET` statement. There is no
+   config option to change it; someone would have to edit ZenDB source.
+   Runtime confirmation: `$mysqli->character_set_name()`.
+2. **sql_mode must not contain NO_BACKSLASH_ESCAPES.** ZenDB sets sql_mode
+   explicitly at connect (`openConnection()` in `src/Connection.php`,
+   default list in `src/ConnectionInternals.php`:
+   STRICT_ALL_TABLES,NO_ZERO_IN_DATE,
+   ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION), replacing the server's
+   own mode. `connect()` throws if the session ends up with
+   NO_BACKSLASH_ESCAPES anyway, from `sqlMode` or from the server's global
+   mode when `sqlMode` is `''`. It checks by escaping a newline: mysqlnd
+   leaves the newline alone only in this mode, so no query is needed. The
+   mode can still appear if user code runs SET sql_mode later.
+
+**Recommended runtime guard - probe self-check** (covers the sql_mode condition plus
+any future mysqlnd change, costs microseconds, run once per connection or per
+bulk operation). It doesn't cover the charset: the probe is all ASCII and
+still passes under GBK (finding 8 below), so pair it with a
+`character_set_name() === 'utf8mb4'` check:
+
+```php
+$probe      = "a\\b'c\"d\ne\rf\0g\x1ah";
+$fastEscape = str_replace(MYSQL_ESCAPE_FROM, MYSQL_ESCAPE_TO, $probe)
+              === $mysqli->real_escape_string($probe);
+// $fastEscape ? str_replace path : real_escape_string fallback
+```
+
+This is the runtime version of SmartString's "keep the shortcut honest"
+approach (SmartString proves htmlencode equivalence by exhaustive sweep in CI;
+see its docs/performance.md "How We Know It's Safe"). The same probe and a
+byte-identity corpus now gate every timing run in the CI escape suite
+(`escape-corpus.php`, shared with `tests/Escaping/EscapeEquivalenceTest.php`).
+
 ## Benchmarks
 
 All numbers: MariaDB 11.3.2 on Windows, 1M-row InnoDB table `bench_rows`
-(reproduction SQL at the bottom), PHP CLI without opcache. "Linux" = WSL2
+(the SQL is in [Reproducing the Benchmarks](#reproducing-the-benchmarks)), PHP CLI without opcache. "Linux" = WSL2
 PHP 8.1 NTS (representative of production Linux hosting). "Windows" = WAMP
 PHP 8.3.6 ZTS. All ratios predate PHP 8.4's mysqlnd escape optimization
 (finding 1 in the research pass below); the CI suite re-measures per PHP
@@ -89,7 +144,7 @@ addcslashes emits octal for NUL and Ctrl-Z (`\000`, `\032`). MySQL parses
 | strtr via static method | 0.573 | 85%            |
 | strtr via closure       | 0.662 | 98% (gain gone)|
 
-At millions of calls, wrapping the replacement in any callable gives back a
+At millions of calls, wrapping the replacement in any callable gives back
 two thirds to nearly all of the win (~190ns/call CLI without opcache; smaller with
 opcache but same ordering). API design implication: a `DB::escapeFast()`
 method is the slowest correct option; an inlined constant-pair replacement at
@@ -169,46 +224,6 @@ and nothing else. It cannot escape NUL, newlines, or Ctrl-Z at all. Any code
 that needs those escaped (e.g. one-statement-per-line dump formats) is already
 broken in this mode regardless of this optimization.
 
-## Correctness Conditions (Both Already Guaranteed by ZenDB)
-
-1. **Connection charset must be utf8mb4** (or any charset whose multibyte
-   sequences never contain bytes < 0x80). ZenDB hard-sets utf8mb4 at connect, in
-   `openConnection()` (`src/Connection.php`): the connect handshake carries
-   utf8mb4, `set_charset('utf8mb4')` runs after it on pooled connections that
-   come back with another charset, and every connect then sends
-   `SET NAMES utf8mb4` as part of its one `SET` statement. There is no
-   config option to change it; someone would have to edit ZenDB source.
-   Runtime confirmation: `$mysqli->character_set_name()`.
-2. **sql_mode must not contain NO_BACKSLASH_ESCAPES.** ZenDB sets sql_mode
-   explicitly at connect (`openConnection()` in `src/Connection.php`,
-   default list in `src/ConnectionInternals.php`:
-   STRICT_ALL_TABLES,NO_ZERO_IN_DATE,
-   ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION), replacing the server's
-   own mode. `connect()` throws if the session ends up with
-   NO_BACKSLASH_ESCAPES anyway, from `sqlMode` or from the server's global
-   mode when `sqlMode` is `''`. It checks by escaping a newline: mysqlnd
-   leaves the newline alone only in this mode, so no query is needed. The
-   mode can still appear if user code runs SET sql_mode later.
-
-**Recommended runtime guard - probe self-check** (covers the sql_mode condition plus
-any future mysqlnd change, costs microseconds, run once per connection or per
-bulk operation). It doesn't cover the charset: the probe is all ASCII and
-still passes under GBK (finding 8 below), so pair it with a
-`character_set_name() === 'utf8mb4'` check:
-
-```php
-$probe      = "a\\b'c\"d\ne\rf\0g\x1ah";
-$fastEscape = str_replace(MYSQL_ESCAPE_FROM, MYSQL_ESCAPE_TO, $probe)
-              === $mysqli->real_escape_string($probe);
-// $fastEscape ? str_replace path : real_escape_string fallback
-```
-
-This is the runtime version of SmartString's "keep the shortcut honest"
-approach (SmartString proves htmlencode equivalence by exhaustive sweep in CI;
-see its docs/performance.md "How We Know It's Safe"). The same probe and a
-byte-identity corpus now gate every timing run in the CI escape suite
-(`escape-corpus.php`, shared with `tests/Escaping/EscapeEquivalenceTest.php`).
-
 ## Where This Could Apply in ZenDB
 
 Current `real_escape_string` call sites:
@@ -280,7 +295,7 @@ $mysqli->set_charset('utf8mb4');
 The ad-hoc scripts from the original session were throwaway; the permanent CI
 suite (`.github/scripts/escape-*.php`) has since re-measured this ground
 across the full OS x PHP x server matrix with committed scripts and results
-(links at the top of this page).
+(links near the top of this page).
 
 ## Benchmark-Suite Research Pass (2026-08)
 

@@ -10,7 +10,8 @@ declare(strict_types=1);
  *
  *     php .github/scripts/exact-match-probe.php --json=probe.json                 # one server
  *     php .github/scripts/exact-match-probe.php --rows=20000 --json=probe.json    # smaller speed test
- *     php .github/scripts/exact-match-probe.php --merge probes/*.json             # one report for every server
+ *     php .github/scripts/exact-match-probe.php --merge probes/*.json             # the report page
+ *     php .github/scripts/exact-match-probe.php --merge --data probes/*.json      # its data page: every check on every server
  *
  * `col = ?` ignores trailing spaces under a PAD SPACE collation and ignores case under a _ci
  * collation, so `col = ' '` also finds rows where `col` is ''. This probe compares the ways
@@ -27,9 +28,9 @@ declare(strict_types=1);
 
 require __DIR__ . '/ci-lib.php';
 
-$opts = getopt('', ['json:', 'merge', 'rows:'], $restIndex);
+$opts = getopt('', ['json:', 'merge', 'data', 'rows:'], $restIndex);
 if (isset($opts['merge'])) {
-    mergeReports(array_slice($argv, $restIndex));
+    mergeReports(array_slice($argv, $restIndex), isset($opts['data']));
     exit;
 }
 
@@ -699,10 +700,10 @@ function gridTable(array $grid): string
 }
 
 /**
- * One report for every server: each fact and grid once, with the servers that gave each
- * answer, and the speed test as the median over servers.
+ * The report page for every server, or with $dataPage its data page: each fact and grid
+ * once, with the servers that gave each answer, and the speed test as the median over servers.
  */
-function mergeReports(array $paths): void
+function mergeReports(array $paths, bool $dataPage): void
 {
     $reports = [];
     foreach ($paths as $path) {
@@ -718,11 +719,123 @@ function mergeReports(array $paths): void
     $families = serverFamilies($servers);
     $who      = static fn(array $list) => count($list) === count($servers) ? 'all servers' : (serverGroupLabel($list, $families) ?? implode(', ', $list));
 
-    echo "# Exact Match Matrix\n\n";
+    echo $dataPage ? "# Exact Match Matrix: Data\n\n" : "# Exact Match Matrix\n\n";
     if (!$reports) {
         echo "No probe data found.\n";
         return;
     }
+    $generated = "Generated " . date('Y-m-d') . " from " . count($reports) . " servers";
+
+    if ($dataPage) {
+        echo "The results behind [exact-match-matrix.md](../exact-match-matrix.md): every check on every server. Servers that gave the same answer share one table.\n\n";
+        echo "*$generated. Generated file: to change it, see [Regenerating This Report](../exact-match-matrix.md#regenerating-this-report).*\n\n";
+        echo "Servers: " . implode(', ', array_map(static fn($s) => "$s ({$reports[$s]['version']})", $servers)) . "\n\n";
+        echo <<<'__LEGEND__'
+            Forms, with `?` sent the way ZenDB sends it (escaped, in quotes, text protocol). `a` is
+            the plain form, the baseline the others are compared with:
+
+                a   col = ?
+                b1  col = CAST(? AS BINARY)
+                b2  col = BINARY ?
+                c   CAST(col AS BINARY) = ?
+                d   col = ? COLLATE utf8mb4_bin
+                e   col LIKE ?
+                f   col = ? AND col = CAST(? AS BINARY)
+                g1  col = ? COLLATE utf8mb4_0900_bin     // NO PAD, MySQL 8.0.17+
+                g2  col = ? COLLATE utf8mb4_0900_as_cs   // NO PAD, MySQL 8.0+
+                g3  col = ? COLLATE utf8mb4_nopad_bin    // NO PAD, MariaDB
+
+            Cells: yes/no = matched or not, E1234 = error code, W1234 = warning code, n/a = the
+            server has no such collation, or the column can't hold the stored value as sent.
+            Plans: EXPLAIN type, key, estimated rows. Rows read: the Handler_read counters for one
+            lookup.
+
+
+            __LEGEND__;
+
+        // Facts: one line per answer
+        $factNames = array_unique(array_merge(...array_map(static fn($r) => array_keys($r['facts']), array_values($reports))));
+        echo "## Facts\n\n";
+        foreach ($factNames as $name) {
+            $byAnswer = [];
+            foreach ($reports as $server => $report) {
+                $byAnswer[$report['facts'][$name] ?? '(missing)'][] = $server;
+            }
+            if (count($byAnswer) === 1) {
+                echo "- $name: " . mdValue((string)array_key_first($byAnswer)) . "\n";
+                continue;
+            }
+            echo "- $name:\n";
+            foreach ($byAnswer as $answer => $list) {
+                echo "  - " . mdValue((string)$answer) . ": {$who($list)}\n";
+            }
+        }
+
+        // Grids: one table per distinct grid, headed by the servers that gave it
+        $gridNames = array_unique(array_merge(...array_map(static fn($r) => array_keys($r['grids']), array_values($reports))));
+        foreach ($gridNames as $name) {
+            echo "\n## $name\n\n";
+            $byGrid = [];
+            foreach ($reports as $server => $report) {
+                if (isset($report['grids'][$name])) {
+                    $grid                         = str_starts_with($name, 'plan:') ? planShape($report['grids'][$name]) : $report['grids'][$name];
+                    $byGrid[json_encode($grid)][] = $server;
+                }
+            }
+            foreach ($byGrid as $key => $list) {
+                echo "On {$who($list)}" . (count($list) === count($reports) ? '' : " (" . count($list) . " servers)") . ":\n\n";
+                echo gridTable(json_decode($key, true)) . "\n";
+            }
+        }
+
+        // Index sizes: median KB over servers
+        $sizes = [];
+        foreach ($reports as $report) {
+            foreach ($report['sizes'] ?? [] as $type => $indexes) {
+                foreach ($indexes as $index => $kb) {
+                    $sizes[$type][$index][] = $kb;
+                }
+            }
+        }
+        if ($sizes) {
+            $indexNames = ['PRIMARY', 'plain_col', 'unique_col', 'prefix_col'];
+            echo "\n## Index Size (KB, median over servers)\n\n|  | " . implode(' | ', $indexNames) . " |\n|---|" . str_repeat('---|', count($indexNames)) . "\n";
+            foreach ($sizes as $type => $byIndex) {
+                echo "| $type | " . implode(' | ', array_map(static fn($i) => isset($byIndex[$i]) ? (string)round(median($byIndex[$i])) : '', $indexNames)) . " |\n";
+            }
+        }
+
+        // Speed and rows read: median over servers, and how each form compares with a
+        echo "\n## Speed and Rows Read (median over servers)\n\n";
+        $cases = [];
+        foreach ($reports as $server => $report) {
+            foreach ($report['bench'] as $case => $forms) {
+                foreach ($forms as $form => $us) {
+                    $cases[$case][$form]['us'][$server]   = $us;
+                    $cases[$case][$form]['read'][$server] = $report['reads'][$case][$form] ?? null;
+                }
+            }
+        }
+        foreach ($cases as $case => $forms) {
+            echo "### $case\n\n| form | µs per lookup | vs a | rows read | fastest server | slowest server |\n|---|---|---|---|---|---|\n";
+            $first    = $forms['a'] ?? reset($forms);  // the two-column index names its forms "a both" and so on; its first form is the baseline
+            $baseline = [
+                ''    => median(array_values($first['us'])),
+                ' IN' => isset($forms['a IN']) ? median(array_values($forms['a IN']['us'])) : null,
+            ];
+            foreach ($forms as $form => $data) {
+                $byServer = $data['us'];
+                asort($byServer);
+                $us    = median(array_values($byServer));
+                $base  = $baseline[str_ends_with($form, ' IN') ? ' IN' : ''] ?? $baseline[''];
+                $reads = array_filter($data['read'], static fn($r) => $r !== null);
+                echo "| $form | " . round($us, 1) . " | " . ($base ? round($us / $base, 2) . 'x' : '') . " | " . ($reads ? round(median(array_values($reads))) : '') . " | " . reset($byServer) . " (" . key($byServer) . ") | " . end($byServer) . " (" . key($byServer) . ") |\n";
+            }
+            echo "\n";
+        }
+        return;
+    }
+
     echo <<<'__INTRO__'
         `col = ?` treats some different strings as equal: most collations ignore trailing spaces,
         and `_ci` collations also ignore case and accents, so `token = ' '` finds a row where
@@ -731,9 +844,22 @@ function mergeReports(array $paths): void
 
 
         __INTRO__;
-    echo "Generated " . date('Y-m-d') . " from " . count($reports) . " servers by the Exact Match Matrix workflow. Generated file - don't hand-edit. ";
-    echo "The sections above Full Results are in the heredoc in .github/scripts/exact-match-probe.php; how to regenerate the page is at the bottom.\n\n";
+    echo "*$generated. Every result is in [exact-match-matrix-data.md](data/exact-match-matrix-data.md).*\n\n";
     echo <<<'__FINDINGS__'
+        ## The Short Version
+
+        - **For an exact match, cast the value you send: `col = CAST(? AS BINARY)`.** On all 19
+          servers it matched only the identical value, with no warning or error
+        - **It costs the same as `col = ?`**: the same index, the same rows read, and 0.90x to
+          1.07x the time
+        - **Or make the column `VARBINARY`, and plain `col = ?` is exact.** Where arrays too,
+          with no cast in any query, and the same speed and index size. Best for a new column
+          that only holds generated values; an existing one needs an ALTER TABLE
+        - **Cast the value, never the column.** `CAST(col AS BINARY) = ?` reads every row, and
+          was 60x to 114x slower at 100,000 rows
+        - **One exception:** a non-ASCII value in a latin1 column doesn't match itself with the
+          cast. Generated tokens, codes and ids are ASCII, so they aren't affected
+
         ## Exact Matches with `CAST(? AS BINARY)`
 
         For a generated value (a token, code or id), cast the value you send:
@@ -884,120 +1010,22 @@ function mergeReports(array $paths): void
 
         ## Full Results
 
-        Every check on every server. Servers that gave the same answer share one table.
+        Every check on every server is in [exact-match-matrix-data.md](data/exact-match-matrix-data.md):
+        which stored and sent pairs each form matches on each column type, the query plans, the
+        index sizes, and the speed and rows read of each form.
 
+        ## Regenerating This Report
+
+        This page and its data file are generated, so change them in the script and not by
+        hand. The sections above are in the heredocs in .github/scripts/exact-match-probe.php.
+        The Exact Match Matrix workflow runs the probe on every server in .github/db-matrix.json.
+
+            gh workflow run exact-match-matrix.yml   # wait for the run to finish, then:
+            gh run download --dir probes             # pick the latest Exact Match Matrix run
+            php .github/scripts/exact-match-probe.php --merge probes/*/exact-match-probe-*.json > docs/internal/exact-match-matrix.md
+            php .github/scripts/exact-match-probe.php --merge --data probes/*/exact-match-probe-*.json > docs/internal/data/exact-match-matrix-data.md
 
         __FINDINGS__;
-    echo <<<'__LEGEND__'
-        Forms, with `?` sent the way ZenDB sends it (escaped, in quotes, text protocol). `a` is
-        the plain form, the baseline the others are compared with:
-
-            a   col = ?
-            b1  col = CAST(? AS BINARY)
-            b2  col = BINARY ?
-            c   CAST(col AS BINARY) = ?
-            d   col = ? COLLATE utf8mb4_bin
-            e   col LIKE ?
-            f   col = ? AND col = CAST(? AS BINARY)
-            g1  col = ? COLLATE utf8mb4_0900_bin     // NO PAD, MySQL 8.0.17+
-            g2  col = ? COLLATE utf8mb4_0900_as_cs   // NO PAD, MySQL 8.0+
-            g3  col = ? COLLATE utf8mb4_nopad_bin    // NO PAD, MariaDB
-
-        Cells: yes/no = matched or not, E1234 = error code, W1234 = warning code, n/a = the
-        server has no such collation, or the column can't hold the stored value as sent.
-        Plans: EXPLAIN type, key, estimated rows. Rows read: the Handler_read counters for one
-        lookup.
-
-
-        __LEGEND__;
-
-    // Facts: one line per answer
-    $factNames = array_unique(array_merge(...array_map(static fn($r) => array_keys($r['facts']), array_values($reports))));
-    echo "### Facts\n\n";
-    foreach ($factNames as $name) {
-        $byAnswer = [];
-        foreach ($reports as $server => $report) {
-            $byAnswer[$report['facts'][$name] ?? '(missing)'][] = $server;
-        }
-        if (count($byAnswer) === 1) {
-            echo "- $name: " . mdValue((string)array_key_first($byAnswer)) . "\n";
-            continue;
-        }
-        echo "- $name:\n";
-        foreach ($byAnswer as $answer => $list) {
-            echo "  - " . mdValue((string)$answer) . ": {$who($list)}\n";
-        }
-    }
-
-    // Grids: one table per distinct grid, headed by the servers that gave it
-    $gridNames = array_unique(array_merge(...array_map(static fn($r) => array_keys($r['grids']), array_values($reports))));
-    foreach ($gridNames as $name) {
-        echo "\n### $name\n\n";
-        $byGrid = [];
-        foreach ($reports as $server => $report) {
-            if (isset($report['grids'][$name])) {
-                $grid                         = str_starts_with($name, 'plan:') ? planShape($report['grids'][$name]) : $report['grids'][$name];
-                $byGrid[json_encode($grid)][] = $server;
-            }
-        }
-        foreach ($byGrid as $key => $list) {
-            echo "On {$who($list)}" . (count($list) === count($reports) ? '' : " (" . count($list) . " servers)") . ":\n\n";
-            echo gridTable(json_decode($key, true)) . "\n";
-        }
-    }
-
-    // Index sizes: median KB over servers
-    $sizes = [];
-    foreach ($reports as $report) {
-        foreach ($report['sizes'] ?? [] as $type => $indexes) {
-            foreach ($indexes as $index => $kb) {
-                $sizes[$type][$index][] = $kb;
-            }
-        }
-    }
-    if ($sizes) {
-        $indexNames = ['PRIMARY', 'plain_col', 'unique_col', 'prefix_col'];
-        echo "\n### Index Size (KB, median over servers)\n\n|  | " . implode(' | ', $indexNames) . " |\n|---|" . str_repeat('---|', count($indexNames)) . "\n";
-        foreach ($sizes as $type => $byIndex) {
-            echo "| $type | " . implode(' | ', array_map(static fn($i) => isset($byIndex[$i]) ? (string)round(median($byIndex[$i])) : '', $indexNames)) . " |\n";
-        }
-    }
-
-    // Speed and rows read: median over servers, and how each form compares with a
-    echo "\n### Speed and Rows Read (median over servers)\n\n";
-    $cases = [];
-    foreach ($reports as $server => $report) {
-        foreach ($report['bench'] as $case => $forms) {
-            foreach ($forms as $form => $us) {
-                $cases[$case][$form]['us'][$server]   = $us;
-                $cases[$case][$form]['read'][$server] = $report['reads'][$case][$form] ?? null;
-            }
-        }
-    }
-    foreach ($cases as $case => $forms) {
-        echo "#### $case\n\n| form | µs per lookup | vs a | rows read | fastest server | slowest server |\n|---|---|---|---|---|---|\n";
-        $first    = $forms['a'] ?? reset($forms);  // the two-column index names its forms "a both" and so on; its first form is the baseline
-        $baseline = [
-            ''    => median(array_values($first['us'])),
-            ' IN' => isset($forms['a IN']) ? median(array_values($forms['a IN']['us'])) : null,
-        ];
-        foreach ($forms as $form => $data) {
-            $byServer = $data['us'];
-            asort($byServer);
-            $us    = median(array_values($byServer));
-            $base  = $baseline[str_ends_with($form, ' IN') ? ' IN' : ''] ?? $baseline[''];
-            $reads = array_filter($data['read'], static fn($r) => $r !== null);
-            echo "| $form | " . round($us, 1) . " | " . ($base ? round($us / $base, 2) . 'x' : '') . " | " . ($reads ? round(median(array_values($reads))) : '') . " | " . reset($byServer) . " (" . key($byServer) . ") | " . end($byServer) . " (" . key($byServer) . ") |\n";
-        }
-        echo "\n";
-    }
-
-    echo "## Regenerating This Report\n\n";
-    echo "The Exact Match Matrix workflow (.github/workflows/exact-match-matrix.yml) runs the probe on every server in .github/db-matrix.json:\n\n";
-    echo "    gh workflow run exact-match-matrix.yml   # wait for the run to finish, then:\n";
-    echo "    gh run download --dir probes             # pick the latest Exact Match Matrix run\n";
-    echo "    php .github/scripts/exact-match-probe.php --merge probes/*/exact-match-probe-*.json > docs/internal/exact-match-matrix.md\n\n";
-    echo "Servers in this run: " . implode(', ', array_map(static fn($s) => "$s ({$reports[$s]['version']})", $servers)) . "\n";
 }
 
 /**

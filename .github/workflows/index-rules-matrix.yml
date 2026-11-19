@@ -115,4 +115,6 @@ jobs:
           path: probes
 
       - name: Build comparison
-        run: php .github/scripts/index-rules-merge.php probes/*.json >> "$GITHUB_STEP_SUMMARY"
+        run: |
+          php .github/scripts/index-rules-merge.php probes/*.json >> "$GITHUB_STEP_SUMMARY"
+          php .github/scripts/index-rules-merge.php --data probes/*.json >> "$GITHUB_STEP_SUMMARY"

@@ -12,7 +12,8 @@ declare(strict_types=1);
  *     php connect-charset-probe.php --variants=variants.json --json=out.json                                  # this checkout only
  *     php connect-charset-probe.php --variants=variants.json --old=/tmp/baseline/src --baseline=v1.0.0 --json=out.json
  *     php connect-charset-probe.php --proxysql=3.0.12 --old=/tmp/baseline/src --baseline=v1.0.0 --json=out.json  # through ProxySQL
- *     php connect-charset-probe.php --merge probes/*.json                                                     # one "who differs" report
+ *     php connect-charset-probe.php --merge probes/*.json                                                     # the page people read
+ *     php connect-charset-probe.php --merge --data probes/*.json                                              # its data page: every fact, who differs
  *
  * variants.json is written by connect-charset-servers.sh: one database container per
  * server variant, each on its own port. For every variant that started, this script
@@ -24,8 +25,9 @@ declare(strict_types=1);
  * Where a fact has both tags, the parent adds an "[old vs new]" line.
  *
  * The CI workflow (.github/workflows/connect-charset-matrix.yml) runs this against
- * every database image and PHP version in the matrix, and --merge turns the JSON
- * files into docs/internal/connect-charset-matrix.md.
+ * every database image and PHP version in the matrix. --merge turns the JSON files
+ * into docs/internal/connect-charset-matrix.md, and --merge --data into
+ * docs/internal/data/connect-charset-matrix-data.md.
  *
  * Needs composer install, since it loads the library. Everything it creates is in
  * databases named zdb_probe*, on servers that exist only for the job.
@@ -41,11 +43,11 @@ const PROBE_HOST     = '127.0.0.1';
 const PROBE_DATABASE = 'zdb_probe';   // created with no charset clause, so it has the server's default
 const PROBE_USER     = 'zdb_plain';   // no SUPER or CONNECTION_ADMIN: init_connect runs for this user, not for root
 
-$options = getopt('', ['merge', 'child', 'readonly', 'proxy', 'proxysql:', 'variants:', 'old:', 'baseline:', 'json:', 'variant:', 'src:'], $restIndex);
+$options = getopt('', ['merge', 'data', 'child', 'readonly', 'proxy', 'proxysql:', 'variants:', 'old:', 'baseline:', 'json:', 'variant:', 'src:'], $restIndex);
 $facts   = [];   // "variant | fact [src]" => value
 
 if (isset($options['merge'])) {
-    mergeReports(array_slice($argv, $restIndex));
+    mergeReports(array_slice($argv, $restIndex), isset($options['data']));
     exit;
 }
 
@@ -1151,63 +1153,63 @@ function reportFacts(): array
     }
 
     return [
-        'Server variants' => [
+        'Server Variants' => [
             ['server: mysqld flags', ['absolute' => true]],
             ['server: started', ['absolute' => true]],
             ['server: global character_set_server / collation_server', ['absolute' => true]],
             ['SET GLOBAL', ['absolute' => true]],
         ],
-        '1. The charset option before connect (plain mysqli)' => [
+        '1. The Charset Option Before Connect (Plain mysqli)' => [
             ['C01 charset option: PHP character_set_name()', []],
             ['C01 charset option: escape fingerprint', []],
             ['C01 charset option: Questions on the first statement, minus the same on a connect without the option', []],
             ['C01 general log: plain connect with the charset option, then one query', []],
         ],
-        '2. No charset option (plain mysqli)' => [
+        '2. No Charset Option (Plain mysqli)' => [
             ['C02 no option: PHP character_set_name()', []],
             ['C02 no option: session charsets', []],
             ['C02 no option: escape fingerprint', []],
             ['X5 no option, ini default_charset=ISO-8859-1: PHP character_set_name()', []],
         ],
-        '3. Statements connect() sends' => [
+        '3. Statements connect() Sends' => [
             ['connect as zdb_plain: statements sent by connect', []],
             ['connect as root: statements sent by connect', []],
             ['C03 general log: new Connection(), then one query', []],
             ['C14 databaseAutoCreate (second real_connect), fresh connect: statements sent by connect', []],
             ['X4 disconnect() then connect(): statements sent by connect', []],
         ],
-        '4. Pooled connections (p: hostname)' => $pooled,
-        '5. The merged SET statement' => [
+        '4. Pooled Connections (p: Hostname)' => $pooled,
+        '5. The Merged SET Statement' => [
             ['C05 SET NAMES utf8mb4', ['reduce' => $tookEffect]],
             ["C05 SET NAMES utf8mb4, time_zone = '+05:30'", ['reduce' => $tookEffect]],
             ["C05 SET NAMES utf8mb4, sql_mode = 'STRICT_ALL_TABLES,NO_ZERO_IN_DATE'", ['reduce' => $tookEffect]],
             ["C05 SET NAMES utf8mb4, time_zone = '+05:30', sql_mode = 'STRICT_ALL_TABLES,NO_ZERO_IN_DATE'", ['reduce' => $tookEffect]],
             ...$config,
         ],
-        '6, 8, 9. The session after connect()' => [
+        '6, 8, 9. The Session After connect()' => [
             ['connect as zdb_plain: PHP character_set_name()', []],
             ['connect as zdb_plain: session charsets', ['scopes' => '/./']],
             ['connect as root: session charsets', ['scopes' => '/^initconnect/']],   // init_connect doesn't run for root; elsewhere root matches zdb_plain
             ['connect as zdb_plain: time_zone / sql_mode', []],
             ['connect as zdb_plain: escape fingerprint', []],
         ],
-        '7. Login alone against SET NAMES (plain mysqli)' => [
+        '7. Login Alone Against SET NAMES (Plain mysqli)' => [
             ['C07 login only with the charset option, user root: session charsets', []],
             ['C07 after SET NAMES utf8mb4, user root: session charsets', []],
             ['C07 no option then set_charset(utf8mb4): PHP side, session charsets', []],
         ],
-        '10. Values through placeholders' => [
+        '10. Values Through Placeholders' => [
             ['C10 ? placeholder, 26 values: one row with the same bytes', []],
             ['C10 :name placeholder, 26 values: one row with the same bytes', []],
         ],
-        '11. Text through a table' => [
+        '11. Text Through a Table' => [
             ['C11 table round trip, cafe with e-acute', ['reduce' => $roundTrip]],
             ['C11 table round trip, Greek capital omega', ['reduce' => $roundTrip]],
             ['C11 table round trip, 4-byte emoji', ['reduce' => $roundTrip]],
             ['C11 table round trip, invalid UTF-8 ff fe', ['reduce' => $roundTrip]],
             ['C11 table round trip, latin1 e-acute byte', ['reduce' => $roundTrip]],
         ],
-        '12. Connection collation against new tables and databases' => [
+        '12. Connection Collation Against New Tables and Databases' => [
             ['C12: CREATE TABLE ... DEFAULT CHARSET=utf8mb4 column collation', []],
             ['C12: connection, new table and new database collations', []],
             ['C12: CREATE TABLE with no charset clause column collation', []],
@@ -1218,7 +1220,7 @@ function reportFacts(): array
             ['C12: server-default column = @user_variable', []],
             ['C12: server-default column = column made from a literal', []],
         ],
-        '13. Connects that fail, and unusual settings' => [
+        '13. Connects That Fail, and Unusual Settings' => [
             ['C13 sqlMode `NO_BACKSLASH_ESCAPES`', ['reduce' => $connectedOnly]],
             ['C13 sqlMode `STRICT_ALL_TABLES,NO_BACKSLASH_ESCAPES`', ['reduce' => $connectedOnly]],
             ['C13 sqlMode `BOGUS_MODE`', ['reduce' => $connectedOnly]],
@@ -1230,7 +1232,7 @@ function reportFacts(): array
             ["connect as zdb_plain with sqlMode '': result", []],
             ["connect as zdb_plain with sqlMode '': time_zone / sql_mode", []],
         ],
-        '14. The PHP side when connect() sends its SET statement' => [
+        '14. The PHP Side When connect() Sends Its SET Statement' => [
             ['C14 fresh connect', ['reduce' => $trace]],
             ['C14 fresh connect, wrapper that drops the charset option', ['reduce' => $trace]],
             ['C14 pooled slot left on gbk', ['reduce' => $trace]],
@@ -1239,7 +1241,7 @@ function reportFacts(): array
             ['C14 databaseAutoCreate (second real_connect), pooled no-database slot left on gbk', ['reduce' => $trace]],
             ['C14 databaseAutoCreate: created database collation', []],
         ],
-        'After connect: change_user(), select_db(), reconnect' => [
+        'After Connect: change_user(), select_db(), Reconnect' => [
             ['X1 after mysqli change_user() on a connected Connection: PHP side, session charsets', []],
             ['X1 after mysqli change_user() on a connected Connection: time_zone and sql_mode', []],
             ['X2 after select_db() to a latin1 database', []],
@@ -1271,12 +1273,14 @@ function splitFactKey(string $key): ?array
 }
 
 /**
- * Merge the JSON files written by --json into one markdown report. PHP versions are
- * folded into one answer per server when they agree, the baseline's answer and this
- * checkout's are shown as one value when they agree, and servers and variants that
- * gave the same answer share a line, so the report shows who differs.
+ * Merge the JSON files written by --json into the page people read
+ * (docs/internal/connect-charset-matrix.md), or with $dataPage into its data page
+ * (docs/internal/data/connect-charset-matrix-data.md). On the data page, PHP versions
+ * are folded into one answer per server when they agree, the baseline's answer and
+ * this checkout's are shown as one value when they agree, and servers and variants
+ * that gave the same answer share a line, so it shows who differs.
  */
-function mergeReports(array $paths): void
+function mergeReports(array $paths, bool $dataPage): void
 {
     $jobs      = [];   // server => PHP label => report
     $proxyJobs = [];   // ProxySQL version => report
@@ -1293,7 +1297,7 @@ function mergeReports(array $paths): void
     uksort($jobs, static fn($a, $b) => databaseSortKey($a) <=> databaseSortKey($b));
     uksort($proxyJobs, 'version_compare');
 
-    echo "# Connect Charset Matrix\n\n";
+    echo $dataPage ? "# Connect Charset Matrix: Data\n\n" : "# Connect Charset Matrix\n\n";
     if (!$jobs) {
         echo "No probe data found.\n";
         return;
@@ -1325,55 +1329,30 @@ function mergeReports(array $paths): void
     $servers  = array_keys($jobs);
     $baseline = implode(' and ', array_filter(array_keys($baselines), static fn($label) => $label !== ''));
 
-    echo "What `Connection::openConnection()` sends to set the connection charset and what session it leaves, on every supported database server started with default settings and with charset settings that change what login does";
-    echo $baseline !== '' ? ", compared with ZenDB $baseline. " : ". ";
-    echo "Generated by the \"Connect Charset Matrix\" workflow (.github/workflows/connect-charset-matrix.yml); regenerate with:\n\n";
-    echo "    gh workflow run connect-charset-matrix.yml   # wait for the run to finish, then:\n";
-    echo "    gh run download --dir probes                 # pick the latest Connect Charset Matrix run\n";
-    echo "    php .github/scripts/connect-charset-probe.php --merge probes/*/connect-charset-probe-*.json > docs/internal/connect-charset-matrix.md\n\n";
-    echo "Each job starts the same image once per server variant (see \"Server variants\" below) and runs the probe with this checkout's `src/`";
-    echo $baseline !== '' ? " and again with the `src/` of the `baseline` input ($baseline). Where both gave the same answer the value is shown once; where they differ the line reads \"$baseline `a`, new `b`\". " : ". ";
-    echo "Sections marked \"plain mysqli\" have no ZenDB in them. ";
-    echo "Below \"Server variants\", a variant or setting that not every server has is grouped among the servers that have it (\"all servers\" and \"MySQL/Percona 8.0+\" then mean those), ";
-    echo "and \"every variant\" means every variant and `dyn` setting the fact was recorded for. ";
-    echo "This file holds the facts that answer the questions the change raised; every job's full fact list is in its JSON artifact.\n\n";
-    echo "Last generated: " . date('Y-m-d') . " from " . count($servers) . " servers on PHP " . implode(', ', $phpVersions) . ". ";
+    if (!$dataPage) {
+        printPage(count($servers), array_keys($phpVersions), $baseline);
+        return;
+    }
+
+    echo "The results behind [connect-charset-matrix.md](../connect-charset-matrix.md): every fact on every server. Each line is a value → the servers that gave it.\n\n";
+    if ($baseline !== '') {
+        echo "- Where $baseline and this checkout gave the same answer, the value is shown once. Where they differ, the line reads \"$baseline `a`, new `b`\"\n";
+    }
+    echo "- Sections marked \"Plain mysqli\" have no ZenDB in them\n";
+    echo "- A variant is one way of starting the server, listed under Server Variants. A variant or setting that not every server has is grouped among the servers that have it (\"all servers\" and \"MySQL/Percona 8.0+\" then mean those), and \"every variant\" means every variant and `dyn` setting the fact was recorded for\n";
+    echo "- Session charsets are written `character_set_client / character_set_connection / character_set_results / collation_connection`\n";
+    echo "- An escape fingerprint is what `real_escape_string()` returns, in hex, for the bytes `bf27`, `bf5c`, `835c`, `e427` and `610062`. gbk and ucs2 give other bytes than utf8mb4 and latin1 do, so it shows which kind of charset the PHP side escapes for\n";
     echo $phpSplits
-        ? count($phpSplits) . " facts differed by PHP version on some server; they are listed under \"Facts that differ by PHP version\" and left out of the groups below for that server. "
-        : "Every fact was the same on every PHP version on each server, so PHP versions aren't listed below. ";
-    echo "Generated file - don't hand-edit. The \"Findings\" list below is maintained in the heredoc in .github/scripts/connect-charset-probe.php; edit it there.\n\n";
-    echo <<<'__FINDINGS__'
-        ## Findings
-
-        "1.0.0" is ZenDB 1.0.0 (the `v1.0.0` tag), which sent `set_charset('utf8mb4')` only on MySQL/Percona 8.0+ or when a pooled connection came back on another charset. "New" sends `SET NAMES utf8mb4` on every connect, in the same statement as `time_zone` and `sql_mode`.
-
-        - On a server with default settings, the session after the new connect is the same as after 1.0.0 on every server and PHP version: the three session charsets, `collation_connection`, `time_zone`, `sql_mode`, the PHP-side charset, and the bytes `real_escape_string()` returns. Only the number of statements differs
-        - Statements sent by connect: new sends 1 on every server. 1.0.0 sent 2 on MySQL/Percona 8.0+ and 1 on MySQL/Percona 5.7 and MariaDB, or 0 there with `usePhpTimezone` off and `sqlMode` `''`. `databaseAutoCreate` adds 2 when it creates the database. A pooled connection that comes back on another charset costs 1 more (`set_charset()`)
-        - The charset option set before connect puts the PHP side on utf8mb4 and sends no statement. The server's general log shows `Connect` and then the first query
-        - Login sends a collation number, not a charset name, and PHP's number for utf8mb4 is `utf8mb4_general_ci`. MySQL/Percona 5.7 and MariaDB thru 10.11 use that as their default anyway, and MariaDB 11.4+ turns it into `utf8mb4_uca1400_ai_ci`, so login alone and `SET NAMES utf8mb4` leave the same session there. MySQL/Percona 8.0+ keep `utf8mb4_general_ci` after login and switch to `utf8mb4_0900_ai_ci` on `SET NAMES`
-        - After the new connect, the connection collation is the collation a new `DEFAULT CHARSET=utf8mb4` table and a new `CHARACTER SET utf8mb4` database get, on every server and variant, including with `default_collation_for_utf8mb4` and `character_set_collations` changed
-        - Servers started with `skip-character-set-client-handshake` ignore the charset sent at login. 1.0.0 left the session on the server's charset there (latin1, utf8mb3, gbk) on MySQL/Percona 5.7 and every MariaDB, while the PHP side was utf8mb4; text sent as utf8mb4 was stored as different bytes on the latin1 and gbk servers, and a 4-byte character was refused with error 1366 on the utf8mb3 server. New leaves all three session charsets on utf8mb4 and stores the same bytes. MySQL/Percona 8.0 was already utf8mb4 with 1.0.0
-        - MySQL/Percona 8.4+ don't have that setting: `--skip-character-set-client-handshake` and `--character-set-client-handshake=0` are refused at startup as unknown
-        - `init_connect` runs after login for users without SUPER or CONNECTION_ADMIN. With `init_connect='SET NAMES latin1'` (or gbk), 1.0.0 stayed on that charset on MySQL/Percona 5.7 and every MariaDB. New runs after it and ends on utf8mb4 on every server: the general log shows `Connect`, the `init_connect` statement, then the connect statement
-        - `SET NAMES utf8mb4` also replaces a connection collation the server config chose. On MySQL/Percona 5.7 and every MariaDB with `skip-character-set-client-handshake` plus `collation-server=utf8mb4_unicode_ci`, or with `init_connect` setting a collation, 1.0.0 kept that collation and new ends on the utf8mb4 default (as MySQL/Percona 8.0 already did with 1.0.0). Comparing a column with a user variable, or with a column made from a literal, then changes in both directions: against a table in the server's own collation it worked with 1.0.0 and is now error 1267 "Illegal mix of collations"; against a `DEFAULT CHARSET=utf8mb4` table it was error 1267 with 1.0.0 and now works. MariaDB 11.8+ accepts the user-variable comparison either way. Comparing a column with a string literal works on every server, with 1.0.0 and with new
-        - With a normal login on a server whose `collation-server` is not the utf8mb4 default (`utf8mb4_unicode_ci`, or one numbered over 255), 1.0.0 and new are both on the utf8mb4 default collation, and a table in the server's own collation gives error 1267 against a user variable or a column made from a literal with both (MariaDB 11.8+ accepts the user variable)
-        - Without the charset option, PHP starts on the charset of the collation number in the server's greeting, which has one byte. On a utf8mb4 server whose collation number is over 255 (`utf8mb4_pl_0900_as_cs` is 284, MySQL/Percona 8.0+), a client that sets no charset starts on gbk, on both sides: 284 leaves 28 in one byte, and 28 is `gbk_chinese_ci`. ZenDB always sets the option, so its connections are utf8mb4 there
-        - Pooled connections: a slot comes back on the charset the last script gave it with `set_charset()`, and the charset option is not applied on reuse. The server side comes back on that charset too, except on a `skip-character-set-client-handshake` server, where it is on the server's charset. A `SET NAMES` query alone fixes only the server side; `set_charset()` fixes both. Connect checks the PHP side and calls `set_charset()` when needed (2 statements), on every server and variant. A script that changed charset with a `SET NAMES` query leaves the PHP side as it was, so the slot comes back on its old PHP-side charset and connect sends 1 statement
-        - The PHP side was utf8mb4 every time connect's SET statement ran: fresh connect, pooled slot left on gbk, `databaseAutoCreate`, `databaseAutoCreate` on a pooled slot left on gbk, and a wrapper that drops the charset option (connect then calls `set_charset()` first)
-        - Every form of the merged statement is accepted and takes effect on every server, and every `usePhpTimezone` and `sqlMode` combination connects with 1 statement
-        - Connects that fail give the same exception class and message as 1.0.0: `NO_BACKSLASH_ESCAPES` in `sqlMode` or in the server's global `sql_mode`, an unknown mode, and a quote in `sqlMode`
-        - `mysqli::change_user()` on a connected Connection puts the server session back to its login state and nothing sets it again: `time_zone` and `sql_mode` are the server's, the collation is the login collation, and on a `skip-character-set-client-handshake` server the session is back on the server's charset while the PHP side stays utf8mb4. Same with 1.0.0
-        - Behind ProxySQL 2.5.5, 2.7.3 and 3.0.12 (see the last section), the merged statement is parsed and does not lock the hostgroup; the only statement that did was the probe's own `SET @zdb_value = 'a'`. Sessions of two clients stay separate, and values and text come back as the same bytes
-        - Behind ProxySQL the session collation is `utf8mb4_general_ci` on a MySQL 8.0 backend, with 1.0.0 and with new, so it differs from new utf8mb4 tables (`utf8mb4_0900_ai_ci`) and comparing those with a user variable is error 1267. ProxySQL reads `SET NAMES utf8mb4` itself and does not send it to the backend as written: the backend server's log shows the merged statement arriving as separate `SET sql_mode` and `SET time_zone` statements. On a new backend connection the log has no `SET NAMES` at all, and when ProxySQL has to change a backend connection that was on latin1 it sends `SET NAMES utf8mb4 COLLATE 'utf8mb4_general_ci'`. The collation number ProxySQL logs in with is not in that log
-        - Not tested: MaxScale and other proxies, TiDB, Vitess, a wrapper that overrides `character_set_name()` or `set_charset()`, a server without time zone tables in CI, `COM_RESET_CONNECTION` (mysqli has no call for it), and PHP builds other than Linux x64
-
-
-        __FINDINGS__;
+        ? "- " . count($phpSplits) . " facts differed by PHP version on some server. They are listed under Facts That Differ by PHP Version and left out of the groups below for that server\n"
+        : "- Every fact was the same on every PHP version on each server, so PHP versions aren't listed\n";
+    echo "- This page holds the facts that answer the questions the change raised. Every job's full fact list is in its JSON artifact\n\n";
+    echo "*Generated " . date('Y-m-d') . " from " . count($servers) . " servers. Generated file: to change it, see [Regenerating This Report](../connect-charset-matrix.md#regenerating-this-report).*\n\n";
     $versionOf = static fn(string $server): string => explode(' / ', $answers[$server]['default | server: version'] ?? '')[0];
     echo "Servers: " . implode(', ', array_map(static fn($server) => "$server (" . $versionOf($server) . ")", $servers)) . "\n\n";
+    echo "PHP: " . implode(', ', $phpVersions) . "\n\n";
 
     if ($phpSplits) {
-        echo "## Facts that differ by PHP version\n\n";
+        echo "## Facts That Differ by PHP Version\n\n";
         foreach ($phpSplits as $key => $byServer) {
             echo "### $key\n\n";
             foreach ($byServer as $server => $values) {
@@ -1402,7 +1381,7 @@ function mergeReports(array $paths): void
 
     foreach (reportFacts() as $title => $factList) {
         echo "## $title\n\n";
-        if ($title === 'Server variants') {
+        if ($title === 'Server Variants') {
             echo "Every job starts these from the same image, each on its own port. `dyn` is a default server on which the probe changes one global variable at a time; those appear below as `dyn + <setting>`.\n\n";
         }
         if (str_starts_with($title, '14.')) {
@@ -1465,6 +1444,289 @@ function mergeReports(array $paths): void
             echo "\n";
         }
     }
+}
+
+/**
+ * Print the page people read: the hand-written sections, with links into the data page.
+ * Every value quoted in them is copied from the data page, so check this text against
+ * it after a run that changes any.
+ */
+function printPage(int $serverCount, array $phpLabels, string $baseline): void
+{
+    $dataFile = 'data/connect-charset-matrix-data.md';
+
+    // "{section 5}" and "{ProxySQL section}" in the text below become links to that section of the data page.
+    // GitHub's heading anchor: lowercase, punctuation dropped, spaces to hyphens
+    $anchorOf = static fn(string $heading): string => str_replace(' ', '-', preg_replace('/[^a-z0-9 _-]/', '', strtolower($heading)));
+    $replace  = [
+        '{servers}'            => $serverCount,
+        '{data}'               => $dataFile,
+        "{and the baseline's}" => $baseline !== '' ? ", and again with the `src/` of the `baseline` input ($baseline)" : '',
+    ];
+    foreach ([...array_keys(reportFacts()), 'ProxySQL'] as $title) {
+        $url = "$dataFile#" . $anchorOf($title);
+        if (preg_match('/^([\d, ]+)\. /', $title, $match)) {
+            foreach (explode(', ', $match[1]) as $number) {
+                $replace['{section ' . $number . '}'] = "[section $number]($url)";
+            }
+        } else {
+            $name                              = explode(':', $title)[0];   // "After Connect: change_user(), ..." → "After Connect"
+            $replace['{' . $name . ' section}'] = "[$name section]($url)";
+        }
+    }
+
+    echo "A ZenDB connection is on utf8mb4 in two places: the PHP side, which `real_escape_string()`\n";
+    echo "escapes for, and the server session, which decides how the server reads the text it's sent\n";
+    echo "and which collation compares it. The two have to match, and a server's config can change the\n";
+    echo "second one at login. This page shows what `Connection::openConnection()` sends to put both on\n";
+    echo "utf8mb4 and the session it leaves, on every supported database server, started with default\n";
+    echo "settings and with the settings that change what login does.";
+    echo $baseline !== '' ? " Each result is\nshown next to ZenDB $baseline's, so the page also shows what an upgrade changes.\n\n" : "\n\n";
+    echo "*Generated " . date('Y-m-d') . " from $serverCount servers on PHP " . implode(', ', $phpLabels) . ". Every result is in [connect-charset-matrix-data.md]($dataFile).*\n\n";
+
+    // Hand-written: what the results mean for someone changing openConnection() or
+    // working out a charset problem
+    echo strtr(<<<'__FINDINGS__'
+        ## The Short Version
+
+        - **Connect sends one statement on every server:** `SET NAMES utf8mb4`, with `time_zone`
+          and `sql_mode` in the same statement. The charset option set before login puts the PHP
+          side on utf8mb4 and sends nothing
+        - **On a server with default settings the session is the same as with 1.0.0**, on all
+          {servers} servers and every PHP version: the charsets, the collation, `time_zone`,
+          `sql_mode` and the bytes `real_escape_string()` returns. MySQL/Percona 8.0+ get there
+          in 1 statement where 1.0.0 sent 2
+        - **The session ends on utf8mb4 when the server's config starts it on another charset.**
+          A server started with `skip-character-set-client-handshake` ignores the charset asked
+          for at login, and `init_connect` can change it after login. With 1.0.0 the session
+          stayed on the server's charset there (latin1, utf8mb3 or gbk) on MySQL/Percona 5.7 and
+          every MariaDB
+        - **The connection collation is the server's default for utf8mb4**, the one a new
+          `DEFAULT CHARSET=utf8mb4` table gets. A connection collation chosen by the server's
+          config is replaced, and on those servers comparing a column with a user variable can
+          change from working to error 1267 "Illegal mix of collations", or from error 1267 to
+          working
+        - **A pooled connection (`p:` hostname) can come back on another charset.** Connect
+          checks the PHP side and calls `set_charset()` first when it isn't utf8mb4, because
+          `SET NAMES` in a query changes only the server side
+        - **Behind ProxySQL the connection collation is `utf8mb4_general_ci`** on a MySQL 8.0
+          backend, where new utf8mb4 tables are `utf8mb4_0900_ai_ci`. ProxySQL handles
+          `SET NAMES` itself. It was the same with 1.0.0
+
+        "1.0.0" is ZenDB 1.0.0 (the `v1.0.0` tag). Each section number below links to the
+        results it quotes, in the [data file]({data}).
+
+        ## What Connect Sends
+
+        `openConnection()` sets the charset in three steps.
+
+        | Step | When | What the server gets |
+        |---|---|---|
+        | `options(MYSQLI_SET_CHARSET_NAME, 'utf8mb4')` | Before login, always | No statement. The PHP side is on utf8mb4 from the start, and login asks the server for utf8mb4 |
+        | `set_charset('utf8mb4')` | After login, only when the PHP side isn't on utf8mb4 | `SET NAMES utf8mb4` |
+        | The SET statement below | After login, always | 1 statement |
+
+        ```sql
+        SET NAMES utf8mb4, time_zone = '+05:30', sql_mode = 'STRICT_ALL_TABLES,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION'
+        ```
+
+        `time_zone` is left out when `usePhpTimezone` is off, and `sql_mode` when `sqlMode` is
+        `''`; `NAMES` is always sent. Each form was accepted and took effect on every server,
+        and every `usePhpTimezone` and `sqlMode` combination connected with 1 statement
+        ({section 5}). The `+05:30` is the PHP time zone the probe runs in.
+
+        Statements sent by one connect ({section 3}).
+
+        | Connect | 1.0.0 | Now |
+        |---|---|---|
+        | MySQL/Percona 5.7 and MariaDB | 1 | 1 |
+        | MySQL/Percona 8.0+ | 2 | 1 |
+        | `usePhpTimezone` off and `sqlMode` `''` | 0 on MySQL/Percona 5.7 and MariaDB, 1 on MySQL/Percona 8.0+ | 1 |
+        | `databaseAutoCreate`, when it creates the database | 2 more | 2 more |
+        | Pooled connection that comes back on another charset | 2 | 2 |
+
+        1.0.0 sent `SET time_zone = ..., sql_mode = ...` with no `NAMES`, and called
+        `set_charset('utf8mb4')` before it on MySQL/Percona 8.0+ or when a pooled connection
+        came back on another charset.
+
+        ### Why `SET NAMES` When Login Already Asked for utf8mb4
+
+        - **The server may not be on utf8mb4 after login.** Its config can ignore the charset
+          login asks for, or change it right after
+        - **Login can't ask for the right collation on MySQL/Percona 8.0+.** Login sends a
+          collation number, not a charset name, and PHP's number for utf8mb4 is
+          `utf8mb4_general_ci`. A `SET NAMES utf8mb4` statement has only the charset name in
+          it, so the server uses its own default collation for utf8mb4 ({section 7})
+
+        | Server | Collation after login alone | After `SET NAMES utf8mb4` |
+        |---|---|---|
+        | MySQL/Percona 5.7, MariaDB thru 10.11 | `utf8mb4_general_ci` | `utf8mb4_general_ci` |
+        | MySQL/Percona 8.0+ | `utf8mb4_general_ci` | `utf8mb4_0900_ai_ci` |
+        | MariaDB 11.4+ | `utf8mb4_uca1400_ai_ci` | `utf8mb4_uca1400_ai_ci` |
+
+        The right-hand column is the "default collation" in the rest of this page. A new
+        `DEFAULT CHARSET=utf8mb4` table and a new `CHARACTER SET utf8mb4` database get the same
+        collation as the connection on every server and variant, including with
+        `default_collation_for_utf8mb4` or `character_set_collations` changed ({section 12}).
+
+        `SET NAMES` in a query changes only the server side, so it's only right when the PHP
+        side is already on utf8mb4. It was, every time connect's SET statement ran: a fresh
+        connect, a pooled connection left on gbk, `databaseAutoCreate` with and without one,
+        and a wrapper class that drops the charset option ({section 14}).
+
+        ## Server Settings That Change the Session
+
+        The PHP side is on utf8mb4 in every row, with 1.0.0 and now ({section 6}).
+
+        | Server started with | Session with 1.0.0 | Session now |
+        |---|---|---|
+        | Default settings, or another `character-set-server` or `collation-server` | utf8mb4, default collation | Same |
+        | `skip-character-set-client-handshake` | latin1, utf8mb3 or gbk: the server's charset | utf8mb4, default collation |
+        | `skip-character-set-client-handshake` and `collation-server=utf8mb4_unicode_ci` | utf8mb4, `utf8mb4_unicode_ci` | utf8mb4, default collation |
+        | `init_connect='SET NAMES latin1'`, or gbk | latin1, or gbk | utf8mb4, default collation |
+        | `init_connect` that sets a collation | utf8mb4, that collation | utf8mb4, default collation |
+
+        - The "1.0.0" column is MySQL/Percona 5.7 and every MariaDB. On MySQL/Percona 8.0+,
+          1.0.0 called `set_charset('utf8mb4')` on every connect, so it was on utf8mb4 and the
+          default collation in every row
+        - MySQL/Percona 8.4+ don't have `skip-character-set-client-handshake`. The server
+          doesn't start with it, or with `--character-set-client-handshake=0`, and logs an
+          unknown option ({Server Variants section})
+        - The server runs `init_connect` after login for users without SUPER or
+          CONNECTION_ADMIN, and connect's SET statement runs after it. The general log shows
+          `Connect`, the `init_connect` statement, then connect's statement ({section 3})
+        - With the current connect, text sent as utf8mb4 is stored and read back as the same
+          bytes in every row ({section 11})
+
+        ### When the Server's Config Chose the Connection Collation
+
+        `SET NAMES utf8mb4` replaces a connection collation the server's config chose (the third
+        and fifth rows above). A user variable has the connection's collation, and so does a
+        column created from a literal. Comparing either with a column in another collation is
+        error 1267 "Illegal mix of collations", so the error moves from one kind of table to the
+        other. The table is a server started with `skip-character-set-client-handshake` and
+        `collation-server=utf8mb4_unicode_ci` ({section 12}).
+
+        | Comparison | 1.0.0 | Now |
+        |---|---|---|
+        | Column in a table created with no charset clause (`utf8mb4_unicode_ci`) `= @user_variable` | Works | Error 1267 |
+        | Column in a `DEFAULT CHARSET=utf8mb4` table (default collation) `= @user_variable` | Error 1267 | Works |
+        | Either column `= 'a'` | Works | Works |
+
+        - The table is MySQL/Percona 5.7 and MariaDB thru 11.4. MariaDB 11.8+ accepts the
+          user-variable comparison in both rows, with 1.0.0 and now. With a column created from
+          a literal in place of the variable, it gives the table's results
+        - MySQL/Percona 8.0 gave the "Now" column with 1.0.0 too
+        - With a normal login nothing changed. When `collation-server` isn't the default
+          collation (`utf8mb4_unicode_ci`, or one numbered over 255), 1.0.0 and the current
+          connect are both on the default collation, and the first row is error 1267 with both
+          (MariaDB 11.8+ accepts the user variable)
+
+        ## Pooled Connections
+
+        With a `p:` hostname, a connection comes back on the charset the last script gave it
+        with `set_charset()`, and the charset option set before login isn't applied again.
+        Escaping follows the PHP side's charset, so the PHP side has to go back to utf8mb4, not
+        only the server session ({section 4}).
+
+        | A pooled connection left on gbk | PHP side | Server session |
+        |---|---|---|
+        | Reopened with the charset option | gbk | gbk |
+        | Then a `SET NAMES utf8mb4` query | gbk | utf8mb4 |
+        | Closed after that query and reopened | gbk | gbk |
+        | Then `set_charset('utf8mb4')` | utf8mb4 | utf8mb4 |
+        | `new Connection()` | utf8mb4 | utf8mb4 |
+
+        - Connect reads `character_set_name()`, which sends nothing, and calls
+          `set_charset('utf8mb4')` when it isn't utf8mb4: 2 statements on every server and variant
+        - On a `skip-character-set-client-handshake` server, the server session comes back on
+          the server's charset in the first and third rows
+        - A script that changed charset with a `SET NAMES gbk` query, and not `set_charset()`,
+          leaves its PHP side on utf8mb4, so connect sends 1 statement on that connection
+
+        ## Without the Charset Option
+
+        ZenDB always sets the option, and it sends no statement: the server's general log shows
+        `Connect`, then the first query ({section 1}). Without it, plain mysqli starts on the
+        charset of the collation number in the server's greeting. With default settings that's
+        latin1 on MySQL/Percona 5.7 and MariaDB thru 10.4, and utf8mb4 on MySQL/Percona 8.0+
+        and MariaDB 10.5+ ({section 2}).
+
+        The number in the greeting has one byte. On a MySQL/Percona 8.0+ server started with
+        `collation-server=utf8mb4_pl_0900_as_cs`, the number is 284, which leaves 28 in one
+        byte, and 28 is `gbk_chinese_ci`. A client that sets no charset is on gbk there on both
+        sides, on a utf8mb4 server.
+
+        ## After Connect
+
+        `mysqli::change_user()` on a connected Connection puts the server session back to its
+        login state, and nothing sets it again ({After Connect section}). Its `time_zone` and
+        `sql_mode` are the server's, the collation is the one login left, and on a
+        `skip-character-set-client-handshake` server the session is back on the server's charset
+        while the PHP side stays on utf8mb4. It was the same with 1.0.0.
+
+        ## Connects That Fail
+
+        Each gave the same exception class and message as 1.0.0, on every server and variant
+        ({section 13}).
+
+        - `NO_BACKSLASH_ESCAPES` in `sqlMode` is a `RuntimeException` whose message starts
+          "NO_BACKSLASH_ESCAPES is on for this connection". So is `NO_BACKSLASH_ESCAPES` in the
+          server's global `sql_mode` when `sqlMode` is `''`. With the default `sqlMode` that
+          server connects, because `sqlMode` replaces the server's value
+        - An unknown mode in `sqlMode` is `mysqli_sql_exception` 1231, and a quote in it is
+          `mysqli_sql_exception` 1064
+
+        ## Behind ProxySQL
+
+        The same connect through ProxySQL 2.5.5, 2.7.3 and 3.0.12, with a MySQL 8.0 backend
+        ({ProxySQL section}).
+
+        - Connect's statement is one ProxySQL parses, so it doesn't lock the hostgroup. The
+          only statement that did was the probe's own `SET @zdb_value = 'a'`
+        - Two clients' sessions stay separate, and values and text come back as the same bytes
+        - The connection collation is `utf8mb4_general_ci`, with 1.0.0 and now. New utf8mb4
+          tables are `utf8mb4_0900_ai_ci`, so comparing one of their columns with a user variable
+          is error 1267
+        - ProxySQL reads `SET NAMES utf8mb4` itself and doesn't send it to the backend as
+          written. The backend server's log shows connect's statement arriving as separate
+          `SET sql_mode` and `SET time_zone` statements, with no `SET NAMES` on a new backend
+          connection. When ProxySQL has to change a backend connection that was last used on
+          latin1, it sends `SET NAMES utf8mb4 COLLATE 'utf8mb4_general_ci'`
+        - The collation number ProxySQL logs in with isn't in that log
+
+        ## Not Tested
+
+        MaxScale and other proxies, TiDB, Vitess, a wrapper class that overrides
+        `character_set_name()` or `set_charset()`, a server without time zone tables,
+        `COM_RESET_CONNECTION` (mysqli has no call for it), and PHP builds other than Linux x64.
+
+        ## Full Results
+
+        Every fact on every server is in [connect-charset-matrix-data.md]({data}). It starts
+        with how each server variant was started, then has the session charsets, statement
+        counts, general log lines, stored bytes, comparison results and exception messages
+        behind the sections above, and the ProxySQL results. Where 1.0.0 and the current code
+        gave different answers, the line shows both.
+
+        ## Regenerating This Report
+
+        This page and its data file are generated, so change them in the script and not by
+        hand. The sections above are in the heredoc in
+        .github/scripts/connect-charset-probe.php. They quote values from the data file, so
+        check them against it after a run that changes any.
+
+            gh workflow run connect-charset-matrix.yml   # wait for the run to finish, then:
+            gh run download --dir probes                 # pick the latest Connect Charset Matrix run
+            php .github/scripts/connect-charset-probe.php --merge probes/*/connect-charset-probe-*.json > docs/internal/connect-charset-matrix.md
+            php .github/scripts/connect-charset-probe.php --merge --data probes/*/connect-charset-probe-*.json > docs/internal/data/connect-charset-matrix-data.md
+
+        The "Connect Charset Matrix" workflow (.github/workflows/connect-charset-matrix.yml)
+        runs one job per server and PHP version, and one per ProxySQL version. Each job starts
+        the same image once per server variant and runs the probe with this checkout's
+        `src/`{and the baseline's}.
+
+        __FINDINGS__, $replace);
 }
 
 /**

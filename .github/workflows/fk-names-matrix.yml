@@ -138,10 +138,15 @@ jobs:
           path: probes
 
       - name: Build comparison
-        run: php .github/scripts/fk-names-probe.php --merge probes/*.json | tee fk-names-matrix.md >> "$GITHUB_STEP_SUMMARY"
+        run: |
+          php .github/scripts/fk-names-probe.php --merge probes/*.json > fk-names-matrix.md
+          php .github/scripts/fk-names-probe.php --merge --data probes/*.json > fk-names-matrix-data.md
+          cat fk-names-matrix.md fk-names-matrix-data.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload comparison
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: fk-names-matrix
-          path: fk-names-matrix.md
+          path: |
+            fk-names-matrix.md
+            fk-names-matrix-data.md

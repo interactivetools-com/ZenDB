@@ -4,6 +4,12 @@ PHP scripts run by the workflows in [`../workflows/`](../workflows/). Nothing
 here is part of the library. Each script's header docblock has its full usage;
 this file lists what each one does.
 
+**Report pages and data pages** - a matrix script that writes a page in
+[docs/internal/](../../docs/internal/) writes two files: the page, which holds
+the hand-written sections from the heredocs in the script, and with `--data`
+its data page in [docs/internal/data/](../../docs/internal/data/), which holds
+every result. The commands are at the bottom of each page.
+
 **Query cache** - a script that times queries turns the query cache off on every
 connection it opens (`SET SESSION query_cache_type = OFF`, skipped on MySQL 8.0+,
 which has none), or stops when it's on, as `escape-e2e-probe.php` does. The

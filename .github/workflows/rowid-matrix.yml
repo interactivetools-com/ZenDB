@@ -138,10 +138,15 @@ jobs:
           path: probes
 
       - name: Build comparison
-        run: php .github/scripts/rowid-probe.php --merge probes/*.json | tee rowid-matrix.md >> "$GITHUB_STEP_SUMMARY"
+        run: |
+          php .github/scripts/rowid-probe.php --merge probes/*.json > rowid-matrix.md
+          php .github/scripts/rowid-probe.php --merge --data probes/*.json > rowid-matrix-data.md
+          cat rowid-matrix.md rowid-matrix-data.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload comparison
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: rowid-matrix
-          path: rowid-matrix.md
+          path: |
+            rowid-matrix.md
+            rowid-matrix-data.md
