@@ -247,33 +247,40 @@ design-decisions entry).
 
 ## Undocumented on Purpose - DECIDED (2026-07)
 
-The docs deliberately omit these; the omission is a decision, not a gap:
+The docs deliberately omit these; the omission is a decision, not a gap.
+
+Two docblock tags mark a method or property the docs leave out (2026-11):
+
+- **`@internal`** - only ZenDB calls it.
+- **`@undocumented`** - used by our own code, left out of the docs, and can change
+  in any release. CMS Builder and our tools call these, and we update the callers
+  in the same change.
+
+`@internal` makes PhpStorm flag every call from outside ZenDB, so anything CMS
+Builder calls is `@undocumented`. `DocsCoverageTest` skips methods with either
+tag, as it skips `@deprecated`.
 
 - **`Server`, `Table`/`TableInfo`** - internal, may change; class headers say so.
-- **`DB::assertIdentifier()`** - `@internal`; the safe-identifier check every table
-  and column name passes through, kept callable for code that builds SQL outside
-  templates (alongside `escape()`/`escapef()`), where backtick placeholders
-  aren't available.
-- **`queryLogger`, `loadHandler` config keys** - internal/advanced hooks
-  (loadHandler is CMS Builder plumbing); undocumented keeps the signatures
-  changeable. The PII note (logged SQL contains inlined user values) is in
-  the queryLogger docblocks.
-- **`escapeCSV()`, `whereSql()`** - `@internal`, exist so ZenDB and
-  CMS Builder can build their own SQL; placeholders and WHERE arrays are the supported API.
-  Docblocks open with "Internal use, undocumented by design."
-- **`escape()`, `escapef()`** - supported and `@undocumented`, not `@internal`
-  (2026-11). CMS Builder's field editor shows `escape()` to site developers for
-  list options queries, which are saved as text templates and can't take a
-  placeholder, and CMS Builder code calls `escapef()` for SQL built in pieces, so
-  their names and behavior have to stay. `@internal` says the opposite (may change,
-  don't call it) and makes IDEs flag those calls. They stay out of every doc,
-  `ai-reference.md` included: the docs teach placeholders, and listing two ways to
-  escape by hand next to them would invite SQL built by joining strings. The
-  docblocks are the documentation for anyone who already knows to look: each says
-  to use a placeholder wherever one can go, `escape()`'s says the result is only
-  safe between quotes, and `escapef()`'s lists what each value type becomes.
-  `DocsCoverageTest` skips methods tagged `@undocumented`, as it skips `@internal`
-  and `@deprecated`.
+  `DB::$server` is `@undocumented`: CMS Builder reads the server version from it.
+- **`DB::isIdentifier()`, `DB::assertIdentifier()`** - `@undocumented`; the
+  safe-identifier check every table and column name passes through, kept callable
+  for code that builds SQL outside templates (alongside `escape()`/`escapef()`),
+  where backtick placeholders aren't available.
+- **`queryLogger`, `loadHandler` config keys** - `@undocumented`; CMS Builder
+  sets both at connect. The PII note (logged SQL contains inlined user values) is
+  in the queryLogger docblocks.
+- **`escapeCSV()`, `whereSql()`** - `@undocumented`, exist so ZenDB and
+  CMS Builder can build their own SQL; placeholders and WHERE arrays are the
+  supported API.
+- **`escape()`, `escapef()`** - `@undocumented`. CMS Builder's field editor shows
+  `escape()` to site developers for list options queries, which are saved as text
+  templates and can't take a placeholder, and CMS Builder code calls `escapef()`
+  for SQL built in pieces. They stay out of every doc, `ai-reference.md` included:
+  the docs teach placeholders, and listing two ways to escape by hand next to them
+  would invite SQL built by joining strings. The docblocks are the documentation
+  for anyone who already knows to look: each says to use a placeholder wherever
+  one can go, `escape()`'s says the result is only safe between quotes, and
+  `escapef()`'s lists what each value type becomes.
 - **RawSql as the WHERE argument** - `select()`, `selectOne()`, `update()`,
   `delete()`, and `count()` accept a `RawSql` object as `$whereEtc` (2026-09).
   The SQL is used as written: no template check, no placeholder replacement,
@@ -284,10 +291,11 @@ The docs deliberately omit these; the omission is a decision, not a gap:
 - **`get()` with a default argument** - de-emphasized; the default applies only
   to missing keys, never stored nulls, which misleads more than it helps in
   docs examples.
-- **`DB::connection()`, `DB::phpTimezoneForMysql()`** - `@internal` (2026-07):
-  plumbing for code that already knows the internals, not regular-use methods.
-  Rule of thumb: methods in DBInternals.php are internal unless ruled
-  otherwise.
+- **`DB::connection()`** - `@internal` (2026-07): for code that already knows the
+  internals, not a regular-use method. Rule of thumb: methods in DBInternals.php
+  are `@internal` unless something outside ZenDB calls them.
+- **`DB::phpTimezoneForMysql()`** - `@undocumented`; CMS Builder calls it after
+  changing PHP's timezone mid-request.
 
 ---
 

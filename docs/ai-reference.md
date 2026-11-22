@@ -561,8 +561,7 @@ DB::getBaseTable('cms_users')             // 'users'
 
 Schema introspection (does a table exist, list tables, column definitions) is
 in the internal `Table` class - rarely needed in application code; see
-src/Table.php if you do. `DB::escapeCSV()` is internal too: use placeholders
-instead.
+src/Table.php if you do.
 
 ---
 

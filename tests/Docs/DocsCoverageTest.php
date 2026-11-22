@@ -15,10 +15,10 @@ use ReflectionMethod;
  * reference, so new methods can't ship undocumented.
  *
  * Exemptions come from the source itself: magic methods are skipped, and so
- * is any method whose docblock carries @internal (library plumbing),
- * @undocumented (supported, but left out of the docs so people use the
- * documented way instead) or @deprecated (old names keep working but stay out
- * of the docs by design - docs show only the current names).
+ * is any method whose docblock carries @internal (only ZenDB calls it),
+ * @undocumented (used by our own code, left out of the docs, and can change in
+ * any release) or @deprecated (old names keep working but stay out of the docs
+ * by design - docs show only the current names).
  */
 class DocsCoverageTest extends BaseTestCase
 {

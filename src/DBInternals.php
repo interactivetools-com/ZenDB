@@ -92,7 +92,7 @@ trait DBInternals
      *
      *     $sql = "SELECT * FROM `users` WHERE `name` = '" . DB::escape($name) . "'";
      *
-     * @undocumented Supported, and left out of the docs on purpose: placeholders are the way to put values in a query
+     * @undocumented
      */
     public static function escape(string|int|float|null|SmartString $input, bool $escapeLikeWildcards = false): string
     {
@@ -106,7 +106,7 @@ trait DBInternals
      *
      *     $where = DB::escapef("`tableName` = ? AND `recordNum` IN (?)", 'products', [12, 15]);
      *
-     * @undocumented Supported, and left out of the docs on purpose: placeholders are the way to put values in a query
+     * @undocumented
      */
     public static function escapef(string $format, mixed ...$values): string
     {
@@ -116,7 +116,7 @@ trait DBInternals
     /**
      * Wrapper for {@see Connection::escapeCSV()}
      *
-     * @internal
+     * @undocumented
      */
     public static function escapeCSV(array $values): RawSql
     {
@@ -126,7 +126,7 @@ trait DBInternals
     /**
      * Wrapper for {@see Connection::whereSql()}
      *
-     * @internal
+     * @undocumented
      */
     public static function whereSql(array $where): string
     {
@@ -210,7 +210,7 @@ trait DBInternals
      *     DB::isIdentifier('')              // false
      *     DB::isIdentifier("users\n")       // false
      *
-     * @internal
+     * @undocumented
      * @param string $identifier The string to check
      * @return bool True when every character is a-z, A-Z, 0-9, _ or -
      */
@@ -229,7 +229,7 @@ trait DBInternals
      *
      *     DB::assertIdentifier($table, 'table name');
      *
-     * @internal
+     * @undocumented
      * @param string $identifier The string to check
      * @param string $what Noun for the error message, e.g. 'table name', 'column name'
      * @throws InvalidArgumentException
@@ -297,7 +297,7 @@ trait DBInternals
      * loaded (import MySQL's downloadable timezone package into the mysql schema and
      * restart: https://dev.mysql.com/downloads/timezones.html).
      *
-     * @internal
+     * @undocumented
      * @return string A UTC offset like "+02:00", or an IANA zone name for offsets past +13:00
      */
     public static function phpTimezoneForMysql(): string

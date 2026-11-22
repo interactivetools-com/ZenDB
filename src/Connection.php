@@ -111,13 +111,13 @@ class Connection
      *     useSmartJoins?:        bool,      // Add table.column keys to JOIN results (default: true)
      *     useSmartStrings?:      bool,      // Return SmartString values (default: true)
      *     usePhpTimezone?:       bool,      // Sync MySQL timezone with PHP (default: true)
-     *     loadHandler?:          callable,  // @internal Custom result loading handler (CMS Builder plumbing); signature may change
+     *     loadHandler?:          callable,  // @undocumented Custom result loading handler
      *     versionRequired?:      string,    // Minimum MySQL version or compatible (default: '5.7.32')
      *     requireSSL?:           bool,      // Encrypt the connection; no certificate verification (default: false)
      *     databaseAutoCreate?:   bool,      // Create database if missing (default: false)
      *     connectTimeout?:       int,       // Connection timeout in seconds (default: 3)
      *     readTimeout?:          int,       // Read timeout in seconds (default: 60)
-     *     queryLogger?:          callable,  // @internal fn(string $query, float $secs, ?Throwable $exception) - logged queries have values inlined, so redacting sensitive data is the callback's job; don't run queries from inside the callback; signature may change
+     *     queryLogger?:          callable,  // @undocumented fn(string $query, float $secs, ?Throwable $exception) - logged queries have values inlined, so redacting sensitive data is the callback's job; don't run queries from inside the callback
      *     sqlMode?:              string,    // Session sql_mode; '' keeps the server's (default: 'STRICT_ALL_TABLES,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION')
      *     encryptionKey?:        string,    // AES encryption key, sets MySQL @ek session variable on first use
      * } $config

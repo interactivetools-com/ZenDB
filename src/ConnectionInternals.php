@@ -874,7 +874,7 @@ trait ConnectionInternals
      * LIKE). Nothing in the value then acts as a wildcard. The like*() helpers do
      * this for you.
      *
-     * @undocumented Supported, and left out of the docs on purpose: placeholders are the way to put values in a query
+     * @undocumented
      * @param string|int|float|null|SmartString $input               Value to escape
      * @param bool                              $escapeLikeWildcards Make the value match as literal text in a LIKE pattern (escapes %, _, and \)
      * @return string Escaped value, without quotes
@@ -928,7 +928,7 @@ trait ConnectionInternals
      * Every `?` in `$format` counts, including one inside a quoted string, so the
      * number of `?` has to match the number of values.
      *
-     * @undocumented Supported, and left out of the docs on purpose: placeholders are the way to put values in a query
+     * @undocumented
      * @param string $format    SQL with a `?` for each value
      * @param mixed  ...$values Values to put in, in order
      * @return string The SQL with every value in place
@@ -976,8 +976,8 @@ trait ConnectionInternals
     }
 
     /**
-     * Internal use, undocumented by design. Use placeholders instead; they're
-     * safer unless you know exactly what you're doing.
+     * Use placeholders instead; they're safer unless you know exactly what you're
+     * doing.
      *
      * Converts array values to a safe CSV string for use in MySQL IN clauses.
      *
@@ -998,7 +998,7 @@ trait ConnectionInternals
      *         ':ids' => [1, 2, 3],
      *     ]);
      *
-     * @internal
+     * @undocumented
      * @param array $values Array of values to convert
      * @return RawSql SQL-safe comma-separated list, deduplicated, NULLs skipped
      * @throws InvalidArgumentException on unsupported value types
@@ -1086,8 +1086,8 @@ trait ConnectionInternals
     }
 
     /**
-     * Internal use, undocumented by design. Use the array form of select(), update(),
-     * delete(), and count() instead; this exists for code that builds its own SQL.
+     * Use the array form of select(), update(), delete(), and count() instead; this
+     * exists for code that builds its own SQL.
      *
      * Turns a WHERE array (['column' => value]) into SQL conditions joined with AND,
      * values escaped inline. The WHERE keyword is left off so the caller can add more
@@ -1111,7 +1111,7 @@ trait ConnectionInternals
      *   - SmartString (unwrapped via ->value(), then escaped)
      *   - array, SmartArrayBase (becomes IN clause via escapeCSV)
      *
-     * @internal
+     * @undocumented
      * @param array $where Column => value pairs
      * @return string Conditions joined with AND, or TRUE for an empty array
      * @throws InvalidArgumentException on a non-string key, unsafe column name, or unsupported value type
