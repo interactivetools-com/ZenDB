@@ -20,9 +20,9 @@ Full lists of what changed per release: [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
-## v1.1.2
+## v1.2.0
 
-*Follow this section when upgrading from ZenDB before v1.1.2
+*Follow this section when upgrading from ZenDB before v1.2.0
 (or CMS Builder before 4.0.0).*
 
 ### Config changes
@@ -194,8 +194,6 @@ Full lists of what changed per release: [CHANGELOG.md](CHANGELOG.md).
 >   `DB::select('users', 'num = ?', 5, 6)` - the extra values are never
 >   used. Drop them, or use a named placeholder for an IN list. This will
 >   throw in a future release.
-> - `escape()`, `escapef()`, and `escapeCSV()` are marked `@internal` (IDEs
->   flag them); placeholders are the supported API. No runtime change.
 
 ### Parameter renames
 

@@ -2,7 +2,7 @@
 
 > **Upgrading?** See [UPGRADING.md](UPGRADING.md) for the checks that matter, per version - tagged releases roll up every change since the previous tag. Versions bundled with CMS Builder are marked on their sections.
 
-## [1.1.2] - 2026-11-16
+## [1.2.0] - 2026-11-21
 
 > **Bundled with CMS Builder v4.0.0**
 
@@ -37,7 +37,6 @@ The headlines: ZenDB runs 3x faster in PHP (real pages, MySQL time included, run
 - **`tablePrefix` can no longer contain dots** - `connect()` throws "Invalid tablePrefix" naming the allowed characters. Rename steps in [UPGRADING.md](UPGRADING.md)
 - **`connect()` throws if `NO_BACKSLASH_ESCAPES` is on** - whether it's set in `sqlMode` or, when `sqlMode` is `''`, in the server's global `sql_mode`. Remove the mode to connect
 - **Record numbers as the WHERE argument work with any primary key name** - `DB::select('users', 5)` matches the table's primary key whatever its name, not only `num`. Still deprecated; use `['id' => 5]`. See [UPGRADING.md](UPGRADING.md)
-- **`escape()`, `escapef()`, and `escapeCSV()` marked `@internal`** - IDEs flag them; use placeholders instead
 
 ### Parameter renames
 
