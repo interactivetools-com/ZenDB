@@ -281,6 +281,19 @@ tag, as it skips `@deprecated`.
   for anyone who already knows to look: each says to use a placeholder wherever
   one can go, `escape()`'s says the result is only safe between quotes, and
   `escapef()`'s lists what each value type becomes.
+- **`castBinary()`** - `@undocumented` (2026-11). Writes
+  `CAST('value' AS BINARY)`, so after `=` only the identical string matches, for
+  lookups by a generated value (a token, code or id);
+  [exact-match-matrix.md](exact-match-matrix.md) has what it matched and cost
+  after `=` and in IN on every supported server. The name says what the method
+  does, as `rawSql()` and `decryptExpr()` do: it doesn't write the `=`, and the
+  cast also works after `!=`, `<` and `LIKE`, which the report didn't test.
+  Names for the main use lost: `exactMatch()` because most readers already call
+  a plain `=` an exact match and the cast isn't exact on an integer column,
+  `binaryEquals()` and `binaryMatch()` because they describe one operator.
+  "Sql" stays out of the name because the method escapes its input, as the
+  `like*()` helpers do and `rawSql()` doesn't. null and SmartNull become NULL,
+  which matches no rows; floats and arrays aren't accepted.
 - **RawSql as the WHERE argument** - `select()`, `selectOne()`, `update()`,
   `delete()`, and `count()` accept a `RawSql` object as `$whereEtc` (2026-09).
   The SQL is used as written: no template check, no placeholder replacement,

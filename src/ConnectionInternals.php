@@ -1156,6 +1156,40 @@ trait ConnectionInternals
         return implode(" AND ", $conditions);
     }
 
+    /**
+     * Casts a value to a binary string, so MySQL compares it byte by byte. After `=`,
+     * only the identical string matches; a plain value compares the way the column's
+     * collation says.
+     *
+     *     DB::select('tokens', ['token' => DB::castBinary($token)]);  // `token` = CAST('abc' AS BINARY)
+     *     DB::select('tokens', "token = ?", DB::castBinary($token));
+     *
+     * What `token = 'abc'` finds on a utf8mb4_unicode_ci column:
+     *
+     *     'abc'   // as a plain value and with castBinary()
+     *     'ABC'   // as a plain value only: the collation ignores case, and accents the same way
+     *     'abc '  // as a plain value only: the collation ignores trailing spaces
+     *
+     * Use it on string columns that hold generated values: tokens, codes, ids.
+     *   - After `=` it uses the column's index and costs the same as a plain value
+     *   - null and SmartNull become NULL, which matches no rows. For IS NULL, pass null without it
+     *   - Integer columns compare as numbers, so pass them the plain value
+     *   - On a latin1 column, a value with non-ASCII characters doesn't match itself
+     *   - It takes one value. For IN, write a `?` for each value and call it on each
+     *
+     * @see docs/internal/exact-match-matrix.md what it matched and cost after `=` and in IN on every supported server
+     * @undocumented
+     * @param string|int|null|SmartString|SmartNull $value Value to cast
+     * @return RawSql CAST('value' AS BINARY) with the value escaped, or NULL
+     */
+    public function castBinary(string|int|null|SmartString|SmartNull $value): RawSql
+    {
+        if ($value === null || $value instanceof SmartNull || ($value instanceof SmartString && $value->value() === null)) {
+            return new RawSql('NULL');
+        }
+        return new RawSql("CAST('" . $this->escape($value) . "' AS BINARY)");
+    }
+
     //endregion
     //region Result Processing
 

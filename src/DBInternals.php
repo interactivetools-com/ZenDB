@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Itools\ZenDB;
 
 use InvalidArgumentException;
+use Itools\SmartArray\SmartNull;
 use Itools\SmartString\SmartString;
 use RuntimeException;
 
@@ -16,7 +17,7 @@ use const ENT_DISALLOWED, ENT_HTML5, ENT_QUOTES, ENT_SUBSTITUTE, MYSQLI_TYPE_BLO
  *
  * Handles:
  * - The default connection
- * - Escaping (escape, escapef, escapeCSV, whereSql, floatToSql, h)
+ * - Escaping (escape, escapef, escapeCSV, whereSql, castBinary, floatToSql, h)
  * - Identifier checks (isIdentifier, assertIdentifier)
  * - Encrypted columns (decryptRows, getEncryptedColumns)
  * - PHP's timezone for MySQL (phpTimezoneForMysql)
@@ -131,6 +132,22 @@ trait DBInternals
     public static function whereSql(array $where): string
     {
         return self::connection()->whereSql($where);
+    }
+
+    /**
+     * Wrapper for {@see Connection::castBinary()}. Casts a value to a binary string,
+     * so after `=` only the identical string matches: 'abc' doesn't find 'ABC' or
+     * 'abc ', as a plain value does. For string columns that hold generated values:
+     * tokens, codes, ids.
+     *
+     *     DB::select('tokens', ['token' => DB::castBinary($token)]);  // `token` = CAST('abc' AS BINARY)
+     *     DB::select('tokens', "token = ?", DB::castBinary($token));
+     *
+     * @undocumented
+     */
+    public static function castBinary(string|int|null|SmartString|SmartNull $value): RawSql
+    {
+        return self::connection()->castBinary($value);
     }
 
     /**
